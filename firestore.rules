@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: uid, email, displayName, role, photoURL, createdAt
+    //
+    // Collection: leads
+    // Fields: name, phone, email, address, status, vehicleInfo, requestedService, quotedPrice, notes, followUpDate, leadSource, priority, routeArea, lastContactDate, createdAt
+    //
+    // Collection: customers
+    // Fields: name, phone, email, address, loyaltyPoints, notes, tags, createdAt
+    //
+    // Collection: vendors
+    // Fields: businessName, contactName, phone, email, type, billingTerms, pricingProfileId, createdAt
+    //
+    // Collection: appointments
+    // Fields: customerId, vendorId, vehicleId, serviceIds, status, scheduledAt, address, totalAmount, technicianId, notes, vin, roNumber
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "FLATLINEDETAIL@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isTechnician() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'technician' || isAdmin());
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.role in ['admin', 'technician'];
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role));
+    }
+
+    match /leads/{leadId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
+    match /customers/{customerId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
+    match /vendors/{vendorId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
+    match /appointments/{appointmentId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

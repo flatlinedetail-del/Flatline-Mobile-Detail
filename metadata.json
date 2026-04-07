@@ -1,0 +1,8 @@
+{
+  "name": "Flatline Mobile Detail",
+  "description": "Production-ready, mobile-first auto detailing business management app with AI automation, route optimization, and vendor support.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "App user (Admin or Technician)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "technician"] },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "Potential customer or job",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "status": { "type": "string", "enum": ["new", "follow_up", "quoted", "waiting", "booked", "lost", "no_answer"] },
+        "vehicleInfo": { "type": "string" },
+        "requestedService": { "type": "string" },
+        "quotedPrice": { "type": "number" },
+        "notes": { "type": "string" },
+        "followUpDate": { "type": "string" },
+        "leadSource": { "type": "string" },
+        "priority": { "type": "string", "enum": ["hot", "warm", "cold"] },
+        "routeArea": { "type": "string" },
+        "lastContactDate": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Retail client",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "loyaltyPoints": { "type": "number" },
+        "notes": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "Vendor": {
+      "title": "Vendor",
+      "description": "Business account (Collision center, Dealership, etc.)",
+      "type": "object",
+      "properties": {
+        "businessName": { "type": "string" },
+        "contactName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "type": { "type": "string", "enum": ["collision_center", "dealership", "fleet"] },
+        "billingTerms": { "type": "string" },
+        "pricingProfileId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Scheduled detailing job",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "vendorId": { "type": "string" },
+        "vehicleId": { "type": "string" },
+        "serviceIds": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["scheduled", "confirmed", "en_route", "in_progress", "completed", "paid", "canceled", "no_show"] },
+        "scheduledAt": { "type": "string" },
+        "address": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "technicianId": { "type": "string" },
+        "notes": { "type": "string" },
+        "vin": { "type": "string" },
+        "roNumber": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "User", "description": "User profiles" },
+    "/leads/{leadId}": { "schema": "Lead", "description": "Leads" },
+    "/customers/{customerId}": { "schema": "Customer", "description": "Retail customers" },
+    "/vendors/{vendorId}": { "schema": "Vendor", "description": "Vendor accounts" },
+    "/appointments/{appointmentId}": { "schema": "Appointment", "description": "Appointments" }
+  }
+}
