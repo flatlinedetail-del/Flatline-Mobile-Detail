@@ -166,19 +166,19 @@ export default function Dashboard() {
             } />
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Log Business Expense</DialogTitle>
+                <DialogTitle className="font-black">Log Business Expense</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label>Category</Label>
+                  <Label className="font-bold">Category</Label>
                   <Select 
                     value={newExpense.category} 
                     onValueChange={(v: any) => setNewExpense({ ...newExpense, category: v })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="bg-white border-gray-200">
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="bg-white">
                       <SelectItem value="fuel">Fuel</SelectItem>
                       <SelectItem value="supplies">Supplies</SelectItem>
                       <SelectItem value="marketing">Marketing</SelectItem>
@@ -188,29 +188,31 @@ export default function Dashboard() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Amount ($)</Label>
+                  <Label className="font-bold">Amount ($)</Label>
                   <Input 
                     type="number" 
                     placeholder="0.00" 
+                    className="bg-white border-gray-200"
                     value={newExpense.amount || ""} 
                     onChange={(e) => setNewExpense({ ...newExpense, amount: parseFloat(e.target.value) })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Description</Label>
+                  <Label className="font-bold">Description</Label>
                   <Input 
                     placeholder="e.g. Gas for van, Microfiber towels" 
+                    className="bg-white border-gray-200"
                     value={newExpense.description} 
                     onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })}
                   />
                 </div>
-                <Button className="w-full bg-blue-600" onClick={handleAddExpense}>
+                <Button className="w-full bg-primary text-white hover:bg-red-700 font-bold" onClick={handleAddExpense}>
                   Save Expense
                 </Button>
               </div>
             </DialogContent>
           </Dialog>
-          <Button onClick={() => navigate("/appointments")} className="bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100">
+          <Button onClick={() => navigate("/appointments")} className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100">
             <CalendarIcon className="w-4 h-4 mr-2" /> Schedule Job
           </Button>
         </div>
@@ -222,31 +224,31 @@ export default function Dashboard() {
           title="Daily Sales" 
           value={`$${stats.completed}`} 
           subValue={`of $${stats.projected} projected`}
-          icon={<DollarSign className="w-6 h-6 text-blue-600" />}
+          icon={<DollarSign className="w-6 h-6 text-primary" />}
           trend={performancePercent >= 100 ? "up" : "down"}
           trendValue={`${Math.round(performancePercent)}%`}
-          color="blue"
+          color="red"
         />
         <StatCard 
           title="Active Jobs" 
           value={stats.activeJobs.toString()} 
           subValue={`${stats.pending / 100}k pending revenue`}
-          icon={<Clock className="w-6 h-6 text-orange-600" />}
-          color="orange"
+          icon={<Clock className="w-6 h-6 text-black" />}
+          color="black"
         />
         <StatCard 
           title="New Leads" 
           value={stats.leadsCount.toString()} 
           subValue="requiring follow-up"
-          icon={<UserPlus className="w-6 h-6 text-green-600" />}
-          color="green"
+          icon={<UserPlus className="w-6 h-6 text-primary" />}
+          color="red"
         />
         <StatCard 
           title="Route Status" 
           value={optimizedRoute.length > 0 ? "Optimized" : "No Jobs"}
           subValue={`${optimizedRoute.length} stops today`}
-          icon={<MapPin className="w-6 h-6 text-purple-600" />}
-          color="purple"
+          icon={<MapPin className="w-6 h-6 text-black" />}
+          color="black"
         />
       </div>
 
@@ -270,7 +272,7 @@ export default function Dashboard() {
                 optimizedRoute.map((stop, idx) => (
                   <div key={stop.id} className="p-4 flex items-start gap-4 hover:bg-gray-50 transition-colors group">
                     <div className="flex flex-col items-center gap-1">
-                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
+                      <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center font-bold text-sm">
                         {idx + 1}
                       </div>
                       {idx < optimizedRoute.length - 1 && <div className="w-0.5 h-12 bg-gray-200" />}
@@ -281,7 +283,7 @@ export default function Dashboard() {
                         <Badge variant="outline" className={cn(
                           "text-[10px] uppercase font-black",
                           stop.status === "completed" ? "bg-green-50 text-green-700 border-green-200" :
-                          stop.status === "in_progress" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                          stop.status === "in_progress" ? "bg-red-50 text-primary border-red-200" :
                           "bg-gray-50 text-gray-700 border-gray-200"
                         )}>
                           {stop.status.replace("_", " ")}
@@ -291,14 +293,14 @@ export default function Dashboard() {
                         <MapPin className="w-3 h-3 text-gray-400" /> {stop.address}
                       </p>
                       <div className="flex items-center gap-3 mt-2">
-                        <p className="text-xs font-bold text-blue-600 flex items-center gap-1">
+                        <p className="text-xs font-bold text-primary flex items-center gap-1">
                           <Clock className="w-3 h-3" /> {format(stop.scheduledAt.toDate(), "h:mm a")}
                         </p>
                         <p className="text-xs text-gray-400 font-medium">{stop.vehicleInfo}</p>
                       </div>
                     </div>
                     <Button variant="ghost" size="icon" onClick={() => navigate(`/appointments/${stop.id}`)}>
-                      <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-blue-600" />
+                      <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-primary" />
                     </Button>
                   </div>
                 ))
@@ -308,21 +310,21 @@ export default function Dashboard() {
         </Card>
 
         {/* AI Assistant Quick Actions */}
-        <Card className="border-none shadow-sm bg-blue-600 text-white overflow-hidden">
+        <Card className="border-none shadow-sm bg-black text-white overflow-hidden">
           <CardHeader>
             <CardTitle className="text-lg font-black flex items-center gap-2">
-              <MessageSquare className="w-5 h-5" /> AI Business Insights
+              <MessageSquare className="w-5 h-5 text-primary" /> AI Business Insights
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="bg-white/10 rounded-xl p-4 text-sm backdrop-blur-sm border border-white/10">
+            <div className="bg-white/5 rounded-xl p-4 text-sm backdrop-blur-sm border border-white/10">
               "Friday is looking light in the North area. I recommend moving the Smith job to 10:00 AM to save 20 mins drive time."
             </div>
-            <div className="bg-white/10 rounded-xl p-4 text-sm backdrop-blur-sm border border-white/10">
+            <div className="bg-white/5 rounded-xl p-4 text-sm backdrop-blur-sm border border-white/10">
               "Your average ticket size is up 12% this week after the new Ceramic Coating promotion."
             </div>
             <Button 
-              className="w-full bg-white text-blue-600 hover:bg-blue-50 font-bold mt-4"
+              className="w-full bg-primary text-white hover:bg-red-700 font-bold mt-4"
               onClick={() => (window as any).openAIAssistant?.()}
             >
               Ask Assistant
@@ -338,14 +340,14 @@ export default function Dashboard() {
             <CardTitle className="text-lg font-black text-gray-900">Hot Leads</CardTitle>
             <p className="text-xs text-gray-500 font-medium">New inquiries requiring immediate follow-up</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => navigate("/leads")}>View All Leads</Button>
+          <Button variant="ghost" size="sm" onClick={() => navigate("/leads")} className="font-bold text-primary hover:bg-red-50">View All Leads</Button>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-gray-100">
             {recentLeads.map(lead => (
               <div key={lead.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center text-orange-600">
+                  <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center text-primary">
                     <UserPlus className="w-5 h-5" />
                   </div>
                   <div>
@@ -375,7 +377,8 @@ export default function Dashboard() {
 
 function StatCard({ title, value, subValue, icon, trend, trendValue, color }: any) {
   const colors: any = {
-    blue: "bg-blue-50 text-blue-600",
+    red: "bg-red-50 text-primary",
+    black: "bg-gray-100 text-black",
     orange: "bg-orange-50 text-orange-600",
     green: "bg-green-50 text-green-600",
     purple: "bg-purple-50 text-purple-600"

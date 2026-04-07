@@ -130,7 +130,7 @@ export default function Vendors() {
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger render={
-            <Button className="bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100">
+            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
               <Building2 className="w-4 h-4 mr-2" />
               Add New Vendor
             </Button>
@@ -175,7 +175,7 @@ export default function Vendors() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 font-bold">Create Vendor Account</Button>
+              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">Create Vendor Account</Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -233,7 +233,7 @@ export default function Vendors() {
                   >
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
+                        <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 group-hover:bg-red-50 group-hover:text-primary transition-colors">
                           <Building2 className="w-5 h-5" />
                         </div>
                         <div className="flex flex-col">
@@ -252,7 +252,7 @@ export default function Vendors() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest bg-blue-50 text-blue-700 border-blue-100">
+                      <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest bg-red-50 text-primary border-red-100">
                         {vendor.billingCycle}
                       </Badge>
                     </TableCell>
@@ -262,7 +262,7 @@ export default function Vendors() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-blue-600">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
                         <ChevronRight className="w-5 h-5" />
                       </Button>
                     </TableCell>
@@ -278,7 +278,7 @@ export default function Vendors() {
       {selectedVendor && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="sm:max-w-[800px] p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-gray-900 p-8 text-white">
+            <div className="bg-black p-8 text-white">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center text-white font-black text-2xl backdrop-blur-sm">
@@ -294,7 +294,7 @@ export default function Vendors() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <Badge className="bg-blue-600 text-white border-none mb-2 font-black uppercase tracking-widest">
+                  <Badge className="bg-primary text-white border-none mb-2 font-black uppercase tracking-widest">
                     {selectedVendor.billingCycle} BILLING
                   </Badge>
                   <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Contact Person</p>
@@ -305,9 +305,9 @@ export default function Vendors() {
 
             <Tabs defaultValue="profile" className="w-full">
               <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12">
-                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none h-full font-bold">Profile</TabsTrigger>
-                <TabsTrigger value="rates" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none h-full font-bold">Fixed Rates</TabsTrigger>
-                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none h-full font-bold">RO History ({vendorHistory.length})</TabsTrigger>
+                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Profile</TabsTrigger>
+                <TabsTrigger value="rates" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Fixed Rates</TabsTrigger>
+                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">RO History ({vendorHistory.length})</TabsTrigger>
               </TabsList>
 
               <div className="p-8 max-h-[60vh] overflow-y-auto bg-white">
@@ -395,7 +395,7 @@ export default function Vendors() {
                   ) : (
                     <div className="space-y-3">
                       {vendorHistory.map(job => (
-                        <div key={job.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50/50 flex items-center justify-between group hover:border-blue-200 transition-colors">
+                        <div key={job.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50/50 flex items-center justify-between group hover:border-red-200 transition-colors">
                           <div className="flex items-center gap-4">
                             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-gray-400 shadow-sm">
                               <Calendar className="w-5 h-5" />

@@ -161,12 +161,12 @@ export default function Appointments() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Appointments</h1>
-          <p className="text-gray-500">View and manage all detailing jobs.</p>
+          <h1 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">Appointments</h1>
+          <p className="text-gray-500 font-medium">View and manage all detailing jobs.</p>
         </div>
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
           <DialogTrigger render={
-            <Button className="bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-100">
+            <Button className="bg-primary hover:bg-red-700 shadow-md shadow-red-100 font-bold">
               <Plus className="w-4 h-4 mr-2" />
               New Appointment
             </Button>
@@ -254,7 +254,7 @@ export default function Appointments() {
                     <Button 
                       type="button" 
                       variant="outline" 
-                      className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                      className="border-red-200 text-primary hover:bg-red-50 font-bold"
                       onClick={handleRedeemPoints}
                     >
                       <Star className="w-4 h-4 mr-2" /> Redeem 100 Pts
@@ -263,7 +263,7 @@ export default function Appointments() {
                   {(discount > 0 || redeemedPoints > 0) && (
                     <div className="flex gap-4">
                       {discount > 0 && <p className="text-xs text-green-600 font-bold">Coupon: -${discount}</p>}
-                      {redeemedPoints > 0 && <p className="text-xs text-blue-600 font-bold">Loyalty: -${redeemedPoints}</p>}
+                      {redeemedPoints > 0 && <p className="text-xs text-primary font-bold">Loyalty: -${redeemedPoints}</p>}
                     </div>
                   )}
                 </div>
@@ -279,8 +279,8 @@ export default function Appointments() {
                 </div>
               </div>
               <div className="flex justify-end gap-3 pt-4">
-                <Button variant="outline" type="button" onClick={() => setShowAddDialog(false)}>Cancel</Button>
-                <Button type="submit" className="bg-blue-600 hover:bg-blue-700" disabled={isCreating}>
+                <Button variant="outline" type="button" onClick={() => setShowAddDialog(false)} className="font-bold">Cancel</Button>
+                <Button type="submit" className="bg-primary hover:bg-red-700 font-bold" disabled={isCreating}>
                   {isCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
                   Schedule Job
                 </Button>
@@ -380,7 +380,7 @@ export default function Appointments() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-blue-600">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-primary">
                           <ArrowRight className="w-4 h-4" />
                         </Button>
                       </div>

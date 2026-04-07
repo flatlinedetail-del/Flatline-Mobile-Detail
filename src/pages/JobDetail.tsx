@@ -33,6 +33,7 @@ import ServiceChecklist from "../components/ServiceChecklist";
 import SignaturePad from "../components/SignaturePad";
 import { decodeVin } from "../services/vin";
 import { addLoyaltyPoints } from "../services/promotions";
+import Logo from "../components/Logo";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -133,7 +134,7 @@ export default function JobDetail() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
+  if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   const statusColors: any = {
     scheduled: "bg-blue-100 text-blue-700 border-blue-200",
@@ -165,36 +166,36 @@ export default function JobDetail() {
         </div>
         <div className="flex items-center gap-2">
           {job.status === "scheduled" && (
-            <Button onClick={() => updateStatus("confirmed")} disabled={isUpdating} className="bg-purple-600 hover:bg-purple-700">
+            <Button onClick={() => updateStatus("confirmed")} disabled={isUpdating} className="bg-purple-600 hover:bg-purple-700 font-bold">
               Confirm Job
             </Button>
           )}
           {job.status === "confirmed" && (
-            <Button onClick={() => updateStatus("en_route")} disabled={isUpdating} className="bg-orange-600 hover:bg-orange-700">
+            <Button onClick={() => updateStatus("en_route")} disabled={isUpdating} className="bg-orange-600 hover:bg-orange-700 font-bold">
               Start Route
             </Button>
           )}
           {job.status === "en_route" && (
-            <Button onClick={() => updateStatus("in_progress")} disabled={isUpdating} className="bg-yellow-600 hover:bg-yellow-700">
+            <Button onClick={() => updateStatus("in_progress")} disabled={isUpdating} className="bg-yellow-600 hover:bg-yellow-700 font-bold">
               Arrived & Start
             </Button>
           )}
           {job.status === "in_progress" && (
-            <Button onClick={() => setShowSignature(true)} disabled={isUpdating} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={() => setShowSignature(true)} disabled={isUpdating} className="bg-green-600 hover:bg-green-700 font-bold">
               Complete Job
             </Button>
           )}
           {job.status === "completed" && (
             <Dialog>
-              <DialogTrigger render={<Button className="bg-emerald-600 hover:bg-emerald-700">Collect Payment</Button>} />
-              <DialogContent>
-                <DialogHeader><DialogTitle>Collect Payment</DialogTitle></DialogHeader>
+              <DialogTrigger render={<Button className="bg-emerald-600 hover:bg-emerald-700 font-bold">Collect Payment</Button>} />
+              <DialogContent className="bg-white border-none shadow-2xl rounded-2xl">
+                <DialogHeader><DialogTitle className="font-black">Collect Payment</DialogTitle></DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
-                    <Label>Payment Method</Label>
+                    <Label className="font-bold">Payment Method</Label>
                     <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
+                      <SelectTrigger className="bg-white border-gray-200"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-white">
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="credit">Credit Card</SelectItem>
                         <SelectItem value="venmo">Venmo</SelectItem>
@@ -202,11 +203,11 @@ export default function JobDetail() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="p-4 bg-blue-50 rounded-xl flex justify-between items-center">
-                    <span className="font-bold text-blue-900">Total Due</span>
-                    <span className="text-2xl font-black text-blue-900">${job.totalAmount}</span>
+                  <div className="p-4 bg-red-50 rounded-xl flex justify-between items-center">
+                    <span className="font-bold text-primary">Total Due</span>
+                    <span className="text-2xl font-black text-primary">${job.totalAmount}</span>
                   </div>
-                  <Button onClick={handlePayment} className="w-full bg-emerald-600">Record Payment</Button>
+                  <Button onClick={handlePayment} className="w-full bg-emerald-600 hover:bg-emerald-700 font-bold">Record Payment</Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -227,7 +228,7 @@ export default function JobDetail() {
             </CardHeader>
             <CardContent className="p-5 space-y-4">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
+                <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-primary">
                   <User className="w-6 h-6" />
                 </div>
                 <div>
@@ -247,7 +248,7 @@ export default function JobDetail() {
                 <div className="flex items-start gap-3 text-sm text-gray-600">
                   <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
                   <span className="flex-1">{job.address}</span>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 text-blue-600">
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-primary hover:bg-red-50">
                     <Navigation className="w-3 h-3" />
                   </Button>
                 </div>
@@ -279,9 +280,9 @@ export default function JobDetail() {
                 </div>
               )}
               {job.roNumber && (
-                <div className="flex items-center justify-between p-3 bg-blue-50 rounded-xl">
-                  <span className="text-xs font-bold text-blue-600">RO Number</span>
-                  <span className="text-xs font-black text-blue-900">{job.roNumber}</span>
+                <div className="flex items-center justify-between p-3 bg-red-50 rounded-xl">
+                  <span className="text-xs font-bold text-primary">RO Number</span>
+                  <span className="text-xs font-black text-primary">{job.roNumber}</span>
                 </div>
               )}
             </CardContent>
@@ -303,7 +304,7 @@ export default function JobDetail() {
               </div>
               <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
                 <span className="text-lg font-bold text-gray-900">Total</span>
-                <span className="text-2xl font-black text-blue-600">${job.totalAmount}</span>
+                <span className="text-2xl font-black text-red-600">${job.totalAmount}</span>
               </div>
               <Dialog open={showInvoice} onOpenChange={setShowInvoice}>
                 <DialogTrigger render={<Button variant="outline" className="w-full border-gray-200" />}>
@@ -316,7 +317,7 @@ export default function JobDetail() {
                   <div className="p-8 space-y-8">
                     <div className="flex justify-between items-start">
                       <div>
-                        <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl mb-4">F</div>
+                        <Logo variant="full" className="mb-4" />
                         <h2 className="text-2xl font-black text-gray-900">Flatline Mobile Detail</h2>
                         <p className="text-xs text-gray-500">123 Detail Way, Austin, TX 78701</p>
                         <p className="text-xs text-gray-500">(555) 000-1111 • flatlinedetail.com</p>
@@ -360,7 +361,7 @@ export default function JobDetail() {
                         <tfoot>
                           <tr>
                             <td className="pt-8 text-right font-bold text-gray-400 uppercase text-[10px] tracking-widest">Total Amount Due</td>
-                            <td className="pt-8 text-right text-2xl font-black text-blue-600">${job.totalAmount}</td>
+                            <td className="pt-8 text-right text-2xl font-black text-red-600">${job.totalAmount}</td>
                           </tr>
                         </tfoot>
                       </table>
@@ -374,8 +375,8 @@ export default function JobDetail() {
                     </div>
                   </div>
                   <div className="bg-gray-50 p-4 flex justify-end gap-3">
-                    <Button variant="outline" onClick={() => setShowInvoice(false)}>Close</Button>
-                    <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => window.print()}>
+                    <Button variant="outline" onClick={() => setShowInvoice(false)} className="font-bold">Close</Button>
+                    <Button className="bg-primary hover:bg-red-700 font-bold" onClick={() => window.print()}>
                       Print / PDF
                     </Button>
                   </div>
@@ -389,15 +390,15 @@ export default function JobDetail() {
         <div className="lg:col-span-2">
           <Tabs defaultValue="checklist" className="w-full">
             <TabsList className="w-full bg-white border border-gray-100 p-1 h-12 rounded-2xl shadow-sm mb-6">
-              <TabsTrigger value="checklist" className="flex-1 rounded-xl data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+              <TabsTrigger value="checklist" className="flex-1 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white font-bold">
                 <ClipboardList className="w-4 h-4 mr-2" />
                 Checklist
               </TabsTrigger>
-              <TabsTrigger value="photos" className="flex-1 rounded-xl data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+              <TabsTrigger value="photos" className="flex-1 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white font-bold">
                 <Camera className="w-4 h-4 mr-2" />
                 Photos
               </TabsTrigger>
-              <TabsTrigger value="notes" className="flex-1 rounded-xl data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+              <TabsTrigger value="notes" className="flex-1 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white font-bold">
                 <AlertCircle className="w-4 h-4 mr-2" />
                 Notes
               </TabsTrigger>
@@ -417,12 +418,12 @@ export default function JobDetail() {
               <Card className="border-none shadow-sm bg-white">
                 <CardContent className="p-6">
                   <textarea 
-                    className="w-full h-40 p-4 rounded-2xl border border-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm"
+                    className="w-full h-40 p-4 rounded-2xl border border-gray-100 focus:ring-2 focus:ring-primary focus:border-transparent resize-none text-sm font-medium"
                     placeholder="Add job notes, technician observations, or special instructions..."
                     defaultValue={job.notes}
                   />
                   <div className="flex justify-end mt-4">
-                    <Button className="bg-blue-600 hover:bg-blue-700">Save Notes</Button>
+                    <Button className="bg-primary hover:bg-red-700 font-bold">Save Notes</Button>
                   </div>
                 </CardContent>
               </Card>

@@ -62,14 +62,14 @@ export default function SignaturePad({ onSave, onCancel, title = "Customer Signa
   };
 
   return (
-    <Card className="w-full max-w-md mx-auto shadow-2xl border-none">
-      <CardHeader className="bg-gray-50 border-b">
-        <CardTitle className="text-lg font-bold flex items-center justify-between">
+    <Card className="w-full max-w-md mx-auto shadow-2xl border-none overflow-hidden rounded-2xl">
+      <CardHeader className="bg-black text-white border-b border-white/10">
+        <CardTitle className="text-lg font-black flex items-center justify-between uppercase tracking-tighter">
           {title}
-          <Button variant="ghost" size="icon-sm" onClick={onCancel}><X className="w-4 h-4" /></Button>
+          <Button variant="ghost" size="icon" onClick={onCancel} className="text-white/50 hover:text-white hover:bg-white/10"><X className="w-4 h-4" /></Button>
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="p-0 bg-white">
         <canvas
           ref={canvasRef}
           width={400}
@@ -84,10 +84,10 @@ export default function SignaturePad({ onSave, onCancel, title = "Customer Signa
           onTouchEnd={stopDrawing}
         />
         <div className="p-4 bg-gray-50 border-t flex justify-between gap-3">
-          <Button variant="outline" onClick={clear} className="flex-1">
+          <Button variant="outline" onClick={clear} className="flex-1 font-bold border-gray-200">
             <Eraser className="w-4 h-4 mr-2" /> Clear
           </Button>
-          <Button onClick={save} className="flex-1 bg-blue-600 hover:bg-blue-700">
+          <Button onClick={save} className="flex-1 bg-primary hover:bg-red-700 font-bold">
             <Check className="w-4 h-4 mr-2" /> Save Signature
           </Button>
         </div>

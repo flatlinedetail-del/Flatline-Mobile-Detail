@@ -123,7 +123,7 @@ export default function Leads() {
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger render={
-            <Button className="bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100">
+            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
               <UserPlus className="w-4 h-4 mr-2" />
               Add New Lead
             </Button>
@@ -181,7 +181,7 @@ export default function Leads() {
                   <Input id="source" name="source" placeholder="Google, FB, Referral" />
                 </div>
               </div>
-              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 font-bold">Create Lead</Button>
+              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">Create Lead</Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -275,7 +275,7 @@ export default function Leads() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-gray-400 hover:text-blue-600"
+                          className="h-8 w-8 text-gray-400 hover:text-primary"
                           onClick={(e) => {
                             e.stopPropagation();
                             window.location.href = `tel:${lead.phone}`;
@@ -308,21 +308,21 @@ export default function Leads() {
       {selectedLead && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-blue-600 p-6 text-white">
+            <div className="bg-primary p-6 text-white">
               <div className="flex justify-between items-start">
                 <div>
                   <Badge className="bg-white/20 text-white border-none mb-2 uppercase font-black tracking-widest">
                     {selectedLead.status} Lead
                   </Badge>
                   <h2 className="text-3xl font-black tracking-tighter">{selectedLead.name}</h2>
-                  <p className="text-blue-100 flex items-center gap-2 mt-1">
+                  <p className="text-red-100 flex items-center gap-2 mt-1">
                     <Phone className="w-4 h-4" /> {selectedLead.phone}
                     <span className="opacity-30">|</span>
                     <Mail className="w-4 h-4" /> {selectedLead.email}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-blue-200 font-bold uppercase">Priority</p>
+                  <p className="text-xs text-red-200 font-bold uppercase">Priority</p>
                   <p className="text-xl font-black capitalize">{selectedLead.priority}</p>
                 </div>
               </div>
@@ -345,7 +345,7 @@ export default function Leads() {
                 <Textarea 
                   defaultValue={selectedLead.notes}
                   placeholder="Add details about the inquiry..."
-                  className="min-h-[100px] bg-gray-50 border-none focus-visible:ring-blue-500"
+                  className="min-h-[100px] bg-gray-50 border-none focus-visible:ring-primary"
                   onBlur={async (e) => {
                     await updateDoc(doc(db, "leads", selectedLead.id), { notes: e.target.value });
                   }}
@@ -354,7 +354,7 @@ export default function Leads() {
 
               <div className="flex flex-wrap gap-2">
                 <Button 
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 font-bold"
+                  className="flex-1 bg-primary hover:bg-red-700 font-bold"
                   onClick={() => navigate("/appointments", { state: { lead: selectedLead } })}
                 >
                   <CheckCircle2 className="w-4 h-4 mr-2" /> Convert to Job

@@ -66,7 +66,7 @@ export default function ServiceChecklist({ jobId, services }: ServiceChecklistPr
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-blue-600" /></div>;
+  if (loading) return <div className="flex items-center justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-6">
@@ -81,7 +81,7 @@ export default function ServiceChecklist({ jobId, services }: ServiceChecklistPr
               <div className="flex items-center gap-3">
                 <div className={cn(
                   "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
-                  progress === 100 ? "bg-green-100 text-green-600" : "bg-blue-100 text-blue-600"
+                  progress === 100 ? "bg-green-100 text-green-600" : "bg-red-100 text-primary"
                 )}>
                   {progress === 100 ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
                 </div>
@@ -96,7 +96,7 @@ export default function ServiceChecklist({ jobId, services }: ServiceChecklistPr
                     id={`${service}-${task}`} 
                     checked={completed.includes(task)}
                     onCheckedChange={() => toggleTask(service, task)}
-                    className="border-gray-300 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                    className="border-gray-300 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                   />
                   <Label 
                     htmlFor={`${service}-${task}`}

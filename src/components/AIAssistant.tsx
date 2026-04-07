@@ -37,20 +37,20 @@ export default function AIAssistant({ context }: { context: any }) {
       {/* Floating Button */}
       <Button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-xl bg-blue-600 hover:bg-blue-700 z-50"
+        className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-xl bg-primary hover:bg-red-700 z-50"
       >
         <MessageSquare className="w-6 h-6" />
       </Button>
 
       {/* Assistant Panel */}
       {isOpen && (
-        <Card className="fixed bottom-24 right-6 w-[350px] sm:w-[400px] h-[500px] shadow-2xl z-50 flex flex-col border-none overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
-          <CardHeader className="bg-blue-600 text-white flex flex-row items-center justify-between py-4">
-            <CardTitle className="text-lg font-bold flex items-center gap-2">
-              <MessageSquare className="w-5 h-5" />
+        <Card className="fixed bottom-24 right-6 w-[350px] sm:w-[400px] h-[500px] shadow-2xl z-50 flex flex-col border-none overflow-hidden animate-in slide-in-from-bottom-4 duration-300 rounded-2xl">
+          <CardHeader className="bg-black text-white flex flex-row items-center justify-between py-4 border-b border-white/10">
+            <CardTitle className="text-lg font-black flex items-center gap-2 uppercase tracking-tighter">
+              <MessageSquare className="w-5 h-5 text-primary" />
               AI Assistant
             </CardTitle>
-            <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="text-white hover:bg-white/10 h-8 w-8">
+            <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="text-white/50 hover:text-white hover:bg-white/10 h-8 w-8">
               <X className="w-5 h-5" />
             </Button>
           </CardHeader>
@@ -59,9 +59,9 @@ export default function AIAssistant({ context }: { context: any }) {
               <div className="space-y-4">
                 {messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${
+                    <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm font-medium ${
                       msg.role === "user" 
-                        ? "bg-blue-600 text-white rounded-tr-none" 
+                        ? "bg-primary text-white rounded-tr-none" 
                         : "bg-gray-100 text-gray-800 rounded-tl-none"
                     }`}>
                       <div className="markdown-body">
@@ -72,8 +72,8 @@ export default function AIAssistant({ context }: { context: any }) {
                 ))}
                 {isLoading && (
                   <div className="flex justify-start">
-                    <div className="bg-gray-100 text-gray-800 rounded-2xl rounded-tl-none px-4 py-2 text-sm flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                    <div className="bg-gray-100 text-gray-800 rounded-2xl rounded-tl-none px-4 py-2 text-sm flex items-center gap-2 font-medium">
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
                       Thinking...
                     </div>
                   </div>
@@ -88,7 +88,7 @@ export default function AIAssistant({ context }: { context: any }) {
                   onChange={(e) => setInput(e.target.value)}
                   className="bg-white border-gray-200"
                 />
-                <Button type="submit" disabled={isLoading} className="bg-blue-600 hover:bg-blue-700">
+                <Button type="submit" disabled={isLoading} className="bg-primary hover:bg-red-700">
                   <Send className="w-4 h-4" />
                 </Button>
               </form>

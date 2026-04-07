@@ -70,7 +70,7 @@ export default function PhotoDocumentation({ jobId, type }: PhotoDocumentationPr
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">{type} Photos</h3>
+        <h3 className="text-sm font-black uppercase tracking-widest text-gray-400">{type} Photos</h3>
         <label className="cursor-pointer">
           <Input 
             type="file" 
@@ -80,9 +80,9 @@ export default function PhotoDocumentation({ jobId, type }: PhotoDocumentationPr
             onChange={handleUpload}
             disabled={isUploading}
           />
-          <Button variant="outline" size="sm" disabled={isUploading} type="button" className="cursor-pointer">
+          <Button variant="outline" size="sm" disabled={isUploading} type="button" className="cursor-pointer font-bold border-gray-200 hover:bg-red-50 hover:text-primary">
             <div className="flex items-center">
-              {isUploading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+              {isUploading ? <Loader2 className="w-4 h-4 animate-spin mr-2 text-primary" /> : <Plus className="w-4 h-4 mr-2" />}
               Add Photos
             </div>
           </Button>
@@ -91,8 +91,8 @@ export default function PhotoDocumentation({ jobId, type }: PhotoDocumentationPr
 
       {photos.length === 0 ? (
         <div className="border-2 border-dashed border-gray-100 rounded-2xl p-8 text-center text-gray-400">
-          <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-20" />
-          <p className="text-xs">No {type} photos uploaded yet.</p>
+          <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-20 text-primary" />
+          <p className="text-xs font-medium">No {type} photos uploaded yet.</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">

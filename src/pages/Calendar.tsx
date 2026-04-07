@@ -62,7 +62,7 @@ export default function Calendar() {
             variant={view === "calendar" ? "secondary" : "ghost"} 
             size="sm" 
             onClick={() => setView("calendar")}
-            className={cn("h-8 px-3", view === "calendar" && "bg-blue-50 text-blue-700 hover:bg-blue-100")}
+            className={cn("h-8 px-3 font-bold", view === "calendar" && "bg-red-50 text-primary hover:bg-red-100")}
           >
             <CalendarIcon className="w-4 h-4 mr-2" />
             Calendar
@@ -71,7 +71,7 @@ export default function Calendar() {
             variant={view === "list" ? "secondary" : "ghost"} 
             size="sm" 
             onClick={() => setView("list")}
-            className={cn("h-8 px-3", view === "list" && "bg-blue-50 text-blue-700 hover:bg-blue-100")}
+            className={cn("h-8 px-3 font-bold", view === "list" && "bg-red-50 text-primary hover:bg-red-100")}
           >
             <List className="w-4 h-4 mr-2" />
             List
@@ -98,7 +98,7 @@ export default function Calendar() {
                 })
               }}
               modifiersStyles={{
-                hasAppointment: { fontWeight: 'bold', textDecoration: 'underline', color: '#3b82f6' }
+                hasAppointment: { fontWeight: 'bold', textDecoration: 'underline', color: 'var(--primary)' }
               }}
             />
           </CardContent>
@@ -112,9 +112,9 @@ export default function Calendar() {
                 <CardTitle className="text-lg font-semibold text-gray-900">
                   {date ? format(date, "EEEE, MMMM d, yyyy") : "Select a date"}
                 </CardTitle>
-                <p className="text-xs text-gray-500 mt-0.5">{dayAppointments.length} appointments scheduled</p>
+                <p className="text-xs text-gray-500 mt-0.5 font-medium">{dayAppointments.length} appointments scheduled</p>
               </div>
-              <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
+              <Button size="sm" className="bg-primary hover:bg-red-700 font-bold">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Job
               </Button>
@@ -138,14 +138,14 @@ export default function Calendar() {
                   {dayAppointments.map((app) => (
                     <div 
                       key={app.id} 
-                      className="flex flex-col md:flex-row md:items-center gap-4 p-5 rounded-2xl border border-gray-100 hover:border-blue-100 hover:bg-blue-50/30 transition-all cursor-pointer group"
+                      className="flex flex-col md:flex-row md:items-center gap-4 p-5 rounded-2xl border border-gray-100 hover:border-red-100 hover:bg-red-50/30 transition-all cursor-pointer group"
                       onClick={() => navigate(`/appointments/${app.id}`)}
                     >
                       <div className="flex-shrink-0 w-24 text-center md:border-r md:border-gray-100 md:pr-4">
                         <p className="text-lg font-bold text-gray-900">
                           {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "h:mm") : "TBD"}
                         </p>
-                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">
+                        <p className="text-[10px] font-bold text-primary uppercase tracking-widest">
                           {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "a") : ""}
                         </p>
                       </div>
@@ -187,22 +187,22 @@ export default function Calendar() {
           </Card>
 
           {/* Route Optimization Suggestion */}
-          <Card className="border-none shadow-sm bg-blue-600 text-white overflow-hidden relative">
+          <Card className="border-none shadow-sm bg-black text-white overflow-hidden relative">
             <div className="absolute top-0 right-0 p-4 opacity-10">
               <MapPin className="w-24 h-24" />
             </div>
             <CardHeader>
               <CardTitle className="text-lg font-bold flex items-center gap-2">
-                <MapPin className="w-5 h-5" />
+                <MapPin className="w-5 h-5 text-primary" />
                 Route Optimization
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-blue-100 text-sm mb-4">
-                You have 2 other jobs in the <strong>North Area</strong> today. 
+              <p className="text-gray-400 text-sm mb-4">
+                You have 2 other jobs in the <strong className="text-white">North Area</strong> today. 
                 Moving the 2:00 PM appointment to 1:30 PM would save 15 minutes of drive time and $4 in fuel.
               </p>
-              <Button className="bg-white text-blue-600 hover:bg-blue-50 font-semibold">
+              <Button className="bg-primary text-white hover:bg-red-700 font-bold w-full">
                 Apply Optimization
               </Button>
             </CardContent>

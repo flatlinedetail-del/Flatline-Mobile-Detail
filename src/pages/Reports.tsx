@@ -105,7 +105,7 @@ export default function Reports() {
     { name: "Other", value: expenses.filter(e => e.category === "other").reduce((sum, e) => sum + e.amount, 0) },
   ].filter(cat => cat.value > 0);
 
-  const COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b"];
+  const COLORS = ["#E11D48", "#000000", "#10b981", "#f59e0b"];
 
   return (
     <div className="space-y-6 pb-20">
@@ -135,8 +135,8 @@ export default function Reports() {
         <ReportCard 
           title="Total Sales" 
           value={`$${totalSales.toLocaleString()}`} 
-          icon={<DollarSign className="w-6 h-6 text-blue-600" />}
-          color="blue"
+          icon={<DollarSign className="w-6 h-6 text-primary" />}
+          color="red"
         />
         <ReportCard 
           title="Expenses" 
@@ -186,7 +186,7 @@ export default function Reports() {
                     contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)" }}
                     cursor={{ fill: "#f9fafb" }}
                   />
-                  <Bar dataKey="sales" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="sales" fill="#E11D48" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -282,8 +282,7 @@ export default function Reports() {
 
 function ReportCard({ title, value, icon, color }: any) {
   const colors: any = {
-    blue: "bg-blue-50 text-blue-600",
-    red: "bg-red-50 text-red-600",
+    red: "bg-red-50 text-primary",
     green: "bg-green-50 text-green-600",
     purple: "bg-purple-50 text-purple-600"
   };

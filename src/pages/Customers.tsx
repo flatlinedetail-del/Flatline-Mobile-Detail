@@ -160,7 +160,7 @@ export default function Customers() {
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger render={
-            <Button className="bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100">
+            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
               <UserPlus className="w-4 h-4 mr-2" />
               Add New Customer
             </Button>
@@ -192,7 +192,7 @@ export default function Customers() {
                 <Label htmlFor="notes">Notes</Label>
                 <Textarea id="notes" name="notes" placeholder="Special requests, gate codes, etc." />
               </div>
-              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 font-bold">Create Customer</Button>
+              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">Create Customer</Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -250,7 +250,7 @@ export default function Customers() {
                   >
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 font-black text-sm">
+                        <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center text-primary font-black text-sm">
                           {customer.name?.charAt(0)}
                         </div>
                         <div className="flex flex-col">
@@ -290,7 +290,7 @@ export default function Customers() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-blue-600">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
                         <ChevronRight className="w-5 h-5" />
                       </Button>
                     </TableCell>
@@ -306,7 +306,7 @@ export default function Customers() {
       {selectedCustomer && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="sm:max-w-[800px] p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-blue-600 p-8 text-white">
+            <div className="bg-primary p-8 text-white">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-white font-black text-2xl backdrop-blur-sm">
@@ -314,7 +314,7 @@ export default function Customers() {
                   </div>
                   <div>
                     <h2 className="text-3xl font-black tracking-tighter">{selectedCustomer.name}</h2>
-                    <p className="text-blue-100 flex items-center gap-2 mt-1 font-medium">
+                    <p className="text-red-100 flex items-center gap-2 mt-1 font-medium">
                       <Phone className="w-4 h-4" /> {selectedCustomer.phone}
                       <span className="opacity-30">|</span>
                       <Mail className="w-4 h-4" /> {selectedCustomer.email}
@@ -332,10 +332,10 @@ export default function Customers() {
 
             <Tabs defaultValue="profile" className="w-full">
               <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12">
-                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none h-full font-bold">Profile</TabsTrigger>
-                <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none h-full font-bold">Vehicles ({customerVehicles.length})</TabsTrigger>
-                <TabsTrigger value="pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none h-full font-bold">Special Pricing</TabsTrigger>
-                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none h-full font-bold">History</TabsTrigger>
+                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Profile</TabsTrigger>
+                <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Vehicles ({customerVehicles.length})</TabsTrigger>
+                <TabsTrigger value="pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Special Pricing</TabsTrigger>
+                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">History</TabsTrigger>
               </TabsList>
 
               <div className="p-8 max-h-[60vh] overflow-y-auto bg-white">
@@ -381,9 +381,9 @@ export default function Customers() {
                   <div className="flex justify-between items-center">
                     <h3 className="text-lg font-black text-gray-900">Saved Vehicles</h3>
                     <Dialog>
-                      <DialogTrigger render={<Button size="sm" className="bg-blue-600"><Plus className="w-4 h-4 mr-2" /> Add Vehicle</Button>} />
+                      <DialogTrigger render={<Button size="sm" className="bg-primary font-bold"><Plus className="w-4 h-4 mr-2" /> Add Vehicle</Button>} />
                       <DialogContent>
-                        <DialogHeader><DialogTitle>Add New Vehicle</DialogTitle></DialogHeader>
+                        <DialogHeader><DialogTitle className="font-black">Add New Vehicle</DialogTitle></DialogHeader>
                         <form onSubmit={handleAddVehicle} className="space-y-4 py-4">
                           <div className="grid grid-cols-2 gap-4">
                             <Input name="year" placeholder="Year (e.g. 2022)" required />
@@ -401,7 +401,7 @@ export default function Customers() {
                             </SelectContent>
                           </Select>
                           <Input name="vin" placeholder="VIN (Optional)" />
-                          <Button type="submit" className="w-full bg-blue-600">Save Vehicle</Button>
+                          <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
                         </form>
                       </DialogContent>
                     </Dialog>
@@ -409,7 +409,7 @@ export default function Customers() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {customerVehicles.map(v => (
                       <div key={v.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50/50 flex items-center gap-4 group">
-                        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm">
+                        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-primary shadow-sm">
                           <Car className="w-6 h-6" />
                         </div>
                         <div className="flex-1">
