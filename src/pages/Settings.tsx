@@ -1,22 +1,80 @@
-import { useState } from "react";
-import { doc, updateDoc } from "firebase/firestore";
+import { useState, useEffect } from "react";
+import { doc, updateDoc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout } from "lucide-react";
+import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { seedDemoData } from "../services/seedData";
 import { toast } from "sonner";
+import AddressInput from "../components/AddressInput";
+import { BusinessSettings } from "../types";
 
 export default function Settings() {
   const { profile } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const docRef = doc(db, "settings", "business");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setSettings(docSnap.data() as BusinessSettings);
+        } else {
+          // Initialize default settings
+          const defaultSettings: BusinessSettings = {
+            businessName: "Flatline Mobile Detail",
+            taxRate: 8.25,
+            currency: "USD",
+            timezone: "America/Chicago",
+            commissionRate: 30,
+            baseAddress: "",
+            baseLatitude: 0,
+            baseLongitude: 0,
+            travelPricing: {
+              pricePerMile: 1.5,
+              freeMilesThreshold: 10,
+              minTravelFee: 0,
+              maxTravelFee: 100,
+              roundTripToggle: true,
+            }
+          };
+          await setDoc(docRef, defaultSettings);
+          setSettings(defaultSettings);
+        }
+      } catch (error) {
+        console.error("Error fetching settings:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const handleSaveSettings = async (newData: Partial<BusinessSettings>) => {
+    if (!settings) return;
+    setIsSaving(true);
+    try {
+      const updatedSettings = { ...settings, ...newData };
+      await updateDoc(doc(db, "settings", "business"), updatedSettings);
+      setSettings(updatedSettings);
+      toast.success("Settings updated successfully");
+    } catch (error) {
+      console.error("Error updating settings:", error);
+      toast.error("Failed to update settings");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleSeedData = async () => {
     const success = await seedDemoData();
@@ -147,7 +205,7 @@ export default function Settings() {
                   <Input id="commissionRate" type="number" defaultValue="30" />
                 </div>
               </div>
-              <Button className="bg-blue-600 hover:bg-blue-700">Update Business Info</Button>
+              <Button className="bg-primary hover:bg-red-700 font-bold">Update Business Info</Button>
             </CardContent>
           </Card>
         </TabsContent>

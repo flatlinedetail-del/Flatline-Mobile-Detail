@@ -20,9 +20,11 @@ import {
   ArrowDownRight,
   Plus,
   MessageSquare,
-  Receipt
+  Receipt,
+  TrendingDown,
+  BarChart3
 } from "lucide-react";
-import { format, startOfDay, endOfDay, isToday } from "date-fns";
+import { format, startOfDay, endOfDay, isToday, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { optimizeRoute, RouteStop } from "@/lib/scheduling";
@@ -41,7 +43,11 @@ export default function Dashboard() {
     completed: 0,
     pending: 0,
     leadsCount: 0,
-    activeJobs: 0
+    activeJobs: 0,
+    weekProjected: 0,
+    weekCompleted: 0,
+    monthProjected: 0,
+    monthCompleted: 0
   });
   const [upcomingJobs, setUpcomingJobs] = useState<Appointment[]>([]);
   const [recentLeads, setRecentLeads] = useState<Lead[]>([]);
@@ -50,42 +56,72 @@ export default function Dashboard() {
 
   useEffect(() => {
     const today = new Date();
-    const start = startOfDay(today);
-    const end = endOfDay(today);
+    const startDay = startOfDay(today);
+    const endDay = endOfDay(today);
+    const startWeek = startOfWeek(today);
+    const endWeek = endOfWeek(today);
+    const startMonth = startOfMonth(today);
+    const endMonth = endOfMonth(today);
 
-    // 1. Real-time Stats & Performance
+    // 1. Real-time Stats & Performance (Month-wide for aggregation)
     const qStats = query(
       collection(db, "appointments"),
-      where("scheduledAt", ">=", Timestamp.fromDate(start)),
-      where("scheduledAt", "<=", Timestamp.fromDate(end))
+      where("scheduledAt", ">=", Timestamp.fromDate(startMonth)),
+      where("scheduledAt", "<=", Timestamp.fromDate(endMonth))
     );
 
     const unsubStats = onSnapshot(qStats, (snapshot) => {
-      let proj = 0;
-      let comp = 0;
-      let pend = 0;
-      let active = 0;
+      let dayProj = 0, dayComp = 0, dayPend = 0, dayActive = 0;
+      let weekProj = 0, weekComp = 0;
+      let monthProj = 0, monthComp = 0;
       
       snapshot.docs.forEach(doc => {
         const data = doc.data() as Appointment;
-        proj += data.totalAmount;
-        if (data.status === "completed" || data.status === "paid") {
-          comp += data.totalAmount;
-        } else if (data.status !== "canceled") {
-          pend += data.totalAmount;
-          if (data.status === "in_progress" || data.status === "en_route") {
-            active++;
+        const date = data.scheduledAt.toDate();
+        const amount = data.totalAmount || 0;
+
+        // Monthly
+        monthProj += amount;
+        if (data.status === "completed" || data.status === "paid") monthComp += amount;
+
+        // Weekly
+        if (date >= startWeek && date <= endWeek) {
+          weekProj += amount;
+          if (data.status === "completed" || data.status === "paid") weekComp += amount;
+        }
+
+        // Daily
+        if (date >= startDay && date <= endDay) {
+          dayProj += amount;
+          if (data.status === "completed" || data.status === "paid") {
+            dayComp += amount;
+          } else if (data.status !== "canceled") {
+            dayPend += amount;
+            if (data.status === "in_progress" || data.status === "en_route") {
+              dayActive++;
+            }
           }
         }
       });
       
-      setStats(prev => ({ ...prev, projected: proj, completed: comp, pending: pend, activeJobs: active }));
+      setStats({
+        projected: dayProj,
+        completed: dayComp,
+        pending: dayPend,
+        activeJobs: dayActive,
+        leadsCount: stats.leadsCount, // preserved
+        weekProjected: weekProj,
+        weekCompleted: weekComp,
+        monthProjected: monthProj,
+        monthCompleted: monthComp
+      });
     });
 
     // 2. Upcoming Jobs
+    const todayStart = startOfDay(new Date());
     const qJobs = query(
       collection(db, "appointments"),
-      where("scheduledAt", ">=", Timestamp.fromDate(start)),
+      where("scheduledAt", ">=", Timestamp.fromDate(todayStart)),
       orderBy("scheduledAt", "asc"),
       limit(5)
     );
@@ -230,24 +266,28 @@ export default function Dashboard() {
           color="red"
         />
         <StatCard 
-          title="Active Jobs" 
-          value={stats.activeJobs.toString()} 
-          subValue={`${stats.pending / 100}k pending revenue`}
-          icon={<Clock className="w-6 h-6 text-black" />}
+          title="Weekly Sales" 
+          value={`$${stats.weekCompleted}`} 
+          subValue={`of $${stats.weekProjected} projected`}
+          icon={<BarChart3 className="w-6 h-6 text-black" />}
+          trend={stats.weekProjected > 0 ? (stats.weekCompleted / stats.weekProjected >= 1 ? "up" : "down") : "up"}
+          trendValue={stats.weekProjected > 0 ? `${Math.round((stats.weekCompleted / stats.weekProjected) * 100)}%` : "0%"}
           color="black"
         />
         <StatCard 
-          title="New Leads" 
-          value={stats.leadsCount.toString()} 
-          subValue="requiring follow-up"
-          icon={<UserPlus className="w-6 h-6 text-primary" />}
+          title="Monthly Sales" 
+          value={`$${stats.monthCompleted}`} 
+          subValue={`of $${stats.monthProjected} projected`}
+          icon={<TrendingUp className="w-6 h-6 text-primary" />}
+          trend={stats.monthProjected > 0 ? (stats.monthCompleted / stats.monthProjected >= 1 ? "up" : "down") : "up"}
+          trendValue={stats.monthProjected > 0 ? `${Math.round((stats.monthCompleted / stats.monthProjected) * 100)}%` : "0%"}
           color="red"
         />
         <StatCard 
-          title="Route Status" 
-          value={optimizedRoute.length > 0 ? "Optimized" : "No Jobs"}
-          subValue={`${optimizedRoute.length} stops today`}
-          icon={<MapPin className="w-6 h-6 text-black" />}
+          title="Active Jobs" 
+          value={stats.activeJobs.toString()} 
+          subValue={`${stats.pending} pending revenue`}
+          icon={<Clock className="w-6 h-6 text-black" />}
           color="black"
         />
       </div>

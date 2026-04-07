@@ -24,21 +24,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        if (userDoc.exists()) {
-          setProfile(userDoc.data());
-        } else {
-          // Create profile if it doesn't exist
-          const newProfile = {
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            role: user.email === "FLATLINEDETAIL@gmail.com" ? "admin" : "technician",
-            createdAt: serverTimestamp(),
-          };
-          await setDoc(doc(db, "users", user.uid), newProfile);
-          setProfile(newProfile);
+        try {
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (userDoc.exists()) {
+            setProfile(userDoc.data());
+          } else {
+            // Create profile if it doesn't exist
+            const newProfile = {
+              uid: user.uid,
+              email: user.email,
+              displayName: user.displayName,
+              photoURL: user.photoURL,
+              role: user.email === "FLATLINEDETAIL@gmail.com" ? "admin" : "technician",
+              createdAt: serverTimestamp(),
+            };
+            await setDoc(doc(db, "users", user.uid), newProfile);
+            setProfile(newProfile);
+          }
+        } catch (error) {
+          console.error("Error fetching/creating user profile:", error);
+          // If it's a permission error, we might still want to set loading to false
+          // so the app doesn't hang, but the user will see permission errors elsewhere.
         }
       } else {
         setProfile(null);

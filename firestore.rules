@@ -7,7 +7,14 @@ service cloud.firestore {
     // ===============================================================
     //
     // Collection: users
-    // Fields: uid, email, displayName, role, photoURL, createdAt
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required) - Firebase Auth UID
+    //   - email: string (required) - User email
+    //   - displayName: string (optional) - User display name
+    //   - role: string (required) - 'admin' or 'technician'
+    //   - photoURL: string (optional) - User photo URL
+    //   - createdAt: timestamp (optional) - Creation time
     //
     // Collection: leads
     // Fields: name, phone, email, address, status, vehicleInfo, requestedService, quotedPrice, notes, followUpDate, leadSource, priority, routeArea, lastContactDate, createdAt
@@ -35,15 +42,24 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             getUserData().role == role;
+    }
+
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "FLATLINEDETAIL@gmail.com" && request.auth.token.email_verified == true));
+        (hasRole('admin') ||
+          request.auth.token.email == "FLATLINEDETAIL@gmail.com");
     }
 
     function isTechnician() {
-      return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'technician' || isAdmin());
+      return isAuthenticated() && (hasRole('technician') || isAdmin());
     }
 
     function isValidUser(data) {
@@ -58,6 +74,10 @@ service cloud.firestore {
         email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
 
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -65,7 +85,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
-      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role));
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    (isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role));
+      allow delete: if isAdmin();
     }
 
     match /leads/{leadId} {
@@ -94,6 +116,35 @@ service cloud.firestore {
       allow create: if isTechnician();
       allow update: if isTechnician();
       allow delete: if isAdmin();
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
+    match /services/{serviceId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /coupons/{couponId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     // Default deny

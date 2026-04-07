@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, doc, updateDoc } from "firebase/firestore";
+import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,13 +10,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardList, Search, Filter, MoreHorizontal, Phone, Mail, MapPin, Calendar, Clock, ArrowRight, Plus, Car, User, Loader2, Star } from "lucide-react";
+import { ClipboardList, Search, Filter, MoreHorizontal, Phone, Mail, MapPin, Calendar, Clock, ArrowRight, Plus, Car, User, Loader2, Star, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { format, addHours } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Link, useNavigate } from "react-router-dom";
 import { validateCoupon, calculateDiscount, addLoyaltyPoints, redeemLoyaltyPoints } from "../services/promotions";
 import { Checkbox } from "@/components/ui/checkbox";
+import AddressInput from "../components/AddressInput";
+import { calculateDistance, calculateTravelFee, estimateTravelTime } from "../services/travelService";
+import { BusinessSettings } from "../types";
 
 export default function Appointments() {
   const { profile } = useAuth();
@@ -34,6 +37,9 @@ export default function Appointments() {
   const [discount, setDiscount] = useState(0);
   const [redeemedPoints, setRedeemedPoints] = useState(0);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+  const [appointmentAddress, setAppointmentAddress] = useState({ address: "", lat: 0, lng: 0 });
+  const [travelFeeData, setTravelFeeData] = useState<any>(null);
 
   const handleApplyCoupon = async () => {
     const amount = Number((document.getElementById("totalAmount") as HTMLInputElement).value);
@@ -89,8 +95,22 @@ export default function Appointments() {
       setVendors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    // Fetch settings
+    getDoc(doc(db, "settings", "business")).then(snap => {
+      if (snap.exists()) setSettings(snap.data() as BusinessSettings);
+    });
+
     return () => unsubscribe();
   }, []);
+
+  const handleAddressSelect = (address: string, lat: number, lng: number) => {
+    setAppointmentAddress({ address, lat, lng });
+    if (settings && settings.baseLatitude && settings.baseLongitude) {
+      const distance = calculateDistance(settings.baseLatitude, settings.baseLongitude, lat, lng);
+      const feeData = calculateTravelFee(distance, settings.travelPricing);
+      setTravelFeeData(feeData);
+    }
+  };
 
   const handleCreateAppointment = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -103,26 +123,40 @@ export default function Appointments() {
       : vendors.find(v => v.id === customerId);
     
     const totalAmount = Number(formData.get("totalAmount"));
-    const finalAmount = totalAmount - discount - redeemedPoints;
+    const travelFee = travelFeeData?.fee || 0;
+    const finalAmount = totalAmount + travelFee - discount - redeemedPoints;
     
     const newJob = {
       customerId,
       customerName: customer?.name || "Retail Client",
+      customerPhone: customer?.phone || "",
+      customerEmail: customer?.email || "",
       customerType,
       vendorId: customerType === "vendor" ? customerId : null,
       vehicleInfo: formData.get("vehicleInfo"),
       vin: formData.get("vin"),
       roNumber: formData.get("roNumber"),
-      address: formData.get("address"),
+      address: appointmentAddress.address,
+      latitude: appointmentAddress.lat,
+      longitude: appointmentAddress.lng,
       scheduledAt: new Date(formData.get("scheduledAt") as string),
       status: "scheduled",
       baseAmount: totalAmount,
+      travelFee: travelFee,
+      travelFeeBreakdown: travelFeeData ? {
+        miles: travelFeeData.miles,
+        rate: travelFeeData.rate,
+        adjustment: 0,
+        isRoundTrip: travelFeeData.isRoundTrip
+      } : null,
       discountAmount: discount + redeemedPoints,
       totalAmount: finalAmount,
       serviceNames: (formData.get("services") as string).split(",").map(s => s.trim()),
       technicianId: profile?.uid,
       technicianName: profile?.displayName,
       waiverAccepted,
+      estimatedTravelTime: travelFeeData ? estimateTravelTime(travelFeeData.miles) : 0,
+      estimatedTravelDistance: travelFeeData ? travelFeeData.miles : 0,
       createdAt: serverTimestamp(),
     };
 
@@ -147,10 +181,10 @@ export default function Appointments() {
   );
 
   const statusColors: any = {
-    scheduled: "bg-blue-100 text-blue-700 border-blue-200",
-    confirmed: "bg-purple-100 text-purple-700 border-purple-200",
-    en_route: "bg-orange-100 text-orange-700 border-orange-200",
-    in_progress: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    scheduled: "bg-gray-100 text-gray-700 border-gray-200",
+    confirmed: "bg-black text-white border-black",
+    en_route: "bg-red-50 text-primary border-red-200",
+    in_progress: "bg-primary text-white border-primary",
     completed: "bg-green-100 text-green-700 border-green-200",
     paid: "bg-emerald-100 text-emerald-700 border-emerald-200",
     canceled: "bg-red-100 text-red-700 border-red-200",
@@ -224,7 +258,21 @@ export default function Appointments() {
                 )}
                 <div className="space-y-2 col-span-2">
                   <Label htmlFor="address">Service Address</Label>
-                  <Input id="address" name="address" placeholder="123 Main St, Austin, TX" required className="bg-white border-gray-200" />
+                  <AddressInput 
+                    onAddressSelect={handleAddressSelect}
+                    placeholder="123 Main St, Austin, TX"
+                  />
+                  {travelFeeData && (
+                    <div className="flex items-center gap-2 mt-2 p-3 bg-red-50 rounded-xl border border-red-100">
+                      <Truck className="w-4 h-4 text-primary" />
+                      <div className="flex-1">
+                        <p className="text-xs font-black text-primary uppercase tracking-widest">Travel Fee: ${travelFeeData.fee}</p>
+                        <p className="text-[10px] text-red-700 font-medium">
+                          {travelFeeData.miles} miles from base {travelFeeData.isRoundTrip ? " (Round Trip)" : ""}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="scheduledAt">Date & Time</Label>

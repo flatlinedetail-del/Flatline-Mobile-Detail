@@ -30,6 +30,8 @@ export interface Customer {
   email: string;
   phone: string;
   address: string;
+  latitude?: number;
+  longitude?: number;
   loyaltyPoints: number;
   membershipLevel: "none" | "silver" | "gold" | "platinum";
   specialPricing?: Record<string, number>; // serviceId -> customPrice
@@ -44,6 +46,8 @@ export interface Vendor {
   email: string;
   phone: string;
   address: string;
+  latitude?: number;
+  longitude?: number;
   billingCycle: "weekly" | "biweekly" | "monthly";
   vendorRates: Record<string, number>; // serviceId -> fixedRate
   notes?: string;
@@ -56,6 +60,8 @@ export interface Lead {
   email: string;
   phone: string;
   address?: string;
+  latitude?: number;
+  longitude?: number;
   vehicleInfo: string;
   requestedService: string;
   source: string;
@@ -79,6 +85,8 @@ export interface Appointment {
   vin?: string;
   roNumber?: string;
   address: string;
+  latitude?: number;
+  longitude?: number;
   scheduledAt: Timestamp;
   status: "scheduled" | "confirmed" | "en_route" | "in_progress" | "completed" | "paid" | "canceled";
   technicianId: string;
@@ -86,6 +94,13 @@ export interface Appointment {
   serviceIds: string[];
   serviceNames: string[];
   baseAmount: number;
+  travelFee: number;
+  travelFeeBreakdown?: {
+    miles: number;
+    rate: number;
+    adjustment: number;
+    isRoundTrip: boolean;
+  };
   discountAmount: number;
   taxAmount: number;
   totalAmount: number;
@@ -103,8 +118,28 @@ export interface Appointment {
     after: string[];
     damage: string[];
   };
+  estimatedTravelTime?: number; // in minutes
+  estimatedTravelDistance?: number; // in miles
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+export interface BusinessSettings {
+  businessName: string;
+  taxRate: number;
+  currency: string;
+  timezone: string;
+  commissionRate: number;
+  baseAddress: string;
+  baseLatitude: number;
+  baseLongitude: number;
+  travelPricing: {
+    pricePerMile: number;
+    freeMilesThreshold: number;
+    minTravelFee: number;
+    maxTravelFee: number;
+    roundTripToggle: boolean;
+  };
 }
 
 export interface Expense {

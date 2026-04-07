@@ -1,15 +1,21 @@
-import { Appointment } from "../types";
-import { Timestamp, collection, query, where, getDocs, orderBy, startAt, endAt } from "firebase/firestore";
+import { Appointment, BusinessSettings } from "../types";
+import { Timestamp, collection, query, where, getDocs, orderBy, startAt, endAt, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import { calculateDistance, estimateTravelTime } from "../services/travelService";
 
 export interface RouteStop {
   id: string;
   address: string;
+  latitude: number;
+  longitude: number;
   scheduledAt: Timestamp;
   customerName: string;
   vehicleInfo: string;
   status: string;
   priority: number;
+  totalAmount: number;
+  travelTimeFromPrevious?: number; // in minutes
+  distanceFromPrevious?: number; // in miles
 }
 
 /**
@@ -32,23 +38,55 @@ export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
     orderBy("scheduledAt", "asc")
   );
 
-  const snapshot = await getDocs(q);
-  const stops: RouteStop[] = snapshot.docs.map(doc => {
+  const [snapshot, settingsSnap] = await Promise.all([
+    getDocs(q),
+    getDoc(doc(db, "settings", "business"))
+  ]);
+
+  const settings = settingsSnap.exists() ? settingsSnap.data() as BusinessSettings : null;
+  
+  let stops: RouteStop[] = snapshot.docs.map(doc => {
     const data = doc.data() as Appointment;
     return {
       id: doc.id,
       address: data.address,
+      latitude: data.latitude || 0,
+      longitude: data.longitude || 0,
       scheduledAt: data.scheduledAt,
       customerName: data.customerName,
       vehicleInfo: data.vehicleInfo,
       status: data.status,
       priority: data.status === "en_route" ? 1 : 2,
+      totalAmount: data.totalAmount || 0,
     };
   });
 
-  // Simple heuristic: Sort by time first
-  // In a real app, we'd use Google Maps Distance Matrix API here
-  return stops.sort((a, b) => a.scheduledAt.toMillis() - b.scheduledAt.toMillis());
+  // Sort by time first
+  stops.sort((a, b) => a.scheduledAt.toMillis() - b.scheduledAt.toMillis());
+
+  // Calculate travel estimates between stops
+  let prevLat = settings?.baseLatitude || 0;
+  let prevLng = settings?.baseLongitude || 0;
+
+  stops = stops.map(stop => {
+    if (stop.latitude && stop.longitude && prevLat && prevLng) {
+      const distance = calculateDistance(prevLat, prevLng, stop.latitude, stop.longitude);
+      const time = estimateTravelTime(distance);
+      
+      const updatedStop = {
+        ...stop,
+        distanceFromPrevious: Math.round(distance * 10) / 10,
+        travelTimeFromPrevious: time
+      };
+
+      prevLat = stop.latitude;
+      prevLng = stop.longitude;
+      return updatedStop;
+    }
+    return stop;
+  });
+
+  return stops;
 }
 
 /**

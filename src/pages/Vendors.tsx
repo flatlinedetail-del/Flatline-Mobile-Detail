@@ -32,12 +32,16 @@ import {
   FileText,
   Plus,
   Trash2,
-  Tag
+  Tag,
+  ExternalLink
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "../lib/utils";
 import { Vendor, Service, Appointment } from "../types";
+import AddressInput from "../components/AddressInput";
+import { deleteDoc } from "firebase/firestore";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export default function Vendors() {
   const { profile } = useAuth();
@@ -49,6 +53,7 @@ export default function Vendors() {
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [vendorHistory, setVendorHistory] = useState<Appointment[]>([]);
+  const [newVendorAddress, setNewVendorAddress] = useState({ address: "", lat: 0, lng: 0 });
 
   useEffect(() => {
     const q = query(collection(db, "vendors"), orderBy("createdAt", "desc"));
@@ -87,7 +92,9 @@ export default function Vendors() {
       contactPerson: formData.get("contactPerson"),
       phone: formData.get("phone"),
       email: formData.get("email"),
-      address: formData.get("address"),
+      address: newVendorAddress.address,
+      latitude: newVendorAddress.lat,
+      longitude: newVendorAddress.lng,
       billingCycle: formData.get("billingCycle") || "monthly",
       vendorRates: {},
       notes: formData.get("notes"),
@@ -112,6 +119,31 @@ export default function Vendors() {
       toast.success("Vendor updated");
     } catch (error) {
       toast.error("Failed to update vendor");
+    }
+  };
+
+  const handleDeleteVendor = async (id: string) => {
+    try {
+      // Check for linked records
+      const qAppointments = query(collection(db, "appointments"), where("vendorId", "==", id));
+      const qVehicles = query(collection(db, "vehicles"), where("ownerId", "==", id));
+      
+      const [appointmentsSnap, vehiclesSnap] = await Promise.all([
+        getDocs(qAppointments),
+        getDocs(qVehicles)
+      ]);
+
+      if (!appointmentsSnap.empty || !vehiclesSnap.empty) {
+        toast.error("Cannot delete vendor with linked appointments or vehicles.");
+        return;
+      }
+
+      await deleteDoc(doc(db, "vendors", id));
+      toast.success("Vendor deleted successfully");
+      setIsDetailOpen(false);
+    } catch (error) {
+      console.error("Error deleting vendor:", error);
+      toast.error("Failed to delete vendor");
     }
   };
 
@@ -160,7 +192,10 @@ export default function Vendors() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="address">Address</Label>
-                <Input id="address" name="address" placeholder="123 Main St, City, ST" />
+                <AddressInput 
+                  onAddressSelect={(address, lat, lng) => setNewVendorAddress({ address, lat, lng })}
+                  placeholder="123 Main St, City, ST"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="billingCycle">Billing Cycle</Label>
@@ -245,10 +280,14 @@ export default function Vendors() {
                     <TableCell>
                       <div className="flex flex-col gap-1">
                         <span className="text-sm font-bold text-gray-700">{vendor.contactPerson}</span>
-                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <a 
+                          href={`tel:${vendor.phone}`} 
+                          className="flex items-center gap-2 text-xs text-gray-500 hover:text-primary transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <Phone className="w-3 h-3" />
                           {vendor.phone}
-                        </div>
+                        </a>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -286,11 +325,15 @@ export default function Vendors() {
                   </div>
                   <div>
                     <h2 className="text-3xl font-black tracking-tighter">{selectedVendor.name}</h2>
-                    <p className="text-gray-400 flex items-center gap-2 mt-1 font-medium">
-                      <Phone className="w-4 h-4" /> {selectedVendor.phone}
+                    <div className="text-gray-400 flex items-center gap-4 mt-1 font-medium">
+                      <a href={`tel:${selectedVendor.phone}`} className="flex items-center gap-2 hover:text-white transition-colors">
+                        <Phone className="w-4 h-4" /> {selectedVendor.phone}
+                      </a>
                       <span className="opacity-30">|</span>
-                      <Mail className="w-4 h-4" /> {selectedVendor.email}
-                    </p>
+                      <a href={`mailto:${selectedVendor.email}`} className="flex items-center gap-2 hover:text-white transition-colors">
+                        <Mail className="w-4 h-4" /> {selectedVendor.email}
+                      </a>
+                    </div>
                   </div>
                 </div>
                 <div className="text-right">
@@ -312,13 +355,25 @@ export default function Vendors() {
 
               <div className="p-8 max-h-[60vh] overflow-y-auto bg-white">
                 <TabsContent value="profile" className="mt-0 space-y-6">
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 gap-6">
                     <div className="space-y-2">
-                      <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Business Address</Label>
-                      <Input 
-                        defaultValue={selectedVendor.address} 
-                        className="bg-gray-50 border-none font-medium"
-                        onBlur={(e) => updateVendor({ address: e.target.value })}
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Business Address</Label>
+                        {selectedVendor.address && (
+                          <a 
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedVendor.address)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-black text-primary flex items-center gap-1 hover:underline uppercase tracking-widest"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Open in Maps
+                          </a>
+                        )}
+                      </div>
+                      <AddressInput 
+                        defaultValue={selectedVendor.address}
+                        onAddressSelect={(address, lat, lng) => updateVendor({ address, latitude: lat, longitude: lng })}
                       />
                     </div>
                     <div className="space-y-2">
@@ -345,6 +400,35 @@ export default function Vendors() {
                       className="bg-gray-50 border-none min-h-[100px] font-medium"
                       onBlur={(e) => updateVendor({ notes: e.target.value })}
                     />
+                  </div>
+
+                  <div className="pt-6 border-t border-gray-100">
+                    <AlertDialog>
+                      <AlertDialogTrigger render={
+                        <Button variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold">
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete Vendor Profile
+                        </Button>
+                      } />
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="font-black">Are you absolutely sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete the vendor profile
+                            and all associated local data. We will check for linked appointments first.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="font-bold">Cancel</AlertDialogCancel>
+                          <AlertDialogAction 
+                            onClick={() => handleDeleteVendor(selectedVendor.id)}
+                            className="bg-red-600 hover:bg-red-700 font-bold"
+                          >
+                            Delete Vendor
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </TabsContent>
 

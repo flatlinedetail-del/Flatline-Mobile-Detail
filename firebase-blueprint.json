@@ -84,6 +84,59 @@
         "vin": { "type": "string" },
         "roNumber": { "type": "string" }
       }
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Business expense",
+      "type": "object",
+      "properties": {
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "notes": { "type": "string" },
+        "technicianId": { "type": "string" }
+      }
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Customer or vendor vehicle",
+      "type": "object",
+      "properties": {
+        "make": { "type": "string" },
+        "model": { "type": "string" },
+        "year": { "type": "number" },
+        "color": { "type": "string" },
+        "vin": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "ownerType": { "type": "string", "enum": ["customer", "vendor"] }
+      }
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Detailing service catalog item",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "duration": { "type": "number" }
+      }
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Business settings",
+      "type": "object",
+      "properties": {
+        "businessName": { "type": "string" },
+        "taxRate": { "type": "number" },
+        "currency": { "type": "string" },
+        "timezone": { "type": "string" },
+        "commissionRate": { "type": "number" },
+        "baseAddress": { "type": "string" },
+        "baseLatitude": { "type": "number" },
+        "baseLongitude": { "type": "number" },
+        "travelPricing": { "type": "object" }
+      }
     }
   },
   "firestore": {
@@ -91,6 +144,10 @@
     "/leads/{leadId}": { "schema": "Lead", "description": "Leads" },
     "/customers/{customerId}": { "schema": "Customer", "description": "Retail customers" },
     "/vendors/{vendorId}": { "schema": "Vendor", "description": "Vendor accounts" },
-    "/appointments/{appointmentId}": { "schema": "Appointment", "description": "Appointments" }
+    "/appointments/{appointmentId}": { "schema": "Appointment", "description": "Appointments" },
+    "/expenses/{expenseId}": { "schema": "Expense", "description": "Business expenses" },
+    "/vehicles/{vehicleId}": { "schema": "Vehicle", "description": "Vehicles" },
+    "/services/{serviceId}": { "schema": "Service", "description": "Service catalog" },
+    "/settings/{settingId}": { "schema": "Setting", "description": "Business settings" }
   }
 }

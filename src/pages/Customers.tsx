@@ -30,13 +30,17 @@ import {
   Plus,
   Trash2,
   Save,
-  ChevronRight
+  ChevronRight,
+  ExternalLink
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "../lib/utils";
 import { Customer, Vehicle, Service } from "../types";
+import AddressInput from "../components/AddressInput";
+import { deleteDoc } from "firebase/firestore";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export default function Customers() {
   const { profile } = useAuth();
@@ -48,6 +52,7 @@ export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [customerVehicles, setCustomerVehicles] = useState<Vehicle[]>([]);
+  const [newCustomerAddress, setNewCustomerAddress] = useState({ address: "", lat: 0, lng: 0 });
 
   useEffect(() => {
     const q = query(collection(db, "customers"), orderBy("createdAt", "desc"));
@@ -85,7 +90,9 @@ export default function Customers() {
       name: formData.get("name"),
       phone: formData.get("phone"),
       email: formData.get("email"),
-      address: formData.get("address"),
+      address: newCustomerAddress.address,
+      latitude: newCustomerAddress.lat,
+      longitude: newCustomerAddress.lng,
       loyaltyPoints: 0,
       membershipLevel: "none",
       notes: formData.get("notes"),
@@ -110,6 +117,31 @@ export default function Customers() {
       toast.success("Profile updated");
     } catch (error) {
       toast.error("Failed to update profile");
+    }
+  };
+
+  const handleDeleteCustomer = async (id: string) => {
+    try {
+      // Check for linked records
+      const qVehicles = query(collection(db, "vehicles"), where("ownerId", "==", id));
+      const qAppointments = query(collection(db, "appointments"), where("customerId", "==", id));
+      
+      const [vehiclesSnap, appointmentsSnap] = await Promise.all([
+        getDocs(qVehicles),
+        getDocs(qAppointments)
+      ]);
+
+      if (!vehiclesSnap.empty || !appointmentsSnap.empty) {
+        toast.error("Cannot delete customer with linked vehicles or appointments.");
+        return;
+      }
+
+      await deleteDoc(doc(db, "customers", id));
+      toast.success("Customer deleted successfully");
+      setIsDetailOpen(false);
+    } catch (error) {
+      console.error("Error deleting customer:", error);
+      toast.error("Failed to delete customer");
     }
   };
 
@@ -186,7 +218,10 @@ export default function Customers() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="address">Default Address</Label>
-                <Input id="address" name="address" placeholder="123 Main St, City, ST" />
+                <AddressInput 
+                  onAddressSelect={(address, lat, lng) => setNewCustomerAddress({ address, lat, lng })}
+                  placeholder="123 Main St, City, ST"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="notes">Notes</Label>
@@ -261,14 +296,24 @@ export default function Customers() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2 text-xs font-medium text-gray-600">
+                        <a 
+                          href={`tel:${customer.phone}`} 
+                          className="flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-primary transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <Phone className="w-3 h-3 text-gray-400" />
                           {customer.phone}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs font-medium text-gray-600">
-                          <Mail className="w-3 h-3 text-gray-400" />
-                          {customer.email || "N/A"}
-                        </div>
+                        </a>
+                        {customer.email && (
+                          <a 
+                            href={`mailto:${customer.email}`} 
+                            className="flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-primary transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Mail className="w-3 h-3 text-gray-400" />
+                            {customer.email}
+                          </a>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -314,11 +359,15 @@ export default function Customers() {
                   </div>
                   <div>
                     <h2 className="text-3xl font-black tracking-tighter">{selectedCustomer.name}</h2>
-                    <p className="text-red-100 flex items-center gap-2 mt-1 font-medium">
-                      <Phone className="w-4 h-4" /> {selectedCustomer.phone}
+                    <div className="text-red-100 flex items-center gap-4 mt-1 font-medium">
+                      <a href={`tel:${selectedCustomer.phone}`} className="flex items-center gap-2 hover:text-white transition-colors">
+                        <Phone className="w-4 h-4" /> {selectedCustomer.phone}
+                      </a>
                       <span className="opacity-30">|</span>
-                      <Mail className="w-4 h-4" /> {selectedCustomer.email}
-                    </p>
+                      <a href={`mailto:${selectedCustomer.email}`} className="flex items-center gap-2 hover:text-white transition-colors">
+                        <Mail className="w-4 h-4" /> {selectedCustomer.email}
+                      </a>
+                    </div>
                   </div>
                 </div>
                 <div className="text-right">
@@ -340,13 +389,25 @@ export default function Customers() {
 
               <div className="p-8 max-h-[60vh] overflow-y-auto bg-white">
                 <TabsContent value="profile" className="mt-0 space-y-6">
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 gap-6">
                     <div className="space-y-2">
-                      <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Default Address</Label>
-                      <Input 
-                        defaultValue={selectedCustomer.address} 
-                        className="bg-gray-50 border-none font-medium"
-                        onBlur={(e) => updateCustomer({ address: e.target.value })}
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Default Address</Label>
+                        {selectedCustomer.address && (
+                          <a 
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedCustomer.address)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-black text-primary flex items-center gap-1 hover:underline uppercase tracking-widest"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Open in Maps
+                          </a>
+                        )}
+                      </div>
+                      <AddressInput 
+                        defaultValue={selectedCustomer.address}
+                        onAddressSelect={(address, lat, lng) => updateCustomer({ address, latitude: lat, longitude: lng })}
                       />
                     </div>
                     <div className="space-y-2">
@@ -374,6 +435,35 @@ export default function Customers() {
                       className="bg-gray-50 border-none min-h-[100px] font-medium"
                       onBlur={(e) => updateCustomer({ notes: e.target.value })}
                     />
+                  </div>
+
+                  <div className="pt-6 border-t border-gray-100">
+                    <AlertDialog>
+                      <AlertDialogTrigger render={
+                        <Button variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold">
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete Customer Profile
+                        </Button>
+                      } />
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="font-black">Are you absolutely sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete the customer profile
+                            and all associated local data. We will check for linked vehicles and appointments first.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="font-bold">Cancel</AlertDialogCancel>
+                          <AlertDialogAction 
+                            onClick={() => handleDeleteCustomer(selectedCustomer.id)}
+                            className="bg-red-600 hover:bg-red-700 font-bold"
+                          >
+                            Delete Customer
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </TabsContent>
 

@@ -23,7 +23,9 @@ import {
   Navigation,
   FileText,
   DollarSign,
-  Loader2
+  Loader2,
+  Truck,
+  ExternalLink
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -137,10 +139,10 @@ export default function JobDetail() {
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   const statusColors: any = {
-    scheduled: "bg-blue-100 text-blue-700 border-blue-200",
-    confirmed: "bg-purple-100 text-purple-700 border-purple-200",
-    en_route: "bg-orange-100 text-orange-700 border-orange-200",
-    in_progress: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    scheduled: "bg-gray-100 text-gray-700 border-gray-200",
+    confirmed: "bg-black text-white border-black",
+    en_route: "bg-red-50 text-primary border-red-200",
+    in_progress: "bg-primary text-white border-primary",
     completed: "bg-green-100 text-green-700 border-green-200",
     paid: "bg-emerald-100 text-emerald-700 border-emerald-200",
     canceled: "bg-red-100 text-red-700 border-red-200",
@@ -166,22 +168,22 @@ export default function JobDetail() {
         </div>
         <div className="flex items-center gap-2">
           {job.status === "scheduled" && (
-            <Button onClick={() => updateStatus("confirmed")} disabled={isUpdating} className="bg-purple-600 hover:bg-purple-700 font-bold">
+            <Button onClick={() => updateStatus("confirmed")} disabled={isUpdating} className="bg-black text-white hover:bg-gray-900 font-bold">
               Confirm Job
             </Button>
           )}
           {job.status === "confirmed" && (
-            <Button onClick={() => updateStatus("en_route")} disabled={isUpdating} className="bg-orange-600 hover:bg-orange-700 font-bold">
+            <Button onClick={() => updateStatus("en_route")} disabled={isUpdating} className="bg-primary hover:bg-red-700 font-bold">
               Start Route
             </Button>
           )}
           {job.status === "en_route" && (
-            <Button onClick={() => updateStatus("in_progress")} disabled={isUpdating} className="bg-yellow-600 hover:bg-yellow-700 font-bold">
+            <Button onClick={() => updateStatus("in_progress")} disabled={isUpdating} className="bg-primary hover:bg-red-700 font-bold">
               Arrived & Start
             </Button>
           )}
           {job.status === "in_progress" && (
-            <Button onClick={() => setShowSignature(true)} disabled={isUpdating} className="bg-green-600 hover:bg-green-700 font-bold">
+            <Button onClick={() => setShowSignature(true)} disabled={isUpdating} className="bg-black text-white hover:bg-gray-900 font-bold">
               Complete Job
             </Button>
           )}
@@ -239,16 +241,32 @@ export default function JobDetail() {
               <div className="space-y-2 pt-2">
                 <div className="flex items-center gap-3 text-sm text-gray-600">
                   <Phone className="w-4 h-4 text-gray-400" />
-                  <span>(555) 123-4567</span>
+                  <a href={`tel:${job.customerPhone}`} className="hover:text-primary transition-colors font-medium">
+                    {job.customerPhone || "(555) 123-4567"}
+                  </a>
                 </div>
                 <div className="flex items-center gap-3 text-sm text-gray-600">
                   <Mail className="w-4 h-4 text-gray-400" />
-                  <span>customer@example.com</span>
+                  <a href={`mailto:${job.customerEmail}`} className="hover:text-primary transition-colors font-medium">
+                    {job.customerEmail || "customer@example.com"}
+                  </a>
                 </div>
                 <div className="flex items-start gap-3 text-sm text-gray-600">
                   <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                  <span className="flex-1">{job.address}</span>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 text-primary hover:bg-red-50">
+                  <a 
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.address)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 hover:text-primary transition-colors font-medium"
+                  >
+                    {job.address}
+                  </a>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6 text-primary hover:bg-red-50"
+                    onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}`, '_blank')}
+                  >
                     <Navigation className="w-3 h-3" />
                   </Button>
                 </div>
@@ -262,15 +280,15 @@ export default function JobDetail() {
               <CardTitle className="text-sm font-bold uppercase tracking-widest text-gray-400">Vehicle Info</CardTitle>
             </CardHeader>
             <CardContent className="p-5 space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-600">
-                  <Car className="w-6 h-6" />
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center text-white">
+                    <Car className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-900">{job.vehicleInfo}</p>
+                    {job.vin && <p className="text-[10px] font-mono text-gray-400 uppercase">{job.vin}</p>}
+                  </div>
                 </div>
-                <div>
-                  <p className="font-bold text-gray-900">{job.vehicleInfo}</p>
-                  {job.vin && <p className="text-[10px] font-mono text-gray-400 uppercase">{job.vin}</p>}
-                </div>
-              </div>
               {decodedVin && (
                 <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wider">
                   <div className="text-gray-400">Make: <span className="text-gray-900">{decodedVin.make}</span></div>
@@ -298,9 +316,24 @@ export default function JobDetail() {
                 {job.serviceNames?.map((service: string) => (
                   <div key={service} className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">{service}</span>
-                    <span className="font-medium text-gray-900">$150.00</span>
+                    <span className="font-medium text-gray-900">${job.baseAmount / (job.serviceNames?.length || 1)}</span>
                   </div>
                 ))}
+                {job.travelFee > 0 && (
+                  <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-50">
+                    <div className="flex items-center gap-1 text-primary font-bold">
+                      <Truck className="w-3 h-3" />
+                      <span>Travel Fee</span>
+                    </div>
+                    <span className="font-bold text-primary">${job.travelFee}</span>
+                  </div>
+                )}
+                {job.discountAmount > 0 && (
+                  <div className="flex items-center justify-between text-sm text-green-600 font-bold">
+                    <span>Discount</span>
+                    <span>-${job.discountAmount}</span>
+                  </div>
+                )}
               </div>
               <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
                 <span className="text-lg font-bold text-gray-900">Total</span>
@@ -354,9 +387,24 @@ export default function JobDetail() {
                           {job.serviceNames?.map((service: string) => (
                             <tr key={service}>
                               <td className="py-4 text-gray-700">{service}</td>
-                              <td className="py-4 text-right font-bold text-gray-900">$150.00</td>
+                              <td className="py-4 text-right font-bold text-gray-900">${job.baseAmount / (job.serviceNames?.length || 1)}</td>
                             </tr>
                           ))}
+                          {job.travelFee > 0 && (
+                            <tr>
+                              <td className="py-4 text-gray-700 flex items-center gap-2">
+                                <Truck className="w-3 h-3 text-primary" />
+                                Travel Fee ({job.travelFeeBreakdown?.miles} miles)
+                              </td>
+                              <td className="py-4 text-right font-bold text-primary">${job.travelFee}</td>
+                            </tr>
+                          )}
+                          {job.discountAmount > 0 && (
+                            <tr>
+                              <td className="py-4 text-green-600 font-bold italic">Discount / Promotion</td>
+                              <td className="py-4 text-right font-bold text-green-600">-${job.discountAmount}</td>
+                            </tr>
+                          )}
                         </tbody>
                         <tfoot>
                           <tr>
