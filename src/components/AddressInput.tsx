@@ -11,7 +11,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "./ui/input";
 import { MapPin } from "lucide-react";
 
@@ -43,6 +43,12 @@ export default function AddressInput({
     defaultValue,
   });
 
+  useEffect(() => {
+    if (defaultValue) {
+      setValue(defaultValue, false);
+    }
+  }, [defaultValue, setValue]);
+
   const handleSelect = async (address: string) => {
     setValue(address, false);
     clearSuggestions();
@@ -53,8 +59,17 @@ export default function AddressInput({
       const { lat, lng } = await getLatLng(results[0]);
       onAddressSelect(address, lat, lng);
     } catch (error) {
-      console.error("Error: ", error);
+      console.error("Geocoding error: ", error);
+      // Fallback: still notify parent of the address string even if geocoding fails
+      onAddressSelect(address, 0, 0);
     }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setValue(val);
+    // Notify parent of manual typing (with 0,0 coords)
+    onAddressSelect(val, 0, 0);
   };
 
   return (
@@ -65,8 +80,7 @@ export default function AddressInput({
             <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input
               value={value}
-              onChange={(e) => setValue(e.target.value)}
-              disabled={!ready}
+              onChange={handleInputChange}
               placeholder={placeholder}
               className="pl-10 bg-gray-50 border-none font-medium"
             />

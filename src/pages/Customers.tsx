@@ -86,6 +86,11 @@ export default function Customers() {
   const handleAddCustomer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    
+    if (newCustomerAddress.address && newCustomerAddress.lat === 0) {
+      toast.warning("Address selected but coordinates not found. Travel fees may not calculate correctly.");
+    }
+
     const newCustomer = {
       name: formData.get("name"),
       phone: formData.get("phone"),
@@ -104,6 +109,8 @@ export default function Customers() {
       await addDoc(collection(db, "customers"), newCustomer);
       toast.success("Customer added successfully");
       setIsAddDialogOpen(false);
+      setNewCustomerAddress({ address: "", lat: 0, lng: 0 });
+      (e.currentTarget as HTMLFormElement).reset();
     } catch (error) {
       console.error("Error adding customer:", error);
       toast.error("Failed to add customer");

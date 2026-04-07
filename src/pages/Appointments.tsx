@@ -103,6 +103,18 @@ export default function Appointments() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (selectedCustomerId) {
+      const customer = customerType === "retail" 
+        ? customers.find(c => c.id === selectedCustomerId)
+        : vendors.find(v => v.id === selectedCustomerId);
+      
+      if (customer && customer.address) {
+        handleAddressSelect(customer.address, customer.latitude || 0, customer.longitude || 0);
+      }
+    }
+  }, [selectedCustomerId, customerType]);
+
   const handleAddressSelect = (address: string, lat: number, lng: number) => {
     setAppointmentAddress({ address, lat, lng });
     if (settings && settings.baseLatitude && settings.baseLongitude) {
@@ -259,10 +271,16 @@ export default function Appointments() {
                 <div className="space-y-2 col-span-2">
                   <Label htmlFor="address">Service Address</Label>
                   <AddressInput 
+                    defaultValue={appointmentAddress.address}
                     onAddressSelect={handleAddressSelect}
                     placeholder="123 Main St, Austin, TX"
                   />
-                  {travelFeeData && (
+                  {appointmentAddress.address && appointmentAddress.lat === 0 && (
+                    <p className="text-[10px] text-amber-600 font-bold mt-1 uppercase tracking-widest">
+                      ⚠️ Manual entry detected. Travel fees cannot be calculated automatically.
+                    </p>
+                  )}
+                  {travelFeeData && appointmentAddress.lat !== 0 && (
                     <div className="flex items-center gap-2 mt-2 p-3 bg-red-50 rounded-xl border border-red-100">
                       <Truck className="w-4 h-4 text-primary" />
                       <div className="flex-1">

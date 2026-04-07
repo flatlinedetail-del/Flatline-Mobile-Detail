@@ -182,30 +182,134 @@ export default function Settings() {
             <CardHeader>
               <CardTitle>Business Configuration</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label htmlFor="businessName">Business Name</Label>
-                  <Input id="businessName" defaultValue="Flatline Mobile Detail" />
+                  <Input 
+                    id="businessName" 
+                    value={settings?.businessName || ""} 
+                    onChange={(e) => setSettings(prev => prev ? { ...prev, businessName: e.target.value } : null)}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="taxRate">Default Tax Rate (%)</Label>
-                  <Input id="taxRate" type="number" defaultValue="8.25" />
+                  <Input 
+                    id="taxRate" 
+                    type="number" 
+                    value={settings?.taxRate || 0} 
+                    onChange={(e) => setSettings(prev => prev ? { ...prev, taxRate: parseFloat(e.target.value) } : null)}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="currency">Currency</Label>
-                  <Input id="currency" defaultValue="USD ($)" disabled />
+                  <Input id="currency" value={settings?.currency || "USD"} disabled />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="timezone">Timezone</Label>
-                  <Input id="timezone" defaultValue="America/Chicago" />
+                  <Input 
+                    id="timezone" 
+                    value={settings?.timezone || ""} 
+                    onChange={(e) => setSettings(prev => prev ? { ...prev, timezone: e.target.value } : null)}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="commissionRate">Default Technician Commission (%)</Label>
-                  <Input id="commissionRate" type="number" defaultValue="30" />
+                  <Input 
+                    id="commissionRate" 
+                    type="number" 
+                    value={settings?.commissionRate || 0} 
+                    onChange={(e) => setSettings(prev => prev ? { ...prev, commissionRate: parseFloat(e.target.value) } : null)}
+                  />
                 </div>
               </div>
-              <Button className="bg-primary hover:bg-red-700 font-bold">Update Business Info</Button>
+
+              <div className="pt-6 border-t border-gray-100">
+                <h3 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-primary" />
+                  Mileage & Travel Pricing
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2 col-span-2">
+                    <Label>Business Base Address (for distance calculation)</Label>
+                    <AddressInput 
+                      defaultValue={settings?.baseAddress}
+                      onAddressSelect={(address, lat, lng) => setSettings(prev => prev ? { ...prev, baseAddress: address, baseLatitude: lat, baseLongitude: lng } : null)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="pricePerMile">Price Per Mile ($)</Label>
+                    <Input 
+                      id="pricePerMile" 
+                      type="number" 
+                      step="0.01"
+                      value={settings?.travelPricing.pricePerMile || 0} 
+                      onChange={(e) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        travelPricing: { ...prev.travelPricing, pricePerMile: parseFloat(e.target.value) } 
+                      } : null)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="freeMilesThreshold">Free Miles Threshold (one way)</Label>
+                    <Input 
+                      id="freeMilesThreshold" 
+                      type="number" 
+                      value={settings?.travelPricing.freeMilesThreshold || 0} 
+                      onChange={(e) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        travelPricing: { ...prev.travelPricing, freeMilesThreshold: parseFloat(e.target.value) } 
+                      } : null)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="minTravelFee">Minimum Travel Fee ($)</Label>
+                    <Input 
+                      id="minTravelFee" 
+                      type="number" 
+                      value={settings?.travelPricing.minTravelFee || 0} 
+                      onChange={(e) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        travelPricing: { ...prev.travelPricing, minTravelFee: parseFloat(e.target.value) } 
+                      } : null)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxTravelFee">Maximum Travel Fee ($)</Label>
+                    <Input 
+                      id="maxTravelFee" 
+                      type="number" 
+                      value={settings?.travelPricing.maxTravelFee || 0} 
+                      onChange={(e) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        travelPricing: { ...prev.travelPricing, maxTravelFee: parseFloat(e.target.value) } 
+                      } : null)}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl col-span-2">
+                    <div className="space-y-0.5">
+                      <Label className="text-base font-bold">Round Trip Pricing</Label>
+                      <p className="text-sm text-gray-500">Calculate fee based on total distance (to and from base).</p>
+                    </div>
+                    <Switch 
+                      checked={settings?.travelPricing.roundTripToggle || false} 
+                      onCheckedChange={(checked) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        travelPricing: { ...prev.travelPricing, roundTripToggle: checked } 
+                      } : null)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Button 
+                onClick={() => handleSaveSettings(settings || {})} 
+                className="bg-primary hover:bg-red-700 font-bold"
+                disabled={isSaving}
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Save Business Settings
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
