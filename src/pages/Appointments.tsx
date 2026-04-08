@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { format, addHours } from "date-fns";
 import { cn } from "@/lib/utils";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { validateCoupon, calculateDiscount, addLoyaltyPoints, redeemLoyaltyPoints } from "../services/promotions";
 import { Checkbox } from "@/components/ui/checkbox";
 import AddressInput from "../components/AddressInput";
@@ -26,6 +26,7 @@ import { BusinessSettings } from "../types";
 export default function Appointments() {
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -129,6 +130,27 @@ export default function Appointments() {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (location.state?.lead) {
+      const lead = location.state.lead;
+      setCustomerType("retail");
+      // We need to find if this lead is already a customer or if we should just use their info
+      // For now, let's assume the user wants to select a customer. 
+      // If the lead was converted, they should be in the customers list.
+      const existingCustomer = customers.find(c => c.phone === lead.phone || c.email === lead.email);
+      if (existingCustomer) {
+        setSelectedCustomerId(existingCustomer.id);
+      }
+      
+      if (lead.address) {
+        handleAddressSelect(lead.address, lead.latitude || 0, lead.longitude || 0, true);
+      }
+      setShowAddDialog(true);
+      // Clear state so it doesn't reopen on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, customers]);
 
   useEffect(() => {
     if (showAddDialog) {
@@ -323,9 +345,22 @@ export default function Appointments() {
                   <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId} required>
                     <SelectTrigger className="bg-white border-gray-200">
                       <SelectValue placeholder={`Select a ${customerType}`}>
-                        {selectedCustomerId && (
-                          (customerType === "retail" ? customers : vendors).find(c => c.id === selectedCustomerId)?.name || "Unknown customer"
-                        )}
+                        {selectedCustomerId && (() => {
+                          const list = customerType === "retail" ? customers : vendors;
+                          const c = list.find(item => item.id === selectedCustomerId);
+                          if (!c) return "Unknown customer";
+                          const isDuplicate = list.filter(other => other.name === c.name).length > 1;
+                          return (
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold">{c.name}</span>
+                              {isDuplicate && (
+                                <span className="text-[10px] text-gray-400 font-medium">
+                                  ({c.phone || c.email || (c.address ? c.address.substring(0, 20) + "..." : "ID: " + c.id.slice(-4))})
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent className="bg-white">
@@ -667,21 +702,28 @@ export default function Appointments() {
                   <TableCell colSpan={6} className="text-center py-10 text-gray-500">No appointments found.</TableCell>
                 </TableRow>
               ) : (
-                filteredAppointments.map((app) => (
-                  <TableRow 
-                    key={app.id} 
-                    className="hover:bg-gray-50/50 transition-colors cursor-pointer group"
-                    onClick={() => navigate(`/appointments/${app.id}`)}
-                  >
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-gray-900">{app.customerName || "Retail Client"}</span>
-                        <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
-                          <Car className="w-3 h-3" />
-                          {app.vehicleInfo || "Vehicle N/A"}
+                filteredAppointments.map((app) => {
+                  const resolvedName = app.customerName || 
+                    (app.customerType === "retail" 
+                      ? customers.find((c: any) => c.id === app.customerId)?.name 
+                      : vendors.find((v: any) => v.id === app.customerId)?.name) || 
+                    "Retail Client";
+                  
+                  return (
+                    <TableRow 
+                      key={app.id} 
+                      className="hover:bg-gray-50/50 transition-colors cursor-pointer group"
+                      onClick={() => navigate(`/appointments/${app.id}`)}
+                    >
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-900">{resolvedName}</span>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                            <Car className="w-3 h-3" />
+                            {app.vehicleInfo || "Vehicle N/A"}
+                          </div>
                         </div>
-                      </div>
-                    </TableCell>
+                      </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -721,9 +763,10 @@ export default function Appointments() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
+                );
+              })
+            )}
+          </TableBody>
           </Table>
         </CardContent>
       </Card>
