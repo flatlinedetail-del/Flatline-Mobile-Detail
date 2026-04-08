@@ -4,7 +4,7 @@ import usePlacesAutocomplete, {
   getGeocode,
   getLatLng,
 } from "use-places-autocomplete";
-import { useJsApiLoader, Libraries } from "@react-google-maps/api";
+import { useGoogleMaps } from "./GoogleMapsProvider";
 import { MapPin, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,8 +14,6 @@ interface CustomerAddressInputProps {
   className?: string;
   defaultValue?: string;
 }
-
-const LIBRARIES: Libraries = ["places"];
 
 /**
  * IsolatedAddressInput
@@ -34,10 +32,7 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
   className = "",
   defaultValue = "",
 }, ref) => {
-  const { isLoaded, loadError: loaderError } = useJsApiLoader({
-    googleMapsApiKey: (import.meta as any).env.VITE_GOOGLE_MAPS_API_KEY || "",
-    libraries: LIBRARIES,
-  });
+  const { isLoaded, loadError: loaderError } = useGoogleMaps();
 
   const [loadError, setLoadError] = useState<Error | null>(null);
 
@@ -75,6 +70,12 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
     cache: 86400,
     initOnMount: false,
   });
+
+  useEffect(() => {
+    if (status === "REQUEST_DENIED") {
+      setLoadError(new Error("ApiTargetBlockedMapError: The API key is not authorized for Places API. Please check your Google Cloud Console settings."));
+    }
+  }, [status]);
 
   // Initialize autocomplete only when Google Maps script is loaded
   useEffect(() => {
@@ -142,8 +143,11 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
       const newData = { address: description, lat, lng };
       setAddressData(newData);
       if (onAddressSelect) onAddressSelect(description, lat, lng);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Geocoding error:", error);
+      if (error?.toString().includes("ApiTargetBlockedMapError") || error?.message?.includes("ApiTargetBlockedMapError")) {
+        setLoadError(new Error("Geocoding API is not enabled for this API key. Please enable it in Google Cloud Console."));
+      }
       const newData = { address: description, lat: 0, lng: 0 };
       setAddressData(newData);
       if (onAddressSelect) onAddressSelect(description, 0, 0);

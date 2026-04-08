@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
+import { GoogleMapsProvider } from "./components/GoogleMapsProvider";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import Dashboard from "./pages/Dashboard";
 import Leads from "./pages/Leads";
@@ -56,7 +57,9 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <AppContent />
+        <GoogleMapsProvider>
+          <AppContent />
+        </GoogleMapsProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

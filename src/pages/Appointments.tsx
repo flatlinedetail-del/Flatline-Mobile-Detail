@@ -48,6 +48,7 @@ export default function Appointments() {
   const [appointmentAddress, setAppointmentAddress] = useState({ address: "", lat: 0, lng: 0 });
   const [travelFeeData, setTravelFeeData] = useState<any>(null);
   const [baseAmount, setBaseAmount] = useState<number>(0);
+  const [isAddressManual, setIsAddressManual] = useState(false);
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringFrequency, setRecurringFrequency] = useState<"daily" | "weekly" | "monthly">("weekly");
   const [recurringInterval, setRecurringInterval] = useState(1);
@@ -130,13 +131,38 @@ export default function Appointments() {
   }, []);
 
   useEffect(() => {
+    if (showAddDialog) {
+      setIsAddressManual(false);
+      setIsRecurring(false);
+      setRecurringFrequency("weekly");
+      setRecurringInterval(1);
+      setRecurringEndDate("");
+      setDiscount(0);
+      setRedeemedPoints(0);
+      setCouponCode("");
+      setSelectedServiceIds([]);
+      setSelectedAddonIds([]);
+      setWaiverAccepted(false);
+    }
+  }, [showAddDialog]);
+
+  useEffect(() => {
     if (selectedCustomerId) {
       const customer = customerType === "retail" 
         ? customers.find(c => c.id === selectedCustomerId)
         : vendors.find(v => v.id === selectedCustomerId);
       
       if (customer && customer.address) {
-        handleAddressSelect(customer.address, customer.latitude || 0, customer.longitude || 0);
+        if (isAddressManual && appointmentAddress.address && appointmentAddress.address !== customer.address) {
+          toast("Update address to customer's saved address?", {
+            action: {
+              label: "Update",
+              onClick: () => handleAddressSelect(customer.address, customer.latitude || 0, customer.longitude || 0, true)
+            }
+          });
+        } else {
+          handleAddressSelect(customer.address, customer.latitude || 0, customer.longitude || 0, true);
+        }
       }
     }
   }, [selectedCustomerId, customerType]);
@@ -158,8 +184,10 @@ export default function Appointments() {
     setBaseAmount(total);
   }, [selectedServiceIds, selectedAddonIds, vehicleSize, services, addons]);
 
-  const handleAddressSelect = (address: string, lat: number, lng: number) => {
+  const handleAddressSelect = (address: string, lat: number, lng: number, isAuto = false) => {
     setAppointmentAddress({ address, lat, lng });
+    if (!isAuto) setIsAddressManual(true);
+    
     if (settings && settings.baseLatitude && settings.baseLongitude) {
       const distance = calculateDistance(settings.baseLatitude, settings.baseLongitude, lat, lng);
       const feeData = calculateTravelFee(distance, settings.travelPricing);
@@ -277,7 +305,10 @@ export default function Appointments() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2 col-span-2">
                   <Label>Customer Type</Label>
-                  <Select value={customerType} onValueChange={(v: any) => setCustomerType(v)}>
+                  <Select value={customerType} onValueChange={(v: any) => {
+                    setCustomerType(v);
+                    setSelectedCustomerId("");
+                  }}>
                     <SelectTrigger className="bg-white border-gray-200">
                       <SelectValue />
                     </SelectTrigger>
@@ -291,17 +322,45 @@ export default function Appointments() {
                   <Label htmlFor="customerId">Select {customerType === "retail" ? "Customer" : "Vendor"}</Label>
                   <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId} required>
                     <SelectTrigger className="bg-white border-gray-200">
-                      <SelectValue placeholder={`Select a ${customerType}`} />
+                      <SelectValue placeholder={`Select a ${customerType}`}>
+                        {selectedCustomerId && (
+                          (customerType === "retail" ? customers : vendors).find(c => c.id === selectedCustomerId)?.name || "Unknown customer"
+                        )}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent className="bg-white">
                       {customerType === "retail" ? (
-                        customers.map(c => (
-                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                        ))
+                        customers.map(c => {
+                          const isDuplicate = customers.filter(other => other.name === c.name).length > 1;
+                          return (
+                            <SelectItem key={c.id} value={c.id}>
+                              <div className="flex flex-col">
+                                <span className="font-bold">{c.name}</span>
+                                {isDuplicate && (
+                                  <span className="text-[10px] text-gray-500">
+                                    {c.phone || c.email || (c.address ? c.address.substring(0, 30) + "..." : "No secondary info")}
+                                  </span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          );
+                        })
                       ) : (
-                        vendors.map(v => (
-                          <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
-                        ))
+                        vendors.map(v => {
+                          const isDuplicate = vendors.filter(other => other.name === v.name).length > 1;
+                          return (
+                            <SelectItem key={v.id} value={v.id}>
+                              <div className="flex flex-col">
+                                <span className="font-bold">{v.name}</span>
+                                {isDuplicate && (
+                                  <span className="text-[10px] text-gray-500">
+                                    {v.phone || v.email || (v.address ? v.address.substring(0, 30) + "..." : "No secondary info")}
+                                  </span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          );
+                        })
                       )}
                     </SelectContent>
                   </Select>

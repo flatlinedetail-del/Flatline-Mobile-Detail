@@ -4,7 +4,7 @@ import usePlacesAutocomplete, {
 } from "use-places-autocomplete";
 import { useState, useEffect, useRef } from "react";
 import { MapPin, AlertCircle, Loader2 } from "lucide-react";
-import { useJsApiLoader, Libraries } from "@react-google-maps/api";
+import { useGoogleMaps } from "./GoogleMapsProvider";
 import { cn } from "@/lib/utils";
 
 interface AddressInputProps {
@@ -14,18 +14,13 @@ interface AddressInputProps {
   className?: string;
 }
 
-const LIBRARIES: Libraries = ["places"];
-
 export default function AddressInput({
   defaultValue = "",
   onAddressSelect,
   placeholder = "Search address...",
   className = "",
 }: AddressInputProps) {
-  const { isLoaded, loadError: loaderError } = useJsApiLoader({
-    googleMapsApiKey: (import.meta as any).env.VITE_GOOGLE_MAPS_API_KEY || "",
-    libraries: LIBRARIES,
-  });
+  const { isLoaded, loadError: loaderError } = useGoogleMaps();
 
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -63,6 +58,12 @@ export default function AddressInput({
   });
 
   useEffect(() => {
+    if (status === "REQUEST_DENIED") {
+      setLoadError(new Error("ApiTargetBlockedMapError: The API key is not authorized for Places API. Please check your Google Cloud Console settings."));
+    }
+  }, [status]);
+
+  useEffect(() => {
     if (isLoaded) {
       init();
     }
@@ -97,8 +98,11 @@ export default function AddressInput({
       const results = await getGeocode({ address });
       const { lat, lng } = await getLatLng(results[0]);
       onAddressSelect(address, lat, lng);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Geocoding error: ", error);
+      if (error?.toString().includes("ApiTargetBlockedMapError") || error?.message?.includes("ApiTargetBlockedMapError")) {
+        setLoadError(new Error("Geocoding API is not enabled for this API key. Please enable it in Google Cloud Console."));
+      }
       onAddressSelect(address, 0, 0);
     } finally {
       setTimeout(() => {
@@ -179,12 +183,44 @@ export default function AddressInput({
       )}
 
       {loadError && (
-        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-[10px] leading-tight">
+        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-[10px] leading-tight shadow-sm animate-in fade-in slide-in-from-top-1">
           <div className="flex items-center gap-1.5 font-bold mb-1">
             <AlertCircle className="w-3 h-3" />
             <span>Google Maps API Error</span>
           </div>
-          <p>{loadError.message || "Failed to load address suggestions."}</p>
+          <p className="mb-1">
+            {loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")
+              ? "The 'Places API' or 'Geocoding API' is not enabled for this API key. You must enable BOTH in the Google Cloud Console."
+              : "Failed to load address suggestions. Manual entry is enabled."}
+          </p>
+          {(loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")) && (
+            <div className="flex flex-col gap-1.5 mt-2">
+              <a 
+                href="https://console.cloud.google.com/google/maps-apis/api/places-backend.googleapis.com/overview" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-bold flex items-center gap-1"
+              >
+                1. Enable Places API →
+              </a>
+              <a 
+                href="https://console.cloud.google.com/google/maps-apis/api/geocoding-backend.googleapis.com/overview" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-bold flex items-center gap-1"
+              >
+                2. Enable Geocoding API →
+              </a>
+              <a 
+                href="https://console.cloud.google.com/google/maps-apis/credentials" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-bold flex items-center gap-1"
+              >
+                3. Check API Key Restrictions →
+              </a>
+            </div>
+          )}
         </div>
       )}
     </div>
