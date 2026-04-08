@@ -93,8 +93,15 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
   }));
 
   const lastDefaultValue = useRef(defaultValue);
+  const initialValueSetRef = useRef(false);
   useEffect(() => {
-    if (defaultValue !== lastDefaultValue.current) {
+    if (defaultValue && !initialValueSetRef.current) {
+      setInputValue(defaultValue);
+      setAddressData({ address: defaultValue, lat: 0, lng: 0 });
+      setValue(defaultValue, false);
+      initialValueSetRef.current = true;
+      lastDefaultValue.current = defaultValue;
+    } else if (defaultValue !== lastDefaultValue.current) {
       setInputValue(defaultValue);
       setAddressData({ address: defaultValue, lat: 0, lng: 0 });
       setValue(defaultValue, false);

@@ -66,10 +66,10 @@ export function calculatePricing(
 
   // Apply Coupon
   if (coupon && coupon.isActive) {
-    if (coupon.type === "percentage") {
-      discountAmount += baseAmount * (coupon.value / 100);
+    if (coupon.discountType === "percentage") {
+      discountAmount += baseAmount * (coupon.discountValue / 100);
     } else {
-      discountAmount += coupon.value;
+      discountAmount += coupon.discountValue;
     }
   }
 

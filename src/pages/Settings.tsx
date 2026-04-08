@@ -8,15 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, Tag } from "lucide-react";
+import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, Tag, Ticket, Lock, Eye, EyeOff } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { seedDemoData } from "../services/seedData";
 import { toast } from "sonner";
+import { format } from "date-fns";
 import AddressInput from "../components/AddressInput";
-import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType } from "../types";
-import { collection, query, onSnapshot, addDoc, deleteDoc, orderBy } from "firebase/firestore";
+import { StableInput } from "../components/StableInput";
+import { StableTextarea } from "../components/StableTextarea";
+import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon } from "../types";
+import { collection, query, onSnapshot, addDoc, deleteDoc, orderBy, Timestamp } from "firebase/firestore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { GripVertical, ArrowUp, ArrowDown } from "lucide-react";
@@ -36,12 +39,15 @@ export default function Settings() {
   const [services, setServices] = useState<Service[]>([]);
   const [addons, setAddons] = useState<AddOn[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [editingService, setEditingService] = useState<Partial<Service> | null>(null);
   const [editingAddon, setEditingAddon] = useState<Partial<AddOn> | null>(null);
   const [editingCategory, setEditingCategory] = useState<Partial<Category> | null>(null);
+  const [editingCoupon, setEditingCoupon] = useState<Partial<Coupon> | null>(null);
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
   const [isAddonDialogOpen, setIsAddonDialogOpen] = useState(false);
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
+  const [isCouponDialogOpen, setIsCouponDialogOpen] = useState(false);
   const [travelPricingInputs, setTravelPricingInputs] = useState({
     pricePerMile: "",
     freeMilesThreshold: "",
@@ -144,10 +150,17 @@ export default function Settings() {
         }
       });
 
+      // Listen for coupons
+      const couponsQuery = query(collection(db, "coupons"));
+      const unsubscribeCoupons = onSnapshot(couponsQuery, (snapshot) => {
+        setCoupons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Coupon)));
+      });
+
       return () => {
         unsubscribeServices();
         unsubscribeAddons();
         unsubscribeCategories();
+        unsubscribeCoupons();
       };
     }
   }, [profile]);
@@ -293,6 +306,30 @@ export default function Settings() {
     }
   };
 
+  const handleSaveCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCoupon?.code || !editingCoupon?.discountType || editingCoupon?.discountValue === undefined) return;
+
+    try {
+      if (editingCoupon.id) {
+        await setDoc(doc(db, "coupons", editingCoupon.id), editingCoupon);
+        toast.success("Coupon updated");
+      } else {
+        await addDoc(collection(db, "coupons"), {
+          ...editingCoupon,
+          usageCount: 0,
+          isActive: true
+        });
+        toast.success("Coupon added");
+      }
+      setIsCouponDialogOpen(false);
+      setEditingCoupon(null);
+    } catch (error) {
+      console.error("Error saving coupon:", error);
+      toast.error("Failed to save coupon");
+    }
+  };
+
   const handleReorderCategory = async (id: string, direction: "up" | "down") => {
     const category = categories.find(c => c.id === id);
     if (!category) return;
@@ -382,6 +419,10 @@ export default function Settings() {
             <Percent className="w-4 h-4 mr-2" />
             Commission
           </TabsTrigger>
+          <TabsTrigger value="coupons" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+            <Ticket className="w-4 h-4 mr-2" />
+            Coupons
+          </TabsTrigger>
           <TabsTrigger value="categories" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
             <Tag className="w-4 h-4 mr-2" />
             Categories
@@ -404,7 +445,16 @@ export default function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="displayName">Display Name</Label>
-                    <Input id="displayName" name="displayName" defaultValue={profile?.displayName} />
+                    <StableInput 
+                      id="displayName" 
+                      value={profile?.displayName || ""} 
+                      onValueChange={async (val) => {
+                        if (profile?.uid) {
+                          await updateDoc(doc(db, "users", profile.uid), { displayName: val });
+                          toast.success("Name updated");
+                        }
+                      }}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email Address</Label>
@@ -433,19 +483,20 @@ export default function Settings() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label htmlFor="businessName">Business Name</Label>
-                  <Input 
+                  <StableInput 
                     id="businessName" 
                     value={settings?.businessName || ""} 
-                    onChange={(e) => setSettings(prev => prev ? { ...prev, businessName: e.target.value } : null)}
+                    onValueChange={(val) => handleSaveSettings({ businessName: val })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="taxRate">Default Tax Rate (%)</Label>
-                  <Input 
+                  <StableInput 
                     id="taxRate" 
-                    type="number" 
-                    value={settings?.taxRate || 0} 
-                    onChange={(e) => setSettings(prev => prev ? { ...prev, taxRate: parseFloat(e.target.value) } : null)}
+                    type="text"
+                    inputMode="decimal"
+                    value={settings?.taxRate?.toString() || ""} 
+                    onValueChange={(val) => handleSaveSettings({ taxRate: parseFloat(val) || 0 })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -454,19 +505,20 @@ export default function Settings() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="timezone">Timezone</Label>
-                  <Input 
+                  <StableInput 
                     id="timezone" 
                     value={settings?.timezone || ""} 
-                    onChange={(e) => setSettings(prev => prev ? { ...prev, timezone: e.target.value } : null)}
+                    onValueChange={(val) => handleSaveSettings({ timezone: val })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="commissionRate">Default Technician Commission (%)</Label>
-                  <Input 
+                  <StableInput 
                     id="commissionRate" 
-                    type="number" 
-                    value={settings?.commissionRate || 0} 
-                    onChange={(e) => setSettings(prev => prev ? { ...prev, commissionRate: parseFloat(e.target.value) } : null)}
+                    type="text"
+                    inputMode="decimal"
+                    value={settings?.commissionRate?.toString() || ""} 
+                    onValueChange={(val) => handleSaveSettings({ commissionRate: parseFloat(val) || 0 })}
                   />
                 </div>
               </div>
@@ -481,51 +533,63 @@ export default function Settings() {
                     <Label>Business Base Address (for distance calculation)</Label>
                     <AddressInput 
                       defaultValue={settings?.baseAddress}
-                      onAddressSelect={(address, lat, lng) => setSettings(prev => prev ? { ...prev, baseAddress: address, baseLatitude: lat, baseLongitude: lng } : null)}
+                      onAddressSelect={(address, lat, lng) => handleSaveSettings({ baseAddress: address, baseLatitude: lat, baseLongitude: lng })}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="pricePerMile">Price Per Mile ($)</Label>
-                    <Input 
+                    <StableInput 
                       id="pricePerMile" 
                       type="text" 
                       inputMode="decimal"
                       placeholder="e.g. 1.50"
                       value={travelPricingInputs.pricePerMile} 
-                      onChange={(e) => setTravelPricingInputs(prev => ({ ...prev, pricePerMile: e.target.value }))}
+                      onValueChange={(val) => {
+                        setTravelPricingInputs(prev => ({ ...prev, pricePerMile: val }));
+                        handleSaveSettings({ travelPricing: { ...settings!.travelPricing, pricePerMile: parseFloat(val) || 0 } });
+                      }}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="freeMilesThreshold">Free Miles Threshold (one way)</Label>
-                    <Input 
+                    <StableInput 
                       id="freeMilesThreshold" 
                       type="text" 
                       inputMode="decimal"
                       placeholder="e.g. 10"
                       value={travelPricingInputs.freeMilesThreshold} 
-                      onChange={(e) => setTravelPricingInputs(prev => ({ ...prev, freeMilesThreshold: e.target.value }))}
+                      onValueChange={(val) => {
+                        setTravelPricingInputs(prev => ({ ...prev, freeMilesThreshold: val }));
+                        handleSaveSettings({ travelPricing: { ...settings!.travelPricing, freeMilesThreshold: parseFloat(val) || 0 } });
+                      }}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="minTravelFee">Minimum Travel Fee ($)</Label>
-                    <Input 
+                    <StableInput 
                       id="minTravelFee" 
                       type="text" 
                       inputMode="decimal"
                       placeholder="e.g. 0"
                       value={travelPricingInputs.minTravelFee} 
-                      onChange={(e) => setTravelPricingInputs(prev => ({ ...prev, minTravelFee: e.target.value }))}
+                      onValueChange={(val) => {
+                        setTravelPricingInputs(prev => ({ ...prev, minTravelFee: val }));
+                        handleSaveSettings({ travelPricing: { ...settings!.travelPricing, minTravelFee: parseFloat(val) || 0 } });
+                      }}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="maxTravelFee">Maximum Travel Fee ($)</Label>
-                    <Input 
+                    <StableInput 
                       id="maxTravelFee" 
                       type="text" 
                       inputMode="decimal"
                       placeholder="e.g. 100"
                       value={travelPricingInputs.maxTravelFee} 
-                      onChange={(e) => setTravelPricingInputs(prev => ({ ...prev, maxTravelFee: e.target.value }))}
+                      onValueChange={(val) => {
+                        setTravelPricingInputs(prev => ({ ...prev, maxTravelFee: val }));
+                        handleSaveSettings({ travelPricing: { ...settings!.travelPricing, maxTravelFee: parseFloat(val) || 0 } });
+                      }}
                     />
                   </div>
                   <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl col-span-2">
@@ -563,6 +627,27 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-8">
               <div className="space-y-4">
+                <Label className="text-base font-bold">Business Logo URL</Label>
+                <div className="flex gap-4 items-start">
+                  <div className="w-24 h-24 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-center overflow-hidden shrink-0">
+                    {settings?.logoUrl ? (
+                      <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                    ) : (
+                      <ImageIcon className="w-8 h-8 text-gray-200" />
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <StableInput 
+                      placeholder="https://example.com/logo.png" 
+                      value={settings?.logoUrl || ""} 
+                      onValueChange={(val) => handleSaveSettings({ logoUrl: val })}
+                    />
+                    <p className="text-[10px] text-gray-400 font-medium">Provide a direct link to your logo image (PNG or SVG recommended).</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-6 border-t border-gray-100">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label className="text-base font-bold">Show Logo on Documents</Label>
@@ -785,17 +870,17 @@ export default function Settings() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 col-span-2">
                     <Label>Service Name</Label>
-                    <Input 
+                    <StableInput 
                       value={editingService?.name || ""} 
-                      onChange={e => setEditingService(prev => ({ ...prev!, name: e.target.value }))}
+                      onValueChange={val => setEditingService(prev => ({ ...prev!, name: val }))}
                       required
                     />
                   </div>
                   <div className="space-y-2 col-span-2">
                     <Label>Description</Label>
-                    <Textarea 
+                    <StableTextarea 
                       value={editingService?.description || ""} 
-                      onChange={e => setEditingService(prev => ({ ...prev!, description: e.target.value }))}
+                      onValueChange={val => setEditingService(prev => ({ ...prev!, description: val }))}
                     />
                   </div>
                   <div className="space-y-2">
@@ -814,19 +899,21 @@ export default function Settings() {
                   </div>
                   <div className="space-y-2">
                     <Label>Base Price ($)</Label>
-                    <Input 
-                      type="number"
-                      value={editingService?.basePrice || 0} 
-                      onChange={e => setEditingService(prev => ({ ...prev!, basePrice: parseFloat(e.target.value) }))}
+                    <StableInput 
+                      type="text"
+                      inputMode="decimal"
+                      value={editingService?.basePrice?.toString() || ""} 
+                      onValueChange={val => setEditingService(prev => ({ ...prev!, basePrice: parseFloat(val) || 0 }))}
                       required
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Duration (minutes)</Label>
-                    <Input 
-                      type="number"
-                      value={editingService?.estimatedDuration || 0} 
-                      onChange={e => setEditingService(prev => ({ ...prev!, estimatedDuration: parseInt(e.target.value) }))}
+                    <StableInput 
+                      type="text"
+                      inputMode="numeric"
+                      value={editingService?.estimatedDuration?.toString() || ""} 
+                      onValueChange={val => setEditingService(prev => ({ ...prev!, estimatedDuration: parseInt(val) || 0 }))}
                       required
                     />
                   </div>
@@ -858,15 +945,16 @@ export default function Settings() {
                       {VEHICLE_SIZES.map(size => (
                         <div key={size.value} className="space-y-1">
                           <Label className="text-[10px] uppercase text-gray-400">{size.label}</Label>
-                          <Input 
-                            type="number"
+                          <StableInput 
+                            type="text"
+                            inputMode="decimal"
                             className="h-8 text-xs"
-                            value={editingService?.pricingBySize?.[size.value] || 0}
-                            onChange={e => setEditingService(prev => ({
+                            value={editingService?.pricingBySize?.[size.value]?.toString() || ""}
+                            onValueChange={val => setEditingService(prev => ({
                               ...prev!,
                               pricingBySize: {
                                 ...(prev?.pricingBySize || { small: 0, medium: 0, large: 0, extra_large: 0 }),
-                                [size.value]: parseFloat(e.target.value)
+                                [size.value]: parseFloat(val) || 0
                               }
                             }))}
                           />
@@ -892,9 +980,9 @@ export default function Settings() {
               <form onSubmit={handleSaveAddon} className="space-y-4">
                 <div className="space-y-2">
                   <Label>Add-on Name</Label>
-                  <Input 
+                  <StableInput 
                     value={editingAddon?.name || ""} 
-                    onChange={e => setEditingAddon(prev => ({ ...prev!, name: e.target.value }))}
+                    onValueChange={val => setEditingAddon(prev => ({ ...prev!, name: val }))}
                     required
                   />
                 </div>
@@ -914,27 +1002,29 @@ export default function Settings() {
                 </div>
                 <div className="space-y-2">
                   <Label>Description</Label>
-                  <Textarea 
+                  <StableTextarea 
                     value={editingAddon?.description || ""} 
-                    onChange={e => setEditingAddon(prev => ({ ...prev!, description: e.target.value }))}
+                    onValueChange={val => setEditingAddon(prev => ({ ...prev!, description: val }))}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Price ($)</Label>
-                    <Input 
-                      type="number"
-                      value={editingAddon?.price || 0} 
-                      onChange={e => setEditingAddon(prev => ({ ...prev!, price: parseFloat(e.target.value) }))}
+                    <StableInput 
+                      type="text"
+                      inputMode="decimal"
+                      value={editingAddon?.price?.toString() || ""} 
+                      onValueChange={val => setEditingAddon(prev => ({ ...prev!, price: parseFloat(val) || 0 }))}
                       required
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Duration (min)</Label>
-                    <Input 
-                      type="number"
-                      value={editingAddon?.estimatedDuration || 0} 
-                      onChange={e => setEditingAddon(prev => ({ ...prev!, estimatedDuration: parseInt(e.target.value) }))}
+                    <StableInput 
+                      type="text"
+                      inputMode="numeric"
+                      value={editingAddon?.estimatedDuration?.toString() || ""} 
+                      onValueChange={val => setEditingAddon(prev => ({ ...prev!, estimatedDuration: parseInt(val) || 0 }))}
                       required
                     />
                   </div>
@@ -1063,9 +1153,9 @@ export default function Settings() {
               <form onSubmit={handleSaveCategory} className="space-y-4">
                 <div className="space-y-2">
                   <Label>Category Name</Label>
-                  <Input 
+                  <StableInput 
                     value={editingCategory?.name || ""} 
-                    onChange={e => setEditingCategory(prev => ({ ...prev!, name: e.target.value }))}
+                    onValueChange={val => setEditingCategory(prev => ({ ...prev!, name: val }))}
                     required
                   />
                 </div>
@@ -1110,48 +1200,47 @@ export default function Settings() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label>Points Per Dollar Spent</Label>
-                  <Input 
-                    type="number" 
-                    value={settings?.loyaltySettings?.pointsPerDollar || 0} 
-                    onChange={(e) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, pointsPerDollar: parseFloat(e.target.value) } 
-                    } : null)}
+                  <StableInput 
+                    type="text" 
+                    inputMode="numeric"
+                    value={settings?.loyaltySettings?.pointsPerDollar?.toString() || ""} 
+                    onValueChange={(val) => handleSaveSettings({ 
+                      loyaltySettings: { ...settings!.loyaltySettings, pointsPerDollar: parseFloat(val) || 0 } 
+                    })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Points Per Visit</Label>
-                  <Input 
-                    type="number" 
-                    value={settings?.loyaltySettings?.pointsPerVisit || 0} 
-                    onChange={(e) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, pointsPerVisit: parseFloat(e.target.value) } 
-                    } : null)}
+                  <StableInput 
+                    type="text" 
+                    inputMode="numeric"
+                    value={settings?.loyaltySettings?.pointsPerVisit?.toString() || ""} 
+                    onValueChange={(val) => handleSaveSettings({ 
+                      loyaltySettings: { ...settings!.loyaltySettings, pointsPerVisit: parseFloat(val) || 0 } 
+                    })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Redemption Rate ($ per point)</Label>
-                  <Input 
-                    type="number" 
-                    step="0.001"
-                    value={settings?.loyaltySettings?.redemptionRate || 0} 
-                    onChange={(e) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, redemptionRate: parseFloat(e.target.value) } 
-                    } : null)}
+                  <StableInput 
+                    type="text" 
+                    inputMode="decimal"
+                    value={settings?.loyaltySettings?.redemptionRate?.toString() || ""} 
+                    onValueChange={(val) => handleSaveSettings({ 
+                      loyaltySettings: { ...settings!.loyaltySettings, redemptionRate: parseFloat(val) || 0 } 
+                    })}
                   />
                   <p className="text-[10px] text-gray-500 font-medium">Example: 0.01 means 100 points = $1.00</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Minimum Points to Redeem</Label>
-                  <Input 
-                    type="number" 
-                    value={settings?.loyaltySettings?.minPointsToRedeem || 0} 
-                    onChange={(e) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, minPointsToRedeem: parseFloat(e.target.value) } 
-                    } : null)}
+                  <StableInput 
+                    type="text" 
+                    inputMode="numeric"
+                    value={settings?.loyaltySettings?.minPointsToRedeem?.toString() || ""} 
+                    onValueChange={(val) => handleSaveSettings({ 
+                      loyaltySettings: { ...settings!.loyaltySettings, minPointsToRedeem: parseFloat(val) || 0 } 
+                    })}
                   />
                 </div>
               </div>
@@ -1199,10 +1288,11 @@ export default function Settings() {
                 <div className="space-y-2">
                   <Label>Default Commission Rate</Label>
                   <div className="relative">
-                    <Input 
-                      type="number" 
-                      value={settings?.commissionRate || 0} 
-                      onChange={(e) => setSettings(prev => prev ? { ...prev, commissionRate: parseFloat(e.target.value) } : null)}
+                    <StableInput 
+                      type="text" 
+                      inputMode="decimal"
+                      value={settings?.commissionRate?.toString() || ""} 
+                      onValueChange={(val) => handleSaveSettings({ commissionRate: parseFloat(val) || 0 })}
                       className="pl-8"
                     />
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
@@ -1214,6 +1304,213 @@ export default function Settings() {
               <Button onClick={() => handleSaveSettings(settings || {})} className="bg-primary hover:bg-red-700 font-bold">
                 Save Commission Settings
               </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="coupons">
+          <Card className="border-none shadow-sm bg-white">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Coupon Management</CardTitle>
+                <CardDescription>Create discount codes for your customers.</CardDescription>
+              </div>
+              <Button size="sm" className="bg-primary hover:bg-red-700 font-bold" onClick={() => {
+                setEditingCoupon({
+                  code: "",
+                  discountType: "percentage",
+                  discountValue: 0,
+                  usageLimit: 0,
+                  isActive: true
+                });
+                setIsCouponDialogOpen(true);
+              }}>
+                <Plus className="w-4 h-4 mr-2" /> Add Coupon
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {coupons.map(coupon => (
+                  <div key={coupon.id} className="p-4 border border-gray-100 rounded-xl hover:border-red-100 transition-colors group">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-red-50 text-primary border-red-100 font-black tracking-widest uppercase">
+                          {coupon.code}
+                        </Badge>
+                        {!coupon.isActive && <Badge variant="secondary" className="text-[10px] uppercase">Inactive</Badge>}
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          onClick={() => {
+                            setEditingCoupon(coupon);
+                            setIsCouponDialogOpen(true);
+                          }}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-red-600"
+                          onClick={async () => {
+                            if (confirm("Delete this coupon?")) {
+                              await deleteDoc(doc(db, "coupons", coupon.id));
+                              toast.success("Coupon deleted");
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold text-gray-900">
+                        {coupon.discountType === "percentage" ? `${coupon.discountValue}% Off` : `$${coupon.discountValue} Off`}
+                      </p>
+                      <div className="flex items-center justify-between text-[10px] text-gray-500 font-medium uppercase tracking-wider">
+                        <span>Used: {coupon.usageCount} / {coupon.usageLimit || "∞"}</span>
+                        {coupon.expiryDate && <span>Expires: {format(coupon.expiryDate.toDate(), "MM/dd/yy")}</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Dialog open={isCouponDialogOpen} onOpenChange={setIsCouponDialogOpen}>
+            <DialogContent className="max-w-md bg-white">
+              <DialogHeader>
+                <DialogTitle>{editingCoupon?.id ? "Edit Coupon" : "Add New Coupon"}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSaveCoupon} className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Coupon Code</Label>
+                  <StableInput 
+                    placeholder="SUMMER24"
+                    value={editingCoupon?.code || ""} 
+                    onValueChange={val => setEditingCoupon(prev => ({ ...prev!, code: val.toUpperCase() }))}
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Discount Type</Label>
+                    <Select 
+                      value={editingCoupon?.discountType || "percentage"} 
+                      onValueChange={(v: any) => setEditingCoupon(prev => ({ ...prev!, discountType: v }))}
+                    >
+                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-white">
+                        <SelectItem value="percentage">Percentage (%)</SelectItem>
+                        <SelectItem value="fixed">Fixed Amount ($)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Discount Value</Label>
+                    <StableInput 
+                      type="text"
+                      inputMode="decimal"
+                      value={editingCoupon?.discountValue?.toString() || ""} 
+                      onValueChange={val => setEditingCoupon(prev => ({ ...prev!, discountValue: parseFloat(val) || 0 }))}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Usage Limit (0 for ∞)</Label>
+                    <StableInput 
+                      type="text"
+                      inputMode="numeric"
+                      value={editingCoupon?.usageLimit?.toString() || ""} 
+                      onValueChange={val => setEditingCoupon(prev => ({ ...prev!, usageLimit: parseInt(val) || 0 }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Expiry Date (Optional)</Label>
+                    <Input 
+                      type="date"
+                      className="bg-white"
+                      value={editingCoupon?.expiryDate ? format(editingCoupon.expiryDate.toDate(), "yyyy-MM-dd") : ""}
+                      onChange={e => {
+                        const date = e.target.value ? Timestamp.fromDate(new Date(e.target.value)) : undefined;
+                        setEditingCoupon(prev => ({ ...prev!, expiryDate: date }));
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <Label>Active</Label>
+                  <Switch 
+                    checked={editingCoupon?.isActive ?? true} 
+                    onCheckedChange={v => setEditingCoupon(prev => ({ ...prev!, isActive: v }))}
+                  />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsCouponDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" className="bg-primary hover:bg-red-700 font-bold">Save Coupon</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+
+        <TabsContent value="security">
+          <Card className="border-none shadow-sm bg-white">
+            <CardHeader>
+              <CardTitle>Security & Access Control</CardTitle>
+              <CardDescription>Manage administrative access and data protection settings.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-8">
+              <div className="space-y-6">
+                <div className="flex items-center justify-between p-4 border border-gray-100 rounded-2xl">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-primary" />
+                      <Label className="text-base font-bold">Admin-Only Access</Label>
+                    </div>
+                    <p className="text-sm text-gray-500">Restrict access to settings and financial reports to administrators only.</p>
+                  </div>
+                  <Switch defaultChecked />
+                </div>
+
+                <div className="flex items-center justify-between p-4 border border-gray-100 rounded-2xl">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-primary" />
+                      <Label className="text-base font-bold">Two-Factor Authentication</Label>
+                    </div>
+                    <p className="text-sm text-gray-500">Require a secondary verification code for all administrative logins.</p>
+                  </div>
+                  <Badge variant="secondary" className="uppercase text-[10px] font-black tracking-widest">Coming Soon</Badge>
+                </div>
+
+                <div className="flex items-center justify-between p-4 border border-gray-100 rounded-2xl">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-primary" />
+                      <Label className="text-base font-bold">Data Encryption</Label>
+                    </div>
+                    <p className="text-sm text-gray-500">All customer PII and financial data is encrypted at rest and in transit.</p>
+                  </div>
+                  <Badge className="bg-green-50 text-green-700 border-green-100 uppercase text-[10px] font-black tracking-widest">Active</Badge>
+                </div>
+              </div>
+
+              <div className="pt-6 border-t border-gray-100">
+                <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-4">Privacy Policy</h3>
+                <div className="p-4 bg-gray-50 rounded-2xl">
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Your business data is stored securely in our cloud infrastructure. We do not sell your data to third parties. 
+                    Access is restricted to authorized personnel only. For more information, please contact support.
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

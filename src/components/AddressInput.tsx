@@ -81,11 +81,14 @@ export default function AddressInput({
   }, [isLoaded, init]);
 
   // Only sync defaultValue if we aren't currently typing and value is empty
+  // We use a ref to track if the initial value has been set to avoid overwriting user input
+  const initialValueSetRef = useRef(false);
   useEffect(() => {
-    if (defaultValue && value === "" && !isTyping) {
+    if (defaultValue && !initialValueSetRef.current && !isTyping) {
       setValue(defaultValue, false);
+      initialValueSetRef.current = true;
     }
-  }, [defaultValue, setValue, value, isTyping]);
+  }, [defaultValue, setValue, isTyping]);
 
   const handleSelect = async (address: string) => {
     selectionMadeRef.current = true;
@@ -120,8 +123,8 @@ export default function AddressInput({
       setOpen(false);
     }
     
-    // We NO LONGER call onAddressSelect here to prevent parent re-render loops
-    // which cause the component to remount and lose focus.
+    // We explicitly DO NOT call onAddressSelect here.
+    // The parent will only be notified on selection or on blur.
   };
 
   const handleBlur = () => {

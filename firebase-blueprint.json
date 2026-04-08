@@ -153,6 +153,7 @@
       "type": "object",
       "properties": {
         "businessName": { "type": "string" },
+        "logoUrl": { "type": "string" },
         "taxRate": { "type": "number" },
         "currency": { "type": "string" },
         "timezone": { "type": "string" },
@@ -177,6 +178,21 @@
         "sortOrder": { "type": "number" }
       },
       "required": ["name", "type"]
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "Discount coupons",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed"] },
+        "discountValue": { "type": "number" },
+        "usageLimit": { "type": "number" },
+        "usageCount": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "expiryDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "discountType", "discountValue"]
     }
   },
   "firestore": {
@@ -190,6 +206,7 @@
     "/services/{serviceId}": { "schema": "Service", "description": "Service catalog" },
     "/addons/{addOnId}": { "schema": "AddOn", "description": "Add-ons catalog" },
     "/settings/{settingId}": { "schema": "Setting", "description": "Business settings" },
-    "/categories/{categoryId}": { "schema": "Category", "description": "Custom categories" }
+    "/categories/{categoryId}": { "schema": "Category", "description": "Custom categories" },
+    "/coupons/{couponId}": { "schema": "Coupon", "description": "Discount coupons" }
   }
 }

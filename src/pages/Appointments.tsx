@@ -19,6 +19,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { validateCoupon, calculateDiscount, addLoyaltyPoints, redeemLoyaltyPoints } from "../services/promotions";
 import { Checkbox } from "@/components/ui/checkbox";
 import AddressInput from "../components/AddressInput";
+import { StableInput } from "../components/StableInput";
 import { calculateDistance, calculateTravelFee, estimateTravelTime } from "../services/travelService";
 import { BusinessSettings } from "../types";
 
@@ -307,7 +308,7 @@ export default function Appointments() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="vehicleInfo">Vehicle (Year Make Model)</Label>
-                  <Input id="vehicleInfo" name="vehicleInfo" placeholder="e.g. 2024 Tesla Model 3" required className="bg-white border-gray-200" />
+                  <StableInput id="vehicleInfo" name="vehicleInfo" placeholder="e.g. 2024 Tesla Model 3" required className="bg-white border-gray-200" />
                 </div>
                 <div className="space-y-2">
                   <Label>Vehicle Size</Label>
@@ -325,12 +326,12 @@ export default function Appointments() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="vin">VIN (Optional)</Label>
-                  <Input id="vin" name="vin" placeholder="17-character VIN" className="bg-white border-gray-200 uppercase font-mono" />
+                  <StableInput id="vin" name="vin" placeholder="17-character VIN" className="bg-white border-gray-200 uppercase font-mono" />
                 </div>
                 {customerType === "vendor" && (
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="roNumber">RO Number</Label>
-                    <Input id="roNumber" name="roNumber" placeholder="Repair Order #" className="bg-white border-gray-200" />
+                    <StableInput id="roNumber" name="roNumber" placeholder="Repair Order #" className="bg-white border-gray-200" />
                   </div>
                 )}
                 <div className="space-y-2 col-span-2">
@@ -378,15 +379,16 @@ export default function Appointments() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="totalAmount">Service Base Amount ($)</Label>
-                  <Input 
+                  <StableInput 
                     id="totalAmount" 
                     name="totalAmount" 
-                    type="number" 
+                    type="text" 
+                    inputMode="decimal"
                     placeholder="250" 
                     required 
                     className="bg-white border-gray-200" 
-                    value={baseAmount || ""}
-                    onChange={(e) => setBaseAmount(parseFloat(e.target.value) || 0)}
+                    value={baseAmount?.toString() || ""}
+                    onValueChange={(val) => setBaseAmount(parseFloat(val) || 0)}
                   />
                 </div>
 
@@ -414,11 +416,11 @@ export default function Appointments() {
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs">Every (Interval)</Label>
-                        <Input 
-                          type="number" 
-                          min="1" 
-                          value={recurringInterval} 
-                          onChange={(e) => setRecurringInterval(parseInt(e.target.value))}
+                        <StableInput 
+                          type="text" 
+                          inputMode="numeric"
+                          value={recurringInterval?.toString() || ""} 
+                          onValueChange={(val) => setRecurringInterval(parseInt(val) || 1)}
                           className="h-8 bg-white"
                         />
                       </div>
@@ -478,12 +480,12 @@ export default function Appointments() {
                   <Label htmlFor="coupon">Promotions & Loyalty</Label>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="flex gap-2">
-                      <Input 
+                      <StableInput 
                         id="coupon" 
                         placeholder="COUPON" 
                         className="bg-white border-gray-200 uppercase" 
                         value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value)}
+                        onValueChange={(val) => setCouponCode(val.toUpperCase())}
                       />
                       <Button type="button" variant="outline" onClick={handleApplyCoupon}>Apply</Button>
                     </div>

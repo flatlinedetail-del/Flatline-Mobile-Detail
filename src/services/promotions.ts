@@ -45,17 +45,17 @@ export async function validateCoupon(code: string, purchaseAmount: number): Prom
   const coupon = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Coupon;
   
   // Check expiry
-  if (coupon.expiryDate.toDate() < new Date()) return null;
+  if (coupon.expiryDate && coupon.expiryDate.toDate() < new Date()) return null;
   
-  // Check min purchase
-  if (coupon.minPurchase && purchaseAmount < coupon.minPurchase) return null;
+  // Check usage limit
+  if (coupon.usageLimit > 0 && coupon.usageCount >= coupon.usageLimit) return null;
   
   return coupon;
 }
 
 export function calculateDiscount(coupon: Coupon, amount: number): number {
-  if (coupon.type === "percentage") {
-    return (amount * coupon.value) / 100;
+  if (coupon.discountType === "percentage") {
+    return (amount * coupon.discountValue) / 100;
   }
-  return coupon.value;
+  return coupon.discountValue;
 }

@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Category } from "../types";
+import { StableInput } from "../components/StableInput";
 
 export default function Expenses() {
   const { profile } = useAuth();
@@ -107,12 +108,12 @@ export default function Expenses() {
             <form onSubmit={handleCreateExpense} className="p-6 space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="description">Description</Label>
-                <Input id="description" name="description" placeholder="e.g. Microfiber Towels" required className="bg-white border-gray-200" />
+                <StableInput id="description" name="description" placeholder="e.g. Microfiber Towels" required className="bg-white border-gray-200" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="amount">Amount ($)</Label>
-                  <Input id="amount" name="amount" type="number" step="0.01" placeholder="0.00" required className="bg-white border-gray-200" />
+                  <StableInput id="amount" name="amount" type="text" inputMode="decimal" placeholder="0.00" required className="bg-white border-gray-200" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="date">Date</Label>
@@ -142,7 +143,7 @@ export default function Expenses() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="receiptUrl">Receipt URL / Link</Label>
-                <Input id="receiptUrl" name="receiptUrl" placeholder="https://..." className="bg-white border-gray-200" />
+                <StableInput id="receiptUrl" name="receiptUrl" placeholder="https://..." className="bg-white border-gray-200" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="appointmentId">Link to Appointment (Optional)</Label>

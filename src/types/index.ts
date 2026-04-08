@@ -12,6 +12,17 @@ export interface Category {
   sortOrder: number;
 }
 
+export interface Coupon {
+  id: string;
+  code: string;
+  discountType: "percentage" | "fixed";
+  discountValue: number;
+  usageLimit: number;
+  usageCount: number;
+  isActive: boolean;
+  expiryDate?: Timestamp;
+}
+
 export interface Service {
   id: string;
   name: string;
@@ -167,6 +178,8 @@ export interface Appointment {
 
 export interface BusinessSettings {
   businessName: string;
+  logoUrl?: string;
+  showLogoOnDocuments?: boolean;
   taxRate: number;
   currency: string;
   timezone: string;
@@ -215,14 +228,4 @@ export interface InventoryItem {
   unit: string;
   costPerUnit: number;
   lastRestocked: Timestamp;
-}
-
-export interface Coupon {
-  id: string;
-  code: string;
-  type: "percentage" | "fixed";
-  value: number;
-  minPurchase?: number;
-  expiryDate: Timestamp;
-  isActive: boolean;
 }

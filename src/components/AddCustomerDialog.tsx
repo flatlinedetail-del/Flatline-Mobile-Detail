@@ -10,6 +10,8 @@ import { Textarea } from "./ui/textarea";
 import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import CustomerAddressInput, { CustomerAddressInputRef } from "./CustomerAddressInput";
+import { StableInput } from "./StableInput";
+import { StableTextarea } from "./StableTextarea";
 
 interface AddCustomerDialogProps {
   onSuccess?: () => void;
@@ -70,16 +72,16 @@ export default function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps)
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
-              <Input id="name" name="name" placeholder="John Doe" required />
+              <StableInput id="name" name="name" placeholder="John Doe" required />
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone Number</Label>
-              <Input id="phone" name="phone" placeholder="(555) 000-0000" required />
+              <StableInput id="phone" name="phone" placeholder="(555) 000-0000" required />
             </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email Address</Label>
-            <Input id="email" name="email" type="email" placeholder="john@example.com" />
+            <StableInput id="email" name="email" type="email" placeholder="john@example.com" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="address">Default Address</Label>
@@ -90,7 +92,7 @@ export default function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps)
           </div>
           <div className="space-y-2">
             <Label htmlFor="notes">Notes</Label>
-            <Textarea id="notes" name="notes" placeholder="Special requests, gate codes, etc." />
+            <StableTextarea id="notes" name="notes" placeholder="Special requests, gate codes, etc." />
           </div>
           <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">Create Customer</Button>
         </form>
