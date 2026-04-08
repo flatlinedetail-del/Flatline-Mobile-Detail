@@ -10,6 +10,7 @@ import Appointments from "./pages/Appointments";
 import JobDetail from "./pages/JobDetail";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
+import Expenses from "./pages/Expenses";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
 import { Toaster } from "@/components/ui/sonner";
@@ -42,6 +43,7 @@ function AppContent() {
           <Route path="appointments" element={<Appointments />} />
           <Route path="appointments/:id" element={<JobDetail />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="expenses" element={<Expenses />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

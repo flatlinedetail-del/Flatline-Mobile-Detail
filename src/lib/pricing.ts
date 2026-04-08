@@ -38,15 +38,20 @@ export function calculatePricing(
       appliedRule = "Vendor Fixed Rate";
     } 
     // 2. Check for Customer Special Pricing
-    else if (customer && customer.specialPricing?.[service.id]) {
-      finalPrice = customer.specialPricing[service.id];
-      appliedRule = "Customer Special Pricing";
+    else if (customer && customer.isVIP && customer.vipSettings?.customServicePricing?.[service.id]) {
+      finalPrice = customer.vipSettings.customServicePricing[service.id];
+      appliedRule = "VIP Custom Pricing";
     }
     // 3. Apply Size Multiplier
     else {
-      const multiplier = service.sizeMultipliers[size] || 1;
-      finalPrice = service.basePrice * multiplier;
-      appliedRule = `Size Multiplier (${size})`;
+      const multiplier = service.pricingBySize?.[size] || 0;
+      if (multiplier > 0) {
+        finalPrice = multiplier;
+        appliedRule = `Size Pricing (${size})`;
+      } else {
+        finalPrice = service.basePrice;
+        appliedRule = "Base Price";
+      }
     }
 
     baseAmount += finalPrice;

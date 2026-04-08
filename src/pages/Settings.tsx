@@ -8,19 +8,30 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin } from "lucide-react";
+import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { seedDemoData } from "../services/seedData";
 import { toast } from "sonner";
 import AddressInput from "../components/AddressInput";
-import { BusinessSettings } from "../types";
+import { BusinessSettings, Service, AddOn, VehicleSize } from "../types";
+import { collection, query, onSnapshot, addDoc, deleteDoc } from "firebase/firestore";
+
+const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
+  { label: "Small", value: "small" },
+  { label: "Medium", value: "medium" },
+  { label: "Large", value: "large" },
+  { label: "Extra Large", value: "extra_large" },
+];
 
 export default function Settings() {
   const { profile } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [services, setServices] = useState<Service[]>([]);
+  const [addons, setAddons] = useState<AddOn[]>([]);
   const [travelPricingInputs, setTravelPricingInputs] = useState({
     pricePerMile: "",
     freeMilesThreshold: "",
@@ -52,6 +63,7 @@ export default function Settings() {
             currency: "USD",
             timezone: "America/Chicago",
             commissionRate: 30,
+            commissionType: "percentage",
             baseAddress: "",
             baseLatitude: 0,
             baseLongitude: 0,
@@ -61,6 +73,13 @@ export default function Settings() {
               minTravelFee: 0,
               maxTravelFee: 100,
               roundTripToggle: true,
+            },
+            loyaltySettings: {
+              pointsPerDollar: 1,
+              pointsPerVisit: 10,
+              redemptionRate: 0.01, // 100 points = $1
+              minPointsToRedeem: 100,
+              stackWithCoupons: false,
             }
           };
           await setDoc(docRef, defaultSettings);
@@ -79,6 +98,23 @@ export default function Settings() {
     };
     if (profile) {
       fetchSettings();
+      
+      // Listen for services
+      const servicesQuery = query(collection(db, "services"));
+      const unsubscribeServices = onSnapshot(servicesQuery, (snapshot) => {
+        setServices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
+      });
+
+      // Listen for addons
+      const addonsQuery = query(collection(db, "addons"));
+      const unsubscribeAddons = onSnapshot(addonsQuery, (snapshot) => {
+        setAddons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AddOn)));
+      });
+
+      return () => {
+        unsubscribeServices();
+        unsubscribeAddons();
+      };
     }
   }, [profile]);
 
@@ -86,24 +122,33 @@ export default function Settings() {
     if (!settings) return;
     setIsSaving(true);
     try {
-      // Merge travel pricing inputs if they exist
-      const finalTravelPricing = {
+      // Parse travel pricing inputs
+      const pricePerMile = parseFloat(travelPricingInputs.pricePerMile);
+      const freeMilesThreshold = parseFloat(travelPricingInputs.freeMilesThreshold);
+      const minTravelFee = parseFloat(travelPricingInputs.minTravelFee);
+      const maxTravelFee = parseFloat(travelPricingInputs.maxTravelFee);
+
+      if (isNaN(pricePerMile) || isNaN(freeMilesThreshold) || isNaN(minTravelFee) || isNaN(maxTravelFee)) {
+        toast.error("Please enter valid numbers for travel pricing.");
+        setIsSaving(false);
+        return;
+      }
+
+      const updatedTravelPricing = {
         ...settings.travelPricing,
-        pricePerMile: parseFloat(travelPricingInputs.pricePerMile) || 0,
-        freeMilesThreshold: parseFloat(travelPricingInputs.freeMilesThreshold) || 0,
-        minTravelFee: parseFloat(travelPricingInputs.minTravelFee) || 0,
-        maxTravelFee: parseFloat(travelPricingInputs.maxTravelFee) || 0,
+        pricePerMile,
+        freeMilesThreshold,
+        minTravelFee,
+        maxTravelFee,
+        ...(newData.travelPricing || {})
       };
 
       const updatedSettings = { 
         ...settings, 
         ...newData,
-        travelPricing: {
-          ...settings.travelPricing,
-          ...(newData.travelPricing || {}),
-          ...finalTravelPricing
-        }
+        travelPricing: updatedTravelPricing
       };
+
       await updateDoc(doc(db, "settings", "business"), updatedSettings);
       setSettings(updatedSettings);
       toast.success("Settings updated successfully");
@@ -177,6 +222,18 @@ export default function Settings() {
           <TabsTrigger value="security" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
             <Shield className="w-4 h-4 mr-2" />
             Security
+          </TabsTrigger>
+          <TabsTrigger value="services" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+            <ClipboardList className="w-4 h-4 mr-2" />
+            Services
+          </TabsTrigger>
+          <TabsTrigger value="loyalty" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+            <Star className="w-4 h-4 mr-2" />
+            Loyalty
+          </TabsTrigger>
+          <TabsTrigger value="commission" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+            <Percent className="w-4 h-4 mr-2" />
+            Commission
           </TabsTrigger>
         </TabsList>
 
@@ -442,6 +499,227 @@ export default function Settings() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="services">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Services</CardTitle>
+                  <CardDescription>Manage your primary detailing packages.</CardDescription>
+                </div>
+                <Button size="sm" className="bg-primary hover:bg-red-700 font-bold" onClick={() => {
+                  const name = prompt("Service Name:");
+                  if (name) {
+                    addDoc(collection(db, "services"), {
+                      name,
+                      description: "",
+                      category: "interior",
+                      basePrice: 0,
+                      pricingBySize: { small: 0, medium: 0, large: 0, extra_large: 0 },
+                      isTaxable: true,
+                      estimatedDuration: 60,
+                      requiresWaiver: false,
+                      isActive: true
+                    });
+                  }
+                }}>
+                  <Plus className="w-4 h-4 mr-2" /> Add Service
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {services.map(service => (
+                  <div key={service.id} className="p-4 border border-gray-100 rounded-xl hover:border-red-100 transition-colors group">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-gray-900">{service.name}</h4>
+                        {!service.isActive && <Badge variant="secondary" className="text-[10px] uppercase">Inactive</Badge>}
+                      </div>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-primary">
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => deleteDoc(doc(db, "services", service.id))}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-xs">
+                      <div className="text-gray-500">Base Price: <span className="font-bold text-gray-900">${service.basePrice}</span></div>
+                      <div className="text-gray-500">Duration: <span className="font-bold text-gray-900">{service.estimatedDuration}m</span></div>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Add-ons</CardTitle>
+                  <CardDescription>Extra services that can be added to any package.</CardDescription>
+                </div>
+                <Button size="sm" className="bg-black hover:bg-gray-900 font-bold" onClick={() => {
+                  const name = prompt("Add-on Name:");
+                  if (name) {
+                    addDoc(collection(db, "addons"), {
+                      name,
+                      description: "",
+                      price: 0,
+                      isTaxable: true,
+                      estimatedDuration: 15,
+                      isActive: true
+                    });
+                  }
+                }}>
+                  <Plus className="w-4 h-4 mr-2" /> Add Add-on
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {addons.map(addon => (
+                  <div key={addon.id} className="p-4 border border-gray-100 rounded-xl hover:border-red-100 transition-colors group">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-gray-900">{addon.name}</h4>
+                        {!addon.isActive && <Badge variant="secondary" className="text-[10px] uppercase">Inactive</Badge>}
+                      </div>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-primary">
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => deleteDoc(doc(db, "addons", addon.id))}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-xs">
+                      <div className="text-gray-500">Price: <span className="font-bold text-gray-900">${addon.price}</span></div>
+                      <div className="text-gray-500">Duration: <span className="font-bold text-gray-900">{addon.estimatedDuration}m</span></div>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="loyalty">
+          <Card className="border-none shadow-sm bg-white">
+            <CardHeader>
+              <CardTitle>Loyalty Program Settings</CardTitle>
+              <CardDescription>Configure how customers earn and redeem points.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label>Points Per Dollar Spent</Label>
+                  <Input 
+                    type="number" 
+                    value={settings?.loyaltySettings?.pointsPerDollar || 0} 
+                    onChange={(e) => setSettings(prev => prev ? { 
+                      ...prev, 
+                      loyaltySettings: { ...prev.loyaltySettings, pointsPerDollar: parseFloat(e.target.value) } 
+                    } : null)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Points Per Visit</Label>
+                  <Input 
+                    type="number" 
+                    value={settings?.loyaltySettings?.pointsPerVisit || 0} 
+                    onChange={(e) => setSettings(prev => prev ? { 
+                      ...prev, 
+                      loyaltySettings: { ...prev.loyaltySettings, pointsPerVisit: parseFloat(e.target.value) } 
+                    } : null)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Redemption Rate ($ per point)</Label>
+                  <Input 
+                    type="number" 
+                    step="0.001"
+                    value={settings?.loyaltySettings?.redemptionRate || 0} 
+                    onChange={(e) => setSettings(prev => prev ? { 
+                      ...prev, 
+                      loyaltySettings: { ...prev.loyaltySettings, redemptionRate: parseFloat(e.target.value) } 
+                    } : null)}
+                  />
+                  <p className="text-[10px] text-gray-500 font-medium">Example: 0.01 means 100 points = $1.00</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Minimum Points to Redeem</Label>
+                  <Input 
+                    type="number" 
+                    value={settings?.loyaltySettings?.minPointsToRedeem || 0} 
+                    onChange={(e) => setSettings(prev => prev ? { 
+                      ...prev, 
+                      loyaltySettings: { ...prev.loyaltySettings, minPointsToRedeem: parseFloat(e.target.value) } 
+                    } : null)}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-bold">Stack with Coupons</Label>
+                  <p className="text-sm text-gray-500">Allow customers to use points and coupons on the same order.</p>
+                </div>
+                <Switch 
+                  checked={settings?.loyaltySettings?.stackWithCoupons || false} 
+                  onCheckedChange={(checked) => setSettings(prev => prev ? { 
+                    ...prev, 
+                    loyaltySettings: { ...prev.loyaltySettings, stackWithCoupons: checked } 
+                  } : null)}
+                />
+              </div>
+              <Button onClick={() => handleSaveSettings(settings || {})} className="bg-primary hover:bg-red-700 font-bold">
+                Save Loyalty Settings
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="commission">
+          <Card className="border-none shadow-sm bg-white">
+            <CardHeader>
+              <CardTitle>Commission Settings</CardTitle>
+              <CardDescription>Set default technician payouts for completed jobs.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label>Default Commission Type</Label>
+                  <Select 
+                    value={settings?.commissionType || "percentage"} 
+                    onValueChange={(val: "percentage" | "flat") => setSettings(prev => prev ? { ...prev, commissionType: val } : null)}
+                  >
+                    <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-white">
+                      <SelectItem value="percentage">Percentage (%)</SelectItem>
+                      <SelectItem value="flat">Flat Fee ($)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Default Commission Rate</Label>
+                  <div className="relative">
+                    <Input 
+                      type="number" 
+                      value={settings?.commissionRate || 0} 
+                      onChange={(e) => setSettings(prev => prev ? { ...prev, commissionRate: parseFloat(e.target.value) } : null)}
+                      className="pl-8"
+                    />
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                      {settings?.commissionType === "percentage" ? <Percent className="w-4 h-4" /> : <DollarIcon className="w-4 h-4" />}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <Button onClick={() => handleSaveSettings(settings || {})} className="bg-primary hover:bg-red-700 font-bold">
+                Save Commission Settings
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

@@ -6,9 +6,23 @@ export interface Service {
   id: string;
   name: string;
   description: string;
-  basePrice: number;
-  sizeMultipliers: Record<VehicleSize, number>;
   category: "interior" | "exterior" | "protection" | "correction" | "other";
+  basePrice: number;
+  pricingBySize: Record<VehicleSize, number>;
+  isTaxable: boolean;
+  estimatedDuration: number; // in minutes
+  requiresWaiver: boolean;
+  isActive: boolean;
+}
+
+export interface AddOn {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  isTaxable: boolean;
+  estimatedDuration: number; // in minutes
+  isActive: boolean;
 }
 
 export interface Vehicle {
@@ -34,7 +48,14 @@ export interface Customer {
   longitude?: number;
   loyaltyPoints: number;
   membershipLevel: "none" | "silver" | "gold" | "platinum";
-  specialPricing?: Record<string, number>; // serviceId -> customPrice
+  isVIP: boolean;
+  vipSettings?: {
+    customServicePricing?: Record<string, number>; // serviceId -> price
+    travelFeeDiscount?: number; // percentage or fixed
+    waiveTravelFee?: boolean;
+    exemptFromFees?: boolean; // deposit, cancellation, late fees
+    specialDiscountRules?: string;
+  };
   notes?: string;
   createdAt: Timestamp;
 }
@@ -93,6 +114,7 @@ export interface Appointment {
   technicianName: string;
   serviceIds: string[];
   serviceNames: string[];
+  addOnIds?: string[];
   baseAmount: number;
   travelFee: number;
   travelFeeBreakdown?: {
@@ -108,6 +130,7 @@ export interface Appointment {
   isDepositPaid: boolean;
   paymentStatus: "unpaid" | "partial" | "paid";
   paymentMethod?: "cash" | "card" | "venmo" | "check" | "invoice";
+  commissionAmount?: number;
   completedTasks: Record<string, string[]>; // serviceName -> taskList
   internalNotes?: string;
   customerNotes?: string;
@@ -117,6 +140,14 @@ export interface Appointment {
     before: string[];
     after: string[];
     damage: string[];
+  };
+  recurringInfo?: {
+    isRecurring: boolean;
+    frequency: "daily" | "weekly" | "biweekly" | "monthly" | "custom";
+    interval?: number;
+    endDate?: Timestamp;
+    seriesId: string;
+    parentAppointmentId?: string;
   };
   estimatedTravelTime?: number; // in minutes
   estimatedTravelDistance?: number; // in miles
@@ -130,6 +161,7 @@ export interface BusinessSettings {
   currency: string;
   timezone: string;
   commissionRate: number;
+  commissionType: "percentage" | "flat";
   baseAddress: string;
   baseLatitude: number;
   baseLongitude: number;
@@ -140,6 +172,17 @@ export interface BusinessSettings {
     maxTravelFee: number;
     roundTripToggle: boolean;
   };
+  loyaltySettings: {
+    pointsPerDollar: number;
+    pointsPerVisit: number;
+    redemptionRate: number; // points per dollar off
+    minPointsToRedeem: number;
+    stackWithCoupons: boolean;
+  };
+  technicianOverrides?: Record<string, {
+    commissionRate: number;
+    commissionType: "percentage" | "flat";
+  }>;
 }
 
 export interface Expense {
@@ -149,6 +192,8 @@ export interface Expense {
   description: string;
   date: Timestamp;
   technicianId?: string;
+  receiptUrl?: string;
+  linkedAppointmentId?: string;
 }
 
 export interface InventoryItem {

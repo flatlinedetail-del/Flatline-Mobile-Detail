@@ -34,10 +34,25 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
   className = "",
   defaultValue = "",
 }, ref) => {
-  const { isLoaded, loadError } = useJsApiLoader({
+  const { isLoaded, loadError: loaderError } = useJsApiLoader({
     googleMapsApiKey: (import.meta as any).env.VITE_GOOGLE_MAPS_API_KEY || "",
     libraries: LIBRARIES,
   });
+
+  const [loadError, setLoadError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (loaderError) {
+      setLoadError(loaderError);
+    }
+  }, [loaderError]);
+
+  // Check if places library actually loaded (handles ApiTargetBlockedMapError)
+  useEffect(() => {
+    if (isLoaded && !window.google?.maps?.places) {
+      setLoadError(new Error("ApiTargetBlockedMapError: Places library failed to load. Check API restrictions in Google Cloud Console."));
+    }
+  }, [isLoaded]);
 
   const [inputValue, setInputValue] = useState(defaultValue);
   const [addressData, setAddressData] = useState({ address: defaultValue, lat: 0, lng: 0 });
@@ -153,25 +168,43 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
 
       {/* Error Message Hint */}
       {loadError && (
-        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-[10px] leading-tight">
+        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-[10px] leading-tight shadow-sm animate-in fade-in slide-in-from-top-1">
           <div className="flex items-center gap-1.5 font-bold mb-1">
             <AlertCircle className="w-3 h-3" />
             <span>Google Maps API Error</span>
           </div>
-          <p>
+          <p className="mb-1">
             {loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")
-              ? "Places API is not enabled for this API key. Please enable it in Google Cloud Console."
+              ? "The 'Places API' or 'Geocoding API' is not enabled for this API key. You must enable BOTH in the Google Cloud Console."
               : "Failed to load address suggestions. Manual entry is enabled."}
           </p>
           {(loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")) && (
-            <a 
-              href="https://console.cloud.google.com/google/maps-apis/credentials" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-primary hover:underline font-bold mt-1 inline-block"
-            >
-              Fix in Cloud Console →
-            </a>
+            <div className="flex flex-col gap-1.5 mt-2">
+              <a 
+                href="https://console.cloud.google.com/google/maps-apis/api/places-backend.googleapis.com/overview" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-bold flex items-center gap-1"
+              >
+                1. Enable Places API →
+              </a>
+              <a 
+                href="https://console.cloud.google.com/google/maps-apis/api/geocoding-backend.googleapis.com/overview" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-bold flex items-center gap-1"
+              >
+                2. Enable Geocoding API →
+              </a>
+              <a 
+                href="https://console.cloud.google.com/google/maps-apis/credentials" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-bold flex items-center gap-1"
+              >
+                3. Check API Key Restrictions →
+              </a>
+            </div>
           )}
         </div>
       )}

@@ -25,7 +25,8 @@ import {
   DollarSign,
   Loader2,
   Truck,
-  ExternalLink
+  ExternalLink,
+  Scan
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,7 @@ import Logo from "../components/Logo";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function JobDetail() {
@@ -280,15 +282,72 @@ export default function JobDetail() {
               <CardTitle className="text-sm font-bold uppercase tracking-widest text-gray-400">Vehicle Info</CardTitle>
             </CardHeader>
             <CardContent className="p-5 space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center text-white">
-                    <Car className="w-6 h-6" />
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center text-white">
+                      <Car className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-gray-900">{job.vehicleInfo}</p>
+                      <div className="flex items-center gap-2">
+                        {job.vin ? (
+                          <p className="text-[10px] font-mono text-gray-400 uppercase">{job.vin}</p>
+                        ) : (
+                          <p className="text-[10px] text-gray-400 italic">No VIN recorded</p>
+                        )}
+                      </div>
+                    </div>
+                    <Dialog>
+                      <DialogTrigger render={
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-red-50">
+                          <Scan className="w-4 h-4" />
+                        </Button>
+                      } />
+                      <DialogContent className="bg-white border-none shadow-2xl rounded-2xl">
+                        <DialogHeader><DialogTitle className="font-black">VIN Management</DialogTitle></DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div className="space-y-2">
+                            <Label className="font-bold">Enter VIN</Label>
+                            <div className="flex gap-2">
+                              <Input 
+                                placeholder="17-character VIN" 
+                                className="bg-white border-gray-200 uppercase font-mono"
+                                defaultValue={job.vin}
+                                id="vin-input"
+                              />
+                              <Button 
+                                className="bg-black text-white font-bold"
+                                onClick={async () => {
+                                  const vin = (document.getElementById("vin-input") as HTMLInputElement).value;
+                                  if (vin) {
+                                    const data = await decodeVin(vin);
+                                    if (data) {
+                                      setDecodedVin(data);
+                                      toast.success("VIN Decoded!");
+                                    } else {
+                                      toast.error("Invalid VIN or decoding failed");
+                                    }
+                                  }
+                                }}
+                              >
+                                Decode
+                              </Button>
+                            </div>
+                          </div>
+                          <Button 
+                            className="w-full bg-primary font-bold"
+                            onClick={async () => {
+                              const vin = (document.getElementById("vin-input") as HTMLInputElement).value;
+                              await updateDoc(doc(db, "appointments", id!), { vin });
+                              setJob(prev => ({ ...prev, vin }));
+                              toast.success("VIN Saved!");
+                            }}
+                          >
+                            Save to Job
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </div>
-                  <div>
-                    <p className="font-bold text-gray-900">{job.vehicleInfo}</p>
-                    {job.vin && <p className="text-[10px] font-mono text-gray-400 uppercase">{job.vin}</p>}
-                  </div>
-                </div>
               {decodedVin && (
                 <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wider">
                   <div className="text-gray-400">Make: <span className="text-gray-900">{decodedVin.make}</span></div>
@@ -320,12 +379,17 @@ export default function JobDetail() {
                   </div>
                 ))}
                 {job.travelFee > 0 && (
-                  <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-50">
-                    <div className="flex items-center gap-1 text-primary font-bold">
-                      <Truck className="w-3 h-3" />
-                      <span>Travel Fee</span>
+                  <div className="flex items-center justify-between p-3 bg-red-50 rounded-xl border border-red-100 animate-in fade-in slide-in-from-right-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-white">
+                        <Truck className="w-4 h-4" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs font-black text-primary uppercase tracking-widest">Travel Surcharge</span>
+                        <span className="text-[10px] text-red-700 font-medium">{job.travelFeeBreakdown?.miles || 0} miles</span>
+                      </div>
                     </div>
-                    <span className="font-bold text-primary">${job.travelFee}</span>
+                    <span className="font-black text-primary">${job.travelFee}</span>
                   </div>
                 )}
                 {job.discountAmount > 0 && (

@@ -46,6 +46,8 @@
         "email": { "type": "string" },
         "address": { "type": "string" },
         "loyaltyPoints": { "type": "number" },
+        "isVIP": { "type": "boolean" },
+        "vipSettings": { "type": "object" },
         "notes": { "type": "string" },
         "tags": { "type": "array", "items": { "type": "string" } },
         "createdAt": { "type": "string" }
@@ -75,14 +77,17 @@
         "vendorId": { "type": "string" },
         "vehicleId": { "type": "string" },
         "serviceIds": { "type": "array", "items": { "type": "string" } },
+        "addOnIds": { "type": "array", "items": { "type": "string" } },
         "status": { "type": "string", "enum": ["scheduled", "confirmed", "en_route", "in_progress", "completed", "paid", "canceled", "no_show"] },
         "scheduledAt": { "type": "string" },
         "address": { "type": "string" },
         "totalAmount": { "type": "number" },
         "technicianId": { "type": "string" },
+        "commissionAmount": { "type": "number" },
         "notes": { "type": "string" },
         "vin": { "type": "string" },
-        "roNumber": { "type": "string" }
+        "roNumber": { "type": "string" },
+        "recurringInfo": { "type": "object" }
       }
     },
     "Expense": {
@@ -94,7 +99,9 @@
         "amount": { "type": "number" },
         "date": { "type": "string" },
         "notes": { "type": "string" },
-        "technicianId": { "type": "string" }
+        "technicianId": { "type": "string" },
+        "receiptUrl": { "type": "string" },
+        "linkedAppointmentId": { "type": "string" }
       }
     },
     "Vehicle": {
@@ -118,8 +125,26 @@
       "properties": {
         "name": { "type": "string" },
         "description": { "type": "string" },
+        "category": { "type": "string" },
+        "basePrice": { "type": "number" },
+        "pricingBySize": { "type": "object" },
+        "isTaxable": { "type": "boolean" },
+        "estimatedDuration": { "type": "number" },
+        "requiresWaiver": { "type": "boolean" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "AddOn": {
+      "title": "AddOn",
+      "description": "Service add-on item",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
         "price": { "type": "number" },
-        "duration": { "type": "number" }
+        "isTaxable": { "type": "boolean" },
+        "estimatedDuration": { "type": "number" },
+        "isActive": { "type": "boolean" }
       }
     },
     "Setting": {
@@ -132,10 +157,13 @@
         "currency": { "type": "string" },
         "timezone": { "type": "string" },
         "commissionRate": { "type": "number" },
+        "commissionType": { "type": "string" },
         "baseAddress": { "type": "string" },
         "baseLatitude": { "type": "number" },
         "baseLongitude": { "type": "number" },
-        "travelPricing": { "type": "object" }
+        "travelPricing": { "type": "object" },
+        "loyaltySettings": { "type": "object" },
+        "technicianOverrides": { "type": "object" }
       }
     }
   },
@@ -148,6 +176,7 @@
     "/expenses/{expenseId}": { "schema": "Expense", "description": "Business expenses" },
     "/vehicles/{vehicleId}": { "schema": "Vehicle", "description": "Vehicles" },
     "/services/{serviceId}": { "schema": "Service", "description": "Service catalog" },
+    "/addons/{addOnId}": { "schema": "AddOn", "description": "Add-ons catalog" },
     "/settings/{settingId}": { "schema": "Setting", "description": "Business settings" }
   }
 }

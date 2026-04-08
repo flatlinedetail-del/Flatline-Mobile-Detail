@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardList, Search, Filter, MoreHorizontal, Phone, Mail, MapPin, Calendar, Clock, ArrowRight, Plus, Car, User, Loader2, Star, Truck } from "lucide-react";
+import { ClipboardList, Search, Filter, MoreHorizontal, Phone, Mail, MapPin, Calendar, Clock, ArrowRight, Plus, Car, User, Loader2, Star, Truck, Repeat } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { format, addHours } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,10 @@ export default function Appointments() {
   const [appointmentAddress, setAppointmentAddress] = useState({ address: "", lat: 0, lng: 0 });
   const [travelFeeData, setTravelFeeData] = useState<any>(null);
   const [baseAmount, setBaseAmount] = useState<number>(0);
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringFrequency, setRecurringFrequency] = useState<"daily" | "weekly" | "monthly">("weekly");
+  const [recurringInterval, setRecurringInterval] = useState(1);
+  const [recurringEndDate, setRecurringEndDate] = useState("");
 
   const handleApplyCoupon = async () => {
     const amount = baseAmount;
@@ -174,6 +179,12 @@ export default function Appointments() {
       waiverAccepted,
       estimatedTravelTime: travelFeeData ? estimateTravelTime(travelFeeData.miles) : 0,
       estimatedTravelDistance: travelFeeData ? travelFeeData.miles : 0,
+      recurringInfo: isRecurring ? {
+        frequency: recurringFrequency,
+        interval: recurringInterval,
+        endDate: recurringEndDate ? new Date(recurringEndDate) : null,
+        seriesId: Math.random().toString(36).substring(7)
+      } : null,
       createdAt: serverTimestamp(),
     };
 
@@ -275,11 +286,13 @@ export default function Appointments() {
                 )}
                 <div className="space-y-2 col-span-2">
                   <Label htmlFor="address">Service Address</Label>
-                  {!settings?.baseAddress && (
+                  {(!settings?.baseAddress || !settings?.travelPricing?.pricePerMile) && (
                     <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl mb-2">
                       <p className="text-xs text-amber-800 font-bold flex items-center gap-2">
                         <Truck className="w-4 h-4" />
-                        Travel pricing not configured. Please set a base address in Settings.
+                        {!settings?.baseAddress 
+                          ? "Travel pricing not configured. Please set a base address in Settings."
+                          : "Travel rate is set to $0. Please check your Settings."}
                       </p>
                     </div>
                   )}
@@ -294,11 +307,16 @@ export default function Appointments() {
                     </p>
                   )}
                   {travelFeeData && appointmentAddress.lat !== 0 && (
-                    <div className="flex items-center gap-2 mt-2 p-3 bg-red-50 rounded-xl border border-red-100">
-                      <Truck className="w-4 h-4 text-primary" />
+                    <div className="flex items-center gap-3 mt-2 p-4 bg-red-50 rounded-2xl border-2 border-red-100 shadow-sm animate-in fade-in slide-in-from-top-1">
+                      <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white shrink-0 shadow-md">
+                        <Truck className="w-5 h-5" />
+                      </div>
                       <div className="flex-1">
-                        <p className="text-xs font-black text-primary uppercase tracking-widest">Travel Fee: ${travelFeeData.fee}</p>
-                        <p className="text-[10px] text-red-700 font-medium">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-black text-primary uppercase tracking-widest">Travel Surcharge</p>
+                          <p className="text-lg font-black text-primary">${travelFeeData.fee.toFixed(2)}</p>
+                        </div>
+                        <p className="text-[10px] text-red-700 font-bold uppercase tracking-tight">
                           {travelFeeData.miles} miles from base {travelFeeData.isRoundTrip ? " (Round Trip)" : ""}
                         </p>
                       </div>
@@ -321,6 +339,51 @@ export default function Appointments() {
                     value={baseAmount || ""}
                     onChange={(e) => setBaseAmount(parseFloat(e.target.value) || 0)}
                   />
+                </div>
+
+                <div className="col-span-2 p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Repeat className="w-4 h-4 text-primary" />
+                      <Label className="text-sm font-bold">Recurring Appointment</Label>
+                    </div>
+                    <Switch checked={isRecurring} onCheckedChange={setIsRecurring} />
+                  </div>
+
+                  {isRecurring && (
+                    <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-200 animate-in fade-in slide-in-from-top-2">
+                      <div className="space-y-2">
+                        <Label className="text-xs">Frequency</Label>
+                        <Select value={recurringFrequency} onValueChange={(v: any) => setRecurringFrequency(v)}>
+                          <SelectTrigger className="h-8 bg-white"><SelectValue /></SelectTrigger>
+                          <SelectContent className="bg-white">
+                            <SelectItem value="daily">Daily</SelectItem>
+                            <SelectItem value="weekly">Weekly</SelectItem>
+                            <SelectItem value="monthly">Monthly</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs">Every (Interval)</Label>
+                        <Input 
+                          type="number" 
+                          min="1" 
+                          value={recurringInterval} 
+                          onChange={(e) => setRecurringInterval(parseInt(e.target.value))}
+                          className="h-8 bg-white"
+                        />
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label className="text-xs">End Date (Optional)</Label>
+                        <Input 
+                          type="date" 
+                          value={recurringEndDate} 
+                          onChange={(e) => setRecurringEndDate(e.target.value)}
+                          className="h-8 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2 col-span-2">
                   <Label htmlFor="services">Services (Comma separated)</Label>

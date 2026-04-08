@@ -138,6 +138,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /addons/{addOnId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
     match /coupons/{couponId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();

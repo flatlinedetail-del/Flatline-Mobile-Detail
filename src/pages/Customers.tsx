@@ -31,8 +31,12 @@ import {
   Trash2,
   Save,
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  Crown,
+  ShieldAlert,
+  Truck
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -222,7 +226,10 @@ export default function Customers() {
                           {customer.name?.charAt(0)}
                         </div>
                         <div className="flex flex-col">
-                          <span className="font-bold text-gray-900">{customer.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-gray-900">{customer.name}</span>
+                            {customer.isVIP && <Crown className="w-3 h-3 text-yellow-500 fill-yellow-500" />}
+                          </div>
                           <span className="text-xs text-gray-500 truncate max-w-[150px]">{customer.address || "No address"}</span>
                         </div>
                       </div>
@@ -304,10 +311,35 @@ export default function Customers() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <Badge className="bg-yellow-400 text-yellow-900 border-none mb-2 font-black uppercase tracking-widest">
-                    {selectedCustomer.membershipLevel} MEMBER
-                  </Badge>
-                  <p className="text-4xl font-black tracking-tighter">{selectedCustomer.loyaltyPoints} <span className="text-lg opacity-50">PTS</span></p>
+                  <div className="flex items-center gap-2 justify-end mb-2">
+                    {selectedCustomer.isVIP && (
+                      <Badge className="bg-yellow-400 text-yellow-900 border-none font-black uppercase tracking-widest">
+                        VIP
+                      </Badge>
+                    )}
+                    <Badge className="bg-white/20 text-white border-none font-black uppercase tracking-widest">
+                      {selectedCustomer.membershipLevel} MEMBER
+                    </Badge>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <p className="text-4xl font-black tracking-tighter">{selectedCustomer.loyaltyPoints} <span className="text-lg opacity-50">PTS</span></p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="h-6 px-2 text-[10px] font-black uppercase bg-white/10 hover:bg-white/20 text-white"
+                        onClick={() => {
+                          const amount = prompt("Adjust points (use negative for deduction):");
+                          if (amount) {
+                            const val = parseInt(amount);
+                            if (!isNaN(val)) updateCustomer({ loyaltyPoints: (selectedCustomer.loyaltyPoints || 0) + val });
+                          }
+                        }}
+                      >
+                        Adjust Points
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -322,43 +354,108 @@ export default function Customers() {
 
               <div className="p-8 max-h-[60vh] overflow-y-auto bg-white">
                 <TabsContent value="profile" className="mt-0 space-y-6">
-                  <div className="grid grid-cols-1 gap-6">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Default Address</Label>
-                        {selectedCustomer.address && (
-                          <a 
-                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedCustomer.address)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] font-black text-primary flex items-center gap-1 hover:underline uppercase tracking-widest"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            Open in Maps
-                          </a>
-                        )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Default Address</Label>
+                          {selectedCustomer.address && (
+                            <a 
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedCustomer.address)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] font-black text-primary flex items-center gap-1 hover:underline uppercase tracking-widest"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Open in Maps
+                            </a>
+                          )}
+                        </div>
+                        <CustomerAddressInput 
+                          defaultValue={selectedCustomer.address}
+                          onAddressSelect={(address, lat, lng) => updateCustomer({ address, latitude: lat, longitude: lng })}
+                        />
                       </div>
-                      <CustomerAddressInput 
-                        defaultValue={selectedCustomer.address}
-                        onAddressSelect={(address, lat, lng) => updateCustomer({ address, latitude: lat, longitude: lng })}
-                      />
+                      <div className="space-y-2">
+                        <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Membership Level</Label>
+                        <Select 
+                          defaultValue={selectedCustomer.membershipLevel}
+                          onValueChange={(val: any) => updateCustomer({ membershipLevel: val })}
+                        >
+                          <SelectTrigger className="bg-gray-50 border-none font-medium">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">None</SelectItem>
+                            <SelectItem value="silver">Silver</SelectItem>
+                            <SelectItem value="gold">Gold</SelectItem>
+                            <SelectItem value="platinum">Platinum</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Membership Level</Label>
-                      <Select 
-                        defaultValue={selectedCustomer.membershipLevel}
-                        onValueChange={(val: any) => updateCustomer({ membershipLevel: val })}
-                      >
-                        <SelectTrigger className="bg-gray-50 border-none font-medium">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          <SelectItem value="silver">Silver</SelectItem>
-                          <SelectItem value="gold">Gold</SelectItem>
-                          <SelectItem value="platinum">Platinum</SelectItem>
-                        </SelectContent>
-                      </Select>
+
+                    <div className="space-y-4 p-6 bg-gray-50 rounded-2xl border border-gray-100">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Crown className="w-5 h-5 text-yellow-500" />
+                          <Label className="text-base font-black uppercase tracking-tighter">VIP Status</Label>
+                        </div>
+                        <Switch 
+                          checked={selectedCustomer.isVIP || false}
+                          onCheckedChange={(checked) => updateCustomer({ isVIP: checked })}
+                        />
+                      </div>
+                      
+                      {selectedCustomer.isVIP && (
+                        <div className="space-y-4 pt-4 border-t border-gray-200 animate-in fade-in slide-in-from-top-2">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <Label className="text-xs font-bold">Waive Travel Fee</Label>
+                              <p className="text-[10px] text-gray-500">Always $0 travel fee regardless of distance.</p>
+                            </div>
+                            <Switch 
+                              checked={selectedCustomer.vipSettings?.waiveTravelFee || false}
+                              onCheckedChange={(checked) => updateCustomer({ 
+                                vipSettings: { ...(selectedCustomer.vipSettings || {}), waiveTravelFee: checked } 
+                              })}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <Label className="text-xs font-bold">Exempt from Fees</Label>
+                              <p className="text-[10px] text-gray-500">No deposits, cancellation, or late fees.</p>
+                            </div>
+                            <Switch 
+                              checked={selectedCustomer.vipSettings?.exemptFromFees || false}
+                              onCheckedChange={(checked) => updateCustomer({ 
+                                vipSettings: { ...(selectedCustomer.vipSettings || {}), exemptFromFees: checked } 
+                              })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-xs font-bold">Travel Fee Discount (%)</Label>
+                            <Input 
+                              type="number"
+                              placeholder="0"
+                              className="h-8 bg-white"
+                              defaultValue={selectedCustomer.vipSettings?.travelFeeDiscount}
+                              onBlur={(e) => {
+                                const travelFeeDiscount = parseFloat(e.target.value);
+                                updateCustomer({ 
+                                  vipSettings: { 
+                                    customServicePricing: selectedCustomer.vipSettings?.customServicePricing || {},
+                                    travelFeeDiscount,
+                                    waiveTravelFee: selectedCustomer.vipSettings?.waiveTravelFee || false,
+                                    exemptFromFees: selectedCustomer.vipSettings?.exemptFromFees || false,
+                                    specialDiscountRules: selectedCustomer.vipSettings?.specialDiscountRules || ""
+                                  } 
+                                });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -469,13 +566,21 @@ export default function Customers() {
                               type="number"
                               placeholder="Rate"
                               className="pl-6 h-8 bg-white border-gray-200 font-bold text-sm"
-                              defaultValue={selectedCustomer.specialPricing?.[service.id]}
+                              defaultValue={selectedCustomer.vipSettings?.customServicePricing?.[service.id]}
                               onBlur={async (e) => {
                                 const val = parseFloat(e.target.value);
-                                const newPricing = { ...(selectedCustomer.specialPricing || {}) };
+                                const newPricing = { ...(selectedCustomer.vipSettings?.customServicePricing || {}) };
                                 if (isNaN(val)) delete newPricing[service.id];
                                 else newPricing[service.id] = val;
-                                await updateCustomer({ specialPricing: newPricing });
+                                await updateCustomer({ 
+                                  vipSettings: { 
+                                    customServicePricing: newPricing,
+                                    travelFeeDiscount: selectedCustomer.vipSettings?.travelFeeDiscount || 0,
+                                    waiveTravelFee: selectedCustomer.vipSettings?.waiveTravelFee || false,
+                                    exemptFromFees: selectedCustomer.vipSettings?.exemptFromFees || false,
+                                    specialDiscountRules: selectedCustomer.vipSettings?.specialDiscountRules || ""
+                                  } 
+                                });
                               }}
                             />
                           </div>
