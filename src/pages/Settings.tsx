@@ -44,8 +44,8 @@ export default function Settings() {
               maxTravelFee: data.travelPricing.maxTravelFee.toString()
             });
           }
-        } else {
-          // Initialize default settings
+        } else if (profile?.role === "admin") {
+          // Initialize default settings ONLY if user is admin
           const defaultSettings: BusinessSettings = {
             businessName: "Flatline Mobile Detail",
             taxRate: 8.25,
@@ -66,14 +66,21 @@ export default function Settings() {
           await setDoc(docRef, defaultSettings);
           setSettings(defaultSettings);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching settings:", error);
+        if (error.code === 'permission-denied') {
+          toast.error("You don't have permission to access business settings.");
+        } else {
+          toast.error("Failed to load business settings.");
+        }
       } finally {
         setLoading(false);
       }
     };
-    fetchSettings();
-  }, []);
+    if (profile) {
+      fetchSettings();
+    }
+  }, [profile]);
 
   const handleSaveSettings = async (newData: Partial<BusinessSettings>) => {
     if (!settings) return;

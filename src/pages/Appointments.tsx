@@ -97,9 +97,13 @@ export default function Appointments() {
     });
 
     // Fetch settings
-    getDoc(doc(db, "settings", "business")).then(snap => {
-      if (snap.exists()) setSettings(snap.data() as BusinessSettings);
-    });
+    getDoc(doc(db, "settings", "business"))
+      .then(snap => {
+        if (snap.exists()) setSettings(snap.data() as BusinessSettings);
+      })
+      .catch(error => {
+        console.error("Error fetching settings in Appointments:", error);
+      });
 
     return () => unsubscribe();
   }, []);

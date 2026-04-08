@@ -38,7 +38,9 @@ export default function Calendar() {
 
   useEffect(() => {
     if (date) {
-      optimizeRoute(date).then(setOptimizedStops);
+      optimizeRoute(date)
+        .then(setOptimizedStops)
+        .catch(error => console.error("Error optimizing route in Calendar:", error));
     }
   }, [date, appointments]);
 

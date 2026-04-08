@@ -127,35 +127,6 @@ export default function AddressInput({
     }
   }, [status, value, open, isTyping]);
 
-  if (loadError) {
-    const isAuthError = loadError.message?.includes("ApiTargetBlockedMapError") || 
-                        loadError.toString().includes("ApiTargetBlockedMapError");
-    
-    return (
-      <div className="flex flex-col gap-2 p-4 bg-red-50 border border-red-100 rounded-xl text-red-600 text-xs">
-        <div className="flex items-center gap-2 font-bold">
-          <AlertCircle className="w-4 h-4" />
-          <span>Google Maps Error</span>
-        </div>
-        <p className="font-medium">
-          {isAuthError 
-            ? "API Key Restriction Error: Please enable 'Places API' in your Google Cloud Console for this API key."
-            : "Google address autocomplete failed to load. Please check your API key settings."}
-        </p>
-        {isAuthError && (
-          <a 
-            href="https://console.cloud.google.com/google/maps-apis/credentials" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-primary hover:underline font-bold mt-1"
-          >
-            Go to Google Cloud Console →
-          </a>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className={className}>
       <Popover open={open} onOpenChange={setOpen} modal={false}>
@@ -170,11 +141,11 @@ export default function AddressInput({
               onFocus={() => {
                 if (value.length > 0 && status === "OK") setOpen(true);
               }}
-              placeholder={!isLoaded ? "Loading Google Maps..." : placeholder}
-              disabled={!isLoaded}
+              placeholder={!isLoaded && !loadError ? "Loading Google Maps..." : placeholder}
+              disabled={!isLoaded && !loadError}
               className="pl-10 bg-gray-50 border-none font-medium w-full focus-visible:ring-1 focus-visible:ring-primary"
             />
-            {!isLoaded && (
+            {!isLoaded && !loadError && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
                 <Loader2 className="w-4 h-4 animate-spin text-gray-300" />
               </div>
@@ -224,6 +195,31 @@ export default function AddressInput({
           </Command>
         </PopoverContent>
       </Popover>
+
+      {/* Error Message Hint */}
+      {loadError && (
+        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-[10px] leading-tight">
+          <div className="flex items-center gap-1.5 font-bold mb-1">
+            <AlertCircle className="w-3 h-3" />
+            <span>Google Maps API Error</span>
+          </div>
+          <p>
+            {loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")
+              ? "Places API is not enabled for this API key. Please enable it in Google Cloud Console."
+              : "Failed to load address suggestions. Manual entry is enabled."}
+          </p>
+          {(loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")) && (
+            <a 
+              href="https://console.cloud.google.com/google/maps-apis/credentials" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-primary hover:underline font-bold mt-1 inline-block"
+            >
+              Fix in Cloud Console →
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
 }

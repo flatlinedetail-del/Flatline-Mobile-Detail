@@ -144,7 +144,9 @@ export default function Dashboard() {
     });
 
     // 4. Route Optimization
-    optimizeRoute(today).then(setOptimizedRoute);
+    optimizeRoute(today)
+      .then(setOptimizedRoute)
+      .catch(error => console.error("Error optimizing route:", error));
 
     setLoading(false);
     return () => {

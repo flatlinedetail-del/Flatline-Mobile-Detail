@@ -35,7 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               email: user.email,
               displayName: user.displayName,
               photoURL: user.photoURL,
-              role: user.email === "FLATLINEDETAIL@gmail.com" ? "admin" : "technician",
+              role: user.email?.toLowerCase() === "flatlinedetail@gmail.com" ? "admin" : "technician",
               createdAt: serverTimestamp(),
             };
             await setDoc(doc(db, "users", user.uid), newProfile);

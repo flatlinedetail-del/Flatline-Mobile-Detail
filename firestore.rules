@@ -55,7 +55,8 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (hasRole('admin') ||
-          request.auth.token.email == "FLATLINEDETAIL@gmail.com");
+          (request.auth.token.keys().contains('email') && 
+           request.auth.token.email.lower() == "flatlinedetail@gmail.com"));
     }
 
     function isTechnician() {
