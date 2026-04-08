@@ -10,15 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Receipt, Plus, Search, Filter, Trash2, Calendar, DollarSign, Tag, Link as LinkIcon, ExternalLink } from "lucide-react";
+import { Receipt, Plus, Search, Filter, Trash2, Calendar, DollarSign, Tag, Link as LinkIcon, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { Category } from "../types";
 
 export default function Expenses() {
   const { profile } = useAuth();
   const [expenses, setExpenses] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -35,7 +37,15 @@ export default function Expenses() {
       setAppointments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    return () => unsubscribe();
+    const catsQuery = query(collection(db, "categories"), orderBy("sortOrder", "asc"));
+    const unsubscribeCats = onSnapshot(catsQuery, (snapshot) => {
+      setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category)));
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeCats();
+    };
   }, []);
 
   const handleCreateExpense = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -111,15 +121,22 @@ export default function Expenses() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="category">Category</Label>
-                <Select name="category" defaultValue="supplies">
-                  <SelectTrigger className="bg-white border-gray-200"><SelectValue /></SelectTrigger>
+                <Select name="category" defaultValue={categories.find(c => c.type === "expense" && c.isActive)?.name || "Other"}>
+                  <SelectTrigger className="bg-white border-gray-200"><SelectValue placeholder="Select Category" /></SelectTrigger>
                   <SelectContent className="bg-white">
-                    <SelectItem value="supplies">Supplies</SelectItem>
-                    <SelectItem value="fuel">Fuel</SelectItem>
-                    <SelectItem value="marketing">Marketing</SelectItem>
-                    <SelectItem value="insurance">Insurance</SelectItem>
-                    <SelectItem value="maintenance">Maintenance</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    {categories.filter(c => c.type === "expense" && c.isActive).map(cat => (
+                      <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                    ))}
+                    {categories.filter(c => c.type === "expense" && c.isActive).length === 0 && (
+                      <>
+                        <SelectItem value="supplies">Supplies</SelectItem>
+                        <SelectItem value="fuel">Fuel</SelectItem>
+                        <SelectItem value="marketing">Marketing</SelectItem>
+                        <SelectItem value="insurance">Insurance</SelectItem>
+                        <SelectItem value="maintenance">Maintenance</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

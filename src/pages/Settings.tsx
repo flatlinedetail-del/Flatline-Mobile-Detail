@@ -8,17 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList } from "lucide-react";
+import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, Tag } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { seedDemoData } from "../services/seedData";
 import { toast } from "sonner";
 import AddressInput from "../components/AddressInput";
-import { BusinessSettings, Service, AddOn, VehicleSize } from "../types";
-import { collection, query, onSnapshot, addDoc, deleteDoc } from "firebase/firestore";
+import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType } from "../types";
+import { collection, query, onSnapshot, addDoc, deleteDoc, orderBy } from "firebase/firestore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { GripVertical, ArrowUp, ArrowDown } from "lucide-react";
 
 const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
   { label: "Small", value: "small" },
@@ -34,10 +35,13 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [services, setServices] = useState<Service[]>([]);
   const [addons, setAddons] = useState<AddOn[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [editingService, setEditingService] = useState<Partial<Service> | null>(null);
   const [editingAddon, setEditingAddon] = useState<Partial<AddOn> | null>(null);
+  const [editingCategory, setEditingCategory] = useState<Partial<Category> | null>(null);
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
   const [isAddonDialogOpen, setIsAddonDialogOpen] = useState(false);
+  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [travelPricingInputs, setTravelPricingInputs] = useState({
     pricePerMile: "",
     freeMilesThreshold: "",
@@ -117,9 +121,33 @@ export default function Settings() {
         setAddons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AddOn)));
       });
 
+      // Listen for categories
+      const categoriesQuery = query(collection(db, "categories"), orderBy("sortOrder", "asc"));
+      const unsubscribeCategories = onSnapshot(categoriesQuery, (snapshot) => {
+        const cats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category));
+        setCategories(cats);
+        
+        // Seed default categories if none exist
+        if (cats.length === 0 && profile?.role === "admin") {
+          const defaultCategories: Partial<Category>[] = [
+            { name: "Interior", type: "service", isActive: true, sortOrder: 0 },
+            { name: "Exterior", type: "service", isActive: true, sortOrder: 1 },
+            { name: "Protection", type: "service", isActive: true, sortOrder: 2 },
+            { name: "Correction", type: "service", isActive: true, sortOrder: 3 },
+            { name: "Add-ons", type: "addon", isActive: true, sortOrder: 0 },
+            { name: "Fuel", type: "expense", isActive: true, sortOrder: 0 },
+            { name: "Supplies", type: "expense", isActive: true, sortOrder: 1 },
+            { name: "Marketing", type: "expense", isActive: true, sortOrder: 2 },
+            { name: "Insurance", type: "expense", isActive: true, sortOrder: 3 },
+          ];
+          defaultCategories.forEach(cat => addDoc(collection(db, "categories"), cat));
+        }
+      });
+
       return () => {
         unsubscribeServices();
         unsubscribeAddons();
+        unsubscribeCategories();
       };
     }
   }, [profile]);
@@ -241,6 +269,72 @@ export default function Settings() {
     }
   };
 
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCategory?.name || !editingCategory?.type) return;
+
+    try {
+      if (editingCategory.id) {
+        await setDoc(doc(db, "categories", editingCategory.id), editingCategory);
+        toast.success("Category updated");
+      } else {
+        await addDoc(collection(db, "categories"), {
+          ...editingCategory,
+          isActive: true,
+          sortOrder: categories.filter(c => c.type === editingCategory.type).length
+        });
+        toast.success("Category added");
+      }
+      setIsCategoryDialogOpen(false);
+      setEditingCategory(null);
+    } catch (error) {
+      console.error("Error saving category:", error);
+      toast.error("Failed to save category");
+    }
+  };
+
+  const handleReorderCategory = async (id: string, direction: "up" | "down") => {
+    const category = categories.find(c => c.id === id);
+    if (!category) return;
+
+    const sameTypeCats = categories.filter(c => c.type === category.type);
+    const index = sameTypeCats.findIndex(c => c.id === id);
+    
+    if (direction === "up" && index > 0) {
+      const prev = sameTypeCats[index - 1];
+      await updateDoc(doc(db, "categories", category.id), { sortOrder: prev.sortOrder });
+      await updateDoc(doc(db, "categories", prev.id), { sortOrder: category.sortOrder });
+    } else if (direction === "down" && index < sameTypeCats.length - 1) {
+      const next = sameTypeCats[index + 1];
+      await updateDoc(doc(db, "categories", category.id), { sortOrder: next.sortOrder });
+      await updateDoc(doc(db, "categories", next.id), { sortOrder: category.sortOrder });
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    const category = categories.find(c => c.id === id);
+    if (!category) return;
+
+    // Check if in use
+    const isServiceInUse = services.some(s => s.category === category.name);
+    const isAddonInUse = addons.some(a => (a as any).category === category.name);
+    
+    if (isServiceInUse || isAddonInUse) {
+      if (!confirm(`This category is currently being used by services or add-ons. Deleting it may cause issues. Are you sure you want to proceed?`)) {
+        return;
+      }
+    } else {
+      if (!confirm("Are you sure you want to delete this category?")) return;
+    }
+
+    try {
+      await deleteDoc(doc(db, "categories", id));
+      toast.success("Category deleted");
+    } catch (error) {
+      toast.error("Failed to delete category");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -287,6 +381,10 @@ export default function Settings() {
           <TabsTrigger value="commission" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
             <Percent className="w-4 h-4 mr-2" />
             Commission
+          </TabsTrigger>
+          <TabsTrigger value="categories" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+            <Tag className="w-4 h-4 mr-2" />
+            Categories
           </TabsTrigger>
         </TabsList>
 
@@ -703,16 +801,14 @@ export default function Settings() {
                   <div className="space-y-2">
                     <Label>Category</Label>
                     <Select 
-                      value={editingService?.category || "interior"} 
+                      value={editingService?.category || ""} 
                       onValueChange={(v: any) => setEditingService(prev => ({ ...prev!, category: v }))}
                     >
-                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="bg-white"><SelectValue placeholder="Select Category" /></SelectTrigger>
                       <SelectContent className="bg-white">
-                        <SelectItem value="interior">Interior</SelectItem>
-                        <SelectItem value="exterior">Exterior</SelectItem>
-                        <SelectItem value="protection">Protection</SelectItem>
-                        <SelectItem value="correction">Correction</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
+                        {categories.filter(c => c.type === "service" && c.isActive).map(cat => (
+                          <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -803,6 +899,20 @@ export default function Settings() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label>Category</Label>
+                  <Select 
+                    value={(editingAddon as any)?.category || ""} 
+                    onValueChange={(v: any) => setEditingAddon(prev => ({ ...prev!, category: v }))}
+                  >
+                    <SelectTrigger className="bg-white"><SelectValue placeholder="Select Category" /></SelectTrigger>
+                    <SelectContent className="bg-white">
+                      {categories.filter(c => c.type === "addon" && c.isActive).map(cat => (
+                        <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label>Description</Label>
                   <Textarea 
                     value={editingAddon?.description || ""} 
@@ -846,6 +956,144 @@ export default function Settings() {
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setIsAddonDialogOpen(false)}>Cancel</Button>
                   <Button type="submit" className="bg-primary hover:bg-red-700 font-bold">Save Add-on</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+
+        <TabsContent value="categories">
+          <div className="grid grid-cols-1 gap-6">
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Category Management</CardTitle>
+                  <CardDescription>Create and organize categories for services, add-ons, and expenses.</CardDescription>
+                </div>
+                <Button size="sm" className="bg-primary hover:bg-red-700 font-bold" onClick={() => {
+                  setEditingCategory({
+                    name: "",
+                    type: "service",
+                    isActive: true,
+                    sortOrder: 0
+                  });
+                  setIsCategoryDialogOpen(true);
+                }}>
+                  <Plus className="w-4 h-4 mr-2" /> Add Category
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-8">
+                  {["service", "addon", "expense", "inventory"].map((type) => {
+                    const typeCats = categories.filter(c => c.type === type);
+                    if (typeCats.length === 0 && type === "inventory") return null;
+                    
+                    return (
+                      <div key={type} className="space-y-4">
+                        <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                          <Tag className="w-4 h-4" />
+                          {type} Categories
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {typeCats.map((cat, idx) => (
+                            <div key={cat.id} className="p-4 border border-gray-100 rounded-xl hover:border-red-100 transition-colors group flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="flex flex-col gap-1">
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-4 w-4 text-gray-300 hover:text-primary"
+                                    onClick={() => handleReorderCategory(cat.id, "up")}
+                                    disabled={idx === 0}
+                                  >
+                                    <ArrowUp className="w-3 h-3" />
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-4 w-4 text-gray-300 hover:text-primary"
+                                    onClick={() => handleReorderCategory(cat.id, "down")}
+                                    disabled={idx === typeCats.length - 1}
+                                  >
+                                    <ArrowDown className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                                <div>
+                                  <p className="font-bold text-gray-900">{cat.name}</p>
+                                  {!cat.isActive && <Badge variant="secondary" className="text-[10px] uppercase">Inactive</Badge>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 text-gray-400 hover:text-primary"
+                                  onClick={() => {
+                                    setEditingCategory(cat);
+                                    setIsCategoryDialogOpen(true);
+                                  }}
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 text-gray-400 hover:text-red-600"
+                                  onClick={() => handleDeleteCategory(cat.id)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Dialog open={isCategoryDialogOpen} onOpenChange={setIsCategoryDialogOpen}>
+            <DialogContent className="max-w-md bg-white">
+              <DialogHeader>
+                <DialogTitle>{editingCategory?.id ? "Edit Category" : "Add New Category"}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSaveCategory} className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Category Name</Label>
+                  <Input 
+                    value={editingCategory?.name || ""} 
+                    onChange={e => setEditingCategory(prev => ({ ...prev!, name: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Type</Label>
+                  <Select 
+                    value={editingCategory?.type || "service"} 
+                    onValueChange={(v: any) => setEditingCategory(prev => ({ ...prev!, type: v }))}
+                  >
+                    <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-white">
+                      <SelectItem value="service">Service</SelectItem>
+                      <SelectItem value="addon">Add-on</SelectItem>
+                      <SelectItem value="expense">Expense</SelectItem>
+                      <SelectItem value="inventory">Inventory</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <Label>Active</Label>
+                  <Switch 
+                    checked={editingCategory?.isActive ?? true} 
+                    onCheckedChange={v => setEditingCategory(prev => ({ ...prev!, isActive: v }))}
+                  />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsCategoryDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" className="bg-primary hover:bg-red-700 font-bold">Save Category</Button>
                 </DialogFooter>
               </form>
             </DialogContent>

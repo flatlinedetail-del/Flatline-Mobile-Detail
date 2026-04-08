@@ -165,6 +165,18 @@
         "loyaltySettings": { "type": "object" },
         "technicianOverrides": { "type": "object" }
       }
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Custom category for services, add-ons, expenses, or inventory",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["service", "addon", "expense", "inventory"] },
+        "isActive": { "type": "boolean" },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["name", "type"]
     }
   },
   "firestore": {
@@ -177,6 +189,7 @@
     "/vehicles/{vehicleId}": { "schema": "Vehicle", "description": "Vehicles" },
     "/services/{serviceId}": { "schema": "Service", "description": "Service catalog" },
     "/addons/{addOnId}": { "schema": "AddOn", "description": "Add-ons catalog" },
-    "/settings/{settingId}": { "schema": "Setting", "description": "Business settings" }
+    "/settings/{settingId}": { "schema": "Setting", "description": "Business settings" },
+    "/categories/{categoryId}": { "schema": "Category", "description": "Custom categories" }
   }
 }

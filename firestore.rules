@@ -153,6 +153,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
     // Default deny
     match /{path=**} {
       allow read, write: if false;

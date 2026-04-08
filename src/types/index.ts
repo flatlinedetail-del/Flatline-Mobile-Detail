@@ -2,11 +2,21 @@ import { Timestamp } from "firebase/firestore";
 
 export type VehicleSize = "small" | "medium" | "large" | "extra_large";
 
+export type CategoryType = "service" | "addon" | "expense" | "inventory";
+
+export interface Category {
+  id: string;
+  name: string;
+  type: CategoryType;
+  isActive: boolean;
+  sortOrder: number;
+}
+
 export interface Service {
   id: string;
   name: string;
   description: string;
-  category: "interior" | "exterior" | "protection" | "correction" | "other";
+  category: string;
   basePrice: number;
   pricingBySize: Record<VehicleSize, number>;
   isTaxable: boolean;
@@ -187,7 +197,7 @@ export interface BusinessSettings {
 
 export interface Expense {
   id: string;
-  category: "fuel" | "supplies" | "marketing" | "insurance" | "other";
+  category: string;
   amount: number;
   description: string;
   date: Timestamp;
