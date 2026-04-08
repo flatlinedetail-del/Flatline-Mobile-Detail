@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import { format, addDays } from "date-fns";
 import { Lead } from "../types";
 import { useNavigate } from "react-router-dom";
+import AddressInput from "../components/AddressInput";
 
 export default function Leads() {
   const { profile } = useAuth();
@@ -43,6 +44,7 @@ export default function Leads() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [newLeadAddress, setNewLeadAddress] = useState({ address: "", lat: 0, lng: 0 });
 
   useEffect(() => {
     const q = query(collection(db, "leads"), orderBy("createdAt", "desc"));
@@ -65,7 +67,9 @@ export default function Leads() {
       name: formData.get("name"),
       phone: formData.get("phone"),
       email: formData.get("email"),
-      address: formData.get("address"),
+      address: newLeadAddress.address,
+      latitude: newLeadAddress.lat,
+      longitude: newLeadAddress.lng,
       vehicleInfo: formData.get("vehicleInfo"),
       requestedService: formData.get("requestedService"),
       source: formData.get("source") || "Direct",
@@ -101,9 +105,9 @@ export default function Leads() {
   };
 
   const filteredLeads = leads.filter(lead => 
-    lead.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    lead.phone?.includes(searchTerm) ||
-    lead.vehicleInfo?.toLowerCase().includes(searchTerm.toLowerCase())
+    (lead.name?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+    (lead.phone || "").includes(searchTerm) ||
+    (lead.vehicleInfo?.toLowerCase() || "").includes(searchTerm.toLowerCase())
   );
 
   const statusColors: Record<string, string> = {
@@ -149,7 +153,10 @@ export default function Leads() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="address">Service Address</Label>
-                <Input id="address" name="address" placeholder="123 Main St, City, ST" />
+                <AddressInput 
+                  onAddressSelect={(address, lat, lng) => setNewLeadAddress({ address, lat, lng })}
+                  placeholder="123 Main St, City, ST"
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

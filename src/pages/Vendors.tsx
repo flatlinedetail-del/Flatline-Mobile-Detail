@@ -148,9 +148,9 @@ export default function Vendors() {
   };
 
   const filteredVendors = vendors.filter(vendor => 
-    vendor.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.contactPerson?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.phone?.includes(searchTerm)
+    (vendor.name?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+    (vendor.contactPerson?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+    (vendor.phone || "").includes(searchTerm)
   );
 
   return (

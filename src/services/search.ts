@@ -32,15 +32,15 @@ export async function globalSearch(searchTerm: string): Promise<SearchResult[]> 
   customerSnap.docs.forEach(doc => {
     const data = doc.data() as Customer;
     if (
-      data.name.toLowerCase().includes(term) ||
-      data.phone.includes(term) ||
-      data.email.toLowerCase().includes(term)
+      data.name?.toLowerCase().includes(term) ||
+      data.phone?.includes(term) ||
+      data.email?.toLowerCase().includes(term)
     ) {
       results.push({
         type: "customer",
         id: doc.id,
-        title: data.name,
-        subtitle: `${data.phone} • ${data.email}`,
+        title: data.name || "Unnamed Customer",
+        subtitle: `${data.phone || "No phone"} • ${data.email || "No email"}`,
       });
     }
   });
@@ -54,17 +54,17 @@ export async function globalSearch(searchTerm: string): Promise<SearchResult[]> 
   appSnap.docs.forEach(doc => {
     const data = doc.data() as Appointment;
     if (
-      data.customerName.toLowerCase().includes(term) ||
+      data.customerName?.toLowerCase().includes(term) ||
       data.vin?.toLowerCase().includes(term) ||
       data.roNumber?.toLowerCase().includes(term) ||
-      data.vehicleInfo.toLowerCase().includes(term) ||
+      data.vehicleInfo?.toLowerCase().includes(term) ||
       doc.id.toLowerCase().includes(term)
     ) {
       results.push({
         type: "appointment",
         id: doc.id,
         title: `Job #${doc.id.slice(-6).toUpperCase()}`,
-        subtitle: `${data.customerName} • ${data.vehicleInfo}`,
+        subtitle: `${data.customerName || "Unknown"} • ${data.vehicleInfo || "Unknown Vehicle"}`,
         status: data.status,
         amount: data.totalAmount,
       });
@@ -80,15 +80,15 @@ export async function globalSearch(searchTerm: string): Promise<SearchResult[]> 
   vendorSnap.docs.forEach(doc => {
     const data = doc.data() as Vendor;
     if (
-      data.name.toLowerCase().includes(term) ||
-      data.contactPerson.toLowerCase().includes(term) ||
-      data.phone.includes(term)
+      data.name?.toLowerCase().includes(term) ||
+      data.contactPerson?.toLowerCase().includes(term) ||
+      data.phone?.includes(term)
     ) {
       results.push({
         type: "vendor",
         id: doc.id,
-        title: data.name,
-        subtitle: `Contact: ${data.contactPerson} • ${data.phone}`,
+        title: data.name || "Unnamed Vendor",
+        subtitle: `Contact: ${data.contactPerson || "N/A"} • ${data.phone || "No phone"}`,
       });
     }
   });

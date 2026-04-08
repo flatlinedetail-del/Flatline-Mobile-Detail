@@ -40,9 +40,10 @@ export default function Appointments() {
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [appointmentAddress, setAppointmentAddress] = useState({ address: "", lat: 0, lng: 0 });
   const [travelFeeData, setTravelFeeData] = useState<any>(null);
+  const [baseAmount, setBaseAmount] = useState<number>(0);
 
   const handleApplyCoupon = async () => {
-    const amount = Number((document.getElementById("totalAmount") as HTMLInputElement).value);
+    const amount = baseAmount;
     const coupon = await validateCoupon(couponCode, amount);
     if (coupon) {
       const d = calculateDiscount(coupon, amount);
@@ -186,10 +187,10 @@ export default function Appointments() {
   };
 
   const filteredAppointments = appointments.filter(app => 
-    app.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    app.vehicleInfo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    app.vin?.includes(searchTerm) ||
-    app.roNumber?.includes(searchTerm)
+    (app.customerName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+    (app.vehicleInfo?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+    (app.vin || "").includes(searchTerm) ||
+    (app.roNumber || "").includes(searchTerm)
   );
 
   const statusColors: any = {
@@ -270,6 +271,14 @@ export default function Appointments() {
                 )}
                 <div className="space-y-2 col-span-2">
                   <Label htmlFor="address">Service Address</Label>
+                  {!settings?.baseAddress && (
+                    <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl mb-2">
+                      <p className="text-xs text-amber-800 font-bold flex items-center gap-2">
+                        <Truck className="w-4 h-4" />
+                        Travel pricing not configured. Please set a base address in Settings.
+                      </p>
+                    </div>
+                  )}
                   <AddressInput 
                     defaultValue={appointmentAddress.address}
                     onAddressSelect={handleAddressSelect}
@@ -297,8 +306,17 @@ export default function Appointments() {
                   <Input id="scheduledAt" name="scheduledAt" type="datetime-local" required className="bg-white border-gray-200" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="totalAmount">Total Amount ($)</Label>
-                  <Input id="totalAmount" name="totalAmount" type="number" placeholder="250" required className="bg-white border-gray-200" />
+                  <Label htmlFor="totalAmount">Service Base Amount ($)</Label>
+                  <Input 
+                    id="totalAmount" 
+                    name="totalAmount" 
+                    type="number" 
+                    placeholder="250" 
+                    required 
+                    className="bg-white border-gray-200" 
+                    value={baseAmount || ""}
+                    onChange={(e) => setBaseAmount(parseFloat(e.target.value) || 0)}
+                  />
                 </div>
                 <div className="space-y-2 col-span-2">
                   <Label htmlFor="services">Services (Comma separated)</Label>
@@ -332,6 +350,38 @@ export default function Appointments() {
                       {redeemedPoints > 0 && <p className="text-xs text-primary font-bold">Loyalty: -${redeemedPoints}</p>}
                     </div>
                   )}
+                </div>
+
+                <div className="col-span-2 p-4 bg-gray-50 rounded-2xl space-y-3 border border-gray-100">
+                  <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Price Summary</h4>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Service Base</span>
+                    <span className="font-bold">${baseAmount.toFixed(2)}</span>
+                  </div>
+                  {travelFeeData && appointmentAddress.lat !== 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Travel Fee ({travelFeeData.miles} mi)</span>
+                      <span className="font-bold text-primary">+${travelFeeData.fee.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {discount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Discount</span>
+                      <span className="font-bold text-green-600">-${discount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {redeemedPoints > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Loyalty Points</span>
+                      <span className="font-bold text-primary">-${redeemedPoints.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="pt-2 border-t border-gray-200 flex justify-between items-center">
+                    <span className="font-black text-gray-900 uppercase tracking-tighter">Final Total</span>
+                    <span className="text-xl font-black text-gray-900">
+                      ${(baseAmount + (appointmentAddress.lat !== 0 ? (travelFeeData?.fee || 0) : 0) - discount - redeemedPoints).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center space-x-2 col-span-2 py-2">
                   <Checkbox 

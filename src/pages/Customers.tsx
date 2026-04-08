@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, where, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -38,7 +38,8 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "../lib/utils";
 import { Customer, Vehicle, Service } from "../types";
-import AddressInput from "../components/AddressInput";
+import CustomerAddressInput, { CustomerAddressInputRef } from "../components/CustomerAddressInput";
+import AddCustomerDialog from "../components/AddCustomerDialog";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
@@ -48,11 +49,10 @@ export default function Customers() {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [customerVehicles, setCustomerVehicles] = useState<Vehicle[]>([]);
-  const [newCustomerAddress, setNewCustomerAddress] = useState({ address: "", lat: 0, lng: 0 });
+  const addressInputRef = useRef<CustomerAddressInputRef>(null);
 
   useEffect(() => {
     const q = query(collection(db, "customers"), orderBy("createdAt", "desc"));
@@ -82,40 +82,6 @@ export default function Customers() {
       });
     }
   }, [selectedCustomer]);
-
-  const handleAddCustomer = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    
-    if (newCustomerAddress.address && newCustomerAddress.lat === 0) {
-      toast.warning("Address selected but coordinates not found. Travel fees may not calculate correctly.");
-    }
-
-    const newCustomer = {
-      name: formData.get("name"),
-      phone: formData.get("phone"),
-      email: formData.get("email"),
-      address: newCustomerAddress.address,
-      latitude: newCustomerAddress.lat,
-      longitude: newCustomerAddress.lng,
-      loyaltyPoints: 0,
-      membershipLevel: "none",
-      notes: formData.get("notes"),
-      createdAt: serverTimestamp(),
-      createdBy: profile?.uid,
-    };
-
-    try {
-      await addDoc(collection(db, "customers"), newCustomer);
-      toast.success("Customer added successfully");
-      setIsAddDialogOpen(false);
-      setNewCustomerAddress({ address: "", lat: 0, lng: 0 });
-      (e.currentTarget as HTMLFormElement).reset();
-    } catch (error) {
-      console.error("Error adding customer:", error);
-      toast.error("Failed to add customer");
-    }
-  };
 
   const updateCustomer = async (data: Partial<Customer>) => {
     if (!selectedCustomer) return;
@@ -185,9 +151,9 @@ export default function Customers() {
   };
 
   const filteredCustomers = customers.filter(customer => 
-    customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.phone?.includes(searchTerm) ||
-    customer.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    (customer.name?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+    (customer.phone || "").includes(searchTerm) ||
+    (customer.email?.toLowerCase() || "").includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -197,47 +163,7 @@ export default function Customers() {
           <h1 className="text-3xl font-black text-gray-900 tracking-tighter">CUSTOMERS</h1>
           <p className="text-gray-500 font-medium">Manage your retail client database and loyalty.</p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger render={
-            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
-              <UserPlus className="w-4 h-4 mr-2" />
-              Add New Customer
-            </Button>
-          } />
-          <DialogContent className="sm:max-w-[500px]">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-black">Add New Customer</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleAddCustomer} className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" name="name" placeholder="John Doe" required />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input id="phone" name="phone" placeholder="(555) 000-0000" required />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input id="email" name="email" type="email" placeholder="john@example.com" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="address">Default Address</Label>
-                <AddressInput 
-                  onAddressSelect={(address, lat, lng) => setNewCustomerAddress({ address, lat, lng })}
-                  placeholder="123 Main St, City, ST"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea id="notes" name="notes" placeholder="Special requests, gate codes, etc." />
-              </div>
-              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">Create Customer</Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <AddCustomerDialog />
       </div>
 
       <Card className="border-none shadow-sm bg-white overflow-hidden">
@@ -412,7 +338,7 @@ export default function Customers() {
                           </a>
                         )}
                       </div>
-                      <AddressInput 
+                      <CustomerAddressInput 
                         defaultValue={selectedCustomer.address}
                         onAddressSelect={(address, lat, lng) => updateCustomer({ address, latitude: lat, longitude: lng })}
                       />

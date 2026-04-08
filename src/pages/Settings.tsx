@@ -21,6 +21,12 @@ export default function Settings() {
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [travelPricingInputs, setTravelPricingInputs] = useState({
+    pricePerMile: "",
+    freeMilesThreshold: "",
+    minTravelFee: "",
+    maxTravelFee: ""
+  });
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -28,7 +34,16 @@ export default function Settings() {
         const docRef = doc(db, "settings", "business");
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          setSettings(docSnap.data() as BusinessSettings);
+          const data = docSnap.data() as BusinessSettings;
+          setSettings(data);
+          if (data.travelPricing) {
+            setTravelPricingInputs({
+              pricePerMile: data.travelPricing.pricePerMile.toString(),
+              freeMilesThreshold: data.travelPricing.freeMilesThreshold.toString(),
+              minTravelFee: data.travelPricing.minTravelFee.toString(),
+              maxTravelFee: data.travelPricing.maxTravelFee.toString()
+            });
+          }
         } else {
           // Initialize default settings
           const defaultSettings: BusinessSettings = {
@@ -64,7 +79,24 @@ export default function Settings() {
     if (!settings) return;
     setIsSaving(true);
     try {
-      const updatedSettings = { ...settings, ...newData };
+      // Merge travel pricing inputs if they exist
+      const finalTravelPricing = {
+        ...settings.travelPricing,
+        pricePerMile: parseFloat(travelPricingInputs.pricePerMile) || 0,
+        freeMilesThreshold: parseFloat(travelPricingInputs.freeMilesThreshold) || 0,
+        minTravelFee: parseFloat(travelPricingInputs.minTravelFee) || 0,
+        maxTravelFee: parseFloat(travelPricingInputs.maxTravelFee) || 0,
+      };
+
+      const updatedSettings = { 
+        ...settings, 
+        ...newData,
+        travelPricing: {
+          ...settings.travelPricing,
+          ...(newData.travelPricing || {}),
+          ...finalTravelPricing
+        }
+      };
       await updateDoc(doc(db, "settings", "business"), updatedSettings);
       setSettings(updatedSettings);
       toast.success("Settings updated successfully");
@@ -241,49 +273,44 @@ export default function Settings() {
                     <Label htmlFor="pricePerMile">Price Per Mile ($)</Label>
                     <Input 
                       id="pricePerMile" 
-                      type="number" 
-                      step="0.01"
-                      value={settings?.travelPricing.pricePerMile || 0} 
-                      onChange={(e) => setSettings(prev => prev ? { 
-                        ...prev, 
-                        travelPricing: { ...prev.travelPricing, pricePerMile: parseFloat(e.target.value) } 
-                      } : null)}
+                      type="text" 
+                      inputMode="decimal"
+                      placeholder="e.g. 1.50"
+                      value={travelPricingInputs.pricePerMile} 
+                      onChange={(e) => setTravelPricingInputs(prev => ({ ...prev, pricePerMile: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="freeMilesThreshold">Free Miles Threshold (one way)</Label>
                     <Input 
                       id="freeMilesThreshold" 
-                      type="number" 
-                      value={settings?.travelPricing.freeMilesThreshold || 0} 
-                      onChange={(e) => setSettings(prev => prev ? { 
-                        ...prev, 
-                        travelPricing: { ...prev.travelPricing, freeMilesThreshold: parseFloat(e.target.value) } 
-                      } : null)}
+                      type="text" 
+                      inputMode="decimal"
+                      placeholder="e.g. 10"
+                      value={travelPricingInputs.freeMilesThreshold} 
+                      onChange={(e) => setTravelPricingInputs(prev => ({ ...prev, freeMilesThreshold: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="minTravelFee">Minimum Travel Fee ($)</Label>
                     <Input 
                       id="minTravelFee" 
-                      type="number" 
-                      value={settings?.travelPricing.minTravelFee || 0} 
-                      onChange={(e) => setSettings(prev => prev ? { 
-                        ...prev, 
-                        travelPricing: { ...prev.travelPricing, minTravelFee: parseFloat(e.target.value) } 
-                      } : null)}
+                      type="text" 
+                      inputMode="decimal"
+                      placeholder="e.g. 0"
+                      value={travelPricingInputs.minTravelFee} 
+                      onChange={(e) => setTravelPricingInputs(prev => ({ ...prev, minTravelFee: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="maxTravelFee">Maximum Travel Fee ($)</Label>
                     <Input 
                       id="maxTravelFee" 
-                      type="number" 
-                      value={settings?.travelPricing.maxTravelFee || 0} 
-                      onChange={(e) => setSettings(prev => prev ? { 
-                        ...prev, 
-                        travelPricing: { ...prev.travelPricing, maxTravelFee: parseFloat(e.target.value) } 
-                      } : null)}
+                      type="text" 
+                      inputMode="decimal"
+                      placeholder="e.g. 100"
+                      value={travelPricingInputs.maxTravelFee} 
+                      onChange={(e) => setTravelPricingInputs(prev => ({ ...prev, maxTravelFee: e.target.value }))}
                     />
                   </div>
                   <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl col-span-2">
