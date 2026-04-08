@@ -94,6 +94,8 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
 
   const lastDefaultValue = useRef(defaultValue);
   const initialValueSetRef = useRef(false);
+  const isFocused = useRef(false);
+
   useEffect(() => {
     if (defaultValue && !initialValueSetRef.current) {
       setInputValue(defaultValue);
@@ -101,7 +103,7 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
       setValue(defaultValue, false);
       initialValueSetRef.current = true;
       lastDefaultValue.current = defaultValue;
-    } else if (defaultValue !== lastDefaultValue.current) {
+    } else if (defaultValue !== lastDefaultValue.current && !isFocused.current) {
       setInputValue(defaultValue);
       setAddressData({ address: defaultValue, lat: 0, lng: 0 });
       setValue(defaultValue, false);
@@ -157,7 +159,17 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
           value={inputValue}
           onChange={handleInputChange}
           onFocus={() => {
+            isFocused.current = true;
             if (inputValue.length > 0 && status === "OK") setShowSuggestions(true);
+          }}
+          onBlur={() => {
+            isFocused.current = false;
+            // Delay to allow handleSelect to run first if a suggestion was clicked
+            setTimeout(() => {
+              if (!selectionMadeRef.current) {
+                setShowSuggestions(false);
+              }
+            }, 200);
           }}
           placeholder={!isLoaded && !loadError ? "Loading..." : placeholder}
           disabled={!isLoaded && !loadError}

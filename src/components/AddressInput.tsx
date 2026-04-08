@@ -1,20 +1,11 @@
-/// <reference types="vite/client" />
 import usePlacesAutocomplete, {
   getGeocode,
   getLatLng,
 } from "use-places-autocomplete";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useEffect, useRef } from "react";
-import { Input } from "./ui/input";
 import { MapPin, AlertCircle, Loader2 } from "lucide-react";
 import { useJsApiLoader, Libraries } from "@react-google-maps/api";
+import { cn } from "@/lib/utils";
 
 interface AddressInputProps {
   defaultValue?: string;
@@ -37,6 +28,10 @@ export default function AddressInput({
   });
 
   const [loadError, setLoadError] = useState<Error | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isFocused = useRef(false);
+  const selectionMadeRef = useRef(false);
 
   useEffect(() => {
     if (loaderError) {
@@ -44,18 +39,12 @@ export default function AddressInput({
     }
   }, [loaderError]);
 
-  // Check if places library actually loaded (handles ApiTargetBlockedMapError)
   useEffect(() => {
     if (isLoaded && !window.google?.maps?.places) {
-      setLoadError(new Error("ApiTargetBlockedMapError: Places library failed to load. Check API restrictions in Google Cloud Console."));
+      setLoadError(new Error("ApiTargetBlockedMapError: Places library failed to load."));
     }
   }, [isLoaded]);
 
-  const [open, setOpen] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const selectionMadeRef = useRef(false);
-  
   const {
     ready,
     value,
@@ -67,35 +56,42 @@ export default function AddressInput({
     requestOptions: {
       componentRestrictions: { country: "us" },
     },
-    debounce: 200,
+    debounce: 300,
     defaultValue,
     cache: 86400,
     initOnMount: false,
   });
 
-  // Initialize autocomplete only when Google Maps script is loaded
   useEffect(() => {
     if (isLoaded) {
       init();
     }
   }, [isLoaded, init]);
 
-  // Only sync defaultValue if we aren't currently typing and value is empty
-  // We use a ref to track if the initial value has been set to avoid overwriting user input
-  const initialValueSetRef = useRef(false);
+  // Sync defaultValue carefully
+  const lastDefaultValue = useRef(defaultValue);
   useEffect(() => {
-    if (defaultValue && !initialValueSetRef.current && !isTyping) {
+    if (defaultValue !== lastDefaultValue.current && !isFocused.current) {
       setValue(defaultValue, false);
-      initialValueSetRef.current = true;
+      lastDefaultValue.current = defaultValue;
     }
-  }, [defaultValue, setValue, isTyping]);
+  }, [defaultValue, setValue]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleSelect = async (address: string) => {
     selectionMadeRef.current = true;
     setValue(address, false);
     clearSuggestions();
-    setOpen(false);
-    setIsTyping(false);
+    setShowSuggestions(false);
 
     try {
       const results = await getGeocode({ address });
@@ -105,155 +101,90 @@ export default function AddressInput({
       console.error("Geocoding error: ", error);
       onAddressSelect(address, 0, 0);
     } finally {
-      // Reset the ref after a short delay to allow blur events to be ignored
       setTimeout(() => {
         selectionMadeRef.current = false;
-      }, 100);
+      }, 200);
     }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setValue(val);
-    setIsTyping(true);
-    
-    if (val.length > 0) {
-      setOpen(true);
-    } else {
-      setOpen(false);
-    }
-    
-    // We explicitly DO NOT call onAddressSelect here.
-    // The parent will only be notified on selection or on blur.
+    setShowSuggestions(val.length > 0);
   };
 
   const handleBlur = () => {
-    // Small delay to allow handleSelect to set selectionMadeRef
+    isFocused.current = false;
+    // Delay to allow handleSelect to run first if a suggestion was clicked
     setTimeout(() => {
       if (!selectionMadeRef.current) {
-        setIsTyping(false);
-        // Pass the current value as a manual entry if no selection was made
+        setShowSuggestions(false);
         onAddressSelect(value, 0, 0);
       }
-    }, 150);
+    }, 200);
   };
 
-  // Ensure popover opens when results arrive
-  useEffect(() => {
-    if (status === "OK" && value.length > 0 && !open && isTyping) {
-      setOpen(true);
-    }
-  }, [status, value, open, isTyping]);
-
   return (
-    <div className={className}>
-      <Popover open={open} onOpenChange={setOpen} modal={false}>
-        <PopoverTrigger render={
-          <div className="relative">
-            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <Input
-              ref={inputRef}
-              value={value}
-              onChange={handleInputChange}
-              onBlur={handleBlur}
-              onFocus={() => {
-                if (value.length > 0 && status === "OK") setOpen(true);
-              }}
-              placeholder={!isLoaded && !loadError ? "Loading Google Maps..." : placeholder}
-              disabled={!isLoaded && !loadError}
-              className="pl-10 bg-gray-50 border-none font-medium w-full focus-visible:ring-1 focus-visible:ring-primary"
-            />
-            {!isLoaded && !loadError && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <Loader2 className="w-4 h-4 animate-spin text-gray-300" />
-              </div>
-            )}
+    <div ref={containerRef} className={cn("relative w-full", className)}>
+      <div className="relative">
+        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 z-10" />
+        <input
+          type="text"
+          value={value}
+          onChange={handleInputChange}
+          onBlur={handleBlur}
+          onFocus={() => {
+            isFocused.current = true;
+            if (value.length > 0 && status === "OK") setShowSuggestions(true);
+          }}
+          placeholder={!isLoaded && !loadError ? "Loading..." : placeholder}
+          disabled={!isLoaded && !loadError}
+          className={cn(
+            "h-10 w-full rounded-xl border-none bg-gray-50 pl-10 pr-10 text-sm font-medium transition-all outline-none focus:ring-2 focus:ring-primary/20",
+            !isLoaded && !loadError && "opacity-50 cursor-not-allowed"
+          )}
+        />
+        {!isLoaded && !loadError && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <Loader2 className="w-4 h-4 animate-spin text-gray-300" />
           </div>
-        } />
-        <PopoverContent 
-          className="p-0 w-[var(--radix-popover-trigger-width)] overflow-hidden border-none shadow-2xl rounded-xl z-[100]" 
-          align="start"
-          sideOffset={8}
-        >
-          <Command className="rounded-xl border-none" shouldFilter={false}>
-            <CommandList className="max-h-[300px] overflow-y-auto">
-              {status === "OK" ? (
-                <CommandGroup>
-                  {data.map(({ place_id, description, structured_formatting }) => (
-                    <CommandItem
-                      key={place_id}
-                      value={description}
-                      onSelect={() => handleSelect(description)}
-                      className="px-4 py-3 cursor-pointer hover:bg-accent transition-colors border-b border-gray-50 last:border-none"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-gray-50 rounded-lg flex items-center justify-center shrink-0">
-                          <MapPin className="w-4 h-4 text-gray-400" />
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-sm font-bold text-gray-900 truncate">
-                            {structured_formatting?.main_text || description}
-                          </span>
-                          <span className="text-[10px] text-gray-500 truncate">
-                            {structured_formatting?.secondary_text || ""}
-                          </span>
-                        </div>
-                      </div>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              ) : (
-                value && status !== "" && status !== "ZERO_RESULTS" && (
-                  <CommandEmpty className="py-6 text-center text-sm text-gray-500">
-                    No results found.
-                  </CommandEmpty>
-                )
-              )}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
+        )}
+      </div>
 
-      {/* Error Message Hint */}
+      {showSuggestions && status === "OK" && (
+        <div className="absolute left-0 right-0 top-full mt-2 z-[9999] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+          <div className="max-h-[300px] overflow-y-auto py-2">
+            {data.map(({ place_id, description, structured_formatting }) => (
+              <button
+                key={place_id}
+                type="button"
+                onClick={() => handleSelect(description)}
+                className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50 last:border-none"
+              >
+                <div className="w-8 h-8 bg-gray-50 rounded-lg flex items-center justify-center shrink-0">
+                  <MapPin className="w-4 h-4 text-gray-400" />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-bold text-gray-900 truncate">
+                    {structured_formatting?.main_text || description}
+                  </span>
+                  <span className="text-[10px] text-gray-500 truncate">
+                    {structured_formatting?.secondary_text || ""}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loadError && (
-        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-[10px] leading-tight shadow-sm animate-in fade-in slide-in-from-top-1">
+        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-[10px] leading-tight">
           <div className="flex items-center gap-1.5 font-bold mb-1">
             <AlertCircle className="w-3 h-3" />
             <span>Google Maps API Error</span>
           </div>
-          <p className="mb-1">
-            {loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")
-              ? "The 'Places API' or 'Geocoding API' is not enabled for this API key. You must enable BOTH in the Google Cloud Console."
-              : "Failed to load address suggestions. Manual entry is enabled."}
-          </p>
-          {(loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")) && (
-            <div className="flex flex-col gap-1.5 mt-2">
-              <a 
-                href="https://console.cloud.google.com/google/maps-apis/api/places-backend.googleapis.com/overview" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-primary hover:underline font-bold flex items-center gap-1"
-              >
-                1. Enable Places API →
-              </a>
-              <a 
-                href="https://console.cloud.google.com/google/maps-apis/api/geocoding-backend.googleapis.com/overview" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-primary hover:underline font-bold flex items-center gap-1"
-              >
-                2. Enable Geocoding API →
-              </a>
-              <a 
-                href="https://console.cloud.google.com/google/maps-apis/credentials" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-primary hover:underline font-bold flex items-center gap-1"
-              >
-                3. Check API Key Restrictions →
-              </a>
-            </div>
-          )}
+          <p>{loadError.message || "Failed to load address suggestions."}</p>
         </div>
       )}
     </div>

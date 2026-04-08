@@ -546,7 +546,9 @@ export default function Settings() {
                       value={travelPricingInputs.pricePerMile} 
                       onValueChange={(val) => {
                         setTravelPricingInputs(prev => ({ ...prev, pricePerMile: val }));
-                        handleSaveSettings({ travelPricing: { ...settings!.travelPricing, pricePerMile: parseFloat(val) || 0 } });
+                        if (settings) {
+                          handleSaveSettings({ travelPricing: { ...settings.travelPricing, pricePerMile: parseFloat(val) || 0 } });
+                        }
                       }}
                     />
                   </div>
@@ -560,7 +562,9 @@ export default function Settings() {
                       value={travelPricingInputs.freeMilesThreshold} 
                       onValueChange={(val) => {
                         setTravelPricingInputs(prev => ({ ...prev, freeMilesThreshold: val }));
-                        handleSaveSettings({ travelPricing: { ...settings!.travelPricing, freeMilesThreshold: parseFloat(val) || 0 } });
+                        if (settings) {
+                          handleSaveSettings({ travelPricing: { ...settings.travelPricing, freeMilesThreshold: parseFloat(val) || 0 } });
+                        }
                       }}
                     />
                   </div>
@@ -574,7 +578,9 @@ export default function Settings() {
                       value={travelPricingInputs.minTravelFee} 
                       onValueChange={(val) => {
                         setTravelPricingInputs(prev => ({ ...prev, minTravelFee: val }));
-                        handleSaveSettings({ travelPricing: { ...settings!.travelPricing, minTravelFee: parseFloat(val) || 0 } });
+                        if (settings) {
+                          handleSaveSettings({ travelPricing: { ...settings.travelPricing, minTravelFee: parseFloat(val) || 0 } });
+                        }
                       }}
                     />
                   </div>
@@ -588,7 +594,9 @@ export default function Settings() {
                       value={travelPricingInputs.maxTravelFee} 
                       onValueChange={(val) => {
                         setTravelPricingInputs(prev => ({ ...prev, maxTravelFee: val }));
-                        handleSaveSettings({ travelPricing: { ...settings!.travelPricing, maxTravelFee: parseFloat(val) || 0 } });
+                        if (settings) {
+                          handleSaveSettings({ travelPricing: { ...settings.travelPricing, maxTravelFee: parseFloat(val) || 0 } });
+                        }
                       }}
                     />
                   </div>

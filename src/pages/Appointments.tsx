@@ -375,7 +375,13 @@ export default function Appointments() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="scheduledAt">Date & Time</Label>
-                  <Input id="scheduledAt" name="scheduledAt" type="datetime-local" required className="bg-white border-gray-200" />
+                  <Input 
+                    id="scheduledAt" 
+                    name="scheduledAt" 
+                    type="datetime-local" 
+                    required 
+                    className="bg-white border-gray-200" 
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="totalAmount">Service Base Amount ($)</Label>
