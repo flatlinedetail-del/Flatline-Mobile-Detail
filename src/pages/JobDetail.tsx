@@ -375,9 +375,19 @@ export default function JobDetail() {
                 {job.serviceNames?.map((service: string) => (
                   <div key={service} className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">{service}</span>
-                    <span className="font-medium text-gray-900">${job.baseAmount / (job.serviceNames?.length || 1)}</span>
+                    <span className="font-medium text-gray-900">Included</span>
                   </div>
                 ))}
+                {job.addOnNames?.map((addon: string) => (
+                  <div key={addon} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600 italic">{addon} (Add-on)</span>
+                    <span className="font-medium text-gray-900">Included</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-50">
+                  <span className="text-gray-400 uppercase text-[10px] font-bold">Subtotal</span>
+                  <span className="font-bold text-gray-900">${job.baseAmount}</span>
+                </div>
                 {job.travelFee > 0 && (
                   <div className="flex items-center justify-between p-3 bg-red-50 rounded-xl border border-red-100 animate-in fade-in slide-in-from-right-2">
                     <div className="flex items-center gap-2">
@@ -451,9 +461,19 @@ export default function JobDetail() {
                           {job.serviceNames?.map((service: string) => (
                             <tr key={service}>
                               <td className="py-4 text-gray-700">{service}</td>
-                              <td className="py-4 text-right font-bold text-gray-900">${job.baseAmount / (job.serviceNames?.length || 1)}</td>
+                              <td className="py-4 text-right font-bold text-gray-900">Included</td>
                             </tr>
                           ))}
+                          {job.addOnNames?.map((addon: string) => (
+                            <tr key={addon}>
+                              <td className="py-4 text-gray-700 italic">{addon} (Add-on)</td>
+                              <td className="py-4 text-right font-bold text-gray-900">Included</td>
+                            </tr>
+                          ))}
+                          <tr className="bg-gray-50/50">
+                            <td className="py-2 px-4 text-gray-500 font-bold text-xs uppercase">Service Subtotal</td>
+                            <td className="py-2 px-4 text-right font-black text-gray-900">${job.baseAmount}</td>
+                          </tr>
                           {job.travelFee > 0 && (
                             <tr>
                               <td className="py-4 text-gray-700 flex items-center gap-2">

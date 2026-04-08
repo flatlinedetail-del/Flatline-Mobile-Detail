@@ -32,6 +32,11 @@ export default function Appointments() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [customers, setCustomers] = useState<any[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
+  const [services, setServices] = useState<any[]>([]);
+  const [addons, setAddons] = useState<any[]>([]);
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
+  const [vehicleSize, setVehicleSize] = useState<"small" | "medium" | "large" | "extra_large">("medium");
   const [customerType, setCustomerType] = useState<"retail" | "vendor">("retail");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [couponCode, setCouponCode] = useState("");
@@ -101,6 +106,16 @@ export default function Appointments() {
       setVendors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    // Fetch services
+    getDocs(collection(db, "services")).then(snapshot => {
+      setServices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => s.isActive));
+    });
+
+    // Fetch addons
+    getDocs(collection(db, "addons")).then(snapshot => {
+      setAddons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((a: any) => a.isActive));
+    });
+
     // Fetch settings
     getDoc(doc(db, "settings", "business"))
       .then(snap => {
@@ -124,6 +139,23 @@ export default function Appointments() {
       }
     }
   }, [selectedCustomerId, customerType]);
+
+  useEffect(() => {
+    let total = 0;
+    selectedServiceIds.forEach(id => {
+      const service = services.find(s => s.id === id);
+      if (service) {
+        total += service.pricingBySize?.[vehicleSize] || service.basePrice || 0;
+      }
+    });
+    selectedAddonIds.forEach(id => {
+      const addon = addons.find(a => a.id === id);
+      if (addon) {
+        total += addon.price || 0;
+      }
+    });
+    setBaseAmount(total);
+  }, [selectedServiceIds, selectedAddonIds, vehicleSize, services, addons]);
 
   const handleAddressSelect = (address: string, lat: number, lng: number) => {
     setAppointmentAddress({ address, lat, lng });
@@ -173,7 +205,10 @@ export default function Appointments() {
       } : null,
       discountAmount: discount + redeemedPoints,
       totalAmount: finalAmount,
-      serviceNames: (formData.get("services") as string).split(",").map(s => s.trim()),
+      serviceIds: selectedServiceIds,
+      serviceNames: services.filter(s => selectedServiceIds.includes(s.id)).map(s => s.name),
+      addOnIds: selectedAddonIds,
+      addOnNames: addons.filter(a => selectedAddonIds.includes(a.id)).map(a => a.name),
       technicianId: profile?.uid,
       technicianName: profile?.displayName,
       waiverAccepted,
@@ -273,6 +308,20 @@ export default function Appointments() {
                 <div className="space-y-2">
                   <Label htmlFor="vehicleInfo">Vehicle (Year Make Model)</Label>
                   <Input id="vehicleInfo" name="vehicleInfo" placeholder="e.g. 2024 Tesla Model 3" required className="bg-white border-gray-200" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Vehicle Size</Label>
+                  <Select value={vehicleSize} onValueChange={(v: any) => setVehicleSize(v)}>
+                    <SelectTrigger className="bg-white border-gray-200">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white">
+                      <SelectItem value="small">Small (Coupe/Sedan)</SelectItem>
+                      <SelectItem value="medium">Medium (SUV/Crossover)</SelectItem>
+                      <SelectItem value="large">Large (Truck/Full SUV)</SelectItem>
+                      <SelectItem value="extra_large">Extra Large (Van/Lifted)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="vin">VIN (Optional)</Label>
@@ -386,8 +435,44 @@ export default function Appointments() {
                   )}
                 </div>
                 <div className="space-y-2 col-span-2">
-                  <Label htmlFor="services">Services (Comma separated)</Label>
-                  <Input id="services" name="services" placeholder="Full Interior, Exterior Wash" required className="bg-white border-gray-200" />
+                  <Label>Services</Label>
+                  <div className="grid grid-cols-2 gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100 max-h-40 overflow-y-auto">
+                    {services.map(service => (
+                      <div key={service.id} className="flex items-center space-x-2">
+                        <Checkbox 
+                          id={`service-${service.id}`}
+                          checked={selectedServiceIds.includes(service.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) setSelectedServiceIds(prev => [...prev, service.id]);
+                            else setSelectedServiceIds(prev => prev.filter(id => id !== service.id));
+                          }}
+                        />
+                        <Label htmlFor={`service-${service.id}`} className="text-xs cursor-pointer">
+                          {service.name} (${service.pricingBySize?.[vehicleSize] || service.basePrice})
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2 col-span-2">
+                  <Label>Add-ons</Label>
+                  <div className="grid grid-cols-2 gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100 max-h-40 overflow-y-auto">
+                    {addons.map(addon => (
+                      <div key={addon.id} className="flex items-center space-x-2">
+                        <Checkbox 
+                          id={`addon-${addon.id}`}
+                          checked={selectedAddonIds.includes(addon.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) setSelectedAddonIds(prev => [...prev, addon.id]);
+                            else setSelectedAddonIds(prev => prev.filter(id => id !== addon.id));
+                          }}
+                        />
+                        <Label htmlFor={`addon-${addon.id}`} className="text-xs cursor-pointer">
+                          {addon.name} (${addon.price})
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div className="space-y-2 col-span-2">
                   <Label htmlFor="coupon">Promotions & Loyalty</Label>

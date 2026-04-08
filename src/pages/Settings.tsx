@@ -17,6 +17,8 @@ import { toast } from "sonner";
 import AddressInput from "../components/AddressInput";
 import { BusinessSettings, Service, AddOn, VehicleSize } from "../types";
 import { collection, query, onSnapshot, addDoc, deleteDoc } from "firebase/firestore";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
   { label: "Small", value: "small" },
@@ -32,6 +34,10 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [services, setServices] = useState<Service[]>([]);
   const [addons, setAddons] = useState<AddOn[]>([]);
+  const [editingService, setEditingService] = useState<Partial<Service> | null>(null);
+  const [editingAddon, setEditingAddon] = useState<Partial<AddOn> | null>(null);
+  const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
+  const [isAddonDialogOpen, setIsAddonDialogOpen] = useState(false);
   const [travelPricingInputs, setTravelPricingInputs] = useState({
     pricePerMile: "",
     freeMilesThreshold: "",
@@ -185,6 +191,53 @@ export default function Settings() {
       toast.error("Failed to update profile");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingService?.name) return;
+
+    try {
+      if (editingService.id) {
+        await setDoc(doc(db, "services", editingService.id), editingService);
+        toast.success("Service updated");
+      } else {
+        await addDoc(collection(db, "services"), {
+          ...editingService,
+          isActive: true,
+          pricingBySize: editingService.pricingBySize || { small: 0, medium: 0, large: 0, extra_large: 0 }
+        });
+        toast.success("Service added");
+      }
+      setIsServiceDialogOpen(false);
+      setEditingService(null);
+    } catch (error) {
+      console.error("Error saving service:", error);
+      toast.error("Failed to save service");
+    }
+  };
+
+  const handleSaveAddon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAddon?.name) return;
+
+    try {
+      if (editingAddon.id) {
+        await setDoc(doc(db, "addons", editingAddon.id), editingAddon);
+        toast.success("Add-on updated");
+      } else {
+        await addDoc(collection(db, "addons"), {
+          ...editingAddon,
+          isActive: true
+        });
+        toast.success("Add-on added");
+      }
+      setIsAddonDialogOpen(false);
+      setEditingAddon(null);
+    } catch (error) {
+      console.error("Error saving add-on:", error);
+      toast.error("Failed to save add-on");
     }
   };
 
@@ -510,20 +563,18 @@ export default function Settings() {
                   <CardDescription>Manage your primary detailing packages.</CardDescription>
                 </div>
                 <Button size="sm" className="bg-primary hover:bg-red-700 font-bold" onClick={() => {
-                  const name = prompt("Service Name:");
-                  if (name) {
-                    addDoc(collection(db, "services"), {
-                      name,
-                      description: "",
-                      category: "interior",
-                      basePrice: 0,
-                      pricingBySize: { small: 0, medium: 0, large: 0, extra_large: 0 },
-                      isTaxable: true,
-                      estimatedDuration: 60,
-                      requiresWaiver: false,
-                      isActive: true
-                    });
-                  }
+                  setEditingService({
+                    name: "",
+                    description: "",
+                    category: "interior",
+                    basePrice: 0,
+                    pricingBySize: { small: 0, medium: 0, large: 0, extra_large: 0 },
+                    isTaxable: true,
+                    estimatedDuration: 60,
+                    requiresWaiver: false,
+                    isActive: true
+                  });
+                  setIsServiceDialogOpen(true);
                 }}>
                   <Plus className="w-4 h-4 mr-2" /> Add Service
                 </Button>
@@ -535,12 +586,25 @@ export default function Settings() {
                       <div className="flex items-center gap-2">
                         <h4 className="font-bold text-gray-900">{service.name}</h4>
                         {!service.isActive && <Badge variant="secondary" className="text-[10px] uppercase">Inactive</Badge>}
+                        <Badge variant="outline" className="text-[10px] uppercase">{service.category}</Badge>
                       </div>
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-primary">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          onClick={() => {
+                            setEditingService(service);
+                            setIsServiceDialogOpen(true);
+                          }}
+                        >
                           <Edit2 className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => deleteDoc(doc(db, "services", service.id))}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => {
+                          if (confirm("Are you sure you want to delete this service?")) {
+                            deleteDoc(doc(db, "services", service.id));
+                          }
+                        }}>
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -561,17 +625,15 @@ export default function Settings() {
                   <CardDescription>Extra services that can be added to any package.</CardDescription>
                 </div>
                 <Button size="sm" className="bg-black hover:bg-gray-900 font-bold" onClick={() => {
-                  const name = prompt("Add-on Name:");
-                  if (name) {
-                    addDoc(collection(db, "addons"), {
-                      name,
-                      description: "",
-                      price: 0,
-                      isTaxable: true,
-                      estimatedDuration: 15,
-                      isActive: true
-                    });
-                  }
+                  setEditingAddon({
+                    name: "",
+                    description: "",
+                    price: 0,
+                    isTaxable: true,
+                    estimatedDuration: 15,
+                    isActive: true
+                  });
+                  setIsAddonDialogOpen(true);
                 }}>
                   <Plus className="w-4 h-4 mr-2" /> Add Add-on
                 </Button>
@@ -585,10 +647,22 @@ export default function Settings() {
                         {!addon.isActive && <Badge variant="secondary" className="text-[10px] uppercase">Inactive</Badge>}
                       </div>
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-primary">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          onClick={() => {
+                            setEditingAddon(addon);
+                            setIsAddonDialogOpen(true);
+                          }}
+                        >
                           <Edit2 className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => deleteDoc(doc(db, "addons", addon.id))}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => {
+                          if (confirm("Are you sure you want to delete this add-on?")) {
+                            deleteDoc(doc(db, "addons", addon.id));
+                          }
+                        }}>
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -602,6 +676,180 @@ export default function Settings() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Service Dialog */}
+          <Dialog open={isServiceDialogOpen} onOpenChange={setIsServiceDialogOpen}>
+            <DialogContent className="max-w-2xl bg-white">
+              <DialogHeader>
+                <DialogTitle>{editingService?.id ? "Edit Service" : "Add New Service"}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSaveService} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2 col-span-2">
+                    <Label>Service Name</Label>
+                    <Input 
+                      value={editingService?.name || ""} 
+                      onChange={e => setEditingService(prev => ({ ...prev!, name: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>Description</Label>
+                    <Textarea 
+                      value={editingService?.description || ""} 
+                      onChange={e => setEditingService(prev => ({ ...prev!, description: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <Select 
+                      value={editingService?.category || "interior"} 
+                      onValueChange={(v: any) => setEditingService(prev => ({ ...prev!, category: v }))}
+                    >
+                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-white">
+                        <SelectItem value="interior">Interior</SelectItem>
+                        <SelectItem value="exterior">Exterior</SelectItem>
+                        <SelectItem value="protection">Protection</SelectItem>
+                        <SelectItem value="correction">Correction</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Base Price ($)</Label>
+                    <Input 
+                      type="number"
+                      value={editingService?.basePrice || 0} 
+                      onChange={e => setEditingService(prev => ({ ...prev!, basePrice: parseFloat(e.target.value) }))}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Duration (minutes)</Label>
+                    <Input 
+                      type="number"
+                      value={editingService?.estimatedDuration || 0} 
+                      onChange={e => setEditingService(prev => ({ ...prev!, estimatedDuration: parseInt(e.target.value) }))}
+                      required
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <Label>Taxable</Label>
+                    <Switch 
+                      checked={editingService?.isTaxable ?? true} 
+                      onCheckedChange={v => setEditingService(prev => ({ ...prev!, isTaxable: v }))}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <Label>Requires Waiver</Label>
+                    <Switch 
+                      checked={editingService?.requiresWaiver ?? false} 
+                      onCheckedChange={v => setEditingService(prev => ({ ...prev!, requiresWaiver: v }))}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <Label>Active</Label>
+                    <Switch 
+                      checked={editingService?.isActive ?? true} 
+                      onCheckedChange={v => setEditingService(prev => ({ ...prev!, isActive: v }))}
+                    />
+                  </div>
+
+                  <div className="col-span-2 space-y-3 pt-4 border-t border-gray-100">
+                    <Label className="font-bold">Pricing by Vehicle Size</Label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {VEHICLE_SIZES.map(size => (
+                        <div key={size.value} className="space-y-1">
+                          <Label className="text-[10px] uppercase text-gray-400">{size.label}</Label>
+                          <Input 
+                            type="number"
+                            className="h-8 text-xs"
+                            value={editingService?.pricingBySize?.[size.value] || 0}
+                            onChange={e => setEditingService(prev => ({
+                              ...prev!,
+                              pricingBySize: {
+                                ...(prev?.pricingBySize || { small: 0, medium: 0, large: 0, extra_large: 0 }),
+                                [size.value]: parseFloat(e.target.value)
+                              }
+                            }))}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsServiceDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" className="bg-primary hover:bg-red-700 font-bold">Save Service</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          {/* Add-on Dialog */}
+          <Dialog open={isAddonDialogOpen} onOpenChange={setIsAddonDialogOpen}>
+            <DialogContent className="max-w-md bg-white">
+              <DialogHeader>
+                <DialogTitle>{editingAddon?.id ? "Edit Add-on" : "Add New Add-on"}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSaveAddon} className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Add-on Name</Label>
+                  <Input 
+                    value={editingAddon?.name || ""} 
+                    onChange={e => setEditingAddon(prev => ({ ...prev!, name: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Description</Label>
+                  <Textarea 
+                    value={editingAddon?.description || ""} 
+                    onChange={e => setEditingAddon(prev => ({ ...prev!, description: e.target.value }))}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Price ($)</Label>
+                    <Input 
+                      type="number"
+                      value={editingAddon?.price || 0} 
+                      onChange={e => setEditingAddon(prev => ({ ...prev!, price: parseFloat(e.target.value) }))}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Duration (min)</Label>
+                    <Input 
+                      type="number"
+                      value={editingAddon?.estimatedDuration || 0} 
+                      onChange={e => setEditingAddon(prev => ({ ...prev!, estimatedDuration: parseInt(e.target.value) }))}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <Label>Taxable</Label>
+                  <Switch 
+                    checked={editingAddon?.isTaxable ?? true} 
+                    onCheckedChange={v => setEditingAddon(prev => ({ ...prev!, isTaxable: v }))}
+                  />
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <Label>Active</Label>
+                  <Switch 
+                    checked={editingAddon?.isActive ?? true} 
+                    onCheckedChange={v => setEditingAddon(prev => ({ ...prev!, isActive: v }))}
+                  />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsAddonDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" className="bg-primary hover:bg-red-700 font-bold">Save Add-on</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="loyalty">
