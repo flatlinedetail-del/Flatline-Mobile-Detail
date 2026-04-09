@@ -54,9 +54,10 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (hasRole('admin') ||
-          (request.auth.token.keys().contains('email') && 
-           request.auth.token.email.lower() == "flatlinedetail@gmail.com"));
+        (
+          (request.auth.token.get('email', '').lower() == "flatlinedetail@gmail.com") ||
+          hasRole('admin')
+        );
     }
 
     function isTechnician() {
@@ -79,6 +80,12 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly(fields);
     }
 
+    function isValidClient(data) {
+      return data.keys().hasAll(['name', 'clientTypeId']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.clientTypeId is string;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -89,6 +96,23 @@ service cloud.firestore {
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
                     (isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role));
       allow delete: if isAdmin();
+    }
+
+    match /clients/{clientId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician() && isValidClient(request.resource.data);
+      allow update: if isTechnician() && isValidClient(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /client_types/{typeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /client_categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     match /leads/{leadId} {
@@ -161,6 +185,18 @@ service cloud.firestore {
     match /coupons/{couponId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+
+    match /form_templates/{formId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /signed_forms/{signedId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
     }
 
     // Default deny

@@ -321,7 +321,7 @@ export default function Dashboard() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-1">
-                        <p className="font-bold text-gray-900">{stop.customerName}</p>
+                        <p className="font-bold text-gray-900">{stop.customerName || "Client"}</p>
                         <Badge variant="outline" className={cn(
                           "text-[10px] uppercase font-black",
                           stop.status === "completed" ? "bg-green-50 text-green-700 border-green-200" :

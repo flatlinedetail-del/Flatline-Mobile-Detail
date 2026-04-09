@@ -28,14 +28,32 @@ import { format, startOfMonth, endOfMonth, subMonths, eachDayOfInterval, isSameD
 import { cn } from "../lib/utils";
 import { Appointment, Expense } from "../types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
+import { useAuth } from "../hooks/useAuth";
+import { ShieldAlert } from "lucide-react";
 
 export default function Reports() {
+  const { profile } = useAuth();
   const [timeRange, setTimeRange] = useState("this_month");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
 
+  if (!profile || (profile.role !== "admin" && profile.role !== "manager")) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
+        <ShieldAlert className="w-16 h-16 text-red-500" />
+        <h2 className="text-2xl font-black text-gray-900">Access Denied</h2>
+        <p className="text-gray-500 font-medium text-center max-w-md">
+          You do not have permission to access business reports. Please contact an administrator if you believe this is an error.
+        </p>
+        <Button onClick={() => window.history.back()} variant="outline">Go Back</Button>
+      </div>
+    );
+  }
+
   useEffect(() => {
+    if (!profile || (profile.role !== "admin" && profile.role !== "manager")) return;
+
     const now = new Date();
     let start = startOfMonth(now);
     let end = endOfMonth(now);

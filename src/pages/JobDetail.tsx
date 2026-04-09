@@ -26,17 +26,22 @@ import {
   Loader2,
   Truck,
   ExternalLink,
-  Scan
+  Scan,
+  ShieldCheck,
+  Plus
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
 import PhotoDocumentation from "../components/PhotoDocumentation";
 import ServiceChecklist from "../components/ServiceChecklist";
 import SignaturePad from "../components/SignaturePad";
 import { decodeVin } from "../services/vin";
 import { addLoyaltyPoints } from "../services/promotions";
 import Logo from "../components/Logo";
+import FormSigner from "../components/FormSigner";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -54,6 +59,58 @@ export default function JobDetail() {
   const [showInvoice, setShowInvoice] = useState(false);
   const [showSignature, setShowSignature] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [formTemplates, setFormTemplates] = useState<any[]>([]);
+  const [signedForms, setSignedForms] = useState<any[]>([]);
+  const [showFormSigner, setShowFormSigner] = useState<any>(null);
+
+  const checkRequiredForms = (stage: string) => {
+    const applicableTemplates = formTemplates.filter(t => {
+      // Check if template is assigned to any of the job's services or addons
+      const hasService = t.assignedServices?.some((sid: string) => job.serviceIds?.includes(sid));
+      const hasAddon = t.assignedAddons?.some((aid: string) => job.addOnIds?.includes(aid));
+      
+      // Check client type assignment
+      const matchesClientType = true; // Simplified for unified clients, or we could check clientTypeId
+
+      // A form is required if it matches the client type AND (it's assigned to a service/addon OR it has no specific service/addon assignments)
+      const isAssignedToSpecifics = (t.assignedServices?.length > 0 || t.assignedAddons?.length > 0);
+      const assignmentMatches = isAssignedToSpecifics ? (hasService || hasAddon) : true;
+
+      return matchesClientType && assignmentMatches && t.enforcement === stage;
+    });
+
+    const unsigned = applicableTemplates.filter(t => 
+      !signedForms.some(sf => sf.formId === t.id && sf.formVersion === t.version)
+    );
+
+    if (unsigned.length > 0) {
+      setShowFormSigner(unsigned[0]);
+      toast.error(`Required form: ${unsigned[0].title} must be signed ${stage.replace("_", " ")}`);
+      return false;
+    }
+    return true;
+  };
+
+  useEffect(() => {
+    if (!id) return;
+    
+    // Fetch active form templates
+    const templatesQuery = query(collection(db, "form_templates"), where("isActive", "==", true));
+    const unsubscribeTemplates = onSnapshot(templatesQuery, (snapshot) => {
+      setFormTemplates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // Fetch signed forms for this appointment
+    const signedQuery = query(collection(db, "signed_forms"), where("appointmentId", "==", id));
+    const unsubscribeSigned = onSnapshot(signedQuery, (snapshot) => {
+      setSignedForms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubscribeTemplates();
+      unsubscribeSigned();
+    };
+  }, [id]);
 
   const handleSaveSignature = async (dataUrl: string) => {
     try {
@@ -80,9 +137,9 @@ export default function JobDetail() {
         paidAt: serverTimestamp()
       });
       
-      // Add loyalty points for retail customers
-      if (job.customerType === "retail" && job.customerId) {
-        await addLoyaltyPoints(job.customerId, job.totalAmount);
+      // Add loyalty points for clients
+      if (job.clientId || job.customerId) {
+        await addLoyaltyPoints(job.clientId || job.customerId, job.totalAmount);
       }
       
       setJob(prev => ({ ...prev, status: "paid", paymentMethod }));
@@ -165,7 +222,7 @@ export default function JobDetail() {
                 {job.status?.replace("_", " ")}
               </Badge>
             </div>
-            <p className="text-sm text-gray-500">{job.customerName || "Retail Client"}</p>
+            <p className="text-sm text-gray-500">{job.customerName || "Client"}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -175,23 +232,58 @@ export default function JobDetail() {
             </Button>
           )}
           {job.status === "confirmed" && (
-            <Button onClick={() => updateStatus("en_route")} disabled={isUpdating} className="bg-primary hover:bg-red-700 font-bold">
+            <Button 
+              onClick={() => {
+                if (checkRequiredForms("before_start")) {
+                  updateStatus("en_route");
+                }
+              }} 
+              disabled={isUpdating} 
+              className="bg-primary hover:bg-red-700 font-bold"
+            >
               Start Route
             </Button>
           )}
           {job.status === "en_route" && (
-            <Button onClick={() => updateStatus("in_progress")} disabled={isUpdating} className="bg-primary hover:bg-red-700 font-bold">
+            <Button 
+              onClick={() => {
+                if (checkRequiredForms("before_start")) {
+                  updateStatus("in_progress");
+                }
+              }} 
+              disabled={isUpdating} 
+              className="bg-primary hover:bg-red-700 font-bold"
+            >
               Arrived & Start
             </Button>
           )}
           {job.status === "in_progress" && (
-            <Button onClick={() => setShowSignature(true)} disabled={isUpdating} className="bg-black text-white hover:bg-gray-900 font-bold">
+            <Button 
+              onClick={() => {
+                if (checkRequiredForms("before_complete")) {
+                  setShowSignature(true);
+                }
+              }} 
+              disabled={isUpdating} 
+              className="bg-black text-white hover:bg-gray-900 font-bold"
+            >
               Complete Job
             </Button>
           )}
           {job.status === "completed" && (
             <Dialog>
-              <DialogTrigger render={<Button className="bg-emerald-600 hover:bg-emerald-700 font-bold">Collect Payment</Button>} />
+              <DialogTrigger render={
+                <Button 
+                  onClick={(e) => {
+                    if (!checkRequiredForms("before_payment")) {
+                      e.preventDefault();
+                    }
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 font-bold"
+                >
+                  Collect Payment
+                </Button>
+              } />
               <DialogContent className="bg-white border-none shadow-2xl rounded-2xl p-0 overflow-hidden">
                 <DialogHeader className="p-6 border-b"><DialogTitle className="font-black">Collect Payment</DialogTitle></DialogHeader>
                 <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -237,7 +329,7 @@ export default function JobDetail() {
                 </div>
                 <div>
                   <p className="font-bold text-gray-900">{job.customerName}</p>
-                  <p className="text-xs text-gray-500">Retail Client</p>
+                  <p className="text-xs text-gray-500">Client</p>
                 </div>
               </div>
               <div className="space-y-2 pt-2">
@@ -413,13 +505,21 @@ export default function JobDetail() {
                 <span className="text-lg font-bold text-gray-900">Total</span>
                 <span className="text-2xl font-black text-red-600">${job.totalAmount}</span>
               </div>
-              <Dialog open={showInvoice} onOpenChange={setShowInvoice}>
-                <DialogTrigger render={<Button variant="outline" className="w-full border-gray-200" />}>
-                  <div className="flex items-center">
-                    <FileText className="w-4 h-4 mr-2" />
-                    Generate Invoice
-                  </div>
-                </DialogTrigger>
+              <Dialog open={showInvoice} onOpenChange={(open) => {
+                if (open && !checkRequiredForms("before_invoice")) return;
+                setShowInvoice(open);
+              }}>
+                <DialogTrigger render={
+                  <Button 
+                    variant="outline" 
+                    className="w-full border-gray-200"
+                  >
+                    <div className="flex items-center">
+                      <FileText className="w-4 h-4 mr-2" />
+                      Generate Invoice
+                    </div>
+                  </Button>
+                } />
                 <DialogContent className="max-w-2xl bg-white p-0 overflow-hidden rounded-2xl border-none shadow-2xl">
                   <div className="flex-1 overflow-y-auto p-8 space-y-8">
                     <div className="flex justify-between items-start">
@@ -534,6 +634,10 @@ export default function JobDetail() {
                 <AlertCircle className="w-4 h-4 mr-2" />
                 Notes
               </TabsTrigger>
+              <TabsTrigger value="forms" className="flex-1 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white font-bold">
+                <ShieldCheck className="w-4 h-4 mr-2" />
+                Forms
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="checklist" className="mt-0">
@@ -560,9 +664,131 @@ export default function JobDetail() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            <TabsContent value="forms" className="mt-0 space-y-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-bold">Job Forms & Waivers</h3>
+                <Dialog>
+                  <DialogTrigger render={
+                    <Button size="sm" variant="outline" className="font-bold">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Form
+                    </Button>
+                  } />
+                  <DialogContent className="max-w-2xl bg-white p-6 rounded-2xl border-none shadow-2xl">
+                    <DialogHeader><DialogTitle className="font-black">Select Form to Add</DialogTitle></DialogHeader>
+                    <div className="grid grid-cols-1 gap-3 mt-4">
+                      {formTemplates.filter(t => t.isActive).map(t => (
+                        <Button 
+                          key={t.id} 
+                          variant="outline" 
+                          className="justify-start h-auto p-4 flex-col items-start gap-1"
+                          onClick={() => setShowFormSigner(t)}
+                        >
+                          <span className="font-bold">{t.title}</span>
+                          <span className="text-[10px] text-gray-500 capitalize">{t.category} • v{t.version}</span>
+                        </Button>
+                      ))}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+
+              {signedForms.length === 0 ? (
+                <Card className="border-none shadow-sm bg-white">
+                  <CardContent className="p-12 text-center space-y-3">
+                    <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto">
+                      <FileText className="w-6 h-6 text-gray-300" />
+                    </div>
+                    <p className="text-sm text-gray-500 font-medium">No forms have been signed for this job yet.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  {signedForms.map(sf => (
+                    <Card key={sf.id} className="border-none shadow-sm bg-white overflow-hidden">
+                      <CardContent className="p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center text-green-600">
+                            <CheckCircle2 className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-gray-900">{sf.formTitle}</p>
+                            <p className="text-[10px] text-gray-500">Signed on {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
+                          </div>
+                        </div>
+                        <Dialog>
+                          <DialogTrigger render={<Button variant="ghost" size="sm" className="font-bold text-primary">View</Button>} />
+                          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-white p-8 rounded-2xl border-none shadow-2xl">
+                            <div className="space-y-8">
+                              <div className="flex justify-between items-start border-b pb-6">
+                                <div>
+                                  <h2 className="text-2xl font-black uppercase tracking-tighter">{sf.formTitle}</h2>
+                                  <p className="text-xs text-gray-500">Version {sf.formVersion} • Signed At: {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
+                                </div>
+                                <Badge className="bg-green-100 text-green-700 border-green-200">Verified Signature</Badge>
+                              </div>
+                              
+                              <div className="prose prose-sm max-w-none p-6 bg-gray-50 rounded-xl border border-gray-100">
+                                <ReactMarkdown>{formTemplates.find(t => t.id === sf.formId)?.content || "Content unavailable"}</ReactMarkdown>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-8">
+                                {sf.printedName && (
+                                  <div>
+                                    <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Printed Name</Label>
+                                    <p className="font-bold text-gray-900">{sf.printedName}</p>
+                                  </div>
+                                )}
+                                {sf.initials && (
+                                  <div>
+                                    <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Initials</Label>
+                                    <p className="font-bold text-gray-900">{sf.initials}</p>
+                                  </div>
+                                )}
+                                {sf.date && (
+                                  <div>
+                                    <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Date</Label>
+                                    <p className="font-bold text-gray-900">{sf.date}</p>
+                                  </div>
+                                )}
+                              </div>
+
+                              {sf.signature && (
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Signature</Label>
+                                  <div className="border rounded-xl p-4 bg-white inline-block">
+                                    <img src={sf.signature} alt="Signature" className="h-24" />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
           </Tabs>
         </div>
       </div>
+
+      {/* Form Signer Dialog */}
+      {showFormSigner && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-8">
+            <FormSigner 
+              template={showFormSigner}
+              appointmentId={id!}
+              clientId={job.clientId || job.customerId}
+              onComplete={() => setShowFormSigner(null)}
+              onCancel={() => setShowFormSigner(null)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Signature Dialog */}
       {showSignature && (

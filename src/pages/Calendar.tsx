@@ -182,7 +182,7 @@ export default function Calendar() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-bold text-gray-900 truncate">{app.customerName || "Retail Client"}</h3>
+                            <h3 className="font-bold text-gray-900 truncate">{app.customerName || "Client"}</h3>
                             <Badge variant="outline" className={cn("text-[10px] font-bold uppercase tracking-wider", statusColors[app.status] || "bg-gray-100 text-gray-700")}>
                               {app.status?.replace("_", " ")}
                             </Badge>

@@ -1,7 +1,7 @@
 import { useState, useEffect, createContext, useContext } from "react";
 import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, onSnapshot, collection, query, where, getDocs } from "firebase/firestore";
+import { auth, db, handleFirestoreError, OperationType } from "../firebase";
 
 interface AuthContextType {
   user: User | null;
@@ -21,38 +21,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubscribeProfile: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
-        try {
-          const userDoc = await getDoc(doc(db, "users", user.uid));
-          if (userDoc.exists()) {
-            setProfile(userDoc.data());
+        const userDocRef = doc(db, "users", user.uid);
+        
+        // Use onSnapshot for real-time profile updates
+        unsubscribeProfile = onSnapshot(userDocRef, async (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            // Ensure owner email always has admin role
+            if (user.email?.toLowerCase() === "flatlinedetail@gmail.com" && data.role !== "admin") {
+              await updateDoc(userDocRef, { role: "admin" });
+              // The next snapshot will trigger with the updated role
+            } else {
+              setProfile({ ...data, uid: user.uid });
+            }
           } else {
             // Create profile if it doesn't exist
+            // Check if this email was pre-authorized with a role
+            let initialRole = user.email?.toLowerCase() === "flatlinedetail@gmail.com" ? "admin" : "technician";
+            
+            try {
+              const authDocs = await getDocs(query(collection(db, "staff_authorizations"), where("email", "==", user.email?.toLowerCase())));
+              if (!authDocs.empty) {
+                initialRole = authDocs.docs[0].data().role || initialRole;
+              }
+            } catch (e) {
+              console.error("Error checking staff authorizations:", e);
+            }
+
             const newProfile = {
               uid: user.uid,
-              email: user.email,
-              displayName: user.displayName,
-              photoURL: user.photoURL,
-              role: user.email?.toLowerCase() === "flatlinedetail@gmail.com" ? "admin" : "technician",
+              email: user.email || "",
+              displayName: user.displayName || "",
+              photoURL: user.photoURL || "",
+              role: initialRole,
               createdAt: serverTimestamp(),
             };
-            await setDoc(doc(db, "users", user.uid), newProfile);
-            setProfile(newProfile);
+            await setDoc(userDocRef, newProfile);
+            // setProfile will be called by the next snapshot
           }
-        } catch (error) {
-          console.error("Error fetching/creating user profile:", error);
-          // If it's a permission error, we might still want to set loading to false
-          // so the app doesn't hang, but the user will see permission errors elsewhere.
-        }
+          setLoading(false);
+        }, (error: any) => {
+          handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+          setLoading(false);
+        });
       } else {
+        if (unsubscribeProfile) unsubscribeProfile();
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfile) unsubscribeProfile();
+    };
   }, []);
 
   const signIn = async () => {

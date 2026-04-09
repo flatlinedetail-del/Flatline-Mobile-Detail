@@ -1,4 +1,4 @@
-import { Timestamp } from "firebase/firestore";
+import { Timestamp, FieldValue } from "firebase/firestore";
 
 export type VehicleSize = "small" | "medium" | "large" | "extra_large";
 
@@ -46,10 +46,56 @@ export interface AddOn {
   isActive: boolean;
 }
 
+export interface ClientType {
+  id: string;
+  name: string;
+  slug: string;
+  isActive: boolean;
+  sortOrder: number;
+}
+
+export interface ClientCategory {
+  id: string;
+  name: string;
+  color: string;
+  isActive: boolean;
+}
+
+export interface Client {
+  id: string;
+  name: string;
+  contactPerson?: string;
+  email: string;
+  phone: string;
+  address: string;
+  latitude?: number;
+  longitude?: number;
+  clientTypeId: string;
+  categoryIds: string[];
+  loyaltyPoints: number;
+  membershipLevel: "none" | "silver" | "gold" | "platinum";
+  isVIP: boolean;
+  vipSettings?: {
+    customServicePricing?: Record<string, number>;
+    travelFeeDiscount?: number;
+    waiveTravelFee?: boolean;
+    exemptFromFees?: boolean;
+    specialDiscountRules?: string;
+  };
+  billingCycle?: "weekly" | "biweekly" | "monthly";
+  customRates?: Record<string, number>;
+  notes?: string;
+  createdAt: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+  legacyId?: string;
+  legacyType?: "customer" | "vendor";
+}
+
 export interface Vehicle {
   id: string;
   ownerId: string;
-  ownerType: "customer" | "vendor";
+  clientId?: string; // New unified reference
+  ownerType: "customer" | "vendor" | "client";
   year: string;
   make: string;
   model: string;
@@ -119,8 +165,9 @@ export interface Lead {
 export interface Appointment {
   id: string;
   customerId: string;
+  clientId?: string; // New unified reference
   customerName: string;
-  customerType: "retail" | "vendor";
+  customerType: "retail" | "vendor" | "client";
   vendorId?: string;
   vehicleId: string;
   vehicleInfo: string;

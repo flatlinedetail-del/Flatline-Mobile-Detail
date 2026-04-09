@@ -1,6 +1,6 @@
 {
   "name": "Flatline Mobile Detail",
-  "description": "Production-ready, mobile-first auto detailing business management app with AI automation, route optimization, and vendor support.",
+  "description": "Production-ready, mobile-first auto detailing business management app with AI automation, route optimization, vendor support, and custom forms/waivers builder.",
   "requestFramePermissions": [
     "camera",
     "geolocation"

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, doc, updateDoc, getDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, doc, updateDoc, getDoc, where } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,8 +32,8 @@ export default function Appointments() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [vendors, setVendors] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
+  const [clientTypes, setClientTypes] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [addons, setAddons] = useState<any[]>([]);
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
@@ -41,6 +41,9 @@ export default function Appointments() {
   const [vehicleSize, setVehicleSize] = useState<"small" | "medium" | "large" | "extra_large">("medium");
   const [customerType, setCustomerType] = useState<"retail" | "vendor">("retail");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [availableVehicles, setAvailableVehicles] = useState<any[]>([]);
+  const [vehicleInfo, setVehicleInfo] = useState("");
+  const [vin, setVin] = useState("");
   const [couponCode, setCouponCode] = useState("");
   const [discount, setDiscount] = useState(0);
   const [redeemedPoints, setRedeemedPoints] = useState(0);
@@ -69,12 +72,12 @@ export default function Appointments() {
   };
 
   const handleRedeemPoints = async () => {
-    if (!selectedCustomerId || customerType !== "retail") {
-      toast.error("Select a retail customer first");
+    if (!selectedCustomerId) {
+      toast.error("Select a client first");
       return;
     }
-    const customer = customers.find(c => c.id === selectedCustomerId);
-    if (!customer || customer.loyaltyPoints < 100) {
+    const client = clients.find(c => c.id === selectedCustomerId);
+    if (!client || client.loyaltyPoints < 100) {
       toast.error("Insufficient points (min 100)");
       return;
     }
@@ -95,18 +98,17 @@ export default function Appointments() {
       setAppointments(appointmentsData);
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching appointments:", error);
-      toast.error("Failed to load appointments");
+      handleFirestoreError(error, OperationType.LIST, "appointments");
     });
 
-    // Fetch customers for the dropdown
-    getDocs(collection(db, "customers")).then(snapshot => {
-      setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    // Fetch clients
+    getDocs(collection(db, "clients")).then(snapshot => {
+      setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    // Fetch vendors
-    getDocs(collection(db, "vendors")).then(snapshot => {
-      setVendors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    // Fetch client types
+    getDocs(collection(db, "client_types")).then(snapshot => {
+      setClientTypes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
     // Fetch services
@@ -135,34 +137,56 @@ export default function Appointments() {
     if (location.state?.lead || location.state?.openAddDialog) {
       if (location.state?.lead) {
         const lead = location.state.lead;
-        setCustomerType("retail");
-        const existingCustomer = customers.find(c => c.phone === lead.phone || c.email === lead.email);
-        if (existingCustomer) {
-          setSelectedCustomerId(existingCustomer.id);
+        const existingClient = clients.find(c => c.phone === lead.phone || c.email === lead.email);
+        if (existingClient) {
+          setSelectedCustomerId(existingClient.id);
         }
         
         if (lead.address) {
           handleAddressSelect(lead.address, lead.latitude || 0, lead.longitude || 0, true);
         }
+      } else if (location.state?.clientId) {
+        setSelectedCustomerId(location.state.clientId);
       }
       setShowAddDialog(true);
       // Clear state so it doesn't reopen on refresh
       window.history.replaceState({}, document.title);
     }
-  }, [location.state, customers]);
+  }, [location.state, clients]);
 
-  // Auto-fill address when customer is selected
+  // Auto-fill address when client is selected
   useEffect(() => {
     if (selectedCustomerId && showAddDialog) {
-      const list = customerType === "retail" ? customers : vendors;
-      const c = list.find(item => item.id === selectedCustomerId);
+      const c = clients.find(item => item.id === selectedCustomerId);
       
       // Only auto-fill if the current address is empty
       if (c && c.address && !appointmentAddress.address) {
-        handleAddressSelect(c.address, c.lat || 0, c.lng || 0, true);
+        handleAddressSelect(c.address, c.latitude || c.lat || 0, c.longitude || c.lng || 0, true);
       }
+
+      // Fetch vehicles
+      const q = query(
+        collection(db, "vehicles"),
+        where("clientId", "==", selectedCustomerId)
+      );
+      getDocs(q).then(snap => {
+        const vehicles = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setAvailableVehicles(vehicles);
+        
+        // If there's only one vehicle, pre-fill it
+        if (vehicles.length === 1) {
+          const v = vehicles[0] as any;
+          setVehicleInfo(`${v.year} ${v.make} ${v.model}`);
+          setVehicleSize(v.size);
+          setVin(v.vin || "");
+        }
+      });
+    } else {
+      setAvailableVehicles([]);
+      setVehicleInfo("");
+      setVin("");
     }
-  }, [selectedCustomerId, customerType, customers, vendors, showAddDialog]);
+  }, [selectedCustomerId, clients, showAddDialog]);
 
   useEffect(() => {
     if (showAddDialog) {
@@ -182,24 +206,22 @@ export default function Appointments() {
 
   useEffect(() => {
     if (selectedCustomerId) {
-      const customer = customerType === "retail" 
-        ? customers.find(c => c.id === selectedCustomerId)
-        : vendors.find(v => v.id === selectedCustomerId);
+      const client = clients.find(c => c.id === selectedCustomerId);
       
-      if (customer && customer.address) {
-        if (isAddressManual && appointmentAddress.address && appointmentAddress.address !== customer.address) {
-          toast("Update address to customer's saved address?", {
+      if (client && client.address) {
+        if (isAddressManual && appointmentAddress.address && appointmentAddress.address !== client.address) {
+          toast("Update address to client's saved address?", {
             action: {
               label: "Update",
-              onClick: () => handleAddressSelect(customer.address, customer.latitude || 0, customer.longitude || 0, true)
+              onClick: () => handleAddressSelect(client.address, client.latitude || 0, client.longitude || 0, true)
             }
           });
         } else {
-          handleAddressSelect(customer.address, customer.latitude || 0, customer.longitude || 0, true);
+          handleAddressSelect(client.address, client.latitude || 0, client.longitude || 0, true);
         }
       }
     }
-  }, [selectedCustomerId, customerType]);
+  }, [selectedCustomerId, clients]);
 
   useEffect(() => {
     let total = 0;
@@ -234,22 +256,21 @@ export default function Appointments() {
     setIsCreating(true);
     const formData = new FormData(e.currentTarget);
     
-    const customerId = selectedCustomerId;
-    const customer = customerType === "retail" 
-      ? customers.find(c => c.id === customerId)
-      : vendors.find(v => v.id === customerId);
+    const clientId = selectedCustomerId;
+    const client = clients.find(c => c.id === clientId);
     
     const totalAmount = Number(formData.get("totalAmount"));
     const travelFee = travelFeeData?.fee || 0;
     const finalAmount = totalAmount + travelFee - discount - redeemedPoints;
     
     const newJob = {
-      customerId,
-      customerName: customer?.name || "Retail Client",
-      customerPhone: customer?.phone || "",
-      customerEmail: customer?.email || "",
-      customerType,
-      vendorId: customerType === "vendor" ? customerId : null,
+      clientId,
+      customerId: clientId, // Backward compatibility
+      customerName: client?.name || "Client",
+      customerPhone: client?.phone || "",
+      customerEmail: client?.email || "",
+      customerType: "client",
+      vendorId: null,
       vehicleInfo: formData.get("vehicleInfo"),
       vin: formData.get("vin"),
       roNumber: formData.get("roNumber"),
@@ -301,10 +322,9 @@ export default function Appointments() {
 
   const getSelectedCustomerDisplay = () => {
     if (!selectedCustomerId) return null;
-    const list = customerType === "retail" ? customers : vendors;
-    const c = list.find(item => item.id === selectedCustomerId);
-    if (!c) return "Unknown customer";
-    const isDuplicate = list.filter(other => other.name === c.name).length > 1;
+    const c = clients.find(item => item.id === selectedCustomerId);
+    if (!c) return "Unknown client";
+    const isDuplicate = clients.filter(other => other.name === c.name).length > 1;
     return (
       <div className="flex items-center gap-2">
         <span className="font-bold">{c.name}</span>
@@ -358,85 +378,95 @@ export default function Appointments() {
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 col-span-2">
-                    <Label>Customer Type</Label>
-                    <Select value={customerType} onValueChange={(v: any) => {
-                      setCustomerType(v);
-                      setSelectedCustomerId("");
-                    }}>
+                    <Label htmlFor="customerId">Select Client</Label>
+                    <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId} required>
+                      <SelectTrigger className="bg-white border-gray-200">
+                        <SelectValue placeholder="Select a client" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white">
+                        {clients.map(c => {
+                          const isDuplicate = clients.filter(other => other.name === c.name).length > 1;
+                          const type = clientTypes.find(t => t.id === c.clientTypeId);
+                          return (
+                            <SelectItem key={c.id} value={c.id}>
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <SelectItemText className="font-bold">{c.name}</SelectItemText>
+                                  {type && <Badge variant="outline" className="text-[8px] h-3 px-1">{type.name}</Badge>}
+                                </div>
+                                {isDuplicate && (
+                                  <span className="text-[10px] text-gray-500">
+                                    {c.phone || c.email || (c.address ? c.address.substring(0, 30) + "..." : "No secondary info")}
+                                  </span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {availableVehicles.length > 0 && (
+                    <div className="space-y-2 col-span-2">
+                      <Label>Select Saved Vehicle</Label>
+                      <Select onValueChange={(vId) => {
+                        const v = availableVehicles.find(veh => veh.id === vId);
+                        if (v) {
+                          setVehicleInfo(`${v.year} ${v.make} ${v.model}`);
+                          setVehicleSize(v.size);
+                          setVin(v.vin || "");
+                        }
+                      }}>
+                        <SelectTrigger className="bg-white border-gray-200">
+                          <SelectValue placeholder="Choose a saved vehicle" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white">
+                          {availableVehicles.map(v => (
+                            <SelectItem key={v.id} value={v.id}>
+                              {v.year} {v.make} {v.model} ({v.color})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="vehicleInfo">Vehicle (Year Make Model)</Label>
+                    <StableInput 
+                      id="vehicleInfo" 
+                      name="vehicleInfo" 
+                      placeholder="e.g. 2024 Tesla Model 3" 
+                      required 
+                      className="bg-white border-gray-200" 
+                      value={vehicleInfo}
+                      onValueChange={setVehicleInfo}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Vehicle Size</Label>
+                    <Select value={vehicleSize} onValueChange={(v: any) => setVehicleSize(v)}>
                       <SelectTrigger className="bg-white border-gray-200">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-white">
-                        <SelectItem value="retail">Retail Client</SelectItem>
-                        <SelectItem value="vendor">Vendor / Dealership</SelectItem>
+                        <SelectItem value="small">Small (Coupe/Sedan)</SelectItem>
+                        <SelectItem value="medium">Medium (SUV/Crossover)</SelectItem>
+                        <SelectItem value="large">Large (Truck/Full SUV)</SelectItem>
+                        <SelectItem value="extra_large">Extra Large (Van/Lifted)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2 col-span-2">
-                    <Label htmlFor="customerId">Select {customerType === "retail" ? "Customer" : "Vendor"}</Label>
-                    <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId} required>
-                      <SelectTrigger className="bg-white border-gray-200">
-                        <SelectValue placeholder={`Select a ${customerType}`} />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white">
-                        {customerType === "retail" ? (
-                          customers.map(c => {
-                            const isDuplicate = customers.filter(other => other.name === c.name).length > 1;
-                            return (
-                              <SelectItem key={c.id} value={c.id}>
-                                <div className="flex flex-col">
-                                  <SelectItemText className="font-bold">{c.name}</SelectItemText>
-                                  {isDuplicate && (
-                                    <span className="text-[10px] text-gray-500">
-                                      {c.phone || c.email || (c.address ? c.address.substring(0, 30) + "..." : "No secondary info")}
-                                    </span>
-                                  )}
-                                </div>
-                              </SelectItem>
-                            );
-                          })
-                        ) : (
-                          vendors.map(v => {
-                            const isDuplicate = vendors.filter(other => other.name === v.name).length > 1;
-                            return (
-                              <SelectItem key={v.id} value={v.id}>
-                                <div className="flex flex-col">
-                                  <SelectItemText className="font-bold">{v.name}</SelectItemText>
-                                  {isDuplicate && (
-                                    <span className="text-[10px] text-gray-500">
-                                      {v.contactPerson || v.phone || v.email}
-                                    </span>
-                                  )}
-                                </div>
-                              </SelectItem>
-                            );
-                          })
-                        )}
-                      </SelectContent>
-                    </Select>
+                  <div className="space-y-2">
+                    <Label htmlFor="vin">VIN (Optional)</Label>
+                    <StableInput 
+                      id="vin" 
+                      name="vin" 
+                      placeholder="17-character VIN" 
+                      className="bg-white border-gray-200 uppercase font-mono" 
+                      value={vin}
+                      onValueChange={setVin}
+                    />
                   </div>
-                <div className="space-y-2">
-                  <Label htmlFor="vehicleInfo">Vehicle (Year Make Model)</Label>
-                  <StableInput id="vehicleInfo" name="vehicleInfo" placeholder="e.g. 2024 Tesla Model 3" required className="bg-white border-gray-200" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Vehicle Size</Label>
-                  <Select value={vehicleSize} onValueChange={(v: any) => setVehicleSize(v)}>
-                    <SelectTrigger className="bg-white border-gray-200">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white">
-                      <SelectItem value="small">Small (Coupe/Sedan)</SelectItem>
-                      <SelectItem value="medium">Medium (SUV/Crossover)</SelectItem>
-                      <SelectItem value="large">Large (Truck/Full SUV)</SelectItem>
-                      <SelectItem value="extra_large">Extra Large (Van/Lifted)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="vin">VIN (Optional)</Label>
-                  <StableInput id="vin" name="vin" placeholder="17-character VIN" className="bg-white border-gray-200 uppercase font-mono" />
-                </div>
                 {customerType === "vendor" && (
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="roNumber">RO Number</Label>
@@ -720,10 +750,11 @@ export default function Appointments() {
               ) : (
                 filteredAppointments.map((app) => {
                   const resolvedName = app.customerName || 
-                    (app.customerType === "retail" 
-                      ? customers.find((c: any) => c.id === app.customerId)?.name 
-                      : vendors.find((v: any) => v.id === app.customerId)?.name) || 
-                    "Retail Client";
+                    clients.find((c: any) => c.id === app.clientId || c.id === app.customerId)?.name || 
+                    "Client";
+                  
+                  const client = clients.find((c: any) => c.id === app.clientId || c.id === app.customerId);
+                  const clientType = client ? clientTypes.find(t => t.id === client.clientTypeId) : null;
                   
                   return (
                     <TableRow 
@@ -733,7 +764,14 @@ export default function Appointments() {
                     >
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-semibold text-gray-900">{resolvedName}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-gray-900">{resolvedName}</span>
+                            {clientType && (
+                              <Badge variant="outline" className="text-[8px] h-3 px-1 uppercase font-black tracking-widest bg-gray-50">
+                                {clientType.name}
+                              </Badge>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
                             <Car className="w-3 h-3" />
                             {app.vehicleInfo || "Vehicle N/A"}
@@ -758,14 +796,14 @@ export default function Appointments() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {app.vendorId ? (
+                      {app.vin || app.roNumber ? (
                         <div className="flex flex-col gap-1">
                           <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">VIN / RO</div>
                           <div className="text-xs font-mono text-gray-600">{app.vin || "---"}</div>
                           <div className="text-xs font-mono text-gray-600">{app.roNumber || "---"}</div>
                         </div>
                       ) : (
-                        <span className="text-xs text-gray-400 italic">Retail</span>
+                        <span className="text-xs text-gray-400 italic">No VIN/RO</span>
                       )}
                     </TableCell>
                     <TableCell>

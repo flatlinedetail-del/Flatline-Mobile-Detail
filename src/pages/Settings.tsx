@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, Tag, Ticket, Lock, Eye, EyeOff } from "lucide-react";
+import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
@@ -19,7 +19,8 @@ import AddressInput from "../components/AddressInput";
 import { StableInput } from "../components/StableInput";
 import { StableTextarea } from "../components/StableTextarea";
 import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon } from "../types";
-import { collection, query, onSnapshot, addDoc, deleteDoc, orderBy, Timestamp } from "firebase/firestore";
+import { migrateDataToClients } from "../services/clientService";
+import { collection, query, onSnapshot, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp } from "firebase/firestore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { GripVertical, ArrowUp, ArrowDown } from "lucide-react";
@@ -40,6 +41,12 @@ export default function Settings() {
   const [addons, setAddons] = useState<AddOn[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [clientTypes, setClientTypes] = useState<any[]>([]);
+  const [clientCategories, setClientCategories] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
+  const [isStaffDialogOpen, setIsStaffDialogOpen] = useState(false);
+  const [newStaffEmail, setNewStaffEmail] = useState("");
+  const [newStaffRole, setNewStaffRole] = useState("technician");
   const [editingService, setEditingService] = useState<Partial<Service> | null>(null);
   const [editingAddon, setEditingAddon] = useState<Partial<AddOn> | null>(null);
   const [editingCategory, setEditingCategory] = useState<Partial<Category> | null>(null);
@@ -156,11 +163,26 @@ export default function Settings() {
         setCoupons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Coupon)));
       });
 
+      const unsubClientTypes = onSnapshot(query(collection(db, "client_types"), orderBy("sortOrder", "asc")), (snapshot) => {
+        setClientTypes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+
+      const unsubClientCategories = onSnapshot(query(collection(db, "client_categories"), orderBy("name", "asc")), (snapshot) => {
+        setClientCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+
+      const unsubStaff = onSnapshot(query(collection(db, "users"), orderBy("displayName", "asc")), (snapshot) => {
+        setStaff(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+
       return () => {
         unsubscribeServices();
         unsubscribeAddons();
         unsubscribeCategories();
         unsubscribeCoupons();
+        unsubClientTypes();
+        unsubClientCategories();
+        unsubStaff();
       };
     }
   }, [profile]);
@@ -216,6 +238,33 @@ export default function Settings() {
     }
   };
 
+  const handleAddStaff = async () => {
+    if (!newStaffEmail) return;
+    try {
+      await addDoc(collection(db, "staff_authorizations"), {
+        email: newStaffEmail.toLowerCase(),
+        role: newStaffRole,
+        createdAt: serverTimestamp()
+      });
+      toast.success("Staff member authorized. They can now sign in.");
+      setIsStaffDialogOpen(false);
+      setNewStaffEmail("");
+    } catch (error) {
+      console.error("Error adding staff:", error);
+      toast.error("Failed to authorize staff");
+    }
+  };
+
+  const handleUpdateStaffRole = async (staffId: string, newRole: string) => {
+    try {
+      await updateDoc(doc(db, "users", staffId), { role: newRole });
+      toast.success("Staff role updated");
+    } catch (error) {
+      console.error("Error updating staff role:", error);
+      toast.error("Failed to update staff role");
+    }
+  };
+
   const handleSaveProfile = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!profile?.uid) return;
@@ -223,9 +272,17 @@ export default function Settings() {
     setIsSaving(true);
     const formData = new FormData(e.currentTarget);
     const displayName = formData.get("displayName") as string;
+    const email = formData.get("email") as string;
+    const role = formData.get("role") as string;
 
     try {
-      await updateDoc(doc(db, "users", profile.uid), { displayName });
+      const updates: any = { displayName, email };
+      // Only admins can change roles
+      if (profile.role === "admin") {
+        updates.role = role;
+      }
+      
+      await updateDoc(doc(db, "users", profile.uid), updates);
       toast.success("Profile updated successfully");
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -372,6 +429,8 @@ export default function Settings() {
     }
   };
 
+  const isAdminOrManager = profile?.role === "admin" || profile?.role === "manager";
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -391,42 +450,54 @@ export default function Settings() {
             <User className="w-4 h-4 mr-2" />
             Profile
           </TabsTrigger>
-          <TabsTrigger value="business" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <Globe className="w-4 h-4 mr-2" />
-            Business
-          </TabsTrigger>
-          <TabsTrigger value="branding" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <Palette className="w-4 h-4 mr-2" />
-            Branding
-          </TabsTrigger>
-          <TabsTrigger value="integrations" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <Database className="w-4 h-4 mr-2" />
-            Integrations
-          </TabsTrigger>
-          <TabsTrigger value="security" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <Shield className="w-4 h-4 mr-2" />
-            Security
-          </TabsTrigger>
-          <TabsTrigger value="services" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <ClipboardList className="w-4 h-4 mr-2" />
-            Services
-          </TabsTrigger>
-          <TabsTrigger value="loyalty" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <Star className="w-4 h-4 mr-2" />
-            Loyalty
-          </TabsTrigger>
-          <TabsTrigger value="commission" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <Percent className="w-4 h-4 mr-2" />
-            Commission
-          </TabsTrigger>
-          <TabsTrigger value="coupons" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <Ticket className="w-4 h-4 mr-2" />
-            Coupons
-          </TabsTrigger>
-          <TabsTrigger value="categories" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <Tag className="w-4 h-4 mr-2" />
-            Categories
-          </TabsTrigger>
+          {isAdminOrManager && (
+            <>
+              <TabsTrigger value="business" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Globe className="w-4 h-4 mr-2" />
+                Business
+              </TabsTrigger>
+              <TabsTrigger value="branding" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Palette className="w-4 h-4 mr-2" />
+                Branding
+              </TabsTrigger>
+              <TabsTrigger value="integrations" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Database className="w-4 h-4 mr-2" />
+                Integrations
+              </TabsTrigger>
+              <TabsTrigger value="security" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Shield className="w-4 h-4 mr-2" />
+                Security
+              </TabsTrigger>
+              <TabsTrigger value="staff" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Users className="w-4 h-4 mr-2" />
+                Staff
+              </TabsTrigger>
+              <TabsTrigger value="services" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <ClipboardList className="w-4 h-4 mr-2" />
+                Services
+              </TabsTrigger>
+              <TabsTrigger value="loyalty" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Star className="w-4 h-4 mr-2" />
+                Loyalty
+              </TabsTrigger>
+              <TabsTrigger value="commission" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Percent className="w-4 h-4 mr-2" />
+                Commission
+              </TabsTrigger>
+              <TabsTrigger value="coupons" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Ticket className="w-4 h-4 mr-2" />
+                Coupons
+              </TabsTrigger>
+              <TabsTrigger value="categories" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Tag className="w-4 h-4 mr-2" />
+                Categories
+              </TabsTrigger>
+              <TabsTrigger value="client-management" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
+                <Users className="w-4 h-4 mr-2" />
+                Clients
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         <TabsContent value="profile">
@@ -458,11 +529,31 @@ export default function Settings() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email Address</Label>
-                    <Input id="email" defaultValue={profile?.email} disabled />
+                    <Input id="email" name="email" defaultValue={profile?.email} placeholder="email@example.com" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="role">Role</Label>
-                    <Input id="role" defaultValue={profile?.role} disabled className="capitalize bg-gray-50 border-none font-bold" />
+                    {profile?.role === "admin" ? (
+                      <Select name="role" defaultValue={profile?.role}>
+                        <SelectTrigger className="bg-white border-gray-200 font-bold capitalize">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                          <SelectItem value="technician">Technician</SelectItem>
+                          <SelectItem value="office">Office</SelectItem>
+                          <SelectItem value="read-only">Read-only</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-gray-100">
+                        <Shield className="w-4 h-4 text-gray-400" />
+                        <span className="font-bold text-gray-600 capitalize">{profile?.role}</span>
+                        <input type="hidden" name="role" value={profile?.role || ""} />
+                        <Badge variant="outline" className="ml-auto text-[10px] uppercase">Contact Admin to Change</Badge>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <Button type="submit" className="bg-primary hover:bg-red-700 font-bold" disabled={isSaving}>
@@ -470,6 +561,114 @@ export default function Settings() {
                   Save Changes
                 </Button>
               </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="staff">
+          <Card className="border-none shadow-sm bg-white">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Staff Management</CardTitle>
+                <CardDescription>Manage your team members and their access levels.</CardDescription>
+              </div>
+              <Dialog open={isStaffDialogOpen} onOpenChange={setIsStaffDialogOpen}>
+                <DialogTrigger render={
+                  <Button className="bg-primary hover:bg-red-700 font-bold">
+                    <Plus className="w-4 h-4 mr-2" /> Add Staff
+                  </Button>
+                } />
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="font-black">Authorize New Staff Member</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="staffEmail">Google Email Address</Label>
+                      <Input 
+                        id="staffEmail" 
+                        placeholder="staff@gmail.com" 
+                        value={newStaffEmail} 
+                        onChange={(e) => setNewStaffEmail(e.target.value)} 
+                      />
+                      <p className="text-xs text-gray-400">The user must sign in with this Google account.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="staffRole">Initial Role</Label>
+                      <Select value={newStaffRole} onValueChange={setNewStaffRole}>
+                        <SelectTrigger className="font-bold capitalize">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                          <SelectItem value="technician">Technician</SelectItem>
+                          <SelectItem value="office">Office</SelectItem>
+                          <SelectItem value="read-only">Read-only</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsStaffDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={handleAddStaff} className="bg-primary font-bold">Authorize Staff</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {staff.map((member) => (
+                  <div key={member.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 group">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-white rounded-xl overflow-hidden border border-gray-100 shadow-sm flex items-center justify-center">
+                        {member.photoURL ? (
+                          <img src={member.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <User className="w-6 h-6 text-gray-300" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-900">{member.displayName || "New User"}</p>
+                        <p className="text-xs text-gray-500 font-medium">{member.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Select 
+                        defaultValue={member.role} 
+                        onValueChange={(val) => handleUpdateStaffRole(member.id, val)}
+                        disabled={member.email === "flatlinedetail@gmail.com"}
+                      >
+                        <SelectTrigger className="w-[140px] bg-white border-gray-200 font-bold capitalize h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                          <SelectItem value="technician">Technician</SelectItem>
+                          <SelectItem value="office">Office</SelectItem>
+                          <SelectItem value="read-only">Read-only</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {member.email !== "flatlinedetail@gmail.com" && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-9 w-9 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={async () => {
+                            if (confirm(`Remove ${member.displayName || member.email} from staff?`)) {
+                              await deleteDoc(doc(db, "users", member.id));
+                              toast.success("Staff member removed");
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1521,6 +1720,149 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+        <TabsContent value="client-management">
+          <div className="grid grid-cols-1 gap-6">
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DatabaseZap className="w-5 h-5 text-primary" />
+                  Data Migration
+                </CardTitle>
+                <CardDescription>
+                  Merge existing Customers and Vendors into the new unified Clients system.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="p-4 bg-red-50 rounded-2xl border border-red-100 mb-6">
+                  <div className="flex gap-3">
+                    <ShieldAlert className="w-5 h-5 text-primary shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold text-gray-900">Important Migration Notice</p>
+                      <p className="text-xs text-gray-600 leading-relaxed">
+                        This will create new records in the 'clients' collection based on your current customers and vendors. 
+                        It will also update existing appointments and vehicles to point to these new client records. 
+                        Old records will be preserved but marked as migrated.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <Button 
+                  onClick={async () => {
+                    if (confirm("Are you sure you want to migrate all customer and vendor data to the new unified Clients system? This will update existing appointments and vehicles.")) {
+                      setIsSaving(true);
+                      try {
+                        const result = await migrateDataToClients();
+                        toast.success(`Successfully migrated ${result.migratedCount} clients!`);
+                      } catch (error) {
+                        console.error("Migration error:", error);
+                        toast.error("Migration failed. Check console for details.");
+                      } finally {
+                        setIsSaving(false);
+                      }
+                    }
+                  }}
+                  className="bg-primary hover:bg-red-700 font-bold"
+                  disabled={isSaving}
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DatabaseZap className="w-4 h-4 mr-2" />}
+                  Run Migration Now
+                </Button>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card className="border-none shadow-sm bg-white">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Client Types</CardTitle>
+                    <CardDescription>Customizable types for your clients.</CardDescription>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    const name = prompt("Enter new client type name:");
+                    if (name) {
+                      const slug = name.toLowerCase().replace(/\s+/g, '_');
+                      await addDoc(collection(db, "client_types"), {
+                        name,
+                        slug,
+                        isActive: true,
+                        sortOrder: 10
+                      });
+                      toast.success("Client type added");
+                    }
+                  }}>
+                    <Plus className="w-4 h-4 mr-2" /> Add Type
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {clientTypes.map(type => (
+                      <div key={type.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center border border-gray-100">
+                            <Users className="w-4 h-4 text-gray-400" />
+                          </div>
+                          <span className="font-bold text-gray-900">{type.name}</span>
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={async () => {
+                          if (confirm("Delete this client type?")) {
+                            await deleteDoc(doc(db, "client_types", type.id));
+                            toast.success("Client type deleted");
+                          }
+                        }}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    {clientTypes.length === 0 && <p className="text-xs text-gray-400 font-medium italic">No client types defined.</p>}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-none shadow-sm bg-white">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Client Categories</CardTitle>
+                    <CardDescription>Tags for filtering and grouping clients.</CardDescription>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    const name = prompt("Enter new category name:");
+                    if (name) {
+                      await addDoc(collection(db, "client_categories"), {
+                        name,
+                        isActive: true,
+                        color: "#ef4444"
+                      });
+                      toast.success("Category added");
+                    }
+                  }}>
+                    <Plus className="w-4 h-4 mr-2" /> Add Category
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {clientCategories.map(cat => (
+                      <div key={cat.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color || "#ef4444" }} />
+                          <span className="font-bold text-gray-900">{cat.name}</span>
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={async () => {
+                          if (confirm("Delete this category?")) {
+                            await deleteDoc(doc(db, "client_categories", cat.id));
+                            toast.success("Category deleted");
+                          }
+                        }}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    {clientCategories.length === 0 && <p className="text-xs text-gray-400 font-medium italic">No categories defined.</p>}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

@@ -4,14 +4,14 @@ import { GoogleMapsProvider } from "./components/GoogleMapsProvider";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import Dashboard from "./pages/Dashboard";
 import Leads from "./pages/Leads";
-import Customers from "./pages/Customers";
-import Vendors from "./pages/Vendors";
+import Clients from "./pages/Clients";
 import Calendar from "./pages/Calendar";
 import Appointments from "./pages/Appointments";
 import JobDetail from "./pages/JobDetail";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
 import Expenses from "./pages/Expenses";
+import FormsBuilder from "./pages/FormsBuilder";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
 import { Toaster } from "@/components/ui/sonner";
@@ -38,13 +38,13 @@ function AppContent() {
         >
           <Route index element={<Dashboard />} />
           <Route path="leads" element={<Leads />} />
-          <Route path="customers" element={<Customers />} />
-          <Route path="vendors" element={<Vendors />} />
+          <Route path="clients" element={<Clients />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="appointments" element={<Appointments />} />
           <Route path="appointments/:id" element={<JobDetail />} />
           <Route path="reports" element={<Reports />} />
           <Route path="expenses" element={<Expenses />} />
+          <Route path="forms" element={<FormsBuilder />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

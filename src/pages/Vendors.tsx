@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, where, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Textarea } from "../components/ui/textarea";
+import { useNavigate } from "react-router-dom";
 import { 
   Building2, 
   Search, 
@@ -33,18 +34,27 @@ import {
   Plus,
   Trash2,
   Tag,
-  ExternalLink
+  ExternalLink,
+  Car,
+  Camera,
+  Upload,
+  Image as ImageIcon,
+  X,
+  Loader2
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "../lib/utils";
-import { Vendor, Service, Appointment } from "../types";
+import { Vendor, Service, Appointment, Vehicle } from "../types";
 import AddressInput from "../components/AddressInput";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { storage } from "../firebase";
 
 export default function Vendors() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +63,13 @@ export default function Vendors() {
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [vendorHistory, setVendorHistory] = useState<Appointment[]>([]);
+  const [vendorVehicles, setVendorVehicles] = useState<Vehicle[]>([]);
+  const [signedForms, setSignedForms] = useState<any[]>([]);
   const [newVendorAddress, setNewVendorAddress] = useState({ address: "", lat: 0, lng: 0 });
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const vehicleFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingVehicleId, setUploadingVehicleId] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, "vendors"), orderBy("createdAt", "desc"));
@@ -73,13 +89,30 @@ export default function Vendors() {
 
   useEffect(() => {
     if (selectedVendor) {
-      const q = query(
+      const qHistory = query(
         collection(db, "appointments"), 
         where("vendorId", "==", selectedVendor.id),
         orderBy("scheduledAt", "desc")
       );
-      getDocs(q).then(snap => {
+      getDocs(qHistory).then(snap => {
         setVendorHistory(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+      });
+
+      const qVehicles = query(
+        collection(db, "vehicles"),
+        where("ownerId", "==", selectedVendor.id),
+        where("ownerType", "==", "vendor")
+      );
+      getDocs(qVehicles).then(snap => {
+        setVendorVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+      });
+
+      const qForms = query(
+        collection(db, "signed_forms"),
+        where("vendorId", "==", selectedVendor.id)
+      );
+      getDocs(qForms).then(snap => {
+        setSignedForms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
     }
   }, [selectedVendor]);
@@ -116,9 +149,114 @@ export default function Vendors() {
     if (!selectedVendor) return;
     try {
       await updateDoc(doc(db, "vendors", selectedVendor.id), data);
+      setSelectedVendor(prev => prev ? { ...prev, ...data } : null);
       toast.success("Vendor updated");
     } catch (error) {
       toast.error("Failed to update vendor");
+    }
+  };
+
+  const handleAddVehicle = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedVendor) return;
+    const formData = new FormData(e.currentTarget);
+    const newVehicle = {
+      ownerId: selectedVendor.id,
+      ownerType: "vendor",
+      year: formData.get("year"),
+      make: formData.get("make"),
+      model: formData.get("model"),
+      color: formData.get("color"),
+      size: formData.get("size"),
+      vin: formData.get("vin"),
+      roNumber: formData.get("roNumber"),
+      notes: formData.get("notes"),
+      createdAt: serverTimestamp(),
+    };
+
+    try {
+      await addDoc(collection(db, "vehicles"), newVehicle);
+      toast.success("Vehicle added");
+      // Refresh vehicles
+      const q = query(
+        collection(db, "vehicles"), 
+        where("ownerId", "==", selectedVendor.id),
+        where("ownerType", "==", "vendor")
+      );
+      const snap = await getDocs(q);
+      setVendorVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+    } catch (error) {
+      toast.error("Failed to add vehicle");
+    }
+  };
+
+  const handleDeleteVehicle = async (vehicleId: string) => {
+    if (!selectedVendor) return;
+    try {
+      await deleteDoc(doc(db, "vehicles", vehicleId));
+      setVendorVehicles(prev => prev.filter(v => v.id !== vehicleId));
+      toast.success("Vehicle deleted");
+    } catch (error) {
+      console.error("Error deleting vehicle:", error);
+      toast.error("Failed to delete vehicle");
+    }
+  };
+
+  const handleUploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>, vehicleId?: string) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedVendor) return;
+
+    setIsUploading(true);
+    if (vehicleId) setUploadingVehicleId(vehicleId);
+
+    try {
+      const path = vehicleId 
+        ? `vendors/${selectedVendor.id}/vehicles/${vehicleId}/${Date.now()}_${file.name}`
+        : `vendors/${selectedVendor.id}/inspections/${Date.now()}_${file.name}`;
+      
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+
+      if (vehicleId) {
+        const vehicle = vendorVehicles.find(v => v.id === vehicleId);
+        const photos = [...(vehicle?.inspectionPhotos || []), url];
+        await updateDoc(doc(db, "vehicles", vehicleId), { inspectionPhotos: photos });
+        setVendorVehicles(prev => prev.map(v => v.id === vehicleId ? { ...v, inspectionPhotos: photos } : v));
+      } else {
+        const photos = [...(selectedVendor.inspectionPhotos || []), url];
+        await updateVendor({ inspectionPhotos: photos });
+      }
+
+      toast.success("Photo uploaded successfully");
+    } catch (error) {
+      console.error("Error uploading photo:", error);
+      toast.error("Failed to upload photo");
+    } finally {
+      setIsUploading(false);
+      setUploadingVehicleId(null);
+    }
+  };
+
+  const handleDeletePhoto = async (url: string, vehicleId?: string) => {
+    if (!selectedVendor) return;
+    try {
+      const storageRef = ref(storage, url);
+      await deleteObject(storageRef);
+
+      if (vehicleId) {
+        const vehicle = vendorVehicles.find(v => v.id === vehicleId);
+        const photos = (vehicle?.inspectionPhotos || []).filter(p => p !== url);
+        await updateDoc(doc(db, "vehicles", vehicleId), { inspectionPhotos: photos });
+        setVendorVehicles(prev => prev.map(v => v.id === vehicleId ? { ...v, inspectionPhotos: photos } : v));
+      } else {
+        const photos = (selectedVendor.inspectionPhotos || []).filter(p => p !== url);
+        await updateVendor({ inspectionPhotos: photos });
+      }
+      toast.success("Photo deleted");
+    } catch (error) {
+      console.error("Error deleting photo:", error);
+      toast.error("Failed to delete photo");
     }
   };
 
@@ -336,10 +474,28 @@ export default function Vendors() {
                     </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <Badge className="bg-primary text-white border-none mb-2 font-black uppercase tracking-widest">
-                    {selectedVendor.billingCycle} BILLING
-                  </Badge>
+                <div className="text-right flex flex-col items-end">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Button 
+                      size="sm" 
+                      className="bg-white text-primary hover:bg-red-50 font-bold shadow-lg"
+                      onClick={() => {
+                        navigate("/appointments", { 
+                          state: { 
+                            openAddDialog: true, 
+                            vendorId: selectedVendor.id,
+                            customerType: "vendor"
+                          } 
+                        });
+                      }}
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Book Appointment
+                    </Button>
+                    <Badge className="bg-primary text-white border-none font-black uppercase tracking-widest">
+                      {selectedVendor.billingCycle} BILLING
+                    </Badge>
+                  </div>
                   <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Contact Person</p>
                   <p className="text-xl font-black">{selectedVendor.contactPerson}</p>
                 </div>
@@ -349,6 +505,8 @@ export default function Vendors() {
             <Tabs defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
               <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12 shrink-0">
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Profile</TabsTrigger>
+                <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Vehicles ({vendorVehicles.length})</TabsTrigger>
+                <TabsTrigger value="photos" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Photos ({selectedVendor.inspectionPhotos?.length || 0})</TabsTrigger>
                 <TabsTrigger value="rates" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Fixed Rates</TabsTrigger>
                 <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">RO History ({vendorHistory.length})</TabsTrigger>
               </TabsList>
@@ -403,6 +561,71 @@ export default function Vendors() {
                   </div>
 
                   <div className="pt-6 border-t border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-black text-gray-900">Inspection Photos</h3>
+                      <div className="flex gap-2">
+                        <input 
+                          type="file" 
+                          ref={fileInputRef} 
+                          className="hidden" 
+                          accept="image/*" 
+                          onChange={(e) => handleUploadPhoto(e)} 
+                        />
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="font-bold"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={isUploading}
+                        >
+                          {isUploading && !uploadingVehicleId ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
+                          Upload Photo
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="font-bold"
+                          onClick={() => {
+                            fileInputRef.current?.setAttribute("capture", "environment");
+                            fileInputRef.current?.click();
+                          }}
+                          disabled={isUploading}
+                        >
+                          <Camera className="w-4 h-4 mr-2" />
+                          Take Photo
+                        </Button>
+                      </div>
+                    </div>
+                    {selectedVendor.inspectionPhotos && selectedVendor.inspectionPhotos.length > 0 ? (
+                      <div className="grid grid-cols-3 md:grid-cols-4 gap-4">
+                        {selectedVendor.inspectionPhotos.map((url, idx) => (
+                          <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border group">
+                            <img src={url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                              <a href={url} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full text-gray-900 hover:bg-gray-100">
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                              <Button 
+                                size="icon" 
+                                variant="destructive" 
+                                className="rounded-full h-8 w-8"
+                                onClick={() => handleDeletePhoto(url)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 bg-gray-50 rounded-2xl border border-dashed text-gray-400">
+                        <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                        <p className="text-xs font-bold">No inspection photos yet.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-6 border-t border-gray-100">
                     <AlertDialog>
                       <AlertDialogTrigger render={
                         <Button variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold">
@@ -430,6 +653,250 @@ export default function Vendors() {
                       </AlertDialogContent>
                     </AlertDialog>
                   </div>
+                </TabsContent>
+
+                <TabsContent value="vehicles" className="mt-0 space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-black text-gray-900">Vendor Vehicles</h3>
+                    <Dialog>
+                      <DialogTrigger render={<Button size="sm" className="bg-primary font-bold"><Plus className="w-4 h-4 mr-2" /> Add Vehicle</Button>} />
+                      <DialogContent>
+                        <DialogHeader><DialogTitle className="font-black">Add New Vehicle</DialogTitle></DialogHeader>
+                        <form onSubmit={handleAddVehicle} className="space-y-4 py-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Year</Label>
+                              <Input name="year" placeholder="2022" required />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Make</Label>
+                              <Input name="make" placeholder="Tesla" required />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Model</Label>
+                              <Input name="model" placeholder="Model 3" required />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Color</Label>
+                              <Input name="color" placeholder="White" />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>RO Number</Label>
+                              <Input name="roNumber" placeholder="RO-12345" />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Size</Label>
+                              <Select name="size" defaultValue="medium">
+                                <SelectTrigger><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="small">Small (Coupe/Compact)</SelectItem>
+                                  <SelectItem value="medium">Medium (Sedan/Small SUV)</SelectItem>
+                                  <SelectItem value="large">Large (Full SUV/Truck)</SelectItem>
+                                  <SelectItem value="extra_large">Extra Large (Van/Lifted)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>VIN (Optional)</Label>
+                            <Input name="vin" placeholder="VIN Number" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Notes</Label>
+                            <Textarea name="notes" placeholder="Vehicle specific notes..." />
+                          </div>
+                          <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    {vendorVehicles.map(v => (
+                      <Card key={v.id} className="border border-gray-100 shadow-none overflow-hidden group">
+                        <CardContent className="p-0">
+                          <div className="p-4 flex items-center gap-4 bg-gray-50/50">
+                            <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-primary shadow-sm">
+                              <Car className="w-6 h-6" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="font-bold text-gray-900">{v.year} {v.make} {v.model}</p>
+                                {v.roNumber && <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest bg-white">RO: {v.roNumber}</Badge>}
+                              </div>
+                              <p className="text-xs text-gray-500 uppercase font-black tracking-widest">{v.size.replace("_", " ")} • {v.color || "No color"}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <AlertDialog>
+                                <AlertDialogTrigger render={
+                                  <Button variant="ghost" size="icon" className="text-gray-300 hover:text-red-600">
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                } />
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle className="font-black">Delete Vehicle?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to remove this {v.year} {v.make} {v.model} from the vendor's profile?
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel className="font-bold">Cancel</AlertDialogCancel>
+                                    <AlertDialogAction 
+                                      onClick={() => handleDeleteVehicle(v.id)}
+                                      className="bg-red-600 hover:bg-red-700 font-bold"
+                                    >
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </div>
+                          
+                          <div className="p-4 space-y-4">
+                            {v.notes && (
+                              <div className="space-y-1">
+                                <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Vehicle Notes</Label>
+                                <p className="text-sm text-gray-600">{v.notes}</p>
+                              </div>
+                            )}
+
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Vehicle Photos</Label>
+                                <div className="flex gap-2">
+                                  <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept="image/*" 
+                                    onChange={(e) => handleUploadPhoto(e, v.id)} 
+                                    id={`photo-upload-${v.id}`}
+                                  />
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-7 px-2 text-[10px] font-black uppercase text-primary hover:bg-red-50"
+                                    onClick={() => document.getElementById(`photo-upload-${v.id}`)?.click()}
+                                    disabled={isUploading && uploadingVehicleId === v.id}
+                                  >
+                                    {isUploading && uploadingVehicleId === v.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Upload className="w-3 h-3 mr-1" />}
+                                    Upload
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-7 px-2 text-[10px] font-black uppercase text-primary hover:bg-red-50"
+                                    onClick={() => {
+                                      const input = document.getElementById(`photo-upload-${v.id}`) as HTMLInputElement;
+                                      if (input) {
+                                        input.setAttribute("capture", "environment");
+                                        input.click();
+                                      }
+                                    }}
+                                    disabled={isUploading && uploadingVehicleId === v.id}
+                                  >
+                                    <Camera className="w-3 h-3 mr-1" />
+                                    Camera
+                                  </Button>
+                                </div>
+                              </div>
+                              
+                              {v.inspectionPhotos && v.inspectionPhotos.length > 0 ? (
+                                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                  {v.inspectionPhotos.map((url, idx) => (
+                                    <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border shrink-0 group">
+                                      <img src={url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                                        <Button 
+                                          size="icon" 
+                                          variant="destructive" 
+                                          className="h-6 w-6 rounded-full"
+                                          onClick={() => handleDeletePhoto(url, v.id)}
+                                        >
+                                          <X className="w-3 h-3" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-gray-400 italic">No vehicle photos uploaded.</p>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                    {vendorVehicles.length === 0 && (
+                      <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed text-gray-400">
+                        <Car className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                        <p className="font-bold">No vehicles saved for this vendor.</p>
+                        <p className="text-xs">Add vehicles to streamline the booking process.</p>
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="photos" className="mt-0 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-black text-gray-900">Vendor Inspection Photos</h3>
+                      <p className="text-sm text-gray-500 font-medium">General photos for this vendor account</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="font-bold"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                      >
+                        {isUploading && !uploadingVehicleId ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
+                        Upload Photo
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="font-bold"
+                        onClick={() => {
+                          fileInputRef.current?.setAttribute("capture", "environment");
+                          fileInputRef.current?.click();
+                        }}
+                        disabled={isUploading}
+                      >
+                        <Camera className="w-4 h-4 mr-2" />
+                        Take Photo
+                      </Button>
+                    </div>
+                  </div>
+
+                  {selectedVendor.inspectionPhotos && selectedVendor.inspectionPhotos.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      {selectedVendor.inspectionPhotos.map((url, idx) => (
+                        <div key={idx} className="relative aspect-video rounded-2xl overflow-hidden border group">
+                          <img src={url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full text-gray-900 hover:bg-gray-100">
+                              <ExternalLink className="w-4 h-4" />
+                            </a>
+                            <Button 
+                              size="icon" 
+                              variant="destructive" 
+                              className="rounded-full h-8 w-8"
+                              onClick={() => handleDeletePhoto(url)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-20 bg-gray-50 rounded-3xl border border-dashed text-gray-400">
+                      <ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-10" />
+                      <p className="font-bold">No inspection photos yet.</p>
+                    </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="rates" className="mt-0 space-y-6">
@@ -470,33 +937,102 @@ export default function Vendors() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="history" className="mt-0 space-y-4">
-                  {vendorHistory.length === 0 ? (
-                    <div className="text-center py-12 text-gray-400">
-                      <FileText className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                      <p className="font-bold">No RO history found.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {vendorHistory.map(job => (
-                        <div key={job.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50/50 flex items-center justify-between group hover:border-red-200 transition-colors">
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-gray-400 shadow-sm">
-                              <Calendar className="w-5 h-5" />
+                <TabsContent value="history" className="mt-0 space-y-6">
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-black text-gray-900">Signed Forms & Waivers</h3>
+                    {signedForms.length === 0 ? (
+                      <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border border-dashed">
+                        <FileText className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                        <p className="font-bold">No signed forms found.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3">
+                        {signedForms.map(sf => (
+                          <div key={sf.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-primary shadow-sm">
+                                <FileText className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <p className="font-bold text-gray-900">{sf.formTitle}</p>
+                                <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest">
+                                  Signed {format(new Date(sf.signedAt), "MMM d, yyyy")}
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-bold text-gray-900">{job.vehicleInfo}</p>
-                              <p className="text-xs text-gray-500 font-medium">RO: {job.roNumber || "N/A"} • {format(job.scheduledAt.toDate(), "MMM d, yyyy")}</p>
+                            <Dialog>
+                              <DialogTrigger render={<Button variant="ghost" size="sm" className="font-bold text-primary">View</Button>} />
+                              <DialogContent className="max-w-2xl bg-white p-8 rounded-2xl border-none shadow-2xl overflow-y-auto max-h-[90vh]">
+                                <div className="space-y-6">
+                                  <div className="flex justify-between items-start border-b pb-4">
+                                    <div>
+                                      <h2 className="text-2xl font-black uppercase tracking-tighter">{sf.formTitle}</h2>
+                                      <p className="text-xs text-gray-500">Version {sf.formVersion} • Signed At: {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
+                                    </div>
+                                    <Badge className="bg-green-100 text-green-700 border-green-200">Verified</Badge>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-2 gap-4">
+                                    {sf.printedName && (
+                                      <div>
+                                        <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Printed Name</Label>
+                                        <p className="font-bold text-gray-900">{sf.printedName}</p>
+                                      </div>
+                                    )}
+                                    {sf.date && (
+                                      <div>
+                                        <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Date</Label>
+                                        <p className="font-bold text-gray-900">{sf.date}</p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {sf.signature && (
+                                    <div className="space-y-2">
+                                      <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Signature</Label>
+                                      <div className="border rounded-xl p-4 bg-white inline-block">
+                                        <img src={sf.signature} alt="Signature" className="h-20" />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4 pt-6 border-t border-gray-100">
+                    <h3 className="text-lg font-black text-gray-900">RO History</h3>
+                    {vendorHistory.length === 0 ? (
+                      <div className="text-center py-12 text-gray-400">
+                        <FileText className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                        <p className="font-bold">No RO history found.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {vendorHistory.map(job => (
+                          <div key={job.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50/50 flex items-center justify-between group hover:border-red-200 transition-colors">
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-gray-400 shadow-sm">
+                                <Calendar className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <p className="font-bold text-gray-900">{job.vehicleInfo}</p>
+                                <p className="text-xs text-gray-500 font-medium">RO: {job.roNumber || "N/A"} • {format(job.scheduledAt.toDate(), "MMM d, yyyy")}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-black text-gray-900">${job.totalAmount}</p>
+                              <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest">{job.status}</Badge>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="font-black text-gray-900">${job.totalAmount}</p>
-                            <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest">{job.status}</Badge>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </TabsContent>
               </div>
             </Tabs>

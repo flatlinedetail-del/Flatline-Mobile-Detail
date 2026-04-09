@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Textarea } from "../components/ui/textarea";
+import { useNavigate } from "react-router-dom";
 import { 
   Users, 
   Search, 
@@ -34,7 +35,8 @@ import {
   ExternalLink,
   Crown,
   ShieldAlert,
-  Truck
+  Truck,
+  FileText
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -49,6 +51,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 export default function Customers() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,6 +59,7 @@ export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [customerVehicles, setCustomerVehicles] = useState<Vehicle[]>([]);
+  const [signedForms, setSignedForms] = useState<any[]>([]);
   const addressInputRef = useRef<CustomerAddressInputRef>(null);
 
   useEffect(() => {
@@ -76,13 +80,21 @@ export default function Customers() {
 
   useEffect(() => {
     if (selectedCustomer) {
-      const q = query(
+      const qVehicles = query(
         collection(db, "vehicles"), 
         where("ownerId", "==", selectedCustomer.id),
         where("ownerType", "==", "customer")
       );
-      getDocs(q).then(snap => {
+      getDocs(qVehicles).then(snap => {
         setCustomerVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+      });
+
+      const qForms = query(
+        collection(db, "signed_forms"),
+        where("customerId", "==", selectedCustomer.id)
+      );
+      getDocs(qForms).then(snap => {
+        setSignedForms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
     }
   }, [selectedCustomer]);
@@ -151,6 +163,26 @@ export default function Customers() {
       setCustomerVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
     } catch (error) {
       toast.error("Failed to add vehicle");
+    }
+  };
+
+  const handleDeleteVehicle = async (vehicleId: string) => {
+    if (!selectedCustomer) return;
+    try {
+      // Check for linked appointments
+      const q = query(collection(db, "appointments"), where("vehicleId", "==", vehicleId));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        toast.error("Cannot delete vehicle linked to existing appointments.");
+        return;
+      }
+
+      await deleteDoc(doc(db, "vehicles", vehicleId));
+      setCustomerVehicles(prev => prev.filter(v => v.id !== vehicleId));
+      toast.success("Vehicle deleted");
+    } catch (error) {
+      console.error("Error deleting vehicle:", error);
+      toast.error("Failed to delete vehicle");
     }
   };
 
@@ -324,6 +356,22 @@ export default function Customers() {
                   <div className="flex flex-col items-end">
                     <p className="text-4xl font-black tracking-tighter">{selectedCustomer.loyaltyPoints} <span className="text-lg opacity-50">PTS</span></p>
                     <div className="flex items-center gap-2 mt-2">
+                      <Button 
+                        size="sm" 
+                        className="bg-white text-primary hover:bg-red-50 font-bold shadow-lg"
+                        onClick={() => {
+                          navigate("/appointments", { 
+                            state: { 
+                              openAddDialog: true, 
+                              customerId: selectedCustomer.id,
+                              customerType: "retail"
+                            } 
+                          });
+                        }}
+                      >
+                        <Calendar className="w-4 h-4 mr-2" />
+                        Book Appointment
+                      </Button>
                       <Button 
                         size="sm" 
                         variant="ghost" 
@@ -536,9 +584,30 @@ export default function Customers() {
                           <p className="font-bold text-gray-900">{v.year} {v.make} {v.model}</p>
                           <p className="text-xs text-gray-500 uppercase font-black tracking-widest">{v.size.replace("_", " ")} • {v.color}</p>
                         </div>
-                        <Button variant="ghost" size="icon" className="text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger render={
+                            <Button variant="ghost" size="icon" className="text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          } />
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle className="font-black">Delete Vehicle?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to remove this {v.year} {v.make} {v.model} from the customer's profile?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel className="font-bold">Cancel</AlertDialogCancel>
+                              <AlertDialogAction 
+                                onClick={() => handleDeleteVehicle(v.id)}
+                                className="bg-red-600 hover:bg-red-700 font-bold"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     ))}
                   </div>
@@ -590,10 +659,71 @@ export default function Customers() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="history" className="mt-0">
-                  <div className="text-center py-12 text-gray-400">
-                    <History className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                    <p className="font-bold">No service history found.</p>
+                <TabsContent value="history" className="mt-0 space-y-6">
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-black text-gray-900">Signed Forms & Waivers</h3>
+                    {signedForms.length === 0 ? (
+                      <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border border-dashed">
+                        <History className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                        <p className="font-bold">No signed forms found.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3">
+                        {signedForms.map(sf => (
+                          <div key={sf.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-primary shadow-sm">
+                                <FileText className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <p className="font-bold text-gray-900">{sf.formTitle}</p>
+                                <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest">
+                                  Signed {format(new Date(sf.signedAt), "MMM d, yyyy")}
+                                </p>
+                              </div>
+                            </div>
+                            <Dialog>
+                              <DialogTrigger render={<Button variant="ghost" size="sm" className="font-bold text-primary">View</Button>} />
+                              <DialogContent className="max-w-2xl bg-white p-8 rounded-2xl border-none shadow-2xl overflow-y-auto max-h-[90vh]">
+                                <div className="space-y-6">
+                                  <div className="flex justify-between items-start border-b pb-4">
+                                    <div>
+                                      <h2 className="text-2xl font-black uppercase tracking-tighter">{sf.formTitle}</h2>
+                                      <p className="text-xs text-gray-500">Version {sf.formVersion} • Signed At: {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
+                                    </div>
+                                    <Badge className="bg-green-100 text-green-700 border-green-200">Verified</Badge>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-2 gap-4">
+                                    {sf.printedName && (
+                                      <div>
+                                        <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Printed Name</Label>
+                                        <p className="font-bold text-gray-900">{sf.printedName}</p>
+                                      </div>
+                                    )}
+                                    {sf.date && (
+                                      <div>
+                                        <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Date</Label>
+                                        <p className="font-bold text-gray-900">{sf.date}</p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {sf.signature && (
+                                    <div className="space-y-2">
+                                      <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Signature</Label>
+                                      <div className="border rounded-xl p-4 bg-white inline-block">
+                                        <img src={sf.signature} alt="Signature" className="h-20" />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
               </div>

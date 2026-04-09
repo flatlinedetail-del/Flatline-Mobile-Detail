@@ -14,6 +14,57 @@
       },
       "required": ["uid", "email", "role"]
     },
+    "Client": {
+      "title": "Client",
+      "description": "Unified client entity (Retail, Business, Fleet, etc.)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "contactPerson": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "clientTypeId": { "type": "string" },
+        "categoryIds": { "type": "array", "items": { "type": "string" } },
+        "loyaltyPoints": { "type": "number" },
+        "membershipLevel": { "type": "string" },
+        "isVIP": { "type": "boolean" },
+        "vipSettings": { "type": "object" },
+        "billingCycle": { "type": "string" },
+        "customRates": { "type": "object" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "legacyId": { "type": "string" },
+        "legacyType": { "type": "string", "enum": ["customer", "vendor"] }
+      },
+      "required": ["name", "clientTypeId"]
+    },
+    "ClientType": {
+      "title": "ClientType",
+      "description": "Customizable client types (Retail, Dealership, etc.)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["name", "slug"]
+    },
+    "ClientCategory": {
+      "title": "ClientCategory",
+      "description": "Customizable tags/categories for clients",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "color": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name"]
+    },
     "Lead": {
       "title": "Lead",
       "description": "Potential customer or job",
@@ -193,10 +244,59 @@
         "expiryDate": { "type": "string", "format": "date-time" }
       },
       "required": ["code", "discountType", "discountValue"]
+    },
+    "FormTemplate": {
+      "title": "FormTemplate",
+      "description": "Custom liability, waiver, and acknowledgment form templates",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "content": { "type": "string" },
+        "acknowledgments": { "type": "array", "items": { "type": "string" } },
+        "requiresSignature": { "type": "boolean" },
+        "requiresPrintedName": { "type": "boolean" },
+        "requiresDate": { "type": "boolean" },
+        "requiresInitials": { "type": "boolean" },
+        "requiresPhoto": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "version": { "type": "number" },
+        "assignedServices": { "type": "array", "items": { "type": "string" } },
+        "assignedAddons": { "type": "array", "items": { "type": "string" } },
+        "enforcement": { "type": "string", "enum": ["before_start", "before_complete", "before_invoice", "before_payment"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["title", "content", "version"]
+    },
+    "SignedForm": {
+      "title": "SignedForm",
+      "description": "Completed and signed forms",
+      "type": "object",
+      "properties": {
+        "formId": { "type": "string" },
+        "formVersion": { "type": "number" },
+        "formTitle": { "type": "string" },
+        "appointmentId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "vendorId": { "type": "string" },
+        "signature": { "type": "string" },
+        "printedName": { "type": "string" },
+        "date": { "type": "string" },
+        "initials": { "type": "string" },
+        "photos": { "type": "array", "items": { "type": "string" } },
+        "acknowledgments": { "type": "array", "items": { "type": "boolean" } },
+        "signedAt": { "type": "string" },
+        "technicianId": { "type": "string" }
+      },
+      "required": ["formId", "formVersion", "appointmentId", "signedAt"]
     }
   },
   "firestore": {
     "/users/{uid}": { "schema": "User", "description": "User profiles" },
+    "/clients/{clientId}": { "schema": "Client", "description": "Unified clients" },
+    "/client_types/{typeId}": { "schema": "ClientType", "description": "Client types" },
+    "/client_categories/{categoryId}": { "schema": "ClientCategory", "description": "Client categories/tags" },
     "/leads/{leadId}": { "schema": "Lead", "description": "Leads" },
     "/customers/{customerId}": { "schema": "Customer", "description": "Retail customers" },
     "/vendors/{vendorId}": { "schema": "Vendor", "description": "Vendor accounts" },
@@ -207,6 +307,8 @@
     "/addons/{addOnId}": { "schema": "AddOn", "description": "Add-ons catalog" },
     "/settings/{settingId}": { "schema": "Setting", "description": "Business settings" },
     "/categories/{categoryId}": { "schema": "Category", "description": "Custom categories" },
-    "/coupons/{couponId}": { "schema": "Coupon", "description": "Discount coupons" }
+    "/coupons/{couponId}": { "schema": "Coupon", "description": "Discount coupons" },
+    "/form_templates/{formId}": { "schema": "FormTemplate", "description": "Form templates" },
+    "/signed_forms/{signedId}": { "schema": "SignedForm", "description": "Signed forms" }
   }
 }

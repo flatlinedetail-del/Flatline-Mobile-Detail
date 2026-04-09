@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, Bell, BarChart, Receipt } from "lucide-react";
+import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, Bell, BarChart, Receipt, ShieldCheck } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -14,9 +14,9 @@ const navigation = [
   { name: "Calendar", href: "/calendar", icon: Calendar },
   { name: "Appointments", href: "/appointments", icon: ClipboardList },
   { name: "Leads", href: "/leads", icon: UserPlus },
-  { name: "Customers", href: "/customers", icon: Users },
-  { name: "Vendors", href: "/vendors", icon: Building2 },
+  { name: "Clients", href: "/clients", icon: Users },
   { name: "Expenses", href: "/expenses", icon: Receipt },
+  { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck },
   { name: "Reports", href: "/reports", icon: BarChart },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
@@ -26,6 +26,18 @@ export default function Layout() {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  const filteredNavigation = navigation.filter(item => {
+    if (item.href === "/forms" || item.href === "/reports") {
+      return profile?.role === "admin" || profile?.role === "manager";
+    }
+    if (item.href === "/settings") {
+      // Only admin/manager can see settings? Or maybe everyone can see profile?
+      // Usually everyone can see settings to change their profile.
+      return true;
+    }
+    return true;
+  });
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
       {/* Sidebar for Desktop */}
@@ -34,7 +46,7 @@ export default function Layout() {
           <Logo variant="full" />
         </div>
         <nav className="flex-1 px-4 space-y-1">
-          {navigation.map((item) => (
+          {filteredNavigation.map((item) => (
             <Link
               key={item.name}
               to={item.href}
@@ -96,7 +108,7 @@ export default function Layout() {
                   <Logo variant="full" />
                 </div>
                 <nav className="p-4 space-y-1">
-                  {navigation.map((item) => (
+                  {filteredNavigation.map((item) => (
                     <Link
                       key={item.name}
                       to={item.href}

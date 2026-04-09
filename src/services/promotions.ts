@@ -7,22 +7,38 @@ import { Coupon, Customer } from "../types";
  * 1 point per $1 spent
  * 100 points = $10 discount
  */
-export async function addLoyaltyPoints(customerId: string, amount: number) {
-  const customerRef = doc(db, "customers", customerId);
-  await updateDoc(customerRef, {
-    loyaltyPoints: increment(Math.floor(amount))
-  });
+export async function addLoyaltyPoints(clientId: string, amount: number) {
+  // Try clients first, fallback to customers for legacy
+  let clientRef = doc(db, "clients", clientId);
+  let clientSnap = await getDoc(clientRef);
+  
+  if (!clientSnap.exists()) {
+    clientRef = doc(db, "customers", clientId);
+    clientSnap = await getDoc(clientRef);
+  }
+
+  if (clientSnap.exists()) {
+    await updateDoc(clientRef, {
+      loyaltyPoints: increment(Math.floor(amount))
+    });
+  }
 }
 
-export async function redeemLoyaltyPoints(customerId: string, points: number) {
-  const customerRef = doc(db, "customers", customerId);
-  const customerSnap = await getDoc(customerRef);
-  if (!customerSnap.exists()) throw new Error("Customer not found");
+export async function redeemLoyaltyPoints(clientId: string, points: number) {
+  let clientRef = doc(db, "clients", clientId);
+  let clientSnap = await getDoc(clientRef);
   
-  const currentPoints = customerSnap.data().loyaltyPoints || 0;
+  if (!clientSnap.exists()) {
+    clientRef = doc(db, "customers", clientId);
+    clientSnap = await getDoc(clientRef);
+  }
+
+  if (!clientSnap.exists()) throw new Error("Client not found");
+  
+  const currentPoints = clientSnap.data().loyaltyPoints || 0;
   if (currentPoints < points) throw new Error("Insufficient loyalty points");
 
-  await updateDoc(customerRef, {
+  await updateDoc(clientRef, {
     loyaltyPoints: increment(-points)
   });
   
