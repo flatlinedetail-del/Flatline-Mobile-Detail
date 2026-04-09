@@ -291,7 +291,7 @@ export default function Customers() {
       {selectedCustomer && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="sm:max-w-[800px] p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-primary p-8 text-white">
+            <div className="bg-primary p-8 text-white shrink-0">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-white font-black text-2xl backdrop-blur-sm">
@@ -344,15 +344,15 @@ export default function Customers() {
               </div>
             </div>
 
-            <Tabs defaultValue="profile" className="w-full">
-              <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12">
+            <Tabs defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
+              <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12 shrink-0">
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Profile</TabsTrigger>
                 <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Vehicles ({customerVehicles.length})</TabsTrigger>
                 <TabsTrigger value="pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Special Pricing</TabsTrigger>
                 <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">History</TabsTrigger>
               </TabsList>
 
-              <div className="p-8 max-h-[60vh] overflow-y-auto bg-white">
+              <div className="flex-1 overflow-y-auto p-8 bg-white">
                 <TabsContent value="profile" className="mt-0 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">

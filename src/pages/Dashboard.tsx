@@ -202,11 +202,11 @@ export default function Dashboard() {
                 <Receipt className="w-4 h-4 mr-2" /> Log Expense
               </Button>
             } />
-            <DialogContent>
-              <DialogHeader>
+            <DialogContent className="p-0 overflow-hidden">
+              <DialogHeader className="p-6 border-b">
                 <DialogTitle className="font-black">Log Business Expense</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4 py-4">
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 <div className="space-y-2">
                   <Label className="font-bold">Category</Label>
                   <Select 
@@ -250,7 +250,7 @@ export default function Dashboard() {
               </div>
             </DialogContent>
           </Dialog>
-          <Button onClick={() => navigate("/appointments")} className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100">
+          <Button onClick={() => navigate("/appointments", { state: { openAddDialog: true } })} className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100">
             <CalendarIcon className="w-4 h-4 mr-2" /> Schedule Job
           </Button>
         </div>

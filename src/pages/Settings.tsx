@@ -870,11 +870,11 @@ export default function Settings() {
 
           {/* Service Dialog */}
           <Dialog open={isServiceDialogOpen} onOpenChange={setIsServiceDialogOpen}>
-            <DialogContent className="max-w-2xl bg-white">
-              <DialogHeader>
+            <DialogContent className="max-w-2xl bg-white p-0 overflow-hidden">
+              <DialogHeader className="p-6 border-b">
                 <DialogTitle>{editingService?.id ? "Edit Service" : "Add New Service"}</DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleSaveService} className="space-y-4">
+              <form onSubmit={handleSaveService} className="flex-1 overflow-y-auto p-6 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 col-span-2">
                     <Label>Service Name</Label>
@@ -981,11 +981,11 @@ export default function Settings() {
 
           {/* Add-on Dialog */}
           <Dialog open={isAddonDialogOpen} onOpenChange={setIsAddonDialogOpen}>
-            <DialogContent className="max-w-md bg-white">
-              <DialogHeader>
+            <DialogContent className="max-w-md bg-white p-0 overflow-hidden">
+              <DialogHeader className="p-6 border-b">
                 <DialogTitle>{editingAddon?.id ? "Edit Add-on" : "Add New Add-on"}</DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleSaveAddon} className="space-y-4">
+              <form onSubmit={handleSaveAddon} className="flex-1 overflow-y-auto p-6 space-y-4">
                 <div className="space-y-2">
                   <Label>Add-on Name</Label>
                   <StableInput 
@@ -1154,11 +1154,11 @@ export default function Settings() {
           </div>
 
           <Dialog open={isCategoryDialogOpen} onOpenChange={setIsCategoryDialogOpen}>
-            <DialogContent className="max-w-md bg-white">
-              <DialogHeader>
+            <DialogContent className="max-w-md bg-white p-0 overflow-hidden">
+              <DialogHeader className="p-6 border-b">
                 <DialogTitle>{editingCategory?.id ? "Edit Category" : "Add New Category"}</DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleSaveCategory} className="space-y-4">
+              <form onSubmit={handleSaveCategory} className="flex-1 overflow-y-auto p-6 space-y-4">
                 <div className="space-y-2">
                   <Label>Category Name</Label>
                   <StableInput 
@@ -1390,11 +1390,11 @@ export default function Settings() {
           </Card>
 
           <Dialog open={isCouponDialogOpen} onOpenChange={setIsCouponDialogOpen}>
-            <DialogContent className="max-w-md bg-white">
-              <DialogHeader>
+            <DialogContent className="max-w-md bg-white p-0 overflow-hidden">
+              <DialogHeader className="p-6 border-b">
                 <DialogTitle>{editingCoupon?.id ? "Edit Coupon" : "Add New Coupon"}</DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleSaveCoupon} className="space-y-4">
+              <form onSubmit={handleSaveCoupon} className="flex-1 overflow-y-auto p-6 space-y-4">
                 <div className="space-y-2">
                   <Label>Coupon Code</Label>
                   <StableInput 

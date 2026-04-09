@@ -132,11 +132,11 @@ export default function Leads() {
               Add New Lead
             </Button>
           } />
-          <DialogContent className="sm:max-w-[500px]">
-            <DialogHeader>
+          <DialogContent className="sm:max-w-[500px] p-0">
+            <DialogHeader className="px-6 pt-6 pb-2">
               <DialogTitle className="text-xl font-black">Add New Lead</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleAddLead} className="space-y-4 py-4">
+            <form onSubmit={handleAddLead} className="flex-1 overflow-y-auto space-y-4 px-6 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Full Name</Label>
@@ -315,7 +315,7 @@ export default function Leads() {
       {selectedLead && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-primary p-6 text-white">
+            <div className="bg-primary p-6 text-white shrink-0">
               <div className="flex justify-between items-start">
                 <div>
                   <Badge className="bg-white/20 text-white border-none mb-2 uppercase font-black tracking-widest">
@@ -335,7 +335,7 @@ export default function Leads() {
               </div>
             </div>
 
-            <div className="p-6 space-y-6 bg-white">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-1">
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vehicle</p>

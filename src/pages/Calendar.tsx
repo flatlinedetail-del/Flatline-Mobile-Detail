@@ -125,7 +125,11 @@ export default function Calendar() {
                 </CardTitle>
                 <p className="text-xs text-gray-500 mt-0.5 font-medium">{dayAppointments.length} appointments scheduled</p>
               </div>
-              <Button size="sm" className="bg-primary hover:bg-red-700 font-bold">
+              <Button 
+                size="sm" 
+                className="bg-primary hover:bg-red-700 font-bold"
+                onClick={() => navigate("/appointments", { state: { openAddDialog: true } })}
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Job
               </Button>

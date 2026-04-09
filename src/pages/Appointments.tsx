@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectItemText } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -132,25 +132,37 @@ export default function Appointments() {
   }, []);
 
   useEffect(() => {
-    if (location.state?.lead) {
-      const lead = location.state.lead;
-      setCustomerType("retail");
-      // We need to find if this lead is already a customer or if we should just use their info
-      // For now, let's assume the user wants to select a customer. 
-      // If the lead was converted, they should be in the customers list.
-      const existingCustomer = customers.find(c => c.phone === lead.phone || c.email === lead.email);
-      if (existingCustomer) {
-        setSelectedCustomerId(existingCustomer.id);
-      }
-      
-      if (lead.address) {
-        handleAddressSelect(lead.address, lead.latitude || 0, lead.longitude || 0, true);
+    if (location.state?.lead || location.state?.openAddDialog) {
+      if (location.state?.lead) {
+        const lead = location.state.lead;
+        setCustomerType("retail");
+        const existingCustomer = customers.find(c => c.phone === lead.phone || c.email === lead.email);
+        if (existingCustomer) {
+          setSelectedCustomerId(existingCustomer.id);
+        }
+        
+        if (lead.address) {
+          handleAddressSelect(lead.address, lead.latitude || 0, lead.longitude || 0, true);
+        }
       }
       setShowAddDialog(true);
       // Clear state so it doesn't reopen on refresh
       window.history.replaceState({}, document.title);
     }
   }, [location.state, customers]);
+
+  // Auto-fill address when customer is selected
+  useEffect(() => {
+    if (selectedCustomerId && showAddDialog) {
+      const list = customerType === "retail" ? customers : vendors;
+      const c = list.find(item => item.id === selectedCustomerId);
+      
+      // Only auto-fill if the current address is empty
+      if (c && c.address && !appointmentAddress.address) {
+        handleAddressSelect(c.address, c.lat || 0, c.lng || 0, true);
+      }
+    }
+  }, [selectedCustomerId, customerType, customers, vendors, showAddDialog]);
 
   useEffect(() => {
     if (showAddDialog) {
@@ -287,6 +299,24 @@ export default function Appointments() {
     }
   };
 
+  const getSelectedCustomerDisplay = () => {
+    if (!selectedCustomerId) return null;
+    const list = customerType === "retail" ? customers : vendors;
+    const c = list.find(item => item.id === selectedCustomerId);
+    if (!c) return "Unknown customer";
+    const isDuplicate = list.filter(other => other.name === c.name).length > 1;
+    return (
+      <div className="flex items-center gap-2">
+        <span className="font-bold">{c.name}</span>
+        {isDuplicate && (
+          <span className="text-[10px] text-gray-400 font-medium">
+            ({c.phone || c.email || (c.address ? c.address.substring(0, 20) + "..." : "ID: " + c.id.slice(-4))})
+          </span>
+        )}
+      </div>
+    );
+  };
+
   const filteredAppointments = appointments.filter(app => 
     (app.customerName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
     (app.vehicleInfo?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
@@ -313,93 +343,78 @@ export default function Appointments() {
           <p className="text-gray-500 font-medium">View and manage all detailing jobs.</p>
         </div>
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-          <DialogTrigger render={
-            <Button className="bg-primary hover:bg-red-700 shadow-md shadow-red-100 font-bold">
-              <Plus className="w-4 h-4 mr-2" />
-              New Appointment
-            </Button>
-          } />
-          <DialogContent className="max-w-xl bg-white rounded-2xl border-none shadow-2xl p-0 overflow-hidden">
-            <DialogHeader className="p-6 bg-gray-50/50 border-b border-gray-100">
+          <Button 
+            className="bg-primary hover:bg-red-700 shadow-md shadow-red-100 font-bold"
+            onClick={() => setShowAddDialog(true)}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            New Appointment
+          </Button>
+          <DialogContent className="max-w-xl bg-white rounded-2xl border-none shadow-2xl p-0 overflow-hidden flex flex-col">
+            <DialogHeader className="p-6 bg-gray-50/50 border-b border-gray-100 shrink-0">
               <DialogTitle className="text-xl font-bold text-gray-900">Schedule New Job</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleCreateAppointment} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2 col-span-2">
-                  <Label>Customer Type</Label>
-                  <Select value={customerType} onValueChange={(v: any) => {
-                    setCustomerType(v);
-                    setSelectedCustomerId("");
-                  }}>
-                    <SelectTrigger className="bg-white border-gray-200">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white">
-                      <SelectItem value="retail">Retail Client</SelectItem>
-                      <SelectItem value="vendor">Vendor / Dealership</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2 col-span-2">
-                  <Label htmlFor="customerId">Select {customerType === "retail" ? "Customer" : "Vendor"}</Label>
-                  <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId} required>
-                    <SelectTrigger className="bg-white border-gray-200">
-                      <SelectValue placeholder={`Select a ${customerType}`}>
-                        {selectedCustomerId && (() => {
-                          const list = customerType === "retail" ? customers : vendors;
-                          const c = list.find(item => item.id === selectedCustomerId);
-                          if (!c) return "Unknown customer";
-                          const isDuplicate = list.filter(other => other.name === c.name).length > 1;
-                          return (
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold">{c.name}</span>
-                              {isDuplicate && (
-                                <span className="text-[10px] text-gray-400 font-medium">
-                                  ({c.phone || c.email || (c.address ? c.address.substring(0, 20) + "..." : "ID: " + c.id.slice(-4))})
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent className="bg-white">
-                      {customerType === "retail" ? (
-                        customers.map(c => {
-                          const isDuplicate = customers.filter(other => other.name === c.name).length > 1;
-                          return (
-                            <SelectItem key={c.id} value={c.id}>
-                              <div className="flex flex-col">
-                                <span className="font-bold">{c.name}</span>
-                                {isDuplicate && (
-                                  <span className="text-[10px] text-gray-500">
-                                    {c.phone || c.email || (c.address ? c.address.substring(0, 30) + "..." : "No secondary info")}
-                                  </span>
-                                )}
-                              </div>
-                            </SelectItem>
-                          );
-                        })
-                      ) : (
-                        vendors.map(v => {
-                          const isDuplicate = vendors.filter(other => other.name === v.name).length > 1;
-                          return (
-                            <SelectItem key={v.id} value={v.id}>
-                              <div className="flex flex-col">
-                                <span className="font-bold">{v.name}</span>
-                                {isDuplicate && (
-                                  <span className="text-[10px] text-gray-500">
-                                    {v.phone || v.email || (v.address ? v.address.substring(0, 30) + "..." : "No secondary info")}
-                                  </span>
-                                )}
-                              </div>
-                            </SelectItem>
-                          );
-                        })
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
+            <form onSubmit={handleCreateAppointment} className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2 col-span-2">
+                    <Label>Customer Type</Label>
+                    <Select value={customerType} onValueChange={(v: any) => {
+                      setCustomerType(v);
+                      setSelectedCustomerId("");
+                    }}>
+                      <SelectTrigger className="bg-white border-gray-200">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white">
+                        <SelectItem value="retail">Retail Client</SelectItem>
+                        <SelectItem value="vendor">Vendor / Dealership</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="customerId">Select {customerType === "retail" ? "Customer" : "Vendor"}</Label>
+                    <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId} required>
+                      <SelectTrigger className="bg-white border-gray-200">
+                        <SelectValue placeholder={`Select a ${customerType}`} />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white">
+                        {customerType === "retail" ? (
+                          customers.map(c => {
+                            const isDuplicate = customers.filter(other => other.name === c.name).length > 1;
+                            return (
+                              <SelectItem key={c.id} value={c.id}>
+                                <div className="flex flex-col">
+                                  <SelectItemText className="font-bold">{c.name}</SelectItemText>
+                                  {isDuplicate && (
+                                    <span className="text-[10px] text-gray-500">
+                                      {c.phone || c.email || (c.address ? c.address.substring(0, 30) + "..." : "No secondary info")}
+                                    </span>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            );
+                          })
+                        ) : (
+                          vendors.map(v => {
+                            const isDuplicate = vendors.filter(other => other.name === v.name).length > 1;
+                            return (
+                              <SelectItem key={v.id} value={v.id}>
+                                <div className="flex flex-col">
+                                  <SelectItemText className="font-bold">{v.name}</SelectItemText>
+                                  {isDuplicate && (
+                                    <span className="text-[10px] text-gray-500">
+                                      {v.contactPerson || v.phone || v.email}
+                                    </span>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            );
+                          })
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 <div className="space-y-2">
                   <Label htmlFor="vehicleInfo">Vehicle (Year Make Model)</Label>
                   <StableInput id="vehicleInfo" name="vehicleInfo" placeholder="e.g. 2024 Tesla Model 3" required className="bg-white border-gray-200" />
@@ -637,18 +652,19 @@ export default function Appointments() {
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center space-x-2 col-span-2 py-2">
-                  <Checkbox 
-                    id="waiver" 
-                    checked={waiverAccepted} 
-                    onCheckedChange={(v: any) => setWaiverAccepted(v)} 
-                  />
-                  <Label htmlFor="waiver" className="text-xs font-medium text-gray-500">
-                    I accept the service waiver and damage liability terms.
-                  </Label>
+                  <div className="flex items-center space-x-2 col-span-2 py-2">
+                    <Checkbox 
+                      id="waiver" 
+                      checked={waiverAccepted} 
+                      onCheckedChange={(v: any) => setWaiverAccepted(v)} 
+                    />
+                    <Label htmlFor="waiver" className="text-xs font-medium text-gray-500">
+                      I accept the service waiver and damage liability terms.
+                    </Label>
+                  </div>
                 </div>
               </div>
-              <div className="flex justify-end gap-3 pt-4">
+              <div className="flex justify-end gap-3 p-6 border-t bg-gray-50/50 shrink-0">
                 <Button variant="outline" type="button" onClick={() => setShowAddDialog(false)} className="font-bold">Cancel</Button>
                 <Button type="submit" className="bg-primary hover:bg-red-700 font-bold" disabled={isCreating}>
                   {isCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}

@@ -192,9 +192,9 @@ export default function JobDetail() {
           {job.status === "completed" && (
             <Dialog>
               <DialogTrigger render={<Button className="bg-emerald-600 hover:bg-emerald-700 font-bold">Collect Payment</Button>} />
-              <DialogContent className="bg-white border-none shadow-2xl rounded-2xl">
-                <DialogHeader><DialogTitle className="font-black">Collect Payment</DialogTitle></DialogHeader>
-                <div className="space-y-4 py-4">
+              <DialogContent className="bg-white border-none shadow-2xl rounded-2xl p-0 overflow-hidden">
+                <DialogHeader className="p-6 border-b"><DialogTitle className="font-black">Collect Payment</DialogTitle></DialogHeader>
+                <div className="flex-1 overflow-y-auto p-6 space-y-4">
                   <div className="space-y-2">
                     <Label className="font-bold">Payment Method</Label>
                     <Select value={paymentMethod} onValueChange={setPaymentMethod}>
@@ -302,9 +302,9 @@ export default function JobDetail() {
                           <Scan className="w-4 h-4" />
                         </Button>
                       } />
-                      <DialogContent className="bg-white border-none shadow-2xl rounded-2xl">
-                        <DialogHeader><DialogTitle className="font-black">VIN Management</DialogTitle></DialogHeader>
-                        <div className="space-y-4 py-4">
+                      <DialogContent className="bg-white border-none shadow-2xl rounded-2xl p-0 overflow-hidden">
+                        <DialogHeader className="p-6 border-b"><DialogTitle className="font-black">VIN Management</DialogTitle></DialogHeader>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
                           <div className="space-y-2">
                             <Label className="font-bold">Enter VIN</Label>
                             <div className="flex gap-2">
@@ -421,7 +421,7 @@ export default function JobDetail() {
                   </div>
                 </DialogTrigger>
                 <DialogContent className="max-w-2xl bg-white p-0 overflow-hidden rounded-2xl border-none shadow-2xl">
-                  <div className="p-8 space-y-8">
+                  <div className="flex-1 overflow-y-auto p-8 space-y-8">
                     <div className="flex justify-between items-start">
                       <div>
                         <Logo variant="full" className="mb-4" />

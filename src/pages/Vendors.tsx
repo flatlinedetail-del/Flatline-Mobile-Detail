@@ -167,11 +167,11 @@ export default function Vendors() {
               Add New Vendor
             </Button>
           } />
-          <DialogContent className="sm:max-w-[500px]">
-            <DialogHeader>
+          <DialogContent className="sm:max-w-[500px] p-0">
+            <DialogHeader className="px-6 pt-6 pb-2">
               <DialogTitle className="text-xl font-black">Add New Vendor</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleAddVendor} className="space-y-4 py-4">
+            <form onSubmit={handleAddVendor} className="flex-1 overflow-y-auto space-y-4 px-6 py-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Business Name</Label>
                 <Input id="name" name="name" placeholder="Elite Collision Center" required />
@@ -317,7 +317,7 @@ export default function Vendors() {
       {selectedVendor && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="sm:max-w-[800px] p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-black p-8 text-white">
+            <div className="bg-black p-8 text-white shrink-0">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center text-white font-black text-2xl backdrop-blur-sm">
@@ -346,14 +346,14 @@ export default function Vendors() {
               </div>
             </div>
 
-            <Tabs defaultValue="profile" className="w-full">
-              <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12">
+            <Tabs defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
+              <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12 shrink-0">
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Profile</TabsTrigger>
                 <TabsTrigger value="rates" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Fixed Rates</TabsTrigger>
                 <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">RO History ({vendorHistory.length})</TabsTrigger>
               </TabsList>
 
-              <div className="p-8 max-h-[60vh] overflow-y-auto bg-white">
+              <div className="flex-1 overflow-y-auto p-8 bg-white">
                 <TabsContent value="profile" className="mt-0 space-y-6">
                   <div className="grid grid-cols-1 gap-6">
                     <div className="space-y-2">

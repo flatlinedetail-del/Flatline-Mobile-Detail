@@ -105,7 +105,7 @@ export default function Expenses() {
             <DialogHeader className="p-6 bg-gray-50/50 border-b border-gray-100">
               <DialogTitle className="text-xl font-bold text-gray-900">Record New Expense</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleCreateExpense} className="p-6 space-y-4">
+            <form onSubmit={handleCreateExpense} className="flex-1 overflow-y-auto p-6 space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="description">Description</Label>
                 <StableInput id="description" name="description" placeholder="e.g. Microfiber Towels" required className="bg-white border-gray-200" />

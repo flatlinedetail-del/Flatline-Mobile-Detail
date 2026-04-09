@@ -122,9 +122,7 @@ function SelectItem({
       )}
       {...props}
     >
-      <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
-        {children}
-      </SelectPrimitive.ItemText>
+      {children}
       <SelectPrimitive.ItemIndicator
         render={
           <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />
@@ -135,6 +133,8 @@ function SelectItem({
     </SelectPrimitive.Item>
   )
 }
+
+const SelectItemText = SelectPrimitive.ItemText;
 
 function SelectSeparator({
   className,
@@ -198,4 +198,5 @@ export {
   SelectSeparator,
   SelectTrigger,
   SelectValue,
+  SelectItemText,
 }
