@@ -10,7 +10,8 @@ import {
   orderBy, 
   where, 
   getDocs,
-  deleteDoc
+  deleteDoc,
+  writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -21,6 +22,7 @@ import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
+import { Switch } from "../components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Textarea } from "../components/ui/textarea";
 import { useNavigate } from "react-router-dom";
@@ -52,17 +54,22 @@ import {
   Camera,
   Settings2,
   Building2,
-  Briefcase
+  Briefcase,
+  CheckCircle2
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { cn } from "../lib/utils";
+import { 
+  cn, 
+  formatPhoneNumber, 
+  getClientDisplayName 
+} from "../lib/utils";
 import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment } from "../types";
 import AddressInput from "../components/AddressInput";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { getClientTypes, getClientCategories, migrateDataToClients } from "../services/clientService";
+import { getClientTypes, getClientCategories, migrateDataToClients, ensureClientTypes, ensureClientNameFields } from "../services/clientService";
 
 export default function Clients() {
   const { profile } = useAuth();
@@ -87,9 +94,19 @@ export default function Clients() {
 
   useEffect(() => {
     const loadMetadata = async () => {
-      const [types, cats] = await Promise.all([getClientTypes(), getClientCategories()]);
-      setClientTypes(types);
-      setCategories(cats);
+      try {
+        const [types, cats] = await Promise.all([
+          ensureClientTypes(), 
+          getClientCategories(),
+          ensureClientNameFields()
+        ]);
+        // Ensure unique types by ID just in case
+        const uniqueTypes = Array.from(new Map(types.map(t => [t.id, t])).values());
+        setClientTypes(uniqueTypes);
+        setCategories(cats);
+      } catch (error) {
+        console.error("Error loading metadata:", error);
+      }
     };
     loadMetadata();
 
@@ -141,10 +158,25 @@ export default function Clients() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const clientTypeId = formData.get("clientTypeId") as string;
-    const type = clientTypes.find(t => t.id === clientTypeId);
+    const firstName = formData.get("firstName") as string;
+    const lastName = formData.get("lastName") as string;
+    const businessName = formData.get("businessName") as string;
+    
+    // Derive a full name for backward compatibility
+    let derivedName = "";
+    if (businessName) {
+      derivedName = businessName;
+      const personName = [firstName, lastName].filter(Boolean).join(" ");
+      if (personName) derivedName += ` (${personName})`;
+    } else {
+      derivedName = [firstName, lastName].filter(Boolean).join(" ");
+    }
 
     const newClient: Partial<Client> = {
-      name: formData.get("name") as string,
+      name: derivedName || "Unnamed Client",
+      firstName,
+      lastName,
+      businessName,
       contactPerson: formData.get("contactPerson") as string,
       phone: formData.get("phone") as string,
       email: formData.get("email") as string,
@@ -155,7 +187,8 @@ export default function Clients() {
       categoryIds: [],
       loyaltyPoints: 0,
       membershipLevel: "none",
-      isVIP: false,
+      isVIP: formData.get("isVIP") === "on",
+      isOneTime: formData.get("isOneTime") === "on",
       notes: formData.get("notes") as string,
       createdAt: serverTimestamp() as any,
     };
@@ -172,9 +205,32 @@ export default function Clients() {
   const updateClient = async (data: Partial<Client>) => {
     if (!selectedClient) return;
     try {
+      const updatedClient = { ...selectedClient, ...data };
+      
+      // If name fields changed, update the derived name and related appointments
+      if (data.firstName !== undefined || data.lastName !== undefined || data.businessName !== undefined) {
+        const newDisplayName = getClientDisplayName(updatedClient);
+        data.name = newDisplayName;
+        
+        // Update related appointments
+        const appointmentsQuery = query(
+          collection(db, "appointments"), 
+          where("clientId", "==", selectedClient.id)
+        );
+        const appointmentsSnap = await getDocs(appointmentsQuery);
+        const batch = writeBatch(db);
+        
+        appointmentsSnap.docs.forEach(appDoc => {
+          batch.update(appDoc.ref, { customerName: newDisplayName });
+        });
+        
+        await batch.commit();
+      }
+
       await updateDoc(doc(db, "clients", selectedClient.id), data);
       toast.success("Profile updated");
     } catch (error) {
+      console.error("Error updating client:", error);
       toast.error("Failed to update profile");
     }
   };
@@ -205,6 +261,9 @@ export default function Clients() {
   const filteredClients = clients.filter(client => {
     const matchesSearch = 
       (client.name?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (client.firstName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (client.lastName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (client.businessName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
       (client.phone || "").includes(searchTerm) ||
       (client.email?.toLowerCase() || "").includes(searchTerm.toLowerCase());
     
@@ -238,18 +297,30 @@ export default function Clients() {
                 <DialogTitle className="text-xl font-black">Add New Client</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleAddClient} className="px-6 py-4 space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Client Name / Business Name</Label>
-                  <Input id="name" name="name" placeholder="John Doe or Elite Collision" required />
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="businessName">Business Name (Optional)</Label>
+                    <Input id="businessName" name="businessName" placeholder="Elite Collision or Austin Fleet" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="firstName">First Name</Label>
+                      <Input id="firstName" name="firstName" placeholder="John" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="lastName">Last Name</Label>
+                      <Input id="lastName" name="lastName" placeholder="Doe" />
+                    </div>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="clientTypeId">Client Type</Label>
                     <Select name="clientTypeId" required>
-                      <SelectTrigger>
+                      <SelectTrigger className="bg-white border-gray-200">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="bg-white">
                         {clientTypes.map(t => (
                           <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                         ))}
@@ -264,7 +335,15 @@ export default function Clients() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="phone">Phone Number</Label>
-                    <Input id="phone" name="phone" placeholder="(555) 000-0000" required />
+                    <Input 
+                      id="phone" 
+                      name="phone" 
+                      placeholder="(555) 000-0000" 
+                      required 
+                      onChange={(e) => {
+                        e.target.value = formatPhoneNumber(e.target.value);
+                      }}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email Address</Label>
@@ -277,6 +356,16 @@ export default function Clients() {
                     onAddressSelect={(address, lat, lng) => setNewClientAddress({ address, lat, lng })}
                     placeholder="123 Main St, City, ST"
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <Label className="font-bold text-xs">VIP Status</Label>
+                    <Switch name="isVIP" />
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <Label className="font-bold text-xs">One-time Client</Label>
+                    <Switch name="isOneTime" />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notes">Internal Notes</Label>
@@ -371,11 +460,11 @@ export default function Clients() {
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center text-primary font-black text-sm">
-                            {client.name?.charAt(0)}
+                            {getClientDisplayName(client).charAt(0)}
                           </div>
                           <div className="flex flex-col">
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-gray-900">{client.name}</span>
+                              <span className="font-bold text-gray-900">{getClientDisplayName(client)}</span>
                               {client.isVIP && <Crown className="w-3 h-3 text-yellow-500 fill-yellow-500" />}
                             </div>
                             <span className="text-xs text-gray-500 truncate max-w-[200px]">{client.address || "No address"}</span>
@@ -443,13 +532,13 @@ export default function Clients() {
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-white font-black text-2xl backdrop-blur-sm">
-                    {selectedClient.name.charAt(0)}
+                    {getClientDisplayName(selectedClient).charAt(0)}
                   </div>
                   <div>
-                    <h2 className="text-3xl font-black tracking-tighter">{selectedClient.name}</h2>
+                    <h2 className="text-3xl font-black tracking-tighter">{getClientDisplayName(selectedClient)}</h2>
                     <div className="text-red-100 flex items-center gap-4 mt-1 font-medium">
                       <a href={`tel:${selectedClient.phone}`} className="flex items-center gap-2 hover:text-white transition-colors">
-                        <Phone className="w-4 h-4" /> {selectedClient.phone}
+                        <Phone className="w-4 h-4" /> {formatPhoneNumber(selectedClient.phone)}
                       </a>
                       <span className="opacity-30">|</span>
                       <a href={`mailto:${selectedClient.email}`} className="flex items-center gap-2 hover:text-white transition-colors">
@@ -507,6 +596,32 @@ export default function Clients() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
                       <div className="space-y-2">
+                        <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Business Name</Label>
+                        <Input 
+                          defaultValue={selectedClient.businessName} 
+                          className="bg-gray-50 border-none font-medium"
+                          onBlur={(e) => updateClient({ businessName: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs font-black uppercase tracking-widest text-gray-400">First Name</Label>
+                          <Input 
+                            defaultValue={selectedClient.firstName} 
+                            className="bg-gray-50 border-none font-medium"
+                            onBlur={(e) => updateClient({ firstName: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Last Name</Label>
+                          <Input 
+                            defaultValue={selectedClient.lastName} 
+                            className="bg-gray-50 border-none font-medium"
+                            onBlur={(e) => updateClient({ lastName: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Address</Label>
                           {selectedClient.address && (
@@ -530,13 +645,14 @@ export default function Clients() {
                         <div className="space-y-2">
                           <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Client Type</Label>
                           <Select 
+                            key={selectedClient.clientTypeId}
                             defaultValue={selectedClient.clientTypeId}
                             onValueChange={(val) => updateClient({ clientTypeId: val })}
                           >
                             <SelectTrigger className="bg-gray-50 border-none font-medium">
-                              <SelectValue />
+                              <SelectValue placeholder="Select type" />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent className="bg-white">
                               {clientTypes.map(t => (
                                 <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                               ))}
@@ -598,6 +714,43 @@ export default function Clients() {
                       className="bg-gray-50 border-none min-h-[100px] font-medium"
                       onBlur={(e) => updateClient({ notes: e.target.value })}
                     />
+                  </div>
+
+                  <div className="pt-6 border-t border-gray-100">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-gray-900 mb-4">Marketing & Automation</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                        <div className="space-y-0.5">
+                          <Label className="font-bold">VIP Status</Label>
+                          <p className="text-[10px] text-gray-500">Enable special pricing and priority.</p>
+                        </div>
+                        <Switch 
+                          checked={selectedClient.isVIP}
+                          onCheckedChange={(val) => updateClient({ isVIP: val })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                        <div className="space-y-0.5">
+                          <Label className="font-bold">One-time Client</Label>
+                          <p className="text-[10px] text-gray-500">Mark as a non-recurring customer.</p>
+                        </div>
+                        <Switch 
+                          checked={selectedClient.isOneTime}
+                          onCheckedChange={(val) => updateClient({ isOneTime: val })}
+                        />
+                      </div>
+                    </div>
+                    {selectedClient.followUpStatus && (
+                      <div className="mt-4 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                        <div className="flex items-center gap-2 text-blue-700 mb-1">
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span className="text-xs font-bold uppercase tracking-wider">Follow-up Sent</span>
+                        </div>
+                        <p className="text-xs text-blue-600">
+                          Last follow-up sent on {format(selectedClient.followUpStatus.lastSentAt?.toDate() || new Date(), "MMM d, yyyy")} via {selectedClient.followUpStatus.channel}.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <div className="pt-6 border-t border-gray-100">

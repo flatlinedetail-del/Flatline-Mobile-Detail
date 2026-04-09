@@ -221,6 +221,12 @@ export default function JobDetail() {
               <Badge variant="outline" className={cn("text-[10px] font-bold uppercase tracking-wider", statusColors[job.status])}>
                 {job.status?.replace("_", " ")}
               </Badge>
+              {job.followUpSent && (
+                <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Follow-up Sent
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-gray-500">{job.customerName || "Client"}</p>
           </div>

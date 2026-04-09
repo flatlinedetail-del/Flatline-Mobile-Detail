@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
 import { Textarea } from "../components/ui/textarea";
-import { cn } from "../lib/utils";
+import { cn, formatPhoneNumber } from "../lib/utils";
 import { 
   UserPlus, 
   Search, 
@@ -144,7 +144,15 @@ export default function Leads() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number</Label>
-                  <Input id="phone" name="phone" placeholder="(555) 000-0000" required />
+                  <Input 
+                    id="phone" 
+                    name="phone" 
+                    placeholder="(555) 000-0000" 
+                    required 
+                    onChange={(e) => {
+                      e.target.value = formatPhoneNumber(e.target.value);
+                    }}
+                  />
                 </div>
               </div>
               <div className="space-y-2">
@@ -249,7 +257,7 @@ export default function Leads() {
                         <span className="font-bold text-gray-900">{lead.name}</span>
                         <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
                           <Phone className="w-3 h-3" />
-                          {lead.phone}
+                          {formatPhoneNumber(lead.phone)}
                         </div>
                       </div>
                     </TableCell>
@@ -323,7 +331,7 @@ export default function Leads() {
                   </Badge>
                   <h2 className="text-3xl font-black tracking-tighter">{selectedLead.name}</h2>
                   <p className="text-red-100 flex items-center gap-2 mt-1">
-                    <Phone className="w-4 h-4" /> {selectedLead.phone}
+                    <Phone className="w-4 h-4" /> {formatPhoneNumber(selectedLead.phone)}
                     <span className="opacity-30">|</span>
                     <Mail className="w-4 h-4" /> {selectedLead.email}
                   </p>

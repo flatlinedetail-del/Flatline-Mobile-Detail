@@ -14,7 +14,10 @@ import { ClipboardList, Search, Filter, MoreHorizontal, Phone, Mail, MapPin, Cal
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { format, addHours } from "date-fns";
-import { cn } from "@/lib/utils";
+import { 
+  cn, 
+  getClientDisplayName 
+} from "@/lib/utils";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { validateCoupon, calculateDiscount, addLoyaltyPoints, redeemLoyaltyPoints } from "../services/promotions";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -266,7 +269,7 @@ export default function Appointments() {
     const newJob = {
       clientId,
       customerId: clientId, // Backward compatibility
-      customerName: client?.name || "Client",
+      customerName: getClientDisplayName(client),
       customerPhone: client?.phone || "",
       customerEmail: client?.email || "",
       customerType: "client",
@@ -324,10 +327,11 @@ export default function Appointments() {
     if (!selectedCustomerId) return null;
     const c = clients.find(item => item.id === selectedCustomerId);
     if (!c) return "Unknown client";
-    const isDuplicate = clients.filter(other => other.name === c.name).length > 1;
+    const displayName = getClientDisplayName(c);
+    const isDuplicate = clients.filter(other => getClientDisplayName(other) === displayName).length > 1;
     return (
       <div className="flex items-center gap-2">
-        <span className="font-bold">{c.name}</span>
+        <span className="font-bold">{displayName}</span>
         {isDuplicate && (
           <span className="text-[10px] text-gray-400 font-medium">
             ({c.phone || c.email || (c.address ? c.address.substring(0, 20) + "..." : "ID: " + c.id.slice(-4))})
@@ -385,13 +389,14 @@ export default function Appointments() {
                       </SelectTrigger>
                       <SelectContent className="bg-white">
                         {clients.map(c => {
-                          const isDuplicate = clients.filter(other => other.name === c.name).length > 1;
+                          const displayName = getClientDisplayName(c);
+                          const isDuplicate = clients.filter(other => getClientDisplayName(other) === displayName).length > 1;
                           const type = clientTypes.find(t => t.id === c.clientTypeId);
                           return (
                             <SelectItem key={c.id} value={c.id}>
                               <div className="flex flex-col">
                                 <div className="flex items-center gap-2">
-                                  <SelectItemText className="font-bold">{c.name}</SelectItemText>
+                                  <SelectItemText className="font-bold">{displayName}</SelectItemText>
                                   {type && <Badge variant="outline" className="text-[8px] h-3 px-1">{type.name}</Badge>}
                                 </div>
                                 {isDuplicate && (
@@ -749,11 +754,9 @@ export default function Appointments() {
                 </TableRow>
               ) : (
                 filteredAppointments.map((app) => {
-                  const resolvedName = app.customerName || 
-                    clients.find((c: any) => c.id === app.clientId || c.id === app.customerId)?.name || 
-                    "Client";
-                  
                   const client = clients.find((c: any) => c.id === app.clientId || c.id === app.customerId);
+                  const resolvedName = app.customerName || getClientDisplayName(client);
+                  
                   const clientType = client ? clientTypes.find(t => t.id === client.clientTypeId) : null;
                   
                   return (

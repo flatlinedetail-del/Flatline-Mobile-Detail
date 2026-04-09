@@ -43,7 +43,7 @@ export default function AddressInput({
   const {
     ready,
     value,
-    suggestions: { status, data },
+    suggestions: { status, data, loading: suggestionsLoading },
     setValue,
     clearSuggestions,
     init,
@@ -58,13 +58,7 @@ export default function AddressInput({
   });
 
   useEffect(() => {
-    if (status === "REQUEST_DENIED") {
-      setLoadError(new Error("ApiTargetBlockedMapError: The API key is not authorized for Places API. Please check your Google Cloud Console settings."));
-    }
-  }, [status]);
-
-  useEffect(() => {
-    if (isLoaded) {
+    if (isLoaded && window.google?.maps?.places) {
       init();
     }
   }, [isLoaded, init]);
@@ -100,9 +94,6 @@ export default function AddressInput({
       onAddressSelect(address, lat, lng);
     } catch (error: any) {
       console.error("Geocoding error: ", error);
-      if (error?.toString().includes("ApiTargetBlockedMapError") || error?.message?.includes("ApiTargetBlockedMapError")) {
-        setLoadError(new Error("Geocoding API is not enabled for this API key. Please enable it in Google Cloud Console."));
-      }
       onAddressSelect(address, 0, 0);
     } finally {
       setTimeout(() => {
@@ -139,21 +130,38 @@ export default function AddressInput({
           onBlur={handleBlur}
           onFocus={() => {
             isFocused.current = true;
-            if (value.length > 0 && status === "OK") setShowSuggestions(true);
+            if (value.length > 0) setShowSuggestions(true);
           }}
-          placeholder={!isLoaded && !loadError ? "Loading..." : placeholder}
-          disabled={!isLoaded && !loadError}
+          placeholder={!isLoaded ? "Loading maps..." : placeholder}
           className={cn(
             "h-10 w-full rounded-xl border-none bg-gray-50 pl-10 pr-10 text-sm font-medium transition-all outline-none focus:ring-2 focus:ring-primary/20",
-            !isLoaded && !loadError && "opacity-50 cursor-not-allowed"
+            (!isLoaded || loadError) && "opacity-50 cursor-not-allowed",
+            loadError && "border-red-200 ring-red-100"
           )}
+          disabled={!isLoaded || !!loadError}
         />
-        {!isLoaded && !loadError && (
+        {(!isLoaded || suggestionsLoading) && !loadError && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
             <Loader2 className="w-4 h-4 animate-spin text-gray-300" />
           </div>
         )}
+        {loadError && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <AlertCircle className="w-4 h-4 text-red-500" />
+          </div>
+        )}
       </div>
+
+      {loadError && (
+        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl">
+          <p className="text-[10px] text-red-600 font-bold uppercase tracking-wider mb-1">Maps Configuration Error</p>
+          <p className="text-xs text-red-800 font-medium">
+            {loadError.message.includes("ApiTargetBlockedMapError") 
+              ? "The Places API is not enabled for this API key. Please enable 'Places API' in your Google Cloud Console."
+              : loadError.message}
+          </p>
+        </div>
+      )}
 
       {showSuggestions && status === "OK" && (
         <div className="absolute left-0 right-0 top-full mt-2 z-[9999] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
@@ -179,48 +187,6 @@ export default function AddressInput({
               </button>
             ))}
           </div>
-        </div>
-      )}
-
-      {loadError && (
-        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-[10px] leading-tight shadow-sm animate-in fade-in slide-in-from-top-1">
-          <div className="flex items-center gap-1.5 font-bold mb-1">
-            <AlertCircle className="w-3 h-3" />
-            <span>Google Maps API Error</span>
-          </div>
-          <p className="mb-1">
-            {loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")
-              ? "The 'Places API' or 'Geocoding API' is not enabled for this API key. You must enable BOTH in the Google Cloud Console."
-              : "Failed to load address suggestions. Manual entry is enabled."}
-          </p>
-          {(loadError.message?.includes("ApiTargetBlockedMapError") || loadError.toString().includes("ApiTargetBlockedMapError")) && (
-            <div className="flex flex-col gap-1.5 mt-2">
-              <a 
-                href="https://console.cloud.google.com/google/maps-apis/api/places-backend.googleapis.com/overview" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-primary hover:underline font-bold flex items-center gap-1"
-              >
-                1. Enable Places API →
-              </a>
-              <a 
-                href="https://console.cloud.google.com/google/maps-apis/api/geocoding-backend.googleapis.com/overview" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-primary hover:underline font-bold flex items-center gap-1"
-              >
-                2. Enable Geocoding API →
-              </a>
-              <a 
-                href="https://console.cloud.google.com/google/maps-apis/credentials" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-primary hover:underline font-bold flex items-center gap-1"
-              >
-                3. Check API Key Restrictions →
-              </a>
-            </div>
-          )}
         </div>
       )}
     </div>

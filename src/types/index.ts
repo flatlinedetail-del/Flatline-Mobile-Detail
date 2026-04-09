@@ -64,6 +64,9 @@ export interface ClientCategory {
 export interface Client {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
+  businessName?: string;
   contactPerson?: string;
   email: string;
   phone: string;
@@ -89,6 +92,13 @@ export interface Client {
   updatedAt?: Timestamp | FieldValue;
   legacyId?: string;
   legacyType?: "customer" | "vendor";
+  followUpStatus?: {
+    lastSentAt?: Timestamp;
+    status: "pending" | "sent" | "failed" | "opted_out";
+    channel?: "email" | "sms" | "both";
+  };
+  marketingTags?: string[];
+  isOneTime?: boolean;
 }
 
 export interface Vehicle {
@@ -219,12 +229,16 @@ export interface Appointment {
   };
   estimatedTravelTime?: number; // in minutes
   estimatedTravelDistance?: number; // in miles
+  followUpSent?: boolean;
+  followUpSentAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
 export interface BusinessSettings {
   businessName: string;
+  businessPhone?: string;
+  businessEmail?: string;
   logoUrl?: string;
   showLogoOnDocuments?: boolean;
   taxRate: number;
@@ -253,6 +267,16 @@ export interface BusinessSettings {
     commissionRate: number;
     commissionType: "percentage" | "flat";
   }>;
+  automationSettings?: {
+    followUpEnabled: boolean;
+    delayHours: number;
+    channels: "email" | "sms" | "both";
+    includeReviewLink: boolean;
+    googleReviewUrl?: string;
+    emailSubject?: string;
+    emailBody?: string;
+    smsBody?: string;
+  };
 }
 
 export interface Expense {
@@ -275,4 +299,45 @@ export interface InventoryItem {
   unit: string;
   costPerUnit: number;
   lastRestocked: Timestamp;
+}
+
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  category: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface MarketingCampaign {
+  id: string;
+  name: string;
+  templateId: string;
+  audienceFilters: {
+    clientTypeIds?: string[];
+    categoryIds?: string[];
+    isVIP?: boolean;
+    isInactive?: boolean;
+    isOneTime?: boolean;
+  };
+  status: "draft" | "scheduled" | "sending" | "sent" | "failed";
+  scheduledAt?: Timestamp;
+  sentAt?: Timestamp;
+  stats: {
+    targetCount: number;
+    sentCount: number;
+    failedCount: number;
+  };
+  createdAt: Timestamp;
+}
+
+export interface CampaignLog {
+  id: string;
+  campaignId: string;
+  clientId: string;
+  status: "sent" | "failed";
+  error?: string;
+  sentAt: Timestamp;
 }

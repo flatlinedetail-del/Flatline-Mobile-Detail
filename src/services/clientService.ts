@@ -14,6 +14,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { Client, ClientType, ClientCategory, Customer, Vendor } from "../types";
+import { getClientDisplayName } from "../lib/utils";
 
 const CLIENTS_COL = "clients";
 const CLIENT_TYPES_COL = "client_types";
@@ -29,6 +30,39 @@ export const getClientCategories = async () => {
   const q = query(collection(db, CLIENT_CATEGORIES_COL), orderBy("name", "asc"));
   const snap = await getDocs(q);
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientCategory));
+};
+
+export const ensureClientTypes = async () => {
+  const existingTypes = await getClientTypes();
+  if (existingTypes.length === 0) {
+    const types = [
+      { name: "Retail", slug: "retail", isActive: true, sortOrder: 1 },
+      { name: "Business", slug: "business", isActive: true, sortOrder: 2 },
+      { name: "Collision Center", slug: "collision_center", isActive: true, sortOrder: 3 },
+      { name: "Dealership", slug: "dealership", isActive: true, sortOrder: 4 },
+      { name: "Organization", slug: "organization", isActive: true, sortOrder: 5 },
+      { name: "Fleet", slug: "fleet", isActive: true, sortOrder: 6 },
+    ];
+
+    const batch = writeBatch(db);
+    for (const type of types) {
+      const newDoc = doc(collection(db, CLIENT_TYPES_COL));
+      batch.set(newDoc, type);
+    }
+    await batch.commit();
+    return await getClientTypes();
+  }
+  
+  // Remove duplicates if any (by slug)
+  const uniqueTypes: ClientType[] = [];
+  const slugs = new Set();
+  for (const type of existingTypes) {
+    if (!slugs.has(type.slug)) {
+      slugs.add(type.slug);
+      uniqueTypes.push(type);
+    }
+  }
+  return uniqueTypes;
 };
 
 export const createDefaultClientTypes = async () => {
@@ -74,8 +108,14 @@ export const migrateDataToClients = async () => {
   // 3. Migrate Customers
   for (const cust of customers) {
     const clientRef = doc(collection(db, CLIENTS_COL));
+    const nameParts = cust.name.trim().split(/\s+/);
+    const firstName = nameParts[0];
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+
     const clientData: Partial<Client> = {
       name: cust.name,
+      firstName,
+      lastName,
       email: cust.email,
       phone: cust.phone,
       address: cust.address,
@@ -99,8 +139,15 @@ export const migrateDataToClients = async () => {
   // 4. Migrate Vendors
   for (const vend of vendors) {
     const clientRef = doc(collection(db, CLIENTS_COL));
+    const contactParts = (vend.contactPerson || "").trim().split(/\s+/);
+    const firstName = contactParts[0] || "";
+    const lastName = contactParts.length > 1 ? contactParts.slice(1).join(" ") : "";
+
     const clientData: Partial<Client> = {
       name: vend.name,
+      businessName: vend.name,
+      firstName,
+      lastName,
       contactPerson: vend.contactPerson,
       email: vend.email,
       phone: vend.phone,
@@ -152,4 +199,68 @@ export const migrateDataToClients = async () => {
 
   await updateBatch.commit();
   return { migratedCount: Object.keys(migrationMap).length };
+};
+
+export const ensureClientNameFields = async () => {
+  const q = query(collection(db, CLIENTS_COL));
+  const snap = await getDocs(q);
+  const typesSnap = await getDocs(collection(db, CLIENT_TYPES_COL));
+  const types = typesSnap.docs.map(d => ({ id: d.id, ...d.data() } as ClientType));
+  
+  const batch = writeBatch(db);
+  let count = 0;
+
+  for (const d of snap.docs) {
+    const data = d.data() as Client;
+    if (!data.firstName && !data.lastName && !data.businessName && data.name) {
+      const type = types.find(t => t.id === data.clientTypeId);
+      const updates: Partial<Client> = {};
+      
+      if (type?.slug === "retail") {
+        const parts = data.name.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          updates.firstName = parts[0];
+          updates.lastName = parts.slice(1).join(" ");
+        } else {
+          updates.firstName = data.name;
+        }
+      } else {
+        updates.businessName = data.name;
+        if (data.contactPerson) {
+          const parts = data.contactPerson.trim().split(/\s+/);
+          if (parts.length >= 2) {
+            updates.firstName = parts[0];
+            updates.lastName = parts.slice(1).join(" ");
+          } else {
+            updates.firstName = data.contactPerson;
+          }
+        }
+      }
+      
+      if (Object.keys(updates).length > 0) {
+        batch.update(d.ref, updates);
+        count++;
+        
+        // Also update related appointments for this client
+        const appointmentsQuery = query(
+          collection(db, "appointments"), 
+          where("clientId", "==", d.id)
+        );
+        const appointmentsSnap = await getDocs(appointmentsQuery);
+        
+        // Derive the new display name for appointments
+        const fullClientData = { ...data, ...updates };
+        const newDisplayName = getClientDisplayName(fullClientData);
+        
+        appointmentsSnap.docs.forEach(appDoc => {
+          batch.update(appDoc.ref, { customerName: newDisplayName });
+        });
+      }
+    }
+  }
+
+  if (count > 0) {
+    await batch.commit();
+  }
+  return count;
 };

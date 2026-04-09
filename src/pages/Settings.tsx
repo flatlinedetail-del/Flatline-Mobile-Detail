@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
-import { doc, updateDoc, getDoc, setDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { useState, useEffect, useRef } from "react";
+import { doc, updateDoc, getDoc, setDoc, collection, query, onSnapshot, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,19 +9,26 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map, Globe, DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert } from "lucide-react";
+import { 
+  User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map as MapIcon, Globe, 
+  DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, 
+  Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, 
+  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, Upload, ChevronRight, Menu
+} from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { seedDemoData } from "../services/seedData";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { useSearchParams } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
 import { StableInput } from "../components/StableInput";
 import { StableTextarea } from "../components/StableTextarea";
+import { formatPhoneNumber } from "../lib/utils";
 import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon } from "../types";
 import { migrateDataToClients } from "../services/clientService";
-import { collection, query, onSnapshot, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp } from "firebase/firestore";
+import { processFollowUps } from "../services/automationService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { GripVertical, ArrowUp, ArrowDown } from "lucide-react";
@@ -34,7 +42,11 @@ const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
 
 export default function Settings() {
   const { profile } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") || "profile";
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [services, setServices] = useState<Service[]>([]);
@@ -103,6 +115,16 @@ export default function Settings() {
               redemptionRate: 0.01, // 100 points = $1
               minPointsToRedeem: 100,
               stackWithCoupons: false,
+            },
+            automationSettings: {
+              followUpEnabled: true,
+              delayHours: 24,
+              channels: "email",
+              includeReviewLink: true,
+              googleReviewUrl: "",
+              emailSubject: "How was your service?",
+              emailBody: "Hi {{firstName}}, thank you for choosing us! How was your service today?",
+              smsBody: "Hi {{firstName}}, thanks for choosing us! How was your service? Reply STOP to opt out."
             }
           };
           await setDoc(docRef, defaultSettings);
@@ -164,11 +186,17 @@ export default function Settings() {
       });
 
       const unsubClientTypes = onSnapshot(query(collection(db, "client_types"), orderBy("sortOrder", "asc")), (snapshot) => {
-        setClientTypes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const types = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        // Ensure unique types by slug in the listener
+        const uniqueTypes = Array.from(new Map(types.map(t => [t.slug, t])).values());
+        setClientTypes(uniqueTypes);
       });
 
       const unsubClientCategories = onSnapshot(query(collection(db, "client_categories"), orderBy("name", "asc")), (snapshot) => {
-        setClientCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const cats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        // Ensure unique categories by name
+        const uniqueCats = Array.from(new Map(cats.map(c => [c.name, c])).values());
+        setClientCategories(uniqueCats);
       });
 
       const unsubStaff = onSnapshot(query(collection(db, "users"), orderBy("displayName", "asc")), (snapshot) => {
@@ -429,14 +457,50 @@ export default function Settings() {
     }
   };
 
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !settings) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error("Please upload an image file.");
+      return;
+    }
+
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Logo must be less than 2MB.");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const storageRef = ref(storage, `branding/logo_${Date.now()}`);
+      await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(storageRef);
+      
+      await handleSaveSettings({ logoUrl: downloadURL });
+      toast.success("Logo uploaded successfully!");
+    } catch (error) {
+      console.error("Logo upload error:", error);
+      toast.error("Failed to upload logo.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const isAdminOrManager = profile?.role === "admin" || profile?.role === "manager";
 
+  const handleTabChange = (value: string) => {
+    setSearchParams({ tab: value });
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-7xl mx-auto space-y-8 pb-20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">Settings</h1>
-          <p className="text-gray-500 font-medium">Manage your account, business preferences, and integrations.</p>
+          <p className="text-gray-500 font-medium">Manage your business profile, staff, and system preferences.</p>
         </div>
         <Button variant="outline" onClick={handleSeedData} className="border-red-200 text-primary hover:bg-red-50 font-bold">
           <DatabaseZap className="w-4 h-4 mr-2" />
@@ -444,61 +508,82 @@ export default function Settings() {
         </Button>
       </div>
 
-      <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="bg-white border border-gray-200 p-1 h-12 rounded-2xl shadow-sm">
-          <TabsTrigger value="profile" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-            <User className="w-4 h-4 mr-2" />
-            Profile
-          </TabsTrigger>
-          {isAdminOrManager && (
-            <>
-              <TabsTrigger value="business" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Globe className="w-4 h-4 mr-2" />
-                Business
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col md:flex-row gap-8">
+        <div className="w-full md:w-64 shrink-0">
+          <Card className="border-none shadow-sm bg-white overflow-hidden">
+            <TabsList className="flex flex-col h-auto bg-transparent p-2 space-y-1">
+              <TabsTrigger 
+                value="profile" 
+                className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+              >
+                <User className="w-4 h-4" />
+                <span className="font-bold">Personal Info</span>
               </TabsTrigger>
-              <TabsTrigger value="branding" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Palette className="w-4 h-4 mr-2" />
-                Branding
-              </TabsTrigger>
-              <TabsTrigger value="integrations" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Database className="w-4 h-4 mr-2" />
-                Integrations
-              </TabsTrigger>
-              <TabsTrigger value="security" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Shield className="w-4 h-4 mr-2" />
-                Security
-              </TabsTrigger>
-              <TabsTrigger value="staff" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Users className="w-4 h-4 mr-2" />
-                Staff
-              </TabsTrigger>
-              <TabsTrigger value="services" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <ClipboardList className="w-4 h-4 mr-2" />
-                Services
-              </TabsTrigger>
-              <TabsTrigger value="loyalty" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Star className="w-4 h-4 mr-2" />
-                Loyalty
-              </TabsTrigger>
-              <TabsTrigger value="commission" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Percent className="w-4 h-4 mr-2" />
-                Commission
-              </TabsTrigger>
-              <TabsTrigger value="coupons" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Ticket className="w-4 h-4 mr-2" />
-                Coupons
-              </TabsTrigger>
-              <TabsTrigger value="categories" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Tag className="w-4 h-4 mr-2" />
-                Categories
-              </TabsTrigger>
-              <TabsTrigger value="client-management" className="data-[state=active]:bg-accent data-[state=active]:text-primary h-10 px-6 rounded-xl font-bold">
-                <Users className="w-4 h-4 mr-2" />
-                Clients
-              </TabsTrigger>
-            </>
-          )}
-        </TabsList>
+              {isAdminOrManager && (
+                <>
+                  <TabsTrigger 
+                    value="business" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <Globe className="w-4 h-4" />
+                    <span className="font-bold">Business Profile</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="branding" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <Palette className="w-4 h-4" />
+                    <span className="font-bold">Branding</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="staff" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <Users className="w-4 h-4" />
+                    <span className="font-bold">Staff Management</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="client-management" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <DatabaseZap className="w-4 h-4" />
+                    <span className="font-bold">Client Settings</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="services" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <ClipboardList className="w-4 h-4" />
+                    <span className="font-bold">Services & Add-ons</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="coupons" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <Ticket className="w-4 h-4" />
+                    <span className="font-bold">Coupons</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="automation" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <DatabaseZap className="w-4 h-4" />
+                    <span className="font-bold">Automation</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="security" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <Shield className="w-4 h-4" />
+                    <span className="font-bold">Security</span>
+                  </TabsTrigger>
+                </>
+              )}
+            </TabsList>
+          </Card>
+        </div>
+
+        <div className="flex-1 min-w-0">
 
         <TabsContent value="profile">
           <Card className="border-none shadow-sm bg-white">
@@ -677,6 +762,7 @@ export default function Settings() {
           <Card className="border-none shadow-sm bg-white">
             <CardHeader>
               <CardTitle>Business Configuration</CardTitle>
+              <CardDescription>Manage your business details and travel pricing.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -689,12 +775,30 @@ export default function Settings() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="businessEmail">Business Email</Label>
+                  <StableInput 
+                    id="businessEmail" 
+                    type="email"
+                    value={settings?.businessEmail || ""} 
+                    onValueChange={(val) => handleSaveSettings({ businessEmail: val })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="businessPhone">Business Phone</Label>
+                  <StableInput 
+                    id="businessPhone" 
+                    value={settings?.businessPhone || ""} 
+                    onValueChange={(val) => handleSaveSettings({ businessPhone: val })}
+                    formatOnBlur={formatPhoneNumber}
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="taxRate">Default Tax Rate (%)</Label>
                   <StableInput 
                     id="taxRate" 
                     type="text"
                     inputMode="decimal"
-                    value={settings?.taxRate?.toString() || ""} 
+                    value={settings?.taxRate?.toString() || "0"} 
                     onValueChange={(val) => handleSaveSettings({ taxRate: parseFloat(val) || 0 })}
                   />
                 </div>
@@ -843,14 +947,34 @@ export default function Settings() {
                       <ImageIcon className="w-8 h-8 text-gray-200" />
                     )}
                   </div>
-                  <div className="flex-1 space-y-2">
+                <div className="flex-1 space-y-3">
+                  <div className="flex gap-2">
                     <StableInput 
                       placeholder="https://example.com/logo.png" 
                       value={settings?.logoUrl || ""} 
                       onValueChange={(val) => handleSaveSettings({ logoUrl: val })}
+                      className="flex-1"
                     />
-                    <p className="text-[10px] text-gray-400 font-medium">Provide a direct link to your logo image (PNG or SVG recommended).</p>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleLogoUpload}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="icon"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                      className="shrink-0"
+                    >
+                      {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    </Button>
                   </div>
+                  <p className="text-[10px] text-gray-400 font-medium">Upload a logo from your device or provide a direct link (PNG or SVG recommended).</p>
+                </div>
                 </div>
               </div>
 
@@ -914,7 +1038,7 @@ export default function Settings() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-red-50 rounded-lg text-primary">
-                    <Map className="w-5 h-5" />
+                    <MapIcon className="w-5 h-5" />
                   </div>
                   <CardTitle className="text-lg font-black">Google Maps</CardTitle>
                 </div>
@@ -1667,7 +1791,141 @@ export default function Settings() {
           </Dialog>
         </TabsContent>
 
-        <TabsContent value="security">
+        <TabsContent value="automation">
+          <Card className="border-none shadow-sm bg-white">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Service Follow-up Automation</CardTitle>
+                <CardDescription>Automatically follow up with clients after a completed service.</CardDescription>
+              </div>
+              <Button 
+                variant="outline" 
+                className="font-bold border-primary text-primary hover:bg-red-50"
+                onClick={async () => {
+                  const res = await processFollowUps();
+                  toast.success(`Processed ${res.processed} follow-ups. ${res.errors} errors.`);
+                }}
+              >
+                <DatabaseZap className="w-4 h-4 mr-2" />
+                Run Now
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-8">
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-bold">Enable Follow-up</Label>
+                  <p className="text-sm text-gray-500">Automatically send follow-ups after service completion.</p>
+                </div>
+                <Switch 
+                  checked={settings?.automationSettings?.followUpEnabled || false}
+                  onCheckedChange={(val) => handleSaveSettings({ 
+                    automationSettings: { ...settings?.automationSettings!, followUpEnabled: val } 
+                  })}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Follow-up Delay (Hours)</Label>
+                    <div className="flex items-center gap-4">
+                      <Slider 
+                        value={[settings?.automationSettings?.delayHours || 24]} 
+                        min={1} 
+                        max={168} 
+                        step={1}
+                        onValueChange={([val]) => handleSaveSettings({ 
+                          automationSettings: { ...settings?.automationSettings!, delayHours: val } 
+                        })}
+                        className="flex-1"
+                      />
+                      <span className="font-bold w-12 text-right">{settings?.automationSettings?.delayHours}h</span>
+                    </div>
+                    <p className="text-xs text-gray-400">Time to wait after appointment is marked "Completed".</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Communication Channel</Label>
+                    <Select 
+                      value={settings?.automationSettings?.channels || "email"}
+                      onValueChange={(val: any) => handleSaveSettings({ 
+                        automationSettings: { ...settings?.automationSettings!, channels: val } 
+                      })}
+                    >
+                      <SelectTrigger className="font-bold">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="email">Email Only</SelectItem>
+                        <SelectItem value="sms">SMS Only</SelectItem>
+                        <SelectItem value="both">Email & SMS</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <div className="space-y-0.5">
+                      <Label className="font-bold">Include Google Review Link</Label>
+                      <p className="text-xs text-gray-500">Only sent to new or one-time clients.</p>
+                    </div>
+                    <Switch 
+                      checked={settings?.automationSettings?.includeReviewLink || false}
+                      onCheckedChange={(val) => handleSaveSettings({ 
+                        automationSettings: { ...settings?.automationSettings!, includeReviewLink: val } 
+                      })}
+                    />
+                  </div>
+
+                  {settings?.automationSettings?.includeReviewLink && (
+                    <div className="space-y-2">
+                      <Label>Google Review URL</Label>
+                      <StableInput 
+                        value={settings?.automationSettings?.googleReviewUrl || ""}
+                        onValueChange={(val) => handleSaveSettings({ 
+                          automationSettings: { ...settings?.automationSettings!, googleReviewUrl: val } 
+                        })}
+                        placeholder="https://g.page/r/..."
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Email Subject</Label>
+                    <StableInput 
+                      value={settings?.automationSettings?.emailSubject || ""}
+                      onValueChange={(val) => handleSaveSettings({ 
+                        automationSettings: { ...settings?.automationSettings!, emailSubject: val } 
+                      })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Email Body</Label>
+                    <StableTextarea 
+                      value={settings?.automationSettings?.emailBody || ""}
+                      onValueChange={(val) => handleSaveSettings({ 
+                        automationSettings: { ...settings?.automationSettings!, emailBody: val } 
+                      })}
+                      rows={4}
+                    />
+                    <p className="text-[10px] text-gray-400 font-mono">Available variables: {"{{firstName}}, {{businessName}}"}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>SMS Body</Label>
+                    <StableTextarea 
+                      value={settings?.automationSettings?.smsBody || ""}
+                      onValueChange={(val) => handleSaveSettings({ 
+                        automationSettings: { ...settings?.automationSettings!, smsBody: val } 
+                      })}
+                      rows={3}
+                    />
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
           <Card className="border-none shadow-sm bg-white">
             <CardHeader>
               <CardTitle>Security & Access Control</CardTitle>
@@ -1778,40 +2036,69 @@ export default function Settings() {
                     <CardTitle>Client Types</CardTitle>
                     <CardDescription>Customizable types for your clients.</CardDescription>
                   </div>
-                  <Button size="sm" variant="outline" onClick={async () => {
-                    const name = prompt("Enter new client type name:");
-                    if (name) {
-                      const slug = name.toLowerCase().replace(/\s+/g, '_');
-                      await addDoc(collection(db, "client_types"), {
-                        name,
-                        slug,
-                        isActive: true,
-                        sortOrder: 10
-                      });
-                      toast.success("Client type added");
-                    }
-                  }}>
-                    <Plus className="w-4 h-4 mr-2" /> Add Type
-                  </Button>
+                  <Dialog>
+                    <DialogTrigger render={
+                      <Button size="sm" variant="outline">
+                        <Plus className="w-4 h-4 mr-2" /> Add Type
+                      </Button>
+                    } />
+                    <DialogContent>
+                      <DialogHeader><DialogTitle>Add Client Type</DialogTitle></DialogHeader>
+                      <form onSubmit={async (e) => {
+                        e.preventDefault();
+                        const formData = new FormData(e.currentTarget as HTMLFormElement);
+                        const name = formData.get("name") as string;
+                        if (name) {
+                          const slug = name.toLowerCase().replace(/\s+/g, '_');
+                          await addDoc(collection(db, "client_types"), {
+                            name,
+                            slug,
+                            isActive: true,
+                            sortOrder: clientTypes.length + 1
+                          });
+                          toast.success("Client type added");
+                        }
+                      }} className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label>Type Name</Label>
+                          <Input name="name" placeholder="e.g. Fleet Account" required />
+                        </div>
+                        <Button type="submit" className="w-full bg-primary font-bold">Create Type</Button>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
                     {clientTypes.map(type => (
-                      <div key={type.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                      <div key={type.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl group">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center border border-gray-100">
                             <Users className="w-4 h-4 text-gray-400" />
                           </div>
                           <span className="font-bold text-gray-900">{type.name}</span>
                         </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={async () => {
-                          if (confirm("Delete this client type?")) {
-                            await deleteDoc(doc(db, "client_types", type.id));
-                            toast.success("Client type deleted");
-                          }
-                        }}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-gray-400 hover:text-red-600" 
+                            onClick={async () => {
+                              // Using a simple toast confirmation pattern for now to avoid window.confirm
+                              toast("Delete this client type?", {
+                                action: {
+                                  label: "Delete",
+                                  onClick: async () => {
+                                    await deleteDoc(doc(db, "client_types", type.id));
+                                    toast.success("Client type deleted");
+                                  }
+                                }
+                              });
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                     {clientTypes.length === 0 && <p className="text-xs text-gray-400 font-medium italic">No client types defined.</p>}
@@ -1825,36 +2112,54 @@ export default function Settings() {
                     <CardTitle>Client Categories</CardTitle>
                     <CardDescription>Tags for filtering and grouping clients.</CardDescription>
                   </div>
-                  <Button size="sm" variant="outline" onClick={async () => {
-                    const name = prompt("Enter new category name:");
-                    if (name) {
-                      await addDoc(collection(db, "client_categories"), {
-                        name,
-                        isActive: true,
-                        color: "#ef4444"
-                      });
-                      toast.success("Category added");
-                    }
-                  }}>
-                    <Plus className="w-4 h-4 mr-2" /> Add Category
-                  </Button>
+                  <Dialog>
+                    <DialogTrigger render={
+                      <Button size="sm" variant="outline">
+                        <Plus className="w-4 h-4 mr-2" /> Add Category
+                      </Button>
+                    } />
+                    <DialogContent>
+                      <DialogHeader><DialogTitle>Add Client Category</DialogTitle></DialogHeader>
+                      <form onSubmit={async (e) => {
+                        e.preventDefault();
+                        const formData = new FormData(e.currentTarget as HTMLFormElement);
+                        const name = formData.get("name") as string;
+                        if (name) {
+                          await addDoc(collection(db, "client_categories"), {
+                            name,
+                            isActive: true,
+                            color: "#ef4444"
+                          });
+                          toast.success("Category added");
+                        }
+                      }} className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label>Category Name</Label>
+                          <Input name="name" placeholder="e.g. High Value" required />
+                        </div>
+                        <Button type="submit" className="w-full bg-primary font-bold">Create Category</Button>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
                     {clientCategories.map(cat => (
-                      <div key={cat.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                      <div key={cat.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl group">
                         <div className="flex items-center gap-3">
                           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color || "#ef4444" }} />
                           <span className="font-bold text-gray-900">{cat.name}</span>
                         </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={async () => {
-                          if (confirm("Delete this category?")) {
-                            await deleteDoc(doc(db, "client_categories", cat.id));
-                            toast.success("Category deleted");
-                          }
-                        }}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={async () => {
+                            if (confirm("Delete this category?")) {
+                              await deleteDoc(doc(db, "client_categories", cat.id));
+                              toast.success("Category deleted");
+                            }
+                          }}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                     {clientCategories.length === 0 && <p className="text-xs text-gray-400 font-medium italic">No categories defined.</p>}
@@ -1864,6 +2169,7 @@ export default function Settings() {
             </div>
           </div>
         </TabsContent>
+        </div>
       </Tabs>
     </div>
   );
