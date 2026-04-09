@@ -1834,8 +1834,8 @@ export default function Settings() {
                         min={1} 
                         max={168} 
                         step={1}
-                        onValueChange={([val]) => handleSaveSettings({ 
-                          automationSettings: { ...settings?.automationSettings!, delayHours: val } 
+                        onValueChange={(val: any) => handleSaveSettings({ 
+                          automationSettings: { ...settings?.automationSettings!, delayHours: Array.isArray(val) ? val[0] : val } 
                         })}
                         className="flex-1"
                       />
@@ -1926,6 +1926,7 @@ export default function Settings() {
             </CardContent>
           </Card>
         </TabsContent>
+        <TabsContent value="security">
           <Card className="border-none shadow-sm bg-white">
             <CardHeader>
               <CardTitle>Security & Access Control</CardTitle>
@@ -2136,41 +2137,58 @@ export default function Settings() {
                         <div className="space-y-2">
                           <Label>Category Name</Label>
                           <Input name="name" placeholder="e.g. High Value" required />
-                        </div>
-                        <Button type="submit" className="w-full bg-primary font-bold">Create Category</Button>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {clientCategories.map(cat => (
-                      <div key={cat.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl group">
-                        <div className="flex items-center gap-3">
-                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color || "#ef4444" }} />
-                          <span className="font-bold text-gray-900">{cat.name}</span>
-                        </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={async () => {
-                            if (confirm("Delete this category?")) {
-                              await deleteDoc(doc(db, "client_categories", cat.id));
-                              toast.success("Category deleted");
-                            }
-                          }}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    {clientCategories.length === 0 && <p className="text-xs text-gray-400 font-medium italic">No categories defined.</p>}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </TabsContent>
+</div>
+<Button type="submit" className="w-full bg-primary font-semibold">
+  Add Category
+</Button>
+</form>
+</DialogContent>
+</Dialog>
+</CardHeader>
+<CardContent>
+  <div className="space-y-2">
+    {clientCategories.map((cat) => (
+      <div
+        key={cat.id}
+        className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2"
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="w-3 h-3 rounded-full"
+            style={{ backgroundColor: cat.color || "#9CA3AF" }}
+          />
+          <span className="font-bold text-gray-900">{cat.name}</span>
         </div>
-      </Tabs>
-    </div>
-  );
+
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={async () => {
+              if (confirm("Delete this category?")) {
+                await deleteDoc(doc(db, "client_categories", cat.id));
+                toast.success("Category deleted");
+              }
+            }}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    ))}
+
+    {clientCategories.length === 0 && (
+      <p className="text-xs text-gray-500">No categories yet.</p>
+    )}
+  </div>
+</CardContent>
+</Card>
+</div>
+</div>
+</TabsContent>
+</div>
+</Tabs>
+</div>
+);
 }

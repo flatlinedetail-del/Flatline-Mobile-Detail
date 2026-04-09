@@ -57,7 +57,6 @@ import {
   Briefcase,
   CheckCircle2
 } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";

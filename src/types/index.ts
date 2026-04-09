@@ -113,6 +113,9 @@ export interface Vehicle {
   vin?: string;
   licensePlate?: string;
   size: VehicleSize;
+  inspectionPhotos?: string[];
+  roNumber?: string;
+  notes?: string;
 }
 
 export interface Customer {
@@ -150,6 +153,7 @@ export interface Vendor {
   vendorRates: Record<string, number>; // serviceId -> fixedRate
   notes?: string;
   createdAt: Timestamp;
+  inspectionPhotos?: string[];
 }
 
 export interface Lead {

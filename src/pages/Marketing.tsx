@@ -412,8 +412,8 @@ export default function Marketing() {
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <Badge variant={
-                              campaign.status === "sent" ? "success" : 
-                              campaign.status === "sending" ? "warning" : 
+                              campaign.status === "sent" ? "default" : 
+                              campaign.status === "sending" ? "outline" : 
                               "secondary"
                             } className="uppercase text-[10px] font-black">
                               {campaign.status}
