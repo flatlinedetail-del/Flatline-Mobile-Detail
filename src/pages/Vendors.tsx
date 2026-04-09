@@ -79,42 +79,61 @@ export default function Vendors() {
       setLoading(false);
     });
 
-    const qServices = query(collection(db, "services"));
-    getDocs(qServices).then(snap => {
+    const unsubServices = onSnapshot(query(collection(db, "services")), (snap) => {
       setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      unsubServices();
+    };
   }, []);
 
   useEffect(() => {
-    if (selectedVendor) {
-      const qHistory = query(
-        collection(db, "appointments"), 
-        where("vendorId", "==", selectedVendor.id),
-        orderBy("scheduledAt", "desc")
-      );
-      getDocs(qHistory).then(snap => {
-        setVendorHistory(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-      });
-
-      const qVehicles = query(
-        collection(db, "vehicles"),
-        where("ownerId", "==", selectedVendor.id),
-        where("ownerType", "==", "vendor")
-      );
-      getDocs(qVehicles).then(snap => {
-        setVendorVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
-      });
-
-      const qForms = query(
-        collection(db, "signed_forms"),
-        where("vendorId", "==", selectedVendor.id)
-      );
-      getDocs(qForms).then(snap => {
-        setSignedForms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
+    if (!selectedVendor) {
+      setVendorHistory([]);
+      setVendorVehicles([]);
+      setSignedForms([]);
+      return;
     }
+
+    const qHistory = query(
+      collection(db, "appointments"), 
+      where("vendorId", "==", selectedVendor.id),
+      orderBy("scheduledAt", "desc")
+    );
+    const unsubHistory = onSnapshot(qHistory, (snap) => {
+      setVendorHistory(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+    }, (error) => {
+      console.error("Error listening to vendor history:", error);
+    });
+
+    const qVehicles = query(
+      collection(db, "vehicles"),
+      where("ownerId", "==", selectedVendor.id),
+      where("ownerType", "==", "vendor")
+    );
+    const unsubVehicles = onSnapshot(qVehicles, (snap) => {
+      setVendorVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+    }, (error) => {
+      console.error("Error listening to vendor vehicles:", error);
+    });
+
+    const qForms = query(
+      collection(db, "signed_forms"),
+      where("vendorId", "==", selectedVendor.id)
+    );
+    const unsubForms = onSnapshot(qForms, (snap) => {
+      setSignedForms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error listening to vendor forms:", error);
+    });
+
+    return () => {
+      unsubHistory();
+      unsubVehicles();
+      unsubForms();
+    };
   }, [selectedVendor]);
 
   const handleAddVendor = async (e: React.FormEvent<HTMLFormElement>) => {

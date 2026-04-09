@@ -34,7 +34,7 @@ export default function Expenses() {
       setLoading(false);
     });
 
-    getDocs(collection(db, "appointments")).then(snap => {
+    const unsubAppointments = onSnapshot(collection(db, "appointments"), (snap) => {
       setAppointments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
@@ -45,6 +45,7 @@ export default function Expenses() {
 
     return () => {
       unsubscribe();
+      unsubAppointments();
       unsubscribeCats();
     };
   }, []);

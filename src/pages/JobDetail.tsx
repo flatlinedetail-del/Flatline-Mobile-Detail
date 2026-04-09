@@ -106,9 +106,35 @@ export default function JobDetail() {
       setSignedForms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    // Real-time job listener
+    const docRef = doc(db, "appointments", id);
+    const unsubscribeJob = onSnapshot(docRef, async (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setJob({ id: docSnap.id, ...data });
+        if (data.vin) {
+          // Only decode if we haven't yet or if it changed
+          setDecodedVin(prev => {
+            if (prev?.vin === data.vin) return prev;
+            decodeVin(data.vin).then(setDecodedVin);
+            return prev;
+          });
+        }
+        setLoading(false);
+      } else {
+        toast.error("Job not found");
+        navigate("/appointments");
+      }
+    }, (error) => {
+      console.error("Error listening to job:", error);
+      toast.error("Failed to load job details");
+      setLoading(false);
+    });
+
     return () => {
       unsubscribeTemplates();
       unsubscribeSigned();
+      unsubscribeJob();
     };
   }, [id]);
 
@@ -120,7 +146,6 @@ export default function JobDetail() {
         status: "completed",
         completedAt: serverTimestamp()
       });
-      setJob(prev => ({ ...prev, signature: dataUrl, status: "completed" }));
       setShowSignature(false);
       toast.success("Job completed with signature!");
     } catch (error) {
@@ -142,37 +167,9 @@ export default function JobDetail() {
         await addLoyaltyPoints(job.clientId || job.customerId, job.totalAmount);
       }
       
-      setJob(prev => ({ ...prev, status: "paid", paymentMethod }));
       toast.success("Payment recorded and loyalty points added!");
     } catch (error) {
       toast.error("Failed to record payment");
-    }
-  };
-
-  useEffect(() => {
-    if (id) loadJob();
-  }, [id]);
-
-  const loadJob = async () => {
-    try {
-      const docRef = doc(db, "appointments", id!);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setJob({ id: docSnap.id, ...data });
-        if (data.vin) {
-          const vinData = await decodeVin(data.vin);
-          setDecodedVin(vinData);
-        }
-      } else {
-        toast.error("Job not found");
-        navigate("/appointments");
-      }
-    } catch (error) {
-      console.error("Error loading job:", error);
-      toast.error("Failed to load job details");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -185,7 +182,6 @@ export default function JobDetail() {
         updatedAt: serverTimestamp(),
         [`statusHistory.${newStatus}`]: serverTimestamp()
       });
-      setJob(prev => ({ ...prev, status: newStatus }));
       toast.success(`Status updated to ${newStatus.replace("_", " ")}`);
     } catch (error) {
       console.error("Error updating status:", error);

@@ -116,41 +116,60 @@ export default function Clients() {
       setLoading(false);
     });
 
-    const qServices = query(collection(db, "services"));
-    getDocs(qServices).then(snap => {
+    const unsubServices = onSnapshot(query(collection(db, "services")), (snap) => {
       setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      unsubServices();
+    };
   }, []);
 
   useEffect(() => {
-    if (selectedClient) {
-      const qVehicles = query(
-        collection(db, "vehicles"), 
-        where("clientId", "==", selectedClient.id)
-      );
-      getDocs(qVehicles).then(snap => {
-        setClientVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
-      });
-
-      const qHistory = query(
-        collection(db, "appointments"),
-        where("clientId", "==", selectedClient.id),
-        orderBy("scheduledAt", "desc")
-      );
-      getDocs(qHistory).then(snap => {
-        setClientHistory(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-      });
-
-      const qForms = query(
-        collection(db, "signed_forms"),
-        where("clientId", "==", selectedClient.id)
-      );
-      getDocs(qForms).then(snap => {
-        setSignedForms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
+    if (!selectedClient) {
+      setClientVehicles([]);
+      setClientHistory([]);
+      setSignedForms([]);
+      return;
     }
+
+    const qVehicles = query(
+      collection(db, "vehicles"), 
+      where("clientId", "==", selectedClient.id)
+    );
+    const unsubVehicles = onSnapshot(qVehicles, (snap) => {
+      setClientVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+    }, (error) => {
+      console.error("Error listening to vehicles:", error);
+    });
+
+    const qHistory = query(
+      collection(db, "appointments"),
+      where("clientId", "==", selectedClient.id),
+      orderBy("scheduledAt", "desc")
+    );
+    const unsubHistory = onSnapshot(qHistory, (snap) => {
+      setClientHistory(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+    }, (error) => {
+      console.error("Error listening to history:", error);
+    });
+
+    const qForms = query(
+      collection(db, "signed_forms"),
+      where("clientId", "==", selectedClient.id)
+    );
+    const unsubForms = onSnapshot(qForms, (snap) => {
+      setSignedForms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error listening to forms:", error);
+    });
+
+    return () => {
+      unsubVehicles();
+      unsubHistory();
+      unsubForms();
+    };
   }, [selectedClient]);
 
   const handleAddClient = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -783,76 +802,99 @@ export default function Clients() {
                 </TabsContent>
 
                 <TabsContent value="vehicles" className="mt-0 space-y-6">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-black text-gray-900">Saved Vehicles</h3>
-                    <Dialog>
-                      <DialogTrigger render={
-                        <Button size="sm" className="bg-primary font-bold">
-                          <Plus className="w-4 h-4 mr-2" /> Add Vehicle
-                        </Button>
-                      } />
-                      <DialogContent>
-                        <DialogHeader><DialogTitle className="font-black">Add New Vehicle</DialogTitle></DialogHeader>
-                        <form onSubmit={async (e) => {
-                          e.preventDefault();
-                          const formData = new FormData(e.currentTarget);
-                          const newVehicle = {
-                            clientId: selectedClient.id,
-                            ownerId: selectedClient.id,
-                            ownerType: "client",
-                            year: formData.get("year"),
-                            make: formData.get("make"),
-                            model: formData.get("model"),
-                            color: formData.get("color"),
-                            size: formData.get("size"),
-                            vin: formData.get("vin"),
-                            createdAt: serverTimestamp(),
-                          };
-                          await addDoc(collection(db, "vehicles"), newVehicle);
-                          toast.success("Vehicle added");
-                          // Refresh logic...
-                        }} className="space-y-4 py-4">
-                          <div className="grid grid-cols-2 gap-4">
-                            <Input name="year" placeholder="Year" required />
-                            <Input name="make" placeholder="Make" required />
-                            <Input name="model" placeholder="Model" required />
-                            <Input name="color" placeholder="Color" />
-                          </div>
-                          <Select name="size" defaultValue="medium">
-                            <SelectTrigger><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="small">Small</SelectItem>
-                              <SelectItem value="medium">Medium</SelectItem>
-                              <SelectItem value="large">Large</SelectItem>
-                              <SelectItem value="extra_large">Extra Large</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Input name="vin" placeholder="VIN (Optional)" />
-                          <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
-                        </form>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {clientVehicles.map(v => (
-                      <div key={v.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50/50 flex items-center gap-4 group">
-                        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-primary shadow-sm">
-                          <Car className="w-6 h-6" />
+                  {(() => {
+                    const selectedClientType = clientTypes.find(t => t.id === selectedClient.clientTypeId);
+                    const isCollisionCenter = selectedClientType?.slug === "collision_center";
+                    
+                    return (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <h3 className="text-lg font-black text-gray-900">Saved Vehicles</h3>
+                          <Dialog>
+                            <DialogTrigger render={
+                              <Button size="sm" className="bg-primary font-bold">
+                                <Plus className="w-4 h-4 mr-2" /> Add Vehicle
+                              </Button>
+                            } />
+                            <DialogContent>
+                              <DialogHeader><DialogTitle className="font-black">Add New Vehicle</DialogTitle></DialogHeader>
+                              <form onSubmit={async (e) => {
+                                e.preventDefault();
+                                const formData = new FormData(e.currentTarget);
+                                const newVehicle = {
+                                  clientId: selectedClient.id,
+                                  ownerId: selectedClient.id,
+                                  ownerType: "client",
+                                  year: formData.get("year"),
+                                  make: formData.get("make"),
+                                  model: formData.get("model"),
+                                  color: formData.get("color"),
+                                  size: formData.get("size"),
+                                  vin: formData.get("vin"),
+                                  roNumber: formData.get("roNumber") || null,
+                                  createdAt: serverTimestamp(),
+                                };
+                                await addDoc(collection(db, "vehicles"), newVehicle);
+                                toast.success("Vehicle added");
+                                // The onSnapshot in useEffect will handle the list refresh
+                              }} className="space-y-4 py-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <Input name="year" placeholder="Year" required />
+                                  <Input name="make" placeholder="Make" required />
+                                  <Input name="model" placeholder="Model" required />
+                                  <Input name="color" placeholder="Color" />
+                                </div>
+                                <Select name="size" defaultValue="medium">
+                                  <SelectTrigger><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="small">Small</SelectItem>
+                                    <SelectItem value="medium">Medium</SelectItem>
+                                    <SelectItem value="large">Large</SelectItem>
+                                    <SelectItem value="extra_large">Extra Large</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Input name="vin" placeholder="VIN (Optional)" />
+                                {isCollisionCenter && (
+                                  <div className="space-y-2">
+                                    <Label className="text-xs font-black uppercase tracking-widest text-gray-400">RO Number</Label>
+                                    <Input name="roNumber" placeholder="Repair Order #" required />
+                                  </div>
+                                )}
+                                <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
+                              </form>
+                            </DialogContent>
+                          </Dialog>
                         </div>
-                        <div className="flex-1">
-                          <p className="font-bold text-gray-900">{v.year} {v.make} {v.model}</p>
-                          <p className="text-xs text-gray-500 uppercase font-black tracking-widest">{v.size.replace("_", " ")} • {v.color}</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {clientVehicles.map(v => (
+                            <div key={v.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50/50 flex items-center gap-4 group">
+                              <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-primary shadow-sm">
+                                <Car className="w-6 h-6" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-gray-900">{v.year} {v.make} {v.model}</p>
+                                  {v.roNumber && (
+                                    <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100 text-[10px] font-black uppercase px-1.5 h-4">
+                                      RO: {v.roNumber}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500 uppercase font-black tracking-widest">{v.size.replace("_", " ")} • {v.color}</p>
+                              </div>
+                              <Button variant="ghost" size="icon" className="text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity" onClick={async () => {
+                                await deleteDoc(doc(db, "vehicles", v.id));
+                                setClientVehicles(prev => prev.filter(x => x.id !== v.id));
+                                toast.success("Vehicle removed");
+                              }}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
                         </div>
-                        <Button variant="ghost" size="icon" className="text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity" onClick={async () => {
-                          await deleteDoc(doc(db, "vehicles", v.id));
-                          setClientVehicles(prev => prev.filter(x => x.id !== v.id));
-                          toast.success("Vehicle removed");
-                        }}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
+                      </>
+                    );
+                  })()}
                 </TabsContent>
 
                 <TabsContent value="history" className="mt-0 space-y-6">

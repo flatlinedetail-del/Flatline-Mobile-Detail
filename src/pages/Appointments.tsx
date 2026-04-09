@@ -104,27 +104,24 @@ export default function Appointments() {
       handleFirestoreError(error, OperationType.LIST, "appointments");
     });
 
-    // Fetch clients
-    getDocs(collection(db, "clients")).then(snapshot => {
+    // Real-time listeners for metadata
+    const unsubClients = onSnapshot(collection(db, "clients"), (snapshot) => {
       setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    // Fetch client types
-    getDocs(collection(db, "client_types")).then(snapshot => {
+    const unsubClientTypes = onSnapshot(collection(db, "client_types"), (snapshot) => {
       setClientTypes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    // Fetch services
-    getDocs(collection(db, "services")).then(snapshot => {
+    const unsubServices = onSnapshot(collection(db, "services"), (snapshot) => {
       setServices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => s.isActive));
     });
 
-    // Fetch addons
-    getDocs(collection(db, "addons")).then(snapshot => {
+    const unsubAddons = onSnapshot(collection(db, "addons"), (snapshot) => {
       setAddons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((a: any) => a.isActive));
     });
 
-    // Fetch settings
+    // Fetch settings (one-time is fine for settings usually, but let's keep it as is or make it reactive)
     getDoc(doc(db, "settings", "business"))
       .then(snap => {
         if (snap.exists()) setSettings(snap.data() as BusinessSettings);
@@ -133,7 +130,13 @@ export default function Appointments() {
         console.error("Error fetching settings in Appointments:", error);
       });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      unsubClients();
+      unsubClientTypes();
+      unsubServices();
+      unsubAddons();
+    };
   }, []);
 
   useEffect(() => {
