@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, Timestamp } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, Timestamp, deleteDoc } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -27,7 +27,8 @@ import {
   XCircle, 
   MessageSquare,
   History,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from "lucide-react";
 import { toast } from "sonner";
 import { format, addDays } from "date-fns";
@@ -103,6 +104,29 @@ export default function Leads() {
       toast.success(`Status updated to ${status}`);
     } catch (error) {
       toast.error("Failed to update status");
+    }
+  };
+
+  const handleDeleteLead = async (id: string) => {
+    console.log("Attempting to delete lead:", id);
+    if (!id) {
+      toast.error("Invalid lead ID");
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to delete this lead?")) return;
+    
+    try {
+      await deleteDoc(doc(db, "leads", id));
+      toast.success("Lead deleted successfully");
+      setIsDetailOpen(false);
+    } catch (error) {
+      console.error("Error deleting lead:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `leads/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete lead: ${err.message}`);
+      }
     }
   };
 
@@ -311,6 +335,17 @@ export default function Leads() {
                         >
                           <CheckCircle2 className="w-4 h-4" />
                         </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-red-600"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteLead(lead.id);
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -389,6 +424,13 @@ export default function Leads() {
                   onClick={() => updateLeadStatus(selectedLead.id, "lost")}
                 >
                   <XCircle className="w-4 h-4 mr-2" /> Mark Lost
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold"
+                  onClick={() => handleDeleteLead(selectedLead.id)}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" /> Delete Lead
                 </Button>
               </div>
 

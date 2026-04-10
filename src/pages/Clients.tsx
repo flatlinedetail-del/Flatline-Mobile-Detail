@@ -13,7 +13,7 @@ import {
   deleteDoc,
   writeBatch
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -284,17 +284,29 @@ export default function Clients() {
   };
 
   const handleDeleteClient = async (id: string) => {
+    console.log("Attempting to delete client:", id);
+    if (!id) {
+      toast.error("Invalid client ID");
+      return;
+    }
+
     try {
       const qVehicles = query(collection(db, "vehicles"), where("clientId", "==", id));
       const qAppointments = query(collection(db, "appointments"), where("clientId", "==", id));
+      const qInvoices = query(collection(db, "invoices"), where("clientId", "==", id));
+      const qQuotes = query(collection(db, "quotes"), where("clientId", "==", id));
+      const qLeads = query(collection(db, "leads"), where("clientId", "==", id));
       
-      const [vehiclesSnap, appointmentsSnap] = await Promise.all([
+      const [vehiclesSnap, appointmentsSnap, invoicesSnap, quotesSnap, leadsSnap] = await Promise.all([
         getDocs(qVehicles),
-        getDocs(qAppointments)
+        getDocs(qAppointments),
+        getDocs(qInvoices),
+        getDocs(qQuotes),
+        getDocs(qLeads)
       ]);
 
-      if (!vehiclesSnap.empty || !appointmentsSnap.empty) {
-        toast.error("Cannot delete client with linked vehicles or appointments.");
+      if (!vehiclesSnap.empty || !appointmentsSnap.empty || !invoicesSnap.empty || !quotesSnap.empty || !leadsSnap.empty) {
+        toast.error("Cannot delete client with linked records (vehicles, appointments, invoices, quotes, or leads).");
         return;
       }
 
@@ -302,7 +314,12 @@ export default function Clients() {
       toast.success("Client deleted successfully");
       setIsDetailOpen(false);
     } catch (error) {
-      toast.error("Failed to delete client");
+      console.error("Error deleting client:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `clients/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete client: ${err.message}`);
+      }
     }
   };
 
@@ -609,9 +626,24 @@ export default function Clients() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
-                          <ChevronRight className="w-5 h-5" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
+                            <ChevronRight className="w-5 h-5" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm("Are you sure you want to delete this client?")) {
+                                handleDeleteClient(client.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -1016,6 +1048,21 @@ export default function Clients() {
 
                 <TabsContent value="billing" className="mt-0 space-y-6">
                   <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-lg font-black text-gray-900">Billing & Delete</h3>
+                      <Button 
+                        variant="outline" 
+                        className="border-red-200 text-red-600 hover:bg-red-50 font-bold"
+                        onClick={() => {
+                          if (window.confirm("Are you sure you want to delete this client? This will check for linked records first.")) {
+                            handleDeleteClient(selectedClient.id);
+                          }
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete Client
+                      </Button>
+                    </div>
                     <div>
                       <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Invoices</h3>
                       <div className="space-y-3">

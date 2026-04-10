@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, where, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -216,14 +216,18 @@ export default function Vendors() {
   };
 
   const handleDeleteVehicle = async (vehicleId: string) => {
-    if (!selectedVendor) return;
+    if (!selectedVendor || !vehicleId) return;
     try {
       await deleteDoc(doc(db, "vehicles", vehicleId));
       setVendorVehicles(prev => prev.filter(v => v.id !== vehicleId));
       toast.success("Vehicle deleted");
     } catch (error) {
       console.error("Error deleting vehicle:", error);
-      toast.error("Failed to delete vehicle");
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `vehicles/${vehicleId}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete vehicle: ${err.message}`);
+      }
     }
   };
 
@@ -286,6 +290,12 @@ export default function Vendors() {
   };
 
   const handleDeleteVendor = async (id: string) => {
+    console.log("Attempting to delete vendor:", id);
+    if (!id) {
+      toast.error("Invalid vendor ID");
+      return;
+    }
+
     try {
       // Check for linked records
       const qAppointments = query(collection(db, "appointments"), where("vendorId", "==", id));
@@ -306,7 +316,11 @@ export default function Vendors() {
       setIsDetailOpen(false);
     } catch (error) {
       console.error("Error deleting vendor:", error);
-      toast.error("Failed to delete vendor");
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `vendors/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete vendor: ${err.message}`);
+      }
     }
   };
 

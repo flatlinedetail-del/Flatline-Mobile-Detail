@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, deleteDoc } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,8 @@ import {
   ExternalLink,
   Scan,
   ShieldCheck,
-  Plus
+  Plus,
+  Trash2
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -41,7 +42,7 @@ import { decodeVin } from "../services/vin";
 import { addLoyaltyPoints } from "../services/promotions";
 import Logo from "../components/Logo";
 import FormSigner from "../components/FormSigner";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -195,6 +196,29 @@ export default function JobDetail() {
     }
   };
 
+  const handleDeleteJob = async () => {
+    console.log("Attempting to delete job:", id);
+    if (!id) {
+      toast.error("Invalid job ID");
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to delete this job? This action cannot be undone.")) return;
+    
+    try {
+      await deleteDoc(doc(db, "appointments", id));
+      toast.success("Job deleted successfully");
+      navigate("/appointments");
+    } catch (error) {
+      console.error("Error deleting job:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `appointments/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete job: ${err.message}`);
+      }
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   const statusColors: any = {
@@ -314,9 +338,19 @@ export default function JobDetail() {
               </DialogContent>
             </Dialog>
           )}
-          <Button variant="outline" size="icon">
-            <MoreHorizontal className="w-4 h-4" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={
+              <Button variant="outline" size="icon">
+                <MoreHorizontal className="w-4 h-4" />
+              </Button>
+            } />
+            <DropdownMenuContent align="end" className="bg-white">
+              <DropdownMenuItem onClick={handleDeleteJob} className="text-red-600 focus:text-red-700 focus:bg-red-50 font-bold">
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Job
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

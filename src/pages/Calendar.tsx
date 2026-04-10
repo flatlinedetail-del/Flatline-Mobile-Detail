@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, orderBy, where } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, query, onSnapshot, orderBy, where, deleteDoc, doc } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { optimizeRoute, RouteStop } from "../lib/scheduling";
-import { Truck } from "lucide-react";
+import { Truck, Trash2 } from "lucide-react";
 
 export default function Calendar() {
   const { profile, loading: authLoading } = useAuth();
@@ -52,6 +52,28 @@ export default function Calendar() {
     const appDate = app.scheduledAt.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
     return isSameDay(appDate, date);
   });
+
+  const handleDeleteAppointment = async (id: string) => {
+    console.log("Attempting to delete job:", id);
+    if (!id) {
+      toast.error("Invalid job ID");
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to delete this job?")) return;
+    
+    try {
+      await deleteDoc(doc(db, "appointments", id));
+      toast.success("Job deleted successfully");
+    } catch (error) {
+      console.error("Error deleting job:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `appointments/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete job: ${err.message}`);
+      }
+    }
+  };
 
   const statusColors: any = {
     scheduled: "bg-gray-100 text-gray-700 border-gray-200",
@@ -201,9 +223,22 @@ export default function Calendar() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex-shrink-0 text-right md:pl-4 md:border-l md:border-gray-100">
+                        <div className="flex-shrink-0 text-right md:pl-4 md:border-l md:border-gray-100 flex flex-col items-end gap-2">
                           <p className="text-xl font-black text-gray-900">${app.totalAmount || 0}</p>
-                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Est. 2.5 hrs</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Est. 2.5 hrs</p>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-6 w-6 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteAppointment(app.id);
+                              }}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>

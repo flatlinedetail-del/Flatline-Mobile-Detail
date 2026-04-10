@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, deleteDoc, doc } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -119,6 +119,28 @@ export default function Invoices() {
     setSelectedClientId("");
     setSelectedVehicleIds([]);
     setLineItems([{ serviceName: "", price: 0 }]);
+  };
+
+  const handleDeleteInvoice = async (id: string) => {
+    console.log("Attempting to delete invoice:", id);
+    if (!id) {
+      toast.error("Invalid invoice ID");
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to delete this invoice?")) return;
+    
+    try {
+      await deleteDoc(doc(db, "invoices", id));
+      toast.success("Invoice deleted successfully");
+    } catch (error) {
+      console.error("Error deleting invoice:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `invoices/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete invoice: ${err.message}`);
+      }
+    }
   };
 
   const filteredInvoices = invoices.filter(inv => 
@@ -274,6 +296,7 @@ export default function Invoices() {
                 <TableHead>Date</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -321,6 +344,19 @@ export default function Invoices() {
                       }>
                         {inv.status.toUpperCase()}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-gray-400 hover:text-red-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteInvoice(inv.id);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, where, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -114,18 +114,28 @@ export default function Customers() {
   };
 
   const handleDeleteCustomer = async (id: string) => {
+    console.log("Attempting to delete customer:", id);
+    if (!id) {
+      toast.error("Invalid customer ID");
+      return;
+    }
+
     try {
       // Check for linked records
       const qVehicles = query(collection(db, "vehicles"), where("ownerId", "==", id));
       const qAppointments = query(collection(db, "appointments"), where("customerId", "==", id));
+      const qInvoices = query(collection(db, "invoices"), where("clientId", "==", id));
+      const qQuotes = query(collection(db, "quotes"), where("clientId", "==", id));
       
-      const [vehiclesSnap, appointmentsSnap] = await Promise.all([
+      const [vehiclesSnap, appointmentsSnap, invoicesSnap, quotesSnap] = await Promise.all([
         getDocs(qVehicles),
-        getDocs(qAppointments)
+        getDocs(qAppointments),
+        getDocs(qInvoices),
+        getDocs(qQuotes)
       ]);
 
-      if (!vehiclesSnap.empty || !appointmentsSnap.empty) {
-        toast.error("Cannot delete customer with linked vehicles or appointments.");
+      if (!vehiclesSnap.empty || !appointmentsSnap.empty || !invoicesSnap.empty || !quotesSnap.empty) {
+        toast.error("Cannot delete customer with linked records (vehicles, appointments, invoices, or quotes).");
         return;
       }
 
@@ -134,7 +144,11 @@ export default function Customers() {
       setIsDetailOpen(false);
     } catch (error) {
       console.error("Error deleting customer:", error);
-      toast.error("Failed to delete customer");
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `customers/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete customer: ${err.message}`);
+      }
     }
   };
 
@@ -171,7 +185,7 @@ export default function Customers() {
   };
 
   const handleDeleteVehicle = async (vehicleId: string) => {
-    if (!selectedCustomer) return;
+    if (!selectedCustomer || !vehicleId) return;
     try {
       // Check for linked appointments
       const q = query(collection(db, "appointments"), where("vehicleId", "==", vehicleId));
@@ -186,7 +200,11 @@ export default function Customers() {
       toast.success("Vehicle deleted");
     } catch (error) {
       console.error("Error deleting vehicle:", error);
-      toast.error("Failed to delete vehicle");
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `vehicles/${vehicleId}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete vehicle: ${err.message}`);
+      }
     }
   };
 
@@ -311,9 +329,24 @@ export default function Customers() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
-                        <ChevronRight className="w-5 h-5" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
+                          <ChevronRight className="w-5 h-5" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm("Are you sure you want to delete this customer?")) {
+                              handleDeleteCustomer(customer.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

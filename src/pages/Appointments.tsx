@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, doc, updateDoc, getDoc, where } from "firebase/firestore";
+import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, doc, updateDoc, getDoc, where, deleteDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectIt
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardList, Search, Filter, MoreHorizontal, Phone, Mail, MapPin, Calendar, Clock, ArrowRight, Plus, Car, User, Loader2, Star, Truck, Repeat } from "lucide-react";
+import { ClipboardList, Search, Filter, MoreHorizontal, Phone, Mail, MapPin, Calendar, Clock, ArrowRight, Plus, Car, User, Loader2, Star, Truck, Repeat, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { format, addHours } from "date-fns";
@@ -375,6 +375,26 @@ export default function Appointments() {
         )}
       </div>
     );
+  };
+
+  const handleDeleteAppointment = async (id: string) => {
+    console.log("Attempting to delete appointment:", id);
+    if (!id) {
+      toast.error("Invalid appointment ID");
+      return;
+    }
+    
+    try {
+      await deleteDoc(doc(db, "appointments", id));
+      toast.success("Appointment deleted successfully");
+    } catch (error) {
+      console.error("Error deleting appointment:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `appointments/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete appointment: ${err.message}`);
+      }
+    }
   };
 
   const filteredAppointments = appointments.filter(app => {
@@ -947,8 +967,29 @@ export default function Appointments() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-primary">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/appointments/${app.id}`);
+                          }}
+                        >
                           <ArrowRight className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-red-600"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm("Are you sure you want to delete this appointment?")) {
+                              handleDeleteAppointment(app.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
                     </TableCell>

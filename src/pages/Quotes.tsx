@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, deleteDoc, doc } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -154,6 +154,28 @@ export default function Quotes() {
     setManualClientInfo({ name: "", email: "", phone: "", address: "" });
     setSelectedVehicleIds([]);
     setLineItems([{ serviceName: "", price: 0 }]);
+  };
+
+  const handleDeleteQuote = async (id: string) => {
+    console.log("Attempting to delete quote:", id);
+    if (!id) {
+      toast.error("Invalid quote ID");
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to delete this quote?")) return;
+    
+    try {
+      await deleteDoc(doc(db, "quotes", id));
+      toast.success("Quote deleted successfully");
+    } catch (error) {
+      console.error("Error deleting quote:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `quotes/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete quote: ${err.message}`);
+      }
+    }
   };
 
   const filteredQuotes = quotes.filter(q => 
@@ -357,6 +379,7 @@ export default function Quotes() {
                 <TableHead>Date</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -404,6 +427,19 @@ export default function Quotes() {
                       }>
                         {q.status.toUpperCase()}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-gray-400 hover:text-red-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteQuote(q.id);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))
