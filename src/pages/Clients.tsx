@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { 
   collection, 
   query, 
@@ -51,6 +51,7 @@ import {
   ShieldAlert,
   Truck,
   FileText,
+  Receipt,
   Camera,
   Settings2,
   Building2,
@@ -65,15 +66,16 @@ import {
   formatPhoneNumber, 
   getClientDisplayName 
 } from "../lib/utils";
-import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment } from "../types";
+import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote } from "../types";
 import AddressInput from "../components/AddressInput";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { getClientTypes, getClientCategories, migrateDataToClients, ensureClientTypes, ensureClientNameFields } from "../services/clientService";
 
 export default function Clients() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
+  const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
   const [clientTypes, setClientTypes] = useState<ClientType[]>([]);
   const [categories, setCategories] = useState<ClientCategory[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -86,12 +88,16 @@ export default function Clients() {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [clientVehicles, setClientVehicles] = useState<Vehicle[]>([]);
   const [clientHistory, setClientHistory] = useState<Appointment[]>([]);
+  const [clientInvoices, setClientInvoices] = useState<Invoice[]>([]);
+  const [clientQuotes, setClientQuotes] = useState<Quote[]>([]);
   const [signedForms, setSignedForms] = useState<any[]>([]);
   
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newClientAddress, setNewClientAddress] = useState({ address: "", lat: 0, lng: 0 });
 
   useEffect(() => {
+    if (authLoading || !profile) return;
+
     const loadMetadata = async () => {
       try {
         const [types, cats] = await Promise.all([
@@ -114,17 +120,29 @@ export default function Clients() {
       const clientsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
       setClients(clientsData);
       setLoading(false);
+    }, (error) => {
+      console.error("Error listening to clients:", error);
+    });
+
+    const qAllVehicles = query(collection(db, "vehicles"));
+    const unsubAllVehicles = onSnapshot(qAllVehicles, (snapshot) => {
+      setAllVehicles(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+    }, (error) => {
+      console.error("Error listening to all vehicles:", error);
     });
 
     const unsubServices = onSnapshot(query(collection(db, "services")), (snap) => {
       setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
+    }, (error) => {
+      console.error("Error listening to services:", error);
     });
 
     return () => {
       unsubscribe();
+      unsubAllVehicles();
       unsubServices();
     };
-  }, []);
+  }, [profile, authLoading]);
 
   useEffect(() => {
     if (!selectedClient) {
@@ -165,10 +183,22 @@ export default function Clients() {
       console.error("Error listening to forms:", error);
     });
 
+    const unsubInvoices = onSnapshot(
+      query(collection(db, "invoices"), where("clientId", "==", selectedClient.id), orderBy("createdAt", "desc")),
+      (snap) => setClientInvoices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice)))
+    );
+
+    const unsubQuotes = onSnapshot(
+      query(collection(db, "quotes"), where("clientId", "==", selectedClient.id), orderBy("createdAt", "desc")),
+      (snap) => setClientQuotes(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quote)))
+    );
+
     return () => {
       unsubVehicles();
       unsubHistory();
       unsubForms();
+      unsubInvoices();
+      unsubQuotes();
     };
   }, [selectedClient]);
 
@@ -276,20 +306,55 @@ export default function Clients() {
     }
   };
 
-  const filteredClients = clients.filter(client => {
-    const matchesSearch = 
-      (client.name?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (client.firstName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (client.lastName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (client.businessName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (client.phone || "").includes(searchTerm) ||
-      (client.email?.toLowerCase() || "").includes(searchTerm.toLowerCase());
+  const filteredClients = useMemo(() => {
+    const normalizedSearch = searchTerm.toLowerCase().trim();
     
-    const matchesType = typeFilter === "all" || client.clientTypeId === typeFilter;
-    const matchesCategory = categoryFilter === "all" || client.categoryIds?.includes(categoryFilter);
+    return clients.filter(client => {
+      // 1. Basic Client Info Search
+      const firstName = (client.firstName || "").toLowerCase();
+      const lastName = (client.lastName || "").toLowerCase();
+      const fullName = `${firstName} ${lastName}`.trim();
+      const businessName = (client.businessName || "").toLowerCase();
+      const phone = (client.phone || "").toLowerCase();
+      const email = (client.email || "").toLowerCase();
+      const name = (client.name || "").toLowerCase();
 
-    return matchesSearch && matchesType && matchesCategory;
-  });
+      const matchesClient = 
+        name.includes(normalizedSearch) ||
+        firstName.includes(normalizedSearch) ||
+        lastName.includes(normalizedSearch) ||
+        fullName.includes(normalizedSearch) ||
+        businessName.includes(normalizedSearch) ||
+        phone.includes(normalizedSearch) ||
+        email.includes(normalizedSearch);
+
+      // 2. Nested Vehicle Search
+      const clientVehicles = allVehicles.filter(v => v.clientId === client.id);
+      const matchesVehicle = clientVehicles.some(vehicle => {
+        const vYear = (vehicle.year || "").toString().toLowerCase();
+        const vMake = (vehicle.make || "").toLowerCase();
+        const vModel = (vehicle.model || "").toLowerCase();
+        
+        // Standardize RO Number check with fallbacks
+        const rawRo = vehicle.roNumber || (vehicle as any).ro || (vehicle as any).ro_number || (vehicle as any).RONumber || (vehicle as any).repairOrder || "";
+        const vRo = rawRo.toString().toLowerCase();
+        
+        const isMatch = vYear.includes(normalizedSearch) ||
+               vMake.includes(normalizedSearch) ||
+               vModel.includes(normalizedSearch) ||
+               (vRo && vRo.includes(normalizedSearch));
+        
+        return isMatch;
+      });
+
+      const matchesSearch = matchesClient || matchesVehicle;
+      
+      const matchesType = typeFilter === "all" || client.clientTypeId === typeFilter;
+      const matchesCategory = categoryFilter === "all" || client.categoryIds?.includes(categoryFilter);
+
+      return matchesSearch && matchesType && matchesCategory;
+    });
+  }, [clients, allVehicles, searchTerm, typeFilter, categoryFilter]);
 
   return (
     <div className="space-y-6">
@@ -484,6 +549,21 @@ export default function Clients() {
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-gray-900">{getClientDisplayName(client)}</span>
                               {client.isVIP && <Crown className="w-3 h-3 text-yellow-500 fill-yellow-500" />}
+                              {(() => {
+                                if (!searchTerm) return null;
+                                const matchingVehicle = allVehicles.find(v => {
+                                  if (v.clientId !== client.id) return false;
+                                  const rawRo = v.roNumber || (v as any).ro || (v as any).ro_number || (v as any).RONumber || (v as any).repairOrder || "";
+                                  return rawRo.toString().toLowerCase().includes(searchTerm.toLowerCase());
+                                });
+                                if (!matchingVehicle) return null;
+                                const ro = matchingVehicle.roNumber || (matchingVehicle as any).ro || (matchingVehicle as any).ro_number || (matchingVehicle as any).RONumber || (matchingVehicle as any).repairOrder;
+                                return (
+                                  <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100 text-[9px] font-black px-1.5 h-4">
+                                    RO: {ro}
+                                  </Badge>
+                                );
+                              })()}
                             </div>
                             <span className="text-xs text-gray-500 truncate max-w-[200px]">{client.address || "No address"}</span>
                           </div>
@@ -606,6 +686,7 @@ export default function Clients() {
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Profile</TabsTrigger>
                 <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Vehicles ({clientVehicles.length})</TabsTrigger>
                 <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">History ({clientHistory.length})</TabsTrigger>
+                <TabsTrigger value="billing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Billing ({clientInvoices.length + clientQuotes.length})</TabsTrigger>
                 <TabsTrigger value="photos" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Photos</TabsTrigger>
               </TabsList>
 
@@ -874,11 +955,15 @@ export default function Clients() {
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
                                   <p className="font-bold text-gray-900">{v.year} {v.make} {v.model}</p>
-                                  {v.roNumber && (
-                                    <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100 text-[10px] font-black uppercase px-1.5 h-4">
-                                      RO: {v.roNumber}
-                                    </Badge>
-                                  )}
+                                  {(() => {
+                                    const rawRo = v.roNumber || (v as any).ro || (v as any).ro_number || (v as any).RONumber || (v as any).repairOrder;
+                                    if (!rawRo) return null;
+                                    return (
+                                      <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100 text-[10px] font-black uppercase px-1.5 h-4">
+                                        RO: {rawRo}
+                                      </Badge>
+                                    );
+                                  })()}
                                 </div>
                                 <p className="text-xs text-gray-500 uppercase font-black tracking-widest">{v.size.replace("_", " ")} • {v.color}</p>
                               </div>
@@ -926,6 +1011,72 @@ export default function Clients() {
                         ))}
                       </div>
                     )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="billing" className="mt-0 space-y-6">
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Invoices</h3>
+                      <div className="space-y-3">
+                        {clientInvoices.length === 0 ? (
+                          <p className="text-xs text-gray-500 italic">No invoices found.</p>
+                        ) : (
+                          clientInvoices.map(inv => (
+                            <div key={inv.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+                              <div className="flex items-center gap-3">
+                                <Receipt className="w-5 h-5 text-gray-400" />
+                                <div>
+                                  <p className="text-sm font-bold text-gray-900">Invoice #{inv.id.slice(-6).toUpperCase()}</p>
+                                  <p className="text-[10px] text-gray-500">{inv.createdAt ? format((inv.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-black text-gray-900">${inv.total.toFixed(2)}</p>
+                                <Badge className={
+                                  inv.status === "paid" ? "bg-green-100 text-green-700" :
+                                  inv.status === "sent" ? "bg-blue-100 text-blue-700" :
+                                  "bg-gray-200 text-gray-700"
+                                }>
+                                  {inv.status.toUpperCase()}
+                                </Badge>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Quotes</h3>
+                      <div className="space-y-3">
+                        {clientQuotes.length === 0 ? (
+                          <p className="text-xs text-gray-500 italic">No quotes found.</p>
+                        ) : (
+                          clientQuotes.map(q => (
+                            <div key={q.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+                              <div className="flex items-center gap-3">
+                                <FileText className="w-5 h-5 text-gray-400" />
+                                <div>
+                                  <p className="text-sm font-bold text-gray-900">Quote #{q.id.slice(-6).toUpperCase()}</p>
+                                  <p className="text-[10px] text-gray-500">{q.createdAt ? format((q.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-black text-gray-900">${q.total.toFixed(2)}</p>
+                                <Badge className={
+                                  q.status === "approved" ? "bg-green-100 text-green-700" :
+                                  q.status === "sent" ? "bg-blue-100 text-blue-700" :
+                                  "bg-gray-200 text-gray-700"
+                                }>
+                                  {q.status.toUpperCase()}
+                                </Badge>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </TabsContent>
 

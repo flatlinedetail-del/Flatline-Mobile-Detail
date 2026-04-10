@@ -53,7 +53,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage
 import { storage } from "../firebase";
 
 export default function Vendors() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -72,22 +72,28 @@ export default function Vendors() {
   const [uploadingVehicleId, setUploadingVehicleId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (authLoading || !profile) return;
+
     const q = query(collection(db, "vendors"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const vendorsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor));
       setVendors(vendorsData);
       setLoading(false);
+    }, (error) => {
+      console.error("Error listening to vendors:", error);
     });
 
     const unsubServices = onSnapshot(query(collection(db, "services")), (snap) => {
       setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
+    }, (error) => {
+      console.error("Error listening to services:", error);
     });
 
     return () => {
       unsubscribe();
       unsubServices();
     };
-  }, []);
+  }, [profile, authLoading]);
 
   useEffect(() => {
     if (!selectedVendor) {

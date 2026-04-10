@@ -199,6 +199,20 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /invoices/{invoiceId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
+    match /quotes/{quoteId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
     // Default deny
     match /{path=**} {
       allow read, write: if false;

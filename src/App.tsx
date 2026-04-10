@@ -8,6 +8,8 @@ import Clients from "./pages/Clients";
 import Calendar from "./pages/Calendar";
 import Appointments from "./pages/Appointments";
 import JobDetail from "./pages/JobDetail";
+import Invoices from "./pages/Invoices";
+import Quotes from "./pages/Quotes";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
 import Expenses from "./pages/Expenses";
@@ -43,6 +45,8 @@ function AppContent() {
           <Route path="calendar" element={<Calendar />} />
           <Route path="appointments" element={<Appointments />} />
           <Route path="appointments/:id" element={<JobDetail />} />
+          <Route path="invoices" element={<Invoices />} />
+          <Route path="quotes" element={<Quotes />} />
           <Route path="reports" element={<Reports />} />
           <Route path="marketing" element={<Marketing />} />
           <Route path="expenses" element={<Expenses />} />

@@ -36,7 +36,7 @@ import { useNavigate } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
 
 export default function Leads() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +47,8 @@ export default function Leads() {
   const [newLeadAddress, setNewLeadAddress] = useState({ address: "", lat: 0, lng: 0 });
 
   useEffect(() => {
+    if (authLoading || !profile) return;
+
     const q = query(collection(db, "leads"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const leadsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
@@ -58,7 +60,7 @@ export default function Leads() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [profile, authLoading]);
 
   const handleAddLead = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

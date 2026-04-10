@@ -51,7 +51,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -92,18 +92,22 @@ export default function JobDetail() {
   };
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || authLoading || !profile) return;
     
     // Fetch active form templates
     const templatesQuery = query(collection(db, "form_templates"), where("isActive", "==", true));
     const unsubscribeTemplates = onSnapshot(templatesQuery, (snapshot) => {
       setFormTemplates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error listening to form templates:", error);
     });
 
     // Fetch signed forms for this appointment
     const signedQuery = query(collection(db, "signed_forms"), where("appointmentId", "==", id));
     const unsubscribeSigned = onSnapshot(signedQuery, (snapshot) => {
       setSignedForms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error listening to signed forms:", error);
     });
 
     // Real-time job listener
@@ -136,7 +140,7 @@ export default function JobDetail() {
       unsubscribeSigned();
       unsubscribeJob();
     };
-  }, [id]);
+  }, [id, profile, authLoading]);
 
   const handleSaveSignature = async (dataUrl: string) => {
     try {
@@ -397,7 +401,7 @@ export default function JobDetail() {
                         </Button>
                       } />
                       <DialogContent className="bg-white border-none shadow-2xl rounded-2xl p-0 overflow-hidden">
-                        <DialogHeader className="p-6 border-b"><DialogTitle className="font-black">VIN Management</DialogTitle></DialogHeader>
+                        <DialogHeader className="p-6 border-b"><DialogTitle className="font-black">Vehicle Details Management</DialogTitle></DialogHeader>
                         <div className="flex-1 overflow-y-auto p-6 space-y-4">
                           <div className="space-y-2">
                             <Label className="font-bold">Enter VIN</Label>
@@ -427,13 +431,23 @@ export default function JobDetail() {
                               </Button>
                             </div>
                           </div>
+                          <div className="space-y-2">
+                            <Label className="font-bold">RO Number</Label>
+                            <Input 
+                              placeholder="Repair Order #" 
+                              className="bg-white border-gray-200"
+                              defaultValue={job.roNumber || (job as any).ro || (job as any).ro_number || (job as any).RONumber || (job as any).repairOrder || ""}
+                              id="ro-input"
+                            />
+                          </div>
                           <Button 
                             className="w-full bg-primary font-bold"
                             onClick={async () => {
                               const vin = (document.getElementById("vin-input") as HTMLInputElement).value;
-                              await updateDoc(doc(db, "appointments", id!), { vin });
-                              setJob(prev => ({ ...prev, vin }));
-                              toast.success("VIN Saved!");
+                              const roNumber = (document.getElementById("ro-input") as HTMLInputElement).value;
+                              await updateDoc(doc(db, "appointments", id!), { vin, roNumber });
+                              setJob(prev => ({ ...prev, vin, roNumber }));
+                              toast.success("Vehicle Details Saved!");
                             }}
                           >
                             Save to Job
@@ -450,12 +464,16 @@ export default function JobDetail() {
                   <div className="text-gray-400">Type: <span className="text-gray-900">{decodedVin.type}</span></div>
                 </div>
               )}
-              {job.roNumber && (
-                <div className="flex items-center justify-between p-3 bg-red-50 rounded-xl">
-                  <span className="text-xs font-bold text-primary">RO Number</span>
-                  <span className="text-xs font-black text-primary">{job.roNumber}</span>
-                </div>
-              )}
+              {(() => {
+                const rawRo = job.roNumber || (job as any).ro || (job as any).ro_number || (job as any).RONumber || (job as any).repairOrder;
+                if (!rawRo) return null;
+                return (
+                  <div className="flex items-center justify-between p-3 bg-red-50 rounded-xl">
+                    <span className="text-xs font-bold text-primary">RO Number</span>
+                    <span className="text-xs font-black text-primary">{rawRo}</span>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
@@ -548,6 +566,11 @@ export default function JobDetail() {
                         <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Vehicle</h4>
                         <p className="text-sm font-bold text-gray-900">{job.vehicleInfo}</p>
                         {job.vin && <p className="text-[10px] font-mono text-gray-400 uppercase">{job.vin}</p>}
+                        {(() => {
+                          const rawRo = job.roNumber || (job as any).ro || (job as any).ro_number || (job as any).RONumber || (job as any).repairOrder;
+                          if (!rawRo) return null;
+                          return <p className="text-[10px] font-bold text-primary uppercase">RO: {rawRo}</p>;
+                        })()}
                       </div>
                     </div>
 

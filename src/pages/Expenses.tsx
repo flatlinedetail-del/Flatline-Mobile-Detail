@@ -18,7 +18,7 @@ import { Category } from "../types";
 import { StableInput } from "../components/StableInput";
 
 export default function Expenses() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const [expenses, setExpenses] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -27,20 +27,28 @@ export default function Expenses() {
   const [showAddDialog, setShowAddDialog] = useState(false);
 
   useEffect(() => {
+    if (authLoading || !profile) return;
+
     const q = query(collection(db, "expenses"), orderBy("date", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const expensesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setExpenses(expensesData);
       setLoading(false);
+    }, (error) => {
+      console.error("Error listening to expenses:", error);
     });
 
     const unsubAppointments = onSnapshot(collection(db, "appointments"), (snap) => {
       setAppointments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error listening to appointments:", error);
     });
 
     const catsQuery = query(collection(db, "categories"), orderBy("sortOrder", "asc"));
     const unsubscribeCats = onSnapshot(catsQuery, (snapshot) => {
       setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category)));
+    }, (error) => {
+      console.error("Error listening to categories:", error);
     });
 
     return () => {
@@ -48,7 +56,7 @@ export default function Expenses() {
       unsubAppointments();
       unsubscribeCats();
     };
-  }, []);
+  }, [profile, authLoading]);
 
   const handleCreateExpense = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

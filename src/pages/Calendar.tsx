@@ -15,6 +15,7 @@ import { optimizeRoute, RouteStop } from "../lib/scheduling";
 import { Truck } from "lucide-react";
 
 export default function Calendar() {
+  const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -23,6 +24,8 @@ export default function Calendar() {
   const [view, setView] = useState<"calendar" | "list">("calendar");
 
   useEffect(() => {
+    if (authLoading || !profile) return;
+
     const q = query(collection(db, "appointments"), orderBy("scheduledAt", "asc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const appointmentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -34,7 +37,7 @@ export default function Calendar() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [profile, authLoading]);
 
   useEffect(() => {
     if (date) {

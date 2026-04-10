@@ -37,7 +37,7 @@ import { MarketingCampaign, EmailTemplate, Client, ClientType, ClientCategory } 
 import { getClientDisplayName } from "../lib/utils";
 
 export default function Marketing() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState("campaigns");
   const [campaigns, setCampaigns] = useState<MarketingCampaign[]>([]);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
@@ -62,28 +62,36 @@ export default function Marketing() {
   });
 
   useEffect(() => {
-    if (!profile) return;
+    if (authLoading || !profile) return;
 
     const unsubCampaigns = onSnapshot(
       query(collection(db, "marketing_campaigns"), orderBy("createdAt", "desc")),
-      (snap) => setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() } as MarketingCampaign)))
+      (snap) => setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() } as MarketingCampaign))),
+      (error) => console.error("Error listening to campaigns:", error)
     );
 
     const unsubTemplates = onSnapshot(
       query(collection(db, "email_templates"), orderBy("name", "asc")),
-      (snap) => setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() } as EmailTemplate)))
+      (snap) => setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() } as EmailTemplate))),
+      (error) => console.error("Error listening to templates:", error)
     );
 
     const unsubClients = onSnapshot(collection(db, "clients"), (snap) => {
       setClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+    }, (error) => {
+      console.error("Error listening to clients:", error);
     });
 
     const unsubTypes = onSnapshot(collection(db, "client_types"), (snap) => {
       setClientTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClientType)));
+    }, (error) => {
+      console.error("Error listening to client types:", error);
     });
 
     const unsubCats = onSnapshot(collection(db, "client_categories"), (snap) => {
       setClientCategories(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClientCategory)));
+    }, (error) => {
+      console.error("Error listening to client categories:", error);
     });
 
     return () => {
@@ -93,7 +101,7 @@ export default function Marketing() {
       unsubTypes();
       unsubCats();
     };
-  }, [profile]);
+  }, [profile, authLoading]);
 
   const handleSaveTemplate = async () => {
     if (!editingTemplate?.name || !editingTemplate?.subject || !editingTemplate?.body) {

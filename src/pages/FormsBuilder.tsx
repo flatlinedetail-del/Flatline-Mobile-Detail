@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 
 export default function FormsBuilder() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const [templates, setTemplates] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [addons, setAddons] = useState<any[]>([]);
@@ -47,24 +47,26 @@ export default function FormsBuilder() {
   const [newAck, setNewAck] = useState("");
 
   useEffect(() => {
-    if (!profile || (profile.role !== "admin" && profile.role !== "manager")) return;
+    if (authLoading || !profile || (profile.role !== "admin" && profile.role !== "manager")) return;
 
     const q = query(collection(db, "form_templates"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setTemplates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
+    }, (error) => {
+      console.error("Error listening to form templates:", error);
     });
 
     getDocs(collection(db, "services")).then(snap => {
       setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }).catch(error => console.error("Error fetching services in FormsBuilder:", error));
 
     getDocs(collection(db, "addons")).then(snap => {
       setAddons(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }).catch(error => console.error("Error fetching addons in FormsBuilder:", error));
 
     return () => unsubscribe();
-  }, [profile]);
+  }, [profile, authLoading]);
 
   if (!profile || (profile.role !== "admin" && profile.role !== "manager")) {
     return (

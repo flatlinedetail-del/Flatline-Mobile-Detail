@@ -196,7 +196,10 @@ export interface Appointment {
   technicianName: string;
   serviceIds: string[];
   serviceNames: string[];
+  serviceSelections?: { id: string; qty: number; price: number }[];
   addOnIds?: string[];
+  addOnNames?: string[];
+  addOnSelections?: { id: string; qty: number; price: number }[];
   baseAmount: number;
   travelFee: number;
   travelFeeBreakdown?: {
@@ -237,6 +240,58 @@ export interface Appointment {
   followUpSentAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+export interface LineItem {
+  serviceName: string;
+  price: number;
+}
+
+export interface Invoice {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  vehicles: {
+    id: string;
+    year: string;
+    make: string;
+    model: string;
+    roNumber?: string;
+  }[];
+  lineItems: LineItem[];
+  total: number;
+  status: "draft" | "sent" | "paid";
+  paymentStatus: "unpaid" | "partial" | "paid";
+  paymentProvider?: "stripe" | "square" | "paypal" | "clover" | "manual";
+  transactionReference?: string;
+  amountPaid: number;
+  paidAt?: Timestamp | FieldValue;
+  createdAt: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+}
+
+export interface Quote {
+  id: string;
+  clientId?: string;
+  clientName: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  clientAddress?: string;
+  isPotentialClient?: boolean;
+  vehicles: {
+    id: string;
+    year: string;
+    make: string;
+    model: string;
+    roNumber?: string;
+  }[];
+  lineItems: LineItem[];
+  total: number;
+  status: "draft" | "sent" | "approved";
+  createdAt: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
 }
 
 export interface BusinessSettings {
@@ -280,6 +335,29 @@ export interface BusinessSettings {
     emailSubject?: string;
     emailBody?: string;
     smsBody?: string;
+  };
+  paymentIntegrations?: {
+    stripe?: {
+      enabled: boolean;
+      publishableKey: string;
+      secretKey: string;
+    };
+    square?: {
+      enabled: boolean;
+      applicationId: string;
+      accessToken: string;
+      locationId: string;
+    };
+    paypal?: {
+      enabled: boolean;
+      clientId: string;
+      clientSecret: string;
+    };
+    clover?: {
+      enabled: boolean;
+      merchantId: string;
+      accessToken: string;
+    };
   };
 }
 

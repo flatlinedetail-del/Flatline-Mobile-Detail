@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronDown, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield } from "lucide-react";
+import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronDown, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -16,8 +16,10 @@ const navigation = [
   { name: "Appointments", href: "/appointments", icon: ClipboardList },
   { name: "Leads", href: "/leads", icon: UserPlus },
   { name: "Clients", href: "/clients", icon: Users },
+  { name: "Quotes", href: "/quotes", icon: FileText },
+  { name: "Invoices", href: "/invoices", icon: Receipt },
   { name: "Marketing", href: "/marketing", icon: MessageSquare },
-  { name: "Expenses", href: "/expenses", icon: Receipt },
+  { name: "Expenses", href: "/expenses", icon: Wallet },
   { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck },
   { name: "Reports", href: "/reports", icon: BarChart },
   { 

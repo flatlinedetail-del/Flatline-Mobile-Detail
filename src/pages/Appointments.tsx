@@ -27,7 +27,7 @@ import { calculateDistance, calculateTravelFee, estimateTravelTime } from "../se
 import { BusinessSettings } from "../types";
 
 export default function Appointments() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -39,8 +39,10 @@ export default function Appointments() {
   const [clientTypes, setClientTypes] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [addons, setAddons] = useState<any[]>([]);
-  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
-  const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
+  const [selectedServices, setSelectedServices] = useState<{ id: string; qty: number }[]>([]);
+  const [selectedAddons, setSelectedAddons] = useState<{ id: string; qty: number }[]>([]);
+  const [serviceSearch, setServiceSearch] = useState("");
+  const [addonSearch, setAddonSearch] = useState("");
   const [vehicleSize, setVehicleSize] = useState<"small" | "medium" | "large" | "extra_large">("medium");
   const [customerType, setCustomerType] = useState<"retail" | "vendor">("retail");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
@@ -95,6 +97,8 @@ export default function Appointments() {
   };
 
   useEffect(() => {
+    if (authLoading || !profile) return;
+
     const q = query(collection(db, "appointments"), orderBy("scheduledAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const appointmentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -107,18 +111,26 @@ export default function Appointments() {
     // Real-time listeners for metadata
     const unsubClients = onSnapshot(collection(db, "clients"), (snapshot) => {
       setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error listening to clients:", error);
     });
 
     const unsubClientTypes = onSnapshot(collection(db, "client_types"), (snapshot) => {
       setClientTypes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error listening to client types:", error);
     });
 
     const unsubServices = onSnapshot(collection(db, "services"), (snapshot) => {
       setServices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => s.isActive));
+    }, (error) => {
+      console.error("Error listening to services:", error);
     });
 
     const unsubAddons = onSnapshot(collection(db, "addons"), (snapshot) => {
       setAddons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((a: any) => a.isActive));
+    }, (error) => {
+      console.error("Error listening to addons:", error);
     });
 
     // Fetch settings (one-time is fine for settings usually, but let's keep it as is or make it reactive)
@@ -137,7 +149,7 @@ export default function Appointments() {
       unsubServices();
       unsubAddons();
     };
-  }, []);
+  }, [profile, authLoading]);
 
   useEffect(() => {
     if (location.state?.lead || location.state?.openAddDialog) {
@@ -204,8 +216,8 @@ export default function Appointments() {
       setDiscount(0);
       setRedeemedPoints(0);
       setCouponCode("");
-      setSelectedServiceIds([]);
-      setSelectedAddonIds([]);
+      setSelectedServices([]);
+      setSelectedAddons([]);
       setWaiverAccepted(false);
     }
   }, [showAddDialog]);
@@ -231,20 +243,21 @@ export default function Appointments() {
 
   useEffect(() => {
     let total = 0;
-    selectedServiceIds.forEach(id => {
-      const service = services.find(s => s.id === id);
+    selectedServices.forEach(selection => {
+      const service = services.find(s => s.id === selection.id);
       if (service) {
-        total += service.pricingBySize?.[vehicleSize] || service.basePrice || 0;
+        const price = service.pricingBySize?.[vehicleSize] || service.basePrice || 0;
+        total += price * selection.qty;
       }
     });
-    selectedAddonIds.forEach(id => {
-      const addon = addons.find(a => a.id === id);
+    selectedAddons.forEach(selection => {
+      const addon = addons.find(a => a.id === selection.id);
       if (addon) {
-        total += addon.price || 0;
+        total += (addon.price || 0) * selection.qty;
       }
     });
     setBaseAmount(total);
-  }, [selectedServiceIds, selectedAddonIds, vehicleSize, services, addons]);
+  }, [selectedServices, selectedAddons, vehicleSize, services, addons]);
 
   const handleAddressSelect = (address: string, lat: number, lng: number, isAuto = false) => {
     setAppointmentAddress({ address, lat, lng });
@@ -269,6 +282,24 @@ export default function Appointments() {
     const travelFee = travelFeeData?.fee || 0;
     const finalAmount = totalAmount + travelFee - discount - redeemedPoints;
     
+    const serviceSelections = selectedServices.map(s => {
+      const service = services.find(srv => srv.id === s.id);
+      return {
+        id: s.id,
+        qty: s.qty,
+        price: service?.pricingBySize?.[vehicleSize] || service?.basePrice || 0
+      };
+    });
+
+    const addOnSelections = selectedAddons.map(a => {
+      const addon = addons.find(ad => ad.id === a.id);
+      return {
+        id: a.id,
+        qty: a.qty,
+        price: addon?.price || 0
+      };
+    });
+
     const newJob = {
       clientId,
       customerId: clientId, // Backward compatibility
@@ -277,7 +308,7 @@ export default function Appointments() {
       customerEmail: client?.email || "",
       customerType: "client",
       vendorId: null,
-      vehicleInfo: formData.get("vehicleInfo"),
+      vehicleInfo: formData.get("vehicleInfo") || "No Vehicle Provided",
       vin: formData.get("vin"),
       roNumber: formData.get("roNumber"),
       address: appointmentAddress.address,
@@ -295,10 +326,12 @@ export default function Appointments() {
       } : null,
       discountAmount: discount + redeemedPoints,
       totalAmount: finalAmount,
-      serviceIds: selectedServiceIds,
-      serviceNames: services.filter(s => selectedServiceIds.includes(s.id)).map(s => s.name),
-      addOnIds: selectedAddonIds,
-      addOnNames: addons.filter(a => selectedAddonIds.includes(a.id)).map(a => a.name),
+      serviceIds: selectedServices.map(s => s.id),
+      serviceNames: services.filter(s => selectedServices.some(sel => sel.id === s.id)).map(s => s.name),
+      serviceSelections,
+      addOnIds: selectedAddons.map(a => a.id),
+      addOnNames: addons.filter(a => selectedAddons.some(sel => sel.id === a.id)).map(a => a.name),
+      addOnSelections,
       technicianId: profile?.uid,
       technicianName: profile?.displayName,
       waiverAccepted,
@@ -344,12 +377,25 @@ export default function Appointments() {
     );
   };
 
-  const filteredAppointments = appointments.filter(app => 
-    (app.customerName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-    (app.vehicleInfo?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-    (app.vin || "").includes(searchTerm) ||
-    (app.roNumber || "").includes(searchTerm)
-  );
+  const filteredAppointments = appointments.filter(app => {
+    const normalizedSearch = searchTerm.toLowerCase().trim();
+    if (!normalizedSearch) return true;
+
+    const customerName = (app.customerName || "").toLowerCase();
+    const vehicleInfo = (app.vehicleInfo || "").toLowerCase();
+    const vin = (app.vin || "").toLowerCase();
+    
+    // Standardize RO Number check with fallbacks
+    const rawRo = app.roNumber || (app as any).ro || (app as any).ro_number || (app as any).RONumber || (app as any).repairOrder || "";
+    const roNumber = rawRo.toString().toLowerCase();
+
+    const isMatch = customerName.includes(normalizedSearch) ||
+           vehicleInfo.includes(normalizedSearch) ||
+           vin.includes(normalizedSearch) ||
+           (roNumber && roNumber.includes(normalizedSearch));
+
+    return isMatch;
+  });
 
   const statusColors: any = {
     scheduled: "bg-gray-100 text-gray-700 border-gray-200",
@@ -444,7 +490,6 @@ export default function Appointments() {
                       id="vehicleInfo" 
                       name="vehicleInfo" 
                       placeholder="e.g. 2024 Tesla Model 3" 
-                      required 
                       className="bg-white border-gray-200" 
                       value={vehicleInfo}
                       onValueChange={setVehicleInfo}
@@ -589,44 +634,129 @@ export default function Appointments() {
                     </div>
                   )}
                 </div>
-                <div className="space-y-2 col-span-2">
-                  <Label>Services</Label>
-                  <div className="grid grid-cols-2 gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100 max-h-40 overflow-y-auto">
-                    {services.map(service => (
-                      <div key={service.id} className="flex items-center space-x-2">
-                        <Checkbox 
-                          id={`service-${service.id}`}
-                          checked={selectedServiceIds.includes(service.id)}
-                          onCheckedChange={(checked) => {
-                            if (checked) setSelectedServiceIds(prev => [...prev, service.id]);
-                            else setSelectedServiceIds(prev => prev.filter(id => id !== service.id));
-                          }}
-                        />
-                        <Label htmlFor={`service-${service.id}`} className="text-xs cursor-pointer">
-                          {service.name} (${service.pricingBySize?.[vehicleSize] || service.basePrice})
-                        </Label>
-                      </div>
-                    ))}
+                <div className="space-y-4 col-span-2">
+                  <div className="space-y-2">
+                    <Label>Services</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                      <Input 
+                        placeholder="Search services..." 
+                        value={serviceSearch}
+                        onChange={(e) => setServiceSearch(e.target.value)}
+                        className="pl-8 h-8 text-xs bg-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100 max-h-40 overflow-y-auto">
+                      {services.filter(s => s.name.toLowerCase().includes(serviceSearch.toLowerCase())).map(service => {
+                        const selection = selectedServices.find(sel => sel.id === service.id);
+                        return (
+                          <div key={service.id} className="flex items-center justify-between gap-2 p-1 hover:bg-white rounded transition-colors">
+                            <div className="flex items-center space-x-2 flex-1">
+                              <Checkbox 
+                                id={`service-${service.id}`}
+                                checked={!!selection}
+                                onCheckedChange={(checked) => {
+                                  if (checked) setSelectedServices(prev => [...prev, { id: service.id, qty: 1 }]);
+                                  else setSelectedServices(prev => prev.filter(s => s.id !== service.id));
+                                }}
+                              />
+                              <Label htmlFor={`service-${service.id}`} className="text-xs cursor-pointer flex-1">
+                                {service.name} (${service.pricingBySize?.[vehicleSize] || service.basePrice})
+                              </Label>
+                            </div>
+                            {selection && (
+                              <div className="flex items-center gap-1">
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  size="icon" 
+                                  className="h-6 w-6"
+                                  onClick={() => {
+                                    setSelectedServices(prev => prev.map(s => s.id === service.id ? { ...s, qty: Math.max(1, s.qty - 1) } : s));
+                                  }}
+                                >
+                                  -
+                                </Button>
+                                <span className="text-xs font-bold w-4 text-center">{selection.qty}</span>
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  size="icon" 
+                                  className="h-6 w-6"
+                                  onClick={() => {
+                                    setSelectedServices(prev => prev.map(s => s.id === service.id ? { ...s, qty: s.qty + 1 } : s));
+                                  }}
+                                >
+                                  +
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-                <div className="space-y-2 col-span-2">
-                  <Label>Add-ons</Label>
-                  <div className="grid grid-cols-2 gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100 max-h-40 overflow-y-auto">
-                    {addons.map(addon => (
-                      <div key={addon.id} className="flex items-center space-x-2">
-                        <Checkbox 
-                          id={`addon-${addon.id}`}
-                          checked={selectedAddonIds.includes(addon.id)}
-                          onCheckedChange={(checked) => {
-                            if (checked) setSelectedAddonIds(prev => [...prev, addon.id]);
-                            else setSelectedAddonIds(prev => prev.filter(id => id !== addon.id));
-                          }}
-                        />
-                        <Label htmlFor={`addon-${addon.id}`} className="text-xs cursor-pointer">
-                          {addon.name} (${addon.price})
-                        </Label>
-                      </div>
-                    ))}
+
+                  <div className="space-y-2">
+                    <Label>Add-ons</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                      <Input 
+                        placeholder="Search add-ons..." 
+                        value={addonSearch}
+                        onChange={(e) => setAddonSearch(e.target.value)}
+                        className="pl-8 h-8 text-xs bg-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100 max-h-40 overflow-y-auto">
+                      {addons.filter(a => a.name.toLowerCase().includes(addonSearch.toLowerCase())).map(addon => {
+                        const selection = selectedAddons.find(sel => sel.id === addon.id);
+                        return (
+                          <div key={addon.id} className="flex items-center justify-between gap-2 p-1 hover:bg-white rounded transition-colors">
+                            <div className="flex items-center space-x-2 flex-1">
+                              <Checkbox 
+                                id={`addon-${addon.id}`}
+                                checked={!!selection}
+                                onCheckedChange={(checked) => {
+                                  if (checked) setSelectedAddons(prev => [...prev, { id: addon.id, qty: 1 }]);
+                                  else setSelectedAddons(prev => prev.filter(a => a.id !== addon.id));
+                                }}
+                              />
+                              <Label htmlFor={`addon-${addon.id}`} className="text-xs cursor-pointer flex-1">
+                                {addon.name} (${addon.price})
+                              </Label>
+                            </div>
+                            {selection && (
+                              <div className="flex items-center gap-1">
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  size="icon" 
+                                  className="h-6 w-6"
+                                  onClick={() => {
+                                    setSelectedAddons(prev => prev.map(a => a.id === addon.id ? { ...a, qty: Math.max(1, a.qty - 1) } : a));
+                                  }}
+                                >
+                                  -
+                                </Button>
+                                <span className="text-xs font-bold w-4 text-center">{selection.qty}</span>
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  size="icon" 
+                                  className="h-6 w-6"
+                                  onClick={() => {
+                                    setSelectedAddons(prev => prev.map(a => a.id === addon.id ? { ...a, qty: a.qty + 1 } : a));
+                                  }}
+                                >
+                                  +
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-2 col-span-2">

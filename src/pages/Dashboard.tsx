@@ -36,7 +36,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 
 export default function Dashboard() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState({
     projected: 0,
@@ -55,6 +55,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading || !profile) return;
+
     const today = new Date();
     const startDay = startOfDay(today);
     const endDay = endOfDay(today);
@@ -115,6 +117,8 @@ export default function Dashboard() {
         monthProjected: monthProj,
         monthCompleted: monthComp
       });
+    }, (error) => {
+      console.error("Error listening to stats:", error);
     });
 
     // 2. Upcoming Jobs
@@ -128,6 +132,8 @@ export default function Dashboard() {
 
     const unsubJobs = onSnapshot(qJobs, (snapshot) => {
       setUpcomingJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+    }, (error) => {
+      console.error("Error listening to upcoming jobs:", error);
     });
 
     // 3. Recent Leads
@@ -141,6 +147,8 @@ export default function Dashboard() {
     const unsubLeads = onSnapshot(qLeads, (snapshot) => {
       setRecentLeads(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead)));
       setStats(prev => ({ ...prev, leadsCount: snapshot.size }));
+    }, (error) => {
+      console.error("Error listening to recent leads:", error);
     });
 
     // 4. Route Optimization
@@ -149,12 +157,13 @@ export default function Dashboard() {
       .catch(error => console.error("Error optimizing route:", error));
 
     setLoading(false);
+
     return () => {
       unsubStats();
       unsubJobs();
       unsubLeads();
     };
-  }, []);
+  }, [profile, authLoading]);
 
   const performancePercent = stats.projected > 0 ? (stats.completed / stats.projected) * 100 : 0;
 

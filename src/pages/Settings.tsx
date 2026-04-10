@@ -41,7 +41,7 @@ const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
 ];
 
 export default function Settings() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "profile";
   const [isSaving, setIsSaving] = useState(false);
@@ -75,6 +75,8 @@ export default function Settings() {
   });
 
   useEffect(() => {
+    if (authLoading || !profile) return;
+
     const fetchSettings = async () => {
       try {
         const docRef = doc(db, "settings", "business");
@@ -148,12 +150,16 @@ export default function Settings() {
       const servicesQuery = query(collection(db, "services"));
       const unsubscribeServices = onSnapshot(servicesQuery, (snapshot) => {
         setServices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
+      }, (error) => {
+        console.error("Error listening to services:", error);
       });
 
       // Listen for addons
       const addonsQuery = query(collection(db, "addons"));
       const unsubscribeAddons = onSnapshot(addonsQuery, (snapshot) => {
         setAddons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AddOn)));
+      }, (error) => {
+        console.error("Error listening to addons:", error);
       });
 
       // Listen for categories
@@ -177,12 +183,16 @@ export default function Settings() {
           ];
           defaultCategories.forEach(cat => addDoc(collection(db, "categories"), cat));
         }
+      }, (error) => {
+        console.error("Error listening to categories:", error);
       });
 
       // Listen for coupons
       const couponsQuery = query(collection(db, "coupons"));
       const unsubscribeCoupons = onSnapshot(couponsQuery, (snapshot) => {
         setCoupons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Coupon)));
+      }, (error) => {
+        console.error("Error listening to coupons:", error);
       });
 
       const unsubClientTypes = onSnapshot(query(collection(db, "client_types"), orderBy("sortOrder", "asc")), (snapshot) => {
@@ -190,6 +200,8 @@ export default function Settings() {
         // Ensure unique types by slug in the listener
         const uniqueTypes = Array.from(new Map(types.map(t => [t.slug, t])).values());
         setClientTypes(uniqueTypes);
+      }, (error) => {
+        console.error("Error listening to client types:", error);
       });
 
       const unsubClientCategories = onSnapshot(query(collection(db, "client_categories"), orderBy("name", "asc")), (snapshot) => {
@@ -197,10 +209,14 @@ export default function Settings() {
         // Ensure unique categories by name
         const uniqueCats = Array.from(new Map(cats.map(c => [c.name, c])).values());
         setClientCategories(uniqueCats);
+      }, (error) => {
+        console.error("Error listening to client categories:", error);
       });
 
       const unsubStaff = onSnapshot(query(collection(db, "users"), orderBy("displayName", "asc")), (snapshot) => {
         setStaff(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => {
+        console.error("Error listening to staff:", error);
       });
 
       return () => {
@@ -213,7 +229,7 @@ export default function Settings() {
         unsubStaff();
       };
     }
-  }, [profile]);
+  }, [profile, authLoading]);
 
   const handleSaveSettings = async (newData: Partial<BusinessSettings>) => {
     if (!settings) return;
@@ -569,6 +585,13 @@ export default function Settings() {
                   >
                     <DatabaseZap className="w-4 h-4" />
                     <span className="font-bold">Automation</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="integrations" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span className="font-bold">Integrations</span>
                   </TabsTrigger>
                   <TabsTrigger 
                     value="security" 
@@ -1925,6 +1948,181 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="integrations">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+                    <CreditCard className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">Stripe</CardTitle>
+                    <CardDescription>Accept credit cards and Apple Pay.</CardDescription>
+                  </div>
+                </div>
+                <Switch 
+                  checked={settings?.paymentIntegrations?.stripe?.enabled || false}
+                  onCheckedChange={(val) => handleSaveSettings({ 
+                    paymentIntegrations: { ...settings?.paymentIntegrations, stripe: { ...settings?.paymentIntegrations?.stripe!, enabled: val } } 
+                  })}
+                />
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label>Publishable Key</Label>
+                  <StableInput 
+                    type="password"
+                    value={settings?.paymentIntegrations?.stripe?.publishableKey || ""}
+                    onValueChange={(val) => handleSaveSettings({ 
+                      paymentIntegrations: { ...settings?.paymentIntegrations, stripe: { ...settings?.paymentIntegrations?.stripe!, publishableKey: val } } 
+                    })}
+                    placeholder="pk_test_..."
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Secret Key</Label>
+                  <StableInput 
+                    type="password"
+                    value={settings?.paymentIntegrations?.stripe?.secretKey || ""}
+                    onValueChange={(val) => handleSaveSettings({ 
+                      paymentIntegrations: { ...settings?.paymentIntegrations, stripe: { ...settings?.paymentIntegrations?.stripe!, secretKey: val } } 
+                    })}
+                    placeholder="sk_test_..."
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400 italic">Requires Stripe account setup. Live payments require valid API keys.</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center">
+                    <Layout className="w-5 h-5 text-gray-900" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">Square</CardTitle>
+                    <CardDescription>Process payments via Square Terminal or Web.</CardDescription>
+                  </div>
+                </div>
+                <Switch 
+                  checked={settings?.paymentIntegrations?.square?.enabled || false}
+                  onCheckedChange={(val) => handleSaveSettings({ 
+                    paymentIntegrations: { ...settings?.paymentIntegrations, square: { ...settings?.paymentIntegrations?.square!, enabled: val } } 
+                  })}
+                />
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label>Application ID</Label>
+                  <StableInput 
+                    value={settings?.paymentIntegrations?.square?.applicationId || ""}
+                    onValueChange={(val) => handleSaveSettings({ 
+                      paymentIntegrations: { ...settings?.paymentIntegrations, square: { ...settings?.paymentIntegrations?.square!, applicationId: val } } 
+                    })}
+                    placeholder="sq0idp-..."
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Access Token</Label>
+                  <StableInput 
+                    type="password"
+                    value={settings?.paymentIntegrations?.square?.accessToken || ""}
+                    onValueChange={(val) => handleSaveSettings({ 
+                      paymentIntegrations: { ...settings?.paymentIntegrations, square: { ...settings?.paymentIntegrations?.square!, accessToken: val } } 
+                    })}
+                    placeholder="EAAA..."
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400 italic">Connect your Square account to sync transactions.</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+                    <Globe className="w-5 h-5 text-blue-500" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">PayPal</CardTitle>
+                    <CardDescription>Accept PayPal and Venmo payments.</CardDescription>
+                  </div>
+                </div>
+                <Switch 
+                  checked={settings?.paymentIntegrations?.paypal?.enabled || false}
+                  onCheckedChange={(val) => handleSaveSettings({ 
+                    paymentIntegrations: { ...settings?.paymentIntegrations, paypal: { ...settings?.paymentIntegrations?.paypal!, enabled: val } } 
+                  })}
+                />
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label>Client ID</Label>
+                  <StableInput 
+                    value={settings?.paymentIntegrations?.paypal?.clientId || ""}
+                    onValueChange={(val) => handleSaveSettings({ 
+                      paymentIntegrations: { ...settings?.paymentIntegrations, paypal: { ...settings?.paymentIntegrations?.paypal!, clientId: val } } 
+                    })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Client Secret</Label>
+                  <StableInput 
+                    type="password"
+                    value={settings?.paymentIntegrations?.paypal?.clientSecret || ""}
+                    onValueChange={(val) => handleSaveSettings({ 
+                      paymentIntegrations: { ...settings?.paymentIntegrations, paypal: { ...settings?.paymentIntegrations?.paypal!, clientSecret: val } } 
+                    })}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center">
+                    <Truck className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">Clover</CardTitle>
+                    <CardDescription>Integrate with Clover POS systems.</CardDescription>
+                  </div>
+                </div>
+                <Switch 
+                  checked={settings?.paymentIntegrations?.clover?.enabled || false}
+                  onCheckedChange={(val) => handleSaveSettings({ 
+                    paymentIntegrations: { ...settings?.paymentIntegrations, clover: { ...settings?.paymentIntegrations?.clover!, enabled: val } } 
+                  })}
+                />
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label>Merchant ID</Label>
+                  <StableInput 
+                    value={settings?.paymentIntegrations?.clover?.merchantId || ""}
+                    onValueChange={(val) => handleSaveSettings({ 
+                      paymentIntegrations: { ...settings?.paymentIntegrations, clover: { ...settings?.paymentIntegrations?.clover!, merchantId: val } } 
+                    })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Access Token</Label>
+                  <StableInput 
+                    type="password"
+                    value={settings?.paymentIntegrations?.clover?.accessToken || ""}
+                    onValueChange={(val) => handleSaveSettings({ 
+                      paymentIntegrations: { ...settings?.paymentIntegrations, clover: { ...settings?.paymentIntegrations?.clover!, accessToken: val } } 
+                    })}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
         <TabsContent value="security">
           <Card className="border-none shadow-sm bg-white">

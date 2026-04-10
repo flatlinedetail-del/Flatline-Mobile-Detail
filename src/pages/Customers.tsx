@@ -50,7 +50,7 @@ import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export default function Customers() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -63,20 +63,24 @@ export default function Customers() {
   const addressInputRef = useRef<CustomerAddressInputRef>(null);
 
   useEffect(() => {
+    if (authLoading || !profile) return;
+
     const q = query(collection(db, "customers"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const customersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer));
       setCustomers(customersData);
       setLoading(false);
+    }, (error) => {
+      console.error("Error listening to customers:", error);
     });
 
     const qServices = query(collection(db, "services"));
     getDocs(qServices).then(snap => {
       setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
-    });
+    }).catch(error => console.error("Error fetching services in Customers:", error));
 
     return () => unsubscribe();
-  }, []);
+  }, [profile, authLoading]);
 
   useEffect(() => {
     if (selectedCustomer) {

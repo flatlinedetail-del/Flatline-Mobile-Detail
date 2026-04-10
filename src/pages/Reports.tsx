@@ -32,11 +32,13 @@ import { useAuth } from "../hooks/useAuth";
 import { ShieldAlert } from "lucide-react";
 
 export default function Reports() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const [timeRange, setTimeRange] = useState("this_month");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
+
+  if (authLoading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
 
   if (!profile || (profile.role !== "admin" && profile.role !== "manager")) {
     return (
@@ -52,7 +54,7 @@ export default function Reports() {
   }
 
   useEffect(() => {
-    if (!profile || (profile.role !== "admin" && profile.role !== "manager")) return;
+    if (authLoading || !profile || (profile.role !== "admin" && profile.role !== "manager")) return;
 
     const now = new Date();
     let start = startOfMonth(now);
@@ -77,10 +79,14 @@ export default function Reports() {
 
     const unsubAppts = onSnapshot(qAppts, (snap) => {
       setAppointments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+    }, (error) => {
+      console.error("Error listening to appointments in reports:", error);
     });
 
     const unsubExpenses = onSnapshot(qExpenses, (snap) => {
       setExpenses(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense)));
+    }, (error) => {
+      console.error("Error listening to expenses in reports:", error);
     });
 
     setLoading(false);
@@ -88,7 +94,7 @@ export default function Reports() {
       unsubAppts();
       unsubExpenses();
     };
-  }, [timeRange]);
+  }, [timeRange, profile, authLoading]);
 
   const totalSales = appointments
     .filter(a => a.status === "completed" || a.status === "paid")
