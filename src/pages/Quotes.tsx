@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, deleteDoc, doc } from "firebase/firestore";
+import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -10,11 +10,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
-import { Plus, Search, Filter, FileText, Trash2, Car, User as UserIcon } from "lucide-react";
+import { Plus, Search, Filter, FileText, Trash2, Car, User as UserIcon, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Quote, Client, Vehicle, Service } from "../types";
 import { Checkbox } from "../components/ui/checkbox";
+
+import { SearchableSelector } from "../components/SearchableSelector";
+
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
 
 export default function Quotes() {
   const { profile, loading: authLoading } = useAuth();
@@ -25,6 +40,7 @@ export default function Quotes() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   
   // Form state
   const [selectedClientId, setSelectedClientId] = useState("");
@@ -123,7 +139,7 @@ export default function Quotes() {
       roNumber: v.roNumber
     }));
 
-    const newQuote: Partial<Quote> = {
+    const quoteData: any = {
       clientId: selectedClientId || undefined,
       clientName: manualClientInfo.name,
       clientEmail: manualClientInfo.email,
@@ -133,18 +149,27 @@ export default function Quotes() {
       vehicles,
       lineItems: lineItems.filter(item => item.serviceName),
       total: calculateTotal(),
-      status: "draft",
-      createdAt: serverTimestamp(),
+      status: editingQuote?.status || "draft",
+      updatedAt: serverTimestamp(),
     };
 
     try {
-      await addDoc(collection(db, "quotes"), newQuote);
-      toast.success("Quote created!");
+      if (editingQuote) {
+        await updateDoc(doc(db, "quotes", editingQuote.id), quoteData);
+        toast.success("Quote updated!");
+      } else {
+        await addDoc(collection(db, "quotes"), {
+          ...quoteData,
+          createdAt: serverTimestamp(),
+        });
+        toast.success("Quote created!");
+      }
       setIsAddDialogOpen(false);
+      setEditingQuote(null);
       resetForm();
     } catch (error) {
-      console.error("Error creating quote:", error);
-      toast.error("Failed to create quote");
+      console.error("Error saving quote:", error);
+      toast.error("Failed to save quote");
     }
   };
 
@@ -163,8 +188,6 @@ export default function Quotes() {
       return;
     }
 
-    if (!window.confirm("Are you sure you want to delete this quote?")) return;
-    
     try {
       await deleteDoc(doc(db, "quotes", id));
       toast.success("Quote deleted successfully");
@@ -190,48 +213,45 @@ export default function Quotes() {
           <h1 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">Quotes</h1>
           <p className="text-gray-500 font-medium">Create and manage service estimates.</p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+          setIsAddDialogOpen(open);
+          if (!open) {
+            setEditingQuote(null);
+            resetForm();
+          }
+        }}>
           <DialogTrigger render={
-            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
+            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold" onClick={() => {
+              setEditingQuote(null);
+              resetForm();
+              setIsAddDialogOpen(true);
+            }}>
               <Plus className="w-4 h-4 mr-2" />
               New Quote
             </Button>
           } />
           <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="text-xl font-black">New Quote</DialogTitle>
+              <DialogTitle className="text-xl font-black">{editingQuote ? "Edit Quote" : "New Quote"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreateQuote} className="space-y-6 py-4">
               <div className="space-y-4">
                 <div className="space-y-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                  <div className="space-y-2 relative">
+                  <div className="space-y-2">
                     <Label>Client Name / Business</Label>
-                    <Input 
-                      placeholder="Type to search or enter manually..." 
-                      value={clientSearchTerm}
-                      onChange={(e) => {
-                        setClientSearchTerm(e.target.value);
-                        setManualClientInfo(prev => ({ ...prev, name: e.target.value }));
-                        setSelectedClientId(""); // Reset selection if typing manually
-                        setShowClientSuggestions(true);
+                    <SearchableSelector
+                      options={clients.map(c => ({
+                        value: c.id,
+                        label: c.businessName || `${c.firstName} ${c.lastName}`,
+                        description: `${c.email || "No email"} • ${c.phone || "No phone"}`
+                      }))}
+                      value={selectedClientId}
+                      onSelect={(val) => {
+                        const client = clients.find(c => c.id === val);
+                        if (client) handleSelectClient(client);
                       }}
-                      onFocus={() => setShowClientSuggestions(true)}
-                      className="bg-white"
+                      placeholder="Search for a client..."
                     />
-                    {showClientSuggestions && suggestedClients.length > 0 && (
-                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden">
-                        {suggestedClients.map(c => (
-                          <div 
-                            key={c.id}
-                            className="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-0"
-                            onClick={() => handleSelectClient(c)}
-                          >
-                            <p className="font-bold text-sm text-gray-900">{c.businessName || `${c.firstName} ${c.lastName}`}</p>
-                            <p className="text-[10px] text-gray-500">{c.email} • {c.phone}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -343,7 +363,9 @@ export default function Quotes() {
                   <span className="text-2xl font-black text-primary">${calculateTotal().toFixed(2)}</span>
                 </div>
               </div>
-              <Button type="submit" className="w-full bg-primary font-bold">Create Quote</Button>
+              <Button type="submit" className="w-full bg-primary font-bold">
+                {editingQuote ? "Update Quote" : "Create Quote"}
+              </Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -429,19 +451,46 @@ export default function Quotes() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 text-gray-400 hover:text-red-600"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteQuote(q.id);
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                      <div className="flex justify-end gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingQuote(q);
+                            setSelectedClientId(q.clientId || "");
+                            setManualClientInfo({
+                              name: q.clientName,
+                              email: q.clientEmail || "",
+                              phone: q.clientPhone || "",
+                              address: q.clientAddress || ""
+                            });
+                            setLineItems(q.lineItems);
+                            setSelectedVehicleIds(q.vehicles.map(v => v.id));
+                            setIsAddDialogOpen(true);
+                          }}
+                        >
+                          <Settings2 className="w-4 h-4" />
+                        </Button>
+                        <DeleteConfirmationDialog
+                          trigger={
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-gray-400 hover:text-red-600"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          }
+                          title="Delete Quote?"
+                          itemName={`Quote #${q.id.slice(-6).toUpperCase()}`}
+                          onConfirm={() => handleDeleteQuote(q.id)}
+                        />
+                    </div>
+                  </TableCell>
+                </TableRow>
                 ))
               )}
             </TableBody>

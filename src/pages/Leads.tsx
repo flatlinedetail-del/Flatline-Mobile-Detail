@@ -28,13 +28,27 @@ import {
   MessageSquare,
   History,
   ExternalLink,
-  Trash2
+  Trash2,
+  Settings2
 } from "lucide-react";
 import { toast } from "sonner";
 import { format, addDays } from "date-fns";
 import { Lead } from "../types";
 import { useNavigate } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
+
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
 
 export default function Leads() {
   const { profile, loading: authLoading } = useAuth();
@@ -43,6 +57,7 @@ export default function Leads() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [newLeadAddress, setNewLeadAddress] = useState({ address: "", lat: 0, lng: 0 });
@@ -66,7 +81,7 @@ export default function Leads() {
   const handleAddLead = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const newLead = {
+    const leadData: any = {
       name: formData.get("name"),
       phone: formData.get("phone"),
       email: formData.get("email"),
@@ -76,21 +91,29 @@ export default function Leads() {
       vehicleInfo: formData.get("vehicleInfo"),
       requestedService: formData.get("requestedService"),
       source: formData.get("source") || "Direct",
-      status: "new",
+      status: editingLead?.status || "new",
       priority: formData.get("priority") || "medium",
-      createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      createdBy: profile?.uid,
-      nextFollowUpAt: Timestamp.fromDate(addDays(new Date(), 1)),
     };
 
     try {
-      await addDoc(collection(db, "leads"), newLead);
-      toast.success("Lead added successfully");
+      if (editingLead) {
+        await updateDoc(doc(db, "leads", editingLead.id), leadData);
+        toast.success("Lead updated successfully");
+      } else {
+        await addDoc(collection(db, "leads"), {
+          ...leadData,
+          createdAt: serverTimestamp(),
+          createdBy: profile?.uid,
+          nextFollowUpAt: Timestamp.fromDate(addDays(new Date(), 1)),
+        });
+        toast.success("Lead added successfully");
+      }
       setIsAddDialogOpen(false);
+      setEditingLead(null);
     } catch (error) {
-      console.error("Error adding lead:", error);
-      toast.error("Failed to add lead");
+      console.error("Error saving lead:", error);
+      toast.error("Failed to save lead");
     }
   };
 
@@ -114,8 +137,6 @@ export default function Leads() {
       return;
     }
 
-    if (!window.confirm("Are you sure you want to delete this lead?")) return;
-    
     try {
       await deleteDoc(doc(db, "leads", id));
       toast.success("Lead deleted successfully");
@@ -151,28 +172,38 @@ export default function Leads() {
           <h1 className="text-3xl font-black text-gray-900 tracking-tighter">LEADS</h1>
           <p className="text-gray-500 font-medium">Manage your potential customers and inquiries.</p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+          setIsAddDialogOpen(open);
+          if (!open) {
+            setEditingLead(null);
+            setNewLeadAddress({ address: "", lat: 0, lng: 0 });
+          }
+        }}>
           <DialogTrigger render={
-            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
+            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold" onClick={() => {
+              setEditingLead(null);
+              setIsAddDialogOpen(true);
+            }}>
               <UserPlus className="w-4 h-4 mr-2" />
               Add New Lead
             </Button>
           } />
           <DialogContent className="sm:max-w-[500px] p-0">
             <DialogHeader className="px-6 pt-6 pb-2">
-              <DialogTitle className="text-xl font-black">Add New Lead</DialogTitle>
+              <DialogTitle className="text-xl font-black">{editingLead ? "Edit Lead" : "Add New Lead"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleAddLead} className="flex-1 overflow-y-auto space-y-4 px-6 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" name="name" placeholder="John Doe" required />
+                  <Input id="name" name="name" defaultValue={editingLead?.name || ""} placeholder="John Doe" required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number</Label>
                   <Input 
                     id="phone" 
                     name="phone" 
+                    defaultValue={editingLead?.phone || ""}
                     placeholder="(555) 000-0000" 
                     required 
                     onChange={(e) => {
@@ -183,11 +214,12 @@ export default function Leads() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email Address</Label>
-                <Input id="email" name="email" type="email" placeholder="john@example.com" />
+                <Input id="email" name="email" type="email" defaultValue={editingLead?.email || ""} placeholder="john@example.com" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="address">Service Address</Label>
                 <AddressInput 
+                  defaultValue={editingLead?.address || ""}
                   onAddressSelect={(address, lat, lng) => setNewLeadAddress({ address, lat, lng })}
                   placeholder="123 Main St, City, ST"
                 />
@@ -195,17 +227,17 @@ export default function Leads() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="vehicleInfo">Vehicle Info</Label>
-                  <Input id="vehicleInfo" name="vehicleInfo" placeholder="2022 Tesla Model 3" />
+                  <Input id="vehicleInfo" name="vehicleInfo" defaultValue={editingLead?.vehicleInfo || ""} placeholder="2022 Tesla Model 3" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="requestedService">Requested Service</Label>
-                  <Input id="requestedService" name="requestedService" placeholder="Full Detail" />
+                  <Input id="requestedService" name="requestedService" defaultValue={editingLead?.requestedService || ""} placeholder="Full Detail" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="priority">Priority</Label>
-                  <Select name="priority" defaultValue="medium">
+                  <Select name="priority" defaultValue={editingLead?.priority || "medium"}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select priority" />
                     </SelectTrigger>
@@ -219,10 +251,12 @@ export default function Leads() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="source">Source</Label>
-                  <Input id="source" name="source" placeholder="Google, FB, Referral" />
+                  <Input id="source" name="source" defaultValue={editingLead?.source || ""} placeholder="Google, FB, Referral" />
                 </div>
               </div>
-              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">Create Lead</Button>
+              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">
+                {editingLead ? "Update Lead" : "Create Lead"}
+              </Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -319,6 +353,18 @@ export default function Leads() {
                           className="h-8 w-8 text-gray-400 hover:text-primary"
                           onClick={(e) => {
                             e.stopPropagation();
+                            setEditingLead(lead);
+                            setIsAddDialogOpen(true);
+                          }}
+                        >
+                          <Settings2 className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             window.location.href = `tel:${lead.phone}`;
                           }}
                         >
@@ -335,17 +381,21 @@ export default function Leads() {
                         >
                           <CheckCircle2 className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-gray-400 hover:text-red-600"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteLead(lead.id);
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <DeleteConfirmationDialog
+                          trigger={
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-gray-400 hover:text-red-600"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          }
+                          title="Delete Lead?"
+                          itemName={lead.name}
+                          onConfirm={() => handleDeleteLead(lead.id)}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
@@ -425,13 +475,19 @@ export default function Leads() {
                 >
                   <XCircle className="w-4 h-4 mr-2" /> Mark Lost
                 </Button>
-                <Button 
-                  variant="ghost" 
-                  className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold"
-                  onClick={() => handleDeleteLead(selectedLead.id)}
-                >
-                  <Trash2 className="w-4 h-4 mr-2" /> Delete Lead
-                </Button>
+                <DeleteConfirmationDialog
+                  trigger={
+                    <Button 
+                      variant="ghost" 
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" /> Delete Lead
+                    </Button>
+                  }
+                  title="Delete Lead?"
+                  itemName={selectedLead.name}
+                  onConfirm={() => handleDeleteLead(selectedLead.id)}
+                />
               </div>
 
               <div className="pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400 font-medium">

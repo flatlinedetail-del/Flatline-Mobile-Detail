@@ -213,6 +213,27 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /staff_authorizations/{authId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /marketing_campaigns/{campaignId} {
+      allow read: if isTechnician();
+      allow write: if isAdmin();
+    }
+
+    match /email_templates/{templateId} {
+      allow read: if isTechnician();
+      allow write: if isAdmin();
+    }
+
+    match /automation_logs/{logId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update, delete: if isAdmin();
+    }
+
     // Default deny
     match /{path=**} {
       allow read, write: if false;

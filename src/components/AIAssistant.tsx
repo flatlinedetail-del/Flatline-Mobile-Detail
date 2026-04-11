@@ -9,9 +9,14 @@ import Markdown from "react-markdown";
 
 export default function AIAssistant({ context }: { context: any }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [dynamicContext, setDynamicContext] = useState<any>(null);
 
-  // Expose to window so other components can trigger it
-  (window as any).openAIAssistant = () => setIsOpen(true);
+  // Expose to window so other components can trigger it and pass context
+  (window as any).openAIAssistant = (extra?: any) => {
+    setIsOpen(true);
+    if (extra) setDynamicContext(extra);
+  };
+
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([
     { role: "assistant", content: "Hello! I'm your Flatline AI Assistant. How can I help you with your detailing business today?" }
   ]);
@@ -26,7 +31,8 @@ export default function AIAssistant({ context }: { context: any }) {
     setInput("");
     setIsLoading(true);
 
-    const response = await askAssistant(input, context);
+    const fullContext = { ...context, ...dynamicContext };
+    const response = await askAssistant(input, fullContext);
     const content = response?.suggestion || "I'm not sure how to respond to that.";
     setMessages(prev => [...prev, { role: "assistant", content }]);
     setIsLoading(false);

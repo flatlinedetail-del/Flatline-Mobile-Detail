@@ -32,6 +32,7 @@ export interface Service {
   pricingBySize: Record<VehicleSize, number>;
   isTaxable: boolean;
   estimatedDuration: number; // in minutes
+  bufferTimeMinutes: number; // cleanup/wrap-up time
   requiresWaiver: boolean;
   isActive: boolean;
 }
@@ -43,6 +44,7 @@ export interface AddOn {
   price: number;
   isTaxable: boolean;
   estimatedDuration: number; // in minutes
+  bufferTimeMinutes: number; // cleanup/wrap-up time
   isActive: boolean;
 }
 
@@ -71,6 +73,14 @@ export interface Client {
   email: string;
   phone: string;
   address: string;
+  addresses?: {
+    id: string;
+    label: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+    isDefault?: boolean;
+  }[];
   latitude?: number;
   longitude?: number;
   clientTypeId: string;
@@ -240,6 +250,7 @@ export interface Appointment {
   followUpSentAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  overrideBufferTimeMinutes?: number;
 }
 
 export interface LineItem {
@@ -260,6 +271,8 @@ export interface Invoice {
     model: string;
     roNumber?: string;
   }[];
+  vehicleInfo?: string;
+  dueDate?: Timestamp | FieldValue;
   lineItems: LineItem[];
   total: number;
   status: "draft" | "sent" | "paid";

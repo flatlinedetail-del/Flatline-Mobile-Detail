@@ -6,13 +6,25 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar as CalendarUI } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
-import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List } from "lucide-react";
+import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2 } from "lucide-react";
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { format, startOfDay, endOfDay, isSameDay, addDays, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { optimizeRoute, RouteStop } from "../lib/scheduling";
 import { Truck, Trash2 } from "lucide-react";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
 
 export default function Calendar() {
   const { profile, loading: authLoading } = useAuth();
@@ -59,8 +71,6 @@ export default function Calendar() {
       toast.error("Invalid job ID");
       return;
     }
-
-    if (!window.confirm("Are you sure you want to delete this job?")) return;
     
     try {
       await deleteDoc(doc(db, "appointments", id));
@@ -230,14 +240,29 @@ export default function Calendar() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-6 w-6 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="h-6 w-6 text-gray-300 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDeleteAppointment(app.id);
+                                navigate("/appointments", { state: { editingAppointmentId: app.id } });
                               }}
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Settings2 className="w-3 h-3" />
                             </Button>
+                            <DeleteConfirmationDialog
+                              trigger={
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-6 w-6 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              }
+                              title="Delete Job?"
+                              itemName={app.customerName}
+                              onConfirm={() => handleDeleteAppointment(app.id)}
+                            />
                           </div>
                         </div>
                       </div>

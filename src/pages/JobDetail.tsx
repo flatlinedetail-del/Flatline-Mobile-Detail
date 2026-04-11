@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
   ChevronLeft, 
   Clock, 
@@ -202,8 +203,6 @@ export default function JobDetail() {
       toast.error("Invalid job ID");
       return;
     }
-
-    if (!window.confirm("Are you sure you want to delete this job? This action cannot be undone.")) return;
     
     try {
       await deleteDoc(doc(db, "appointments", id));
@@ -345,10 +344,17 @@ export default function JobDetail() {
               </Button>
             } />
             <DropdownMenuContent align="end" className="bg-white">
-              <DropdownMenuItem onClick={handleDeleteJob} className="text-red-600 focus:text-red-700 focus:bg-red-50 font-bold">
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete Job
-              </DropdownMenuItem>
+              <DeleteConfirmationDialog
+                trigger={
+                  <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-600 focus:text-red-700 focus:bg-red-50 font-bold">
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Job
+                  </DropdownMenuItem>
+                }
+                title="Delete Job?"
+                itemName={job.customerName || "this job"}
+                onConfirm={handleDeleteJob}
+              />
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

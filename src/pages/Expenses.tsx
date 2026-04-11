@@ -16,6 +16,21 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Category } from "../types";
 import { StableInput } from "../components/StableInput";
+import { SearchableSelector } from "../components/SearchableSelector";
+import { handleFirestoreError, OperationType } from "../firebase";
+
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
 
 export default function Expenses() {
   const { profile, loading: authLoading } = useAuth();
@@ -25,6 +40,7 @@ export default function Expenses() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState("");
 
   useEffect(() => {
     if (authLoading || !profile) return;
@@ -68,7 +84,7 @@ export default function Expenses() {
       category: formData.get("category"),
       date: new Date(formData.get("date") as string),
       receiptUrl: formData.get("receiptUrl"),
-      linkedAppointmentId: formData.get("appointmentId") || null,
+      linkedAppointmentId: selectedAppointmentId || null,
       createdBy: profile?.uid,
       createdAt: serverTimestamp(),
     };
@@ -83,11 +99,22 @@ export default function Expenses() {
   };
 
   const handleDeleteExpense = async (id: string) => {
+    console.log("Attempting to delete expense:", id);
+    if (!id) {
+      toast.error("Invalid expense ID");
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, "expenses", id));
-      toast.success("Expense deleted");
+      toast.success("Expense deleted successfully");
     } catch (error) {
-      toast.error("Failed to delete expense");
+      console.error("Error deleting expense:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `expenses/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete expense: ${err.message}`);
+      }
     }
   };
 
@@ -156,17 +183,19 @@ export default function Expenses() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="appointmentId">Link to Appointment (Optional)</Label>
-                <Select name="appointmentId">
-                  <SelectTrigger className="bg-white border-gray-200"><SelectValue placeholder="Select appointment" /></SelectTrigger>
-                  <SelectContent className="bg-white">
-                    <SelectItem value="none">None</SelectItem>
-                    {appointments.map(app => (
-                      <SelectItem key={app.id} value={app.id}>
-                        {format(app.scheduledAt?.toDate(), "MM/dd")} - {app.customerName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelector
+                  options={[
+                    { value: "none", label: "None" },
+                    ...appointments.map(app => ({
+                      value: app.id,
+                      label: `${format(app.scheduledAt?.toDate(), "MM/dd")} - ${app.customerName}`,
+                      description: app.vehicleInfo
+                    }))
+                  ]}
+                  value={selectedAppointmentId}
+                  onSelect={(val) => setSelectedAppointmentId(val === "none" ? "" : val)}
+                  placeholder="Search appointments..."
+                />
               </div>
               <div className="flex justify-end gap-3 pt-4">
                 <Button variant="outline" type="button" onClick={() => setShowAddDialog(false)} className="font-bold">Cancel</Button>
@@ -246,9 +275,21 @@ export default function Expenses() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => handleDeleteExpense(exp.id)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <DeleteConfirmationDialog
+                        trigger={
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-gray-400 hover:text-red-600"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        }
+                        title="Delete Expense?"
+                        itemName={exp.description}
+                        onConfirm={() => handleDeleteExpense(exp.id)}
+                      />
                     </TableCell>
                   </TableRow>
                 ))

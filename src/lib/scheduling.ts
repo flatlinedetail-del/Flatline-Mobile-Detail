@@ -1,7 +1,8 @@
 import { Appointment, BusinessSettings } from "../types";
-import { Timestamp, collection, query, where, getDocs, orderBy, startAt, endAt, doc, getDoc } from "firebase/firestore";
+import { Timestamp, collection, query, where, getDocs, orderBy, doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { calculateDistance, estimateTravelTime } from "../services/travelService";
+import { geocodeAddress } from "../services/geocodingService";
 
 export interface RouteStop {
   id: string;
@@ -16,14 +17,15 @@ export interface RouteStop {
   totalAmount: number;
   travelTimeFromPrevious?: number; // in minutes
   distanceFromPrevious?: number; // in miles
+  optimizationNote?: string;
 }
 
 /**
- * Simple Route Optimization Logic
- * 1. Groups appointments by day
- * 2. Sorts by scheduled time
- * 3. Calculates distance/time between stops (simulated for now)
- * 4. Suggests re-ordering if it saves travel time
+ * Route Optimization Logic
+ * 1. Fetches appointments for the day
+ * 2. Geocodes missing coordinates
+ * 3. Uses Nearest Neighbor algorithm to suggest optimal sequence
+ * 4. Calculates real travel estimates
  */
 export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
   const start = new Date(date);
@@ -31,62 +33,122 @@ export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
   const end = new Date(date);
   end.setHours(23, 59, 59, 999);
 
-  const q = query(
-    collection(db, "appointments"),
-    where("scheduledAt", ">=", Timestamp.fromDate(start)),
-    where("scheduledAt", "<=", Timestamp.fromDate(end)),
-    orderBy("scheduledAt", "asc")
-  );
+  try {
+    const q = query(
+      collection(db, "appointments"),
+      where("scheduledAt", ">=", Timestamp.fromDate(start)),
+      where("scheduledAt", "<=", Timestamp.fromDate(end)),
+      orderBy("scheduledAt", "asc")
+    );
 
-  const [snapshot, settingsSnap] = await Promise.all([
-    getDocs(q),
-    getDoc(doc(db, "settings", "business"))
-  ]);
+    const [snapshot, settingsSnap] = await Promise.all([
+      getDocs(q),
+      getDoc(doc(db, "settings", "business"))
+    ]);
 
-  const settings = settingsSnap.exists() ? settingsSnap.data() as BusinessSettings : null;
-  
-  let stops: RouteStop[] = snapshot.docs.map(doc => {
-    const data = doc.data() as Appointment;
-    return {
-      id: doc.id,
-      address: data.address,
-      latitude: data.latitude || 0,
-      longitude: data.longitude || 0,
-      scheduledAt: data.scheduledAt,
-      customerName: data.customerName,
-      vehicleInfo: data.vehicleInfo,
-      status: data.status,
-      priority: data.status === "en_route" ? 1 : 2,
-      totalAmount: data.totalAmount || 0,
-    };
-  });
+    const settings = settingsSnap.exists() ? settingsSnap.data() as BusinessSettings : null;
+    
+    // 1. Prepare stops and geocode if necessary
+    const rawStops = await Promise.all(snapshot.docs.map(async (appointmentDoc) => {
+      const data = appointmentDoc.data() as Appointment;
+      let lat = data.latitude;
+      let lng = data.longitude;
 
-  // Sort by time first
-  stops.sort((a, b) => a.scheduledAt.toMillis() - b.scheduledAt.toMillis());
+      // Fallback to geocoding if coordinates are missing
+      if ((!lat || !lng) && data.address) {
+        const coords = await geocodeAddress(data.address);
+        if (coords) {
+          lat = coords.lat;
+          lng = coords.lng;
+          // Update the document with coordinates for future use
+          await updateDoc(doc(db, "appointments", appointmentDoc.id), {
+            latitude: lat,
+            longitude: lng
+          });
+        }
+      }
 
-  // Calculate travel estimates between stops
-  let prevLat = settings?.baseLatitude || 0;
-  let prevLng = settings?.baseLongitude || 0;
-
-  stops = stops.map(stop => {
-    if (stop.latitude && stop.longitude && prevLat && prevLng) {
-      const distance = calculateDistance(prevLat, prevLng, stop.latitude, stop.longitude);
-      const time = estimateTravelTime(distance);
-      
-      const updatedStop = {
-        ...stop,
-        distanceFromPrevious: Math.round(distance * 10) / 10,
-        travelTimeFromPrevious: time
+      return {
+        id: appointmentDoc.id,
+        address: data.address,
+        latitude: lat || 0,
+        longitude: lng || 0,
+        scheduledAt: data.scheduledAt,
+        customerName: data.customerName,
+        vehicleInfo: data.vehicleInfo,
+        status: data.status,
+        priority: data.status === "en_route" ? 1 : 2,
+        totalAmount: data.totalAmount || 0,
       };
+    }));
 
-      prevLat = stop.latitude;
-      prevLng = stop.longitude;
-      return updatedStop;
+    if (rawStops.length === 0) return [];
+
+    // 2. Optimization Algorithm (Nearest Neighbor)
+    // We start from the business base location
+    let currentLat = settings?.baseLatitude || 0;
+    let currentLng = settings?.baseLongitude || 0;
+    
+    const unvisited = [...rawStops];
+    const optimized: RouteStop[] = [];
+
+    while (unvisited.length > 0) {
+      let closestIndex = 0;
+      let minDistance = Infinity;
+
+      for (let i = 0; i < unvisited.length; i++) {
+        const stop = unvisited[i];
+        if (stop.latitude && stop.longitude) {
+          const dist = calculateDistance(currentLat, currentLng, stop.latitude, stop.longitude);
+          if (dist < minDistance) {
+            minDistance = dist;
+            closestIndex = i;
+          }
+        }
+      }
+
+      const nextStop = unvisited.splice(closestIndex, 1)[0];
+      const travelTime = estimateTravelTime(minDistance === Infinity ? 0 : minDistance);
+
+      optimized.push({
+        ...nextStop,
+        distanceFromPrevious: minDistance === Infinity ? 0 : Math.round(minDistance * 10) / 10,
+        travelTimeFromPrevious: travelTime,
+        optimizationNote: optimized.length === 0 ? "Starting from Base" : undefined
+      });
+
+      currentLat = nextStop.latitude;
+      currentLng = nextStop.longitude;
     }
-    return stop;
-  });
 
-  return stops;
+    return optimized;
+  } catch (error) {
+    console.error("Route optimization failed:", error);
+    // Fallback: Return time-sorted stops without distance calculations if everything fails
+    const qFallback = query(
+      collection(db, "appointments"),
+      where("scheduledAt", ">=", Timestamp.fromDate(start)),
+      where("scheduledAt", "<=", Timestamp.fromDate(end)),
+      orderBy("scheduledAt", "asc")
+    );
+    const snapshot = await getDocs(qFallback);
+    return snapshot.docs.map(doc => {
+      const data = doc.data() as Appointment;
+      return {
+        id: doc.id,
+        address: data.address,
+        latitude: data.latitude || 0,
+        longitude: data.longitude || 0,
+        scheduledAt: data.scheduledAt,
+        customerName: data.customerName,
+        vehicleInfo: data.vehicleInfo,
+        status: data.status,
+        priority: 2,
+        totalAmount: data.totalAmount || 0,
+        optimizationNote: "Fallback: Sorted by time"
+      };
+    });
+  }
 }
 
 /**

@@ -69,6 +69,7 @@ import {
 import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote } from "../types";
 import AddressInput from "../components/AddressInput";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { getClientTypes, getClientCategories, migrateDataToClients, ensureClientTypes, ensureClientNameFields } from "../services/clientService";
 
 export default function Clients() {
@@ -630,19 +631,21 @@ export default function Clients() {
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
                             <ChevronRight className="w-5 h-5" />
                           </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (window.confirm("Are you sure you want to delete this client?")) {
-                                handleDeleteClient(client.id);
-                              }
-                            }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <DeleteConfirmationDialog
+                            trigger={
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            }
+                            title="Delete Client?"
+                            itemName={getClientDisplayName(client)}
+                            onConfirm={() => handleDeleteClient(client.id)}
+                          />
                         </div>
                       </TableCell>
                     </TableRow>
@@ -885,32 +888,17 @@ export default function Clients() {
                   </div>
 
                   <div className="pt-6 border-t border-gray-100">
-                    <AlertDialog>
-                      <AlertDialogTrigger render={
+                    <DeleteConfirmationDialog
+                      trigger={
                         <Button variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold">
                           <Trash2 className="w-4 h-4 mr-2" />
                           Delete Client Profile
                         </Button>
-                      } />
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle className="font-black">Are you absolutely sure?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This action cannot be undone. This will permanently delete the client profile
-                            and all associated local data. We will check for linked vehicles and appointments first.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="font-bold">Cancel</AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={() => handleDeleteClient(selectedClient.id)}
-                            className="bg-red-600 hover:bg-red-700 font-bold"
-                          >
-                            Delete Client
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                      }
+                      title="Delete Client Profile?"
+                      itemName={getClientDisplayName(selectedClient)}
+                      onConfirm={() => handleDeleteClient(selectedClient.id)}
+                    />
                   </div>
                 </TabsContent>
 
@@ -999,13 +987,35 @@ export default function Clients() {
                                 </div>
                                 <p className="text-xs text-gray-500 uppercase font-black tracking-widest">{v.size.replace("_", " ")} • {v.color}</p>
                               </div>
-                              <Button variant="ghost" size="icon" className="text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity" onClick={async () => {
-                                await deleteDoc(doc(db, "vehicles", v.id));
-                                setClientVehicles(prev => prev.filter(x => x.id !== v.id));
-                                toast.success("Vehicle removed");
-                              }}>
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger render={
+                                  <Button variant="ghost" size="icon" className="text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                } />
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Remove Vehicle?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to remove this vehicle? This action cannot be undone.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction 
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        await deleteDoc(doc(db, "vehicles", v.id));
+                                        setClientVehicles(prev => prev.filter(x => x.id !== v.id));
+                                        toast.success("Vehicle removed");
+                                      }}
+                                      className="bg-red-600 hover:bg-red-700"
+                                    >
+                                      Remove
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
                             </div>
                           ))}
                         </div>
@@ -1050,18 +1060,34 @@ export default function Clients() {
                   <div className="space-y-6">
                     <div className="flex justify-between items-center">
                       <h3 className="text-lg font-black text-gray-900">Billing & Delete</h3>
-                      <Button 
-                        variant="outline" 
-                        className="border-red-200 text-red-600 hover:bg-red-50 font-bold"
-                        onClick={() => {
-                          if (window.confirm("Are you sure you want to delete this client? This will check for linked records first.")) {
-                            handleDeleteClient(selectedClient.id);
-                          }
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete Client
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger render={
+                          <Button 
+                            variant="outline" 
+                            className="border-red-200 text-red-600 hover:bg-red-50 font-bold"
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Delete Client
+                          </Button>
+                        } />
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Client?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete this client? This will check for linked records first. This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction 
+                              onClick={() => handleDeleteClient(selectedClient.id)}
+                              className="bg-red-600 hover:bg-red-700"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                     <div>
                       <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-4">Invoices</h3>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, deleteDoc, doc } from "firebase/firestore";
+import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { SearchableSelector } from "../components/SearchableSelector";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -7,14 +8,44 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
-import { Plus, Search, Filter, Receipt, Trash2, Car, User as UserIcon } from "lucide-react";
+import { 
+  Plus, 
+  Search, 
+  Filter, 
+  Receipt, 
+  Trash2, 
+  Car, 
+  User as UserIcon, 
+  CheckCircle2, 
+  Clock, 
+  AlertCircle,
+  FileText,
+  Mail,
+  User,
+  Settings2
+} from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Invoice, Client, Vehicle, Service } from "../types";
+import { Invoice, Client, Vehicle, Service, AddOn } from "../types";
 import { Checkbox } from "../components/ui/checkbox";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn, getClientDisplayName } from "@/lib/utils";
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
 
 export default function Invoices() {
   const { profile, loading: authLoading } = useAuth();
@@ -22,14 +53,21 @@ export default function Invoices() {
   const [clients, setClients] = useState<Client[]>([]);
   const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [addons, setAddons] = useState<AddOn[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   
   // Form state
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
   const [lineItems, setLineItems] = useState<{ serviceName: string; price: number }[]>([{ serviceName: "", price: 0 }]);
+  const [isAddingVehicle, setIsAddingVehicle] = useState(false);
+  const [newVehicle, setNewVehicle] = useState({ year: "", make: "", model: "", vin: "", size: "medium" as any });
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
     if (authLoading || !profile) return;
@@ -52,11 +90,16 @@ export default function Invoices() {
       setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
     });
 
+    const unsubAddons = onSnapshot(query(collection(db, "addons")), (snap) => {
+      setAddons(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AddOn)));
+    });
+
     return () => {
       unsubscribe();
       unsubClients();
       unsubVehicles();
       unsubServices();
+      unsubAddons();
     };
   }, [profile, authLoading]);
 
@@ -69,9 +112,11 @@ export default function Invoices() {
   };
 
   const handleLineItemChange = (index: number, field: "serviceName" | "price", value: string | number) => {
-    const newItems = [...lineItems];
-    newItems[index] = { ...newItems[index], [field]: value };
-    setLineItems(newItems);
+    setLineItems(prev => {
+      const newItems = [...prev];
+      newItems[index] = { ...newItems[index], [field]: value };
+      return newItems;
+    });
   };
 
   const calculateTotal = () => {
@@ -85,33 +130,84 @@ export default function Invoices() {
       return;
     }
 
-    const client = clients.find(c => c.id === selectedClientId);
-    const vehicles = allVehicles.filter(v => selectedVehicleIds.includes(v.id)).map(v => ({
-      id: v.id,
-      year: v.year,
-      make: v.make,
-      model: v.model,
-      roNumber: v.roNumber
-    }));
+    const finalLineItems = lineItems.filter(item => item.serviceName);
+    if (finalLineItems.length === 0) {
+      toast.error("Please add at least one service");
+      return;
+    }
 
-    const newInvoice = {
-      clientId: selectedClientId,
-      clientName: client ? (client.businessName || `${client.firstName} ${client.lastName}`) : "Unknown",
-      vehicles,
-      lineItems: lineItems.filter(item => item.serviceName),
-      total: calculateTotal(),
-      status: "draft",
-      createdAt: serverTimestamp(),
-    };
-
+    setIsCreating(true);
     try {
-      await addDoc(collection(db, "invoices"), newInvoice);
-      toast.success("Invoice created!");
+      let vehicles: any[] = [];
+      let vehicleInfo = "N/A";
+
+      // Create new vehicle if requested
+      if (isAddingVehicle && newVehicle.make && newVehicle.model) {
+        const vehicleRef = await addDoc(collection(db, "vehicles"), {
+          ...newVehicle,
+          clientId: selectedClientId,
+          ownerId: selectedClientId,
+          ownerType: "client",
+          createdAt: serverTimestamp()
+        });
+        vehicles = [{
+          id: vehicleRef.id,
+          year: newVehicle.year,
+          make: newVehicle.make,
+          model: newVehicle.model
+        }];
+        vehicleInfo = `${newVehicle.year} ${newVehicle.make} ${newVehicle.model}`;
+      } else if (selectedVehicleIds.length > 0) {
+        vehicles = selectedVehicleIds.map(vid => {
+          const v = allVehicles.find(veh => veh.id === vid);
+          return v ? {
+            id: v.id,
+            year: v.year,
+            make: v.make,
+            model: v.model
+          } : null;
+        }).filter(Boolean);
+        
+        if (vehicles.length > 0) {
+          vehicleInfo = `${vehicles[0].year} ${vehicles[0].make} ${vehicles[0].model}`;
+        }
+      }
+
+      const client = clients.find(c => c.id === selectedClientId);
+
+      const invoiceData: any = {
+        clientId: selectedClientId,
+        clientName: client ? getClientDisplayName(client) : "Unknown",
+        clientEmail: client?.email || "",
+        clientPhone: client?.phone || "",
+        vehicles,
+        vehicleInfo,
+        lineItems: finalLineItems,
+        total: calculateTotal(),
+        status: editingInvoice?.status || "draft",
+        paymentStatus: editingInvoice?.paymentStatus || "unpaid",
+        amountPaid: editingInvoice?.amountPaid || 0,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (editingInvoice) {
+        await updateDoc(doc(db, "invoices", editingInvoice.id), invoiceData);
+        toast.success("Invoice updated!");
+      } else {
+        await addDoc(collection(db, "invoices"), {
+          ...invoiceData,
+          createdAt: serverTimestamp(),
+        });
+        toast.success("Invoice created!");
+      }
       setIsAddDialogOpen(false);
+      setEditingInvoice(null);
       resetForm();
     } catch (error) {
-      console.error("Error creating invoice:", error);
-      toast.error("Failed to create invoice");
+      console.error("Error saving invoice:", error);
+      toast.error("Failed to save invoice");
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -119,6 +215,8 @@ export default function Invoices() {
     setSelectedClientId("");
     setSelectedVehicleIds([]);
     setLineItems([{ serviceName: "", price: 0 }]);
+    setIsAddingVehicle(false);
+    setNewVehicle({ year: "", make: "", model: "", vin: "", size: "medium" });
   };
 
   const handleDeleteInvoice = async (id: string) => {
@@ -128,11 +226,12 @@ export default function Invoices() {
       return;
     }
 
-    if (!window.confirm("Are you sure you want to delete this invoice?")) return;
-    
     try {
       await deleteDoc(doc(db, "invoices", id));
       toast.success("Invoice deleted successfully");
+      if (selectedInvoice?.id === id) {
+        setIsDetailOpen(false);
+      }
     } catch (error) {
       console.error("Error deleting invoice:", error);
       try {
@@ -155,112 +254,204 @@ export default function Invoices() {
           <h1 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">Invoices</h1>
           <p className="text-gray-500 font-medium">Manage billing and payments.</p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+          setIsAddDialogOpen(open);
+          if (!open) {
+            setEditingInvoice(null);
+            resetForm();
+          }
+        }}>
           <DialogTrigger render={
-            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
+            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold" onClick={() => {
+              setEditingInvoice(null);
+              resetForm();
+              setIsAddDialogOpen(true);
+            }}>
               <Plus className="w-4 h-4 mr-2" />
               Create Invoice
             </Button>
           } />
           <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="text-xl font-black">New Invoice</DialogTitle>
+              <DialogTitle className="text-xl font-black">{editingInvoice ? "Edit Invoice" : "New Invoice"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreateInvoice} className="space-y-6 py-4">
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Select Client</Label>
-                  <Select value={selectedClientId} onValueChange={setSelectedClientId}>
-                    <SelectTrigger className="bg-white border-gray-200">
-                      <SelectValue placeholder="Choose a client" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white">
-                      {clients.map(c => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.businessName || `${c.firstName} ${c.lastName}`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Select Client</Label>
+                  <SearchableSelector
+                    options={clients.map(c => ({
+                      value: c.id,
+                      label: getClientDisplayName(c),
+                      description: `${c.email || "No email"} • ${c.phone || "No phone"}`
+                    }))}
+                    value={selectedClientId}
+                    onSelect={(val) => {
+                      setSelectedClientId(val);
+                      // Auto-select first vehicle if exists
+                      const clientVehicles = allVehicles.filter(v => v.clientId === val);
+                      if (clientVehicles.length > 0) {
+                        setSelectedVehicleIds([clientVehicles[0].id]);
+                      }
+                    }}
+                    placeholder="Search for a client..."
+                  />
                 </div>
 
                 {selectedClientId && (
                   <div className="space-y-2">
-                    <Label>Select Vehicles</Label>
-                    <div className="grid grid-cols-1 gap-2 border rounded-lg p-3 bg-gray-50 max-h-40 overflow-y-auto">
-                      {allVehicles.filter(v => v.clientId === selectedClientId).map(v => (
-                        <div key={v.id} className="flex items-center space-x-2">
-                          <Checkbox 
-                            id={`v-${v.id}`} 
-                            checked={selectedVehicleIds.includes(v.id)}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setSelectedVehicleIds([...selectedVehicleIds, v.id]);
-                              } else {
-                                setSelectedVehicleIds(selectedVehicleIds.filter(id => id !== v.id));
-                              }
-                            }}
-                          />
-                          <label htmlFor={`v-${v.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            {v.year} {v.make} {v.model} {v.roNumber ? `(RO: ${v.roNumber})` : ""}
-                          </label>
-                        </div>
-                      ))}
-                      {allVehicles.filter(v => v.clientId === selectedClientId).length === 0 && (
-                        <p className="text-xs text-gray-500 italic">No vehicles found for this client.</p>
-                      )}
+                    <div className="flex items-center justify-between">
+                      <Label>Vehicle</Label>
+                      <Button 
+                        type="button" 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-[10px] font-bold uppercase text-primary"
+                        onClick={() => setIsAddingVehicle(!isAddingVehicle)}
+                      >
+                        {isAddingVehicle ? "Select Existing" : "+ Add New Vehicle"}
+                      </Button>
                     </div>
+                    
+                    {isAddingVehicle ? (
+                      <div className="grid grid-cols-2 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                        <Input 
+                          placeholder="Year" 
+                          value={newVehicle.year} 
+                          onChange={(e) => setNewVehicle(prev => ({ ...prev, year: e.target.value }))}
+                          className="bg-white"
+                        />
+                        <Input 
+                          placeholder="Make" 
+                          value={newVehicle.make} 
+                          onChange={(e) => setNewVehicle(prev => ({ ...prev, make: e.target.value }))}
+                          className="bg-white"
+                        />
+                        <Input 
+                          placeholder="Model" 
+                          value={newVehicle.model} 
+                          onChange={(e) => setNewVehicle(prev => ({ ...prev, model: e.target.value }))}
+                          className="bg-white"
+                        />
+                        <Input 
+                          placeholder="VIN (Optional)" 
+                          value={newVehicle.vin} 
+                          onChange={(e) => setNewVehicle(prev => ({ ...prev, vin: e.target.value }))}
+                          className="bg-white"
+                        />
+                        <Select 
+                          value={newVehicle.size} 
+                          onValueChange={(val: any) => setNewVehicle(prev => ({ ...prev, size: val }))}
+                        >
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Size" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="small">Small</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="large">Large</SelectItem>
+                            <SelectItem value="extra_large">Extra Large</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 border rounded-lg p-3 bg-gray-50 max-h-40 overflow-y-auto">
+                        {allVehicles.filter(v => v.clientId === selectedClientId).map(v => (
+                          <div key={v.id} className="flex items-center space-x-2">
+                            <Checkbox 
+                              id={`v-${v.id}`} 
+                              checked={selectedVehicleIds.includes(v.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedVehicleIds([...selectedVehicleIds, v.id]);
+                                } else {
+                                  setSelectedVehicleIds(selectedVehicleIds.filter(id => id !== v.id));
+                                }
+                              }}
+                            />
+                            <label htmlFor={`v-${v.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                              {v.year} {v.make} {v.model} {v.roNumber ? `(RO: ${v.roNumber})` : ""}
+                            </label>
+                          </div>
+                        ))}
+                        {allVehicles.filter(v => v.clientId === selectedClientId).length === 0 && (
+                          <p className="text-xs text-gray-500 italic">No vehicles found for this client.</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Line Items</Label>
-                    <Button type="button" variant="outline" size="sm" onClick={handleAddLineItem}>
-                      <Plus className="w-3 h-3 mr-1" /> Add Item
-                    </Button>
-                  </div>
-                  <div className="space-y-3">
-                    {lineItems.map((item, index) => (
-                      <div key={index} className="flex gap-3 items-end">
-                        <div className="flex-1 space-y-1">
-                          <Input 
-                            placeholder="Service name" 
-                            value={item.serviceName}
-                            onChange={(e) => handleLineItemChange(index, "serviceName", e.target.value)}
-                            className="bg-white"
-                          />
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Line Items</Label>
+                      <Button type="button" variant="outline" size="sm" onClick={handleAddLineItem}>
+                        <Plus className="w-3 h-3 mr-1" /> Add Item
+                      </Button>
+                    </div>
+                    <div className="space-y-3">
+                      {lineItems.map((item, index) => (
+                        <div key={index} className="flex gap-3 items-end">
+                          <div className="flex-1 space-y-1">
+                            <SearchableSelector
+                              options={[
+                                ...services.map(s => ({
+                                  value: s.name,
+                                  label: s.name,
+                                  description: `Service • $${s.basePrice}`
+                                })),
+                                ...addons.map(a => ({
+                                  value: a.name,
+                                  label: a.name,
+                                  description: `Add-on • $${a.price}`
+                                }))
+                              ]}
+                              value={item.serviceName}
+                              onSelect={(val) => {
+                                const service = services.find(s => s.name === val);
+                                const addon = addons.find(a => a.name === val);
+                                handleLineItemChange(index, "serviceName", val);
+                                if (service) {
+                                  handleLineItemChange(index, "price", service.basePrice);
+                                } else if (addon) {
+                                  handleLineItemChange(index, "price", addon.price);
+                                }
+                              }}
+                              placeholder="Select service or add-on..."
+                            />
+                          </div>
+                          <div className="w-32 space-y-1">
+                            <Input 
+                              type="number" 
+                              placeholder="Price" 
+                              value={item.price || ""}
+                              onChange={(e) => handleLineItemChange(index, "price", Number(e.target.value))}
+                              className="bg-white"
+                            />
+                          </div>
+                          <Button 
+                            type="button" 
+                            variant="ghost" 
+                            size="icon" 
+                            className="text-gray-400 hover:text-red-600"
+                            onClick={() => handleRemoveLineItem(index)}
+                            disabled={lineItems.length === 1}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </div>
-                        <div className="w-32 space-y-1">
-                          <Input 
-                            type="number" 
-                            placeholder="Price" 
-                            value={item.price || ""}
-                            onChange={(e) => handleLineItemChange(index, "price", Number(e.target.value))}
-                            className="bg-white"
-                          />
-                        </div>
-                        <Button 
-                          type="button" 
-                          variant="ghost" 
-                          size="icon" 
-                          className="text-gray-400 hover:text-red-600"
-                          onClick={() => handleRemoveLineItem(index)}
-                          disabled={lineItems.length === 1}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
 
                 <div className="pt-4 border-t flex justify-between items-center">
                   <span className="text-lg font-black uppercase tracking-tighter">Total</span>
                   <span className="text-2xl font-black text-primary">${calculateTotal().toFixed(2)}</span>
                 </div>
               </div>
-              <Button type="submit" className="w-full bg-primary font-bold">Create Invoice</Button>
+              <Button type="submit" disabled={isCreating} className="w-full bg-primary font-bold">
+                {isCreating ? "Saving..." : (editingInvoice ? "Update Invoice" : "Create Invoice")}
+              </Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -310,7 +501,14 @@ export default function Invoices() {
                 </TableRow>
               ) : (
                 filteredInvoices.map((inv) => (
-                  <TableRow key={inv.id} className="hover:bg-gray-50/50 transition-colors">
+                  <TableRow 
+                    key={inv.id} 
+                    className="hover:bg-gray-50/50 transition-colors cursor-pointer group"
+                    onClick={() => {
+                      setSelectedInvoice(inv);
+                      setIsDetailOpen(true);
+                    }}
+                  >
                     <TableCell className="font-mono text-xs font-bold uppercase text-gray-400">
                       #{inv.id.slice(-6)}
                     </TableCell>
@@ -346,25 +544,120 @@ export default function Invoices() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 text-gray-400 hover:text-red-600"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteInvoice(inv.id);
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                      <div className="flex justify-end gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingInvoice(inv);
+                            setSelectedClientId(inv.clientId);
+                            setLineItems(inv.lineItems);
+                            setSelectedVehicleIds(inv.vehicles.map(v => v.id));
+                            setIsAddDialogOpen(true);
+                          }}
+                        >
+                          <Settings2 className="w-4 h-4" />
+                        </Button>
+                        <DeleteConfirmationDialog
+                          trigger={
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-gray-400 hover:text-red-600"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          }
+                          title="Delete Invoice?"
+                          itemName={`Invoice #${inv.id.slice(-6).toUpperCase()}`}
+                          onConfirm={() => handleDeleteInvoice(inv.id)}
+                        />
+                    </div>
+                  </TableCell>
+                </TableRow>
                 ))
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      {/* Invoice Details Dialog */}
+      {selectedInvoice && (
+        <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+          <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden border-none shadow-2xl">
+            <div className="bg-primary p-6 text-white shrink-0">
+              <div className="flex justify-between items-start">
+                <div>
+                  <Badge className="bg-white/20 text-white border-none mb-2 uppercase font-black tracking-widest">
+                    Invoice {selectedInvoice.status}
+                  </Badge>
+                  <h2 className="text-3xl font-black tracking-tighter">#{selectedInvoice.id.slice(-6)}</h2>
+                  <p className="text-red-100 flex items-center gap-2 mt-1">
+                    <User className="w-4 h-4" /> {selectedInvoice.clientName}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-red-200 font-bold uppercase">Total Amount</p>
+                  <p className="text-3xl font-black">${selectedInvoice.total.toFixed(2)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-6 bg-white">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vehicle</p>
+                  <p className="text-lg font-bold text-gray-900">{selectedInvoice.vehicleInfo}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Due Date</p>
+                  <p className="text-lg font-bold text-gray-900">
+                    {selectedInvoice.dueDate ? format((selectedInvoice.dueDate as any).toDate(), "MMM d, yyyy") : "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Line Items</p>
+                <div className="space-y-2">
+                  {selectedInvoice.lineItems.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100">
+                      <span className="font-bold text-gray-900">{item.serviceName}</span>
+                      <span className="font-black text-primary">${item.price.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button className="flex-1 bg-primary hover:bg-red-700 font-bold">
+                  <FileText className="w-4 h-4 mr-2" /> Download PDF
+                </Button>
+                <Button variant="outline" className="flex-1 border-gray-200 font-bold">
+                  <Mail className="w-4 h-4 mr-2" /> Email Client
+                </Button>
+                <DeleteConfirmationDialog
+                  trigger={
+                    <Button 
+                      variant="ghost" 
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" /> Delete
+                    </Button>
+                  }
+                  title="Delete Invoice?"
+                  itemName={`Invoice #${selectedInvoice.id.slice(-6).toUpperCase()}`}
+                  onConfirm={() => handleDeleteInvoice(selectedInvoice.id)}
+                />
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

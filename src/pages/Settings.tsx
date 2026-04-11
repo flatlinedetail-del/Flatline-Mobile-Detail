@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { doc, updateDoc, getDoc, setDoc, collection, query, onSnapshot, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, storage } from "../firebase";
+import { db, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,19 @@ const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
   { label: "Large", value: "large" },
   { label: "Extra Large", value: "extra_large" },
 ];
+
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
 
 export default function Settings() {
   const { profile, loading: authLoading } = useAuth();
@@ -450,26 +463,100 @@ export default function Settings() {
   };
 
   const handleDeleteCategory = async (id: string) => {
-    const category = categories.find(c => c.id === id);
-    if (!category) return;
-
-    // Check if in use
-    const isServiceInUse = services.some(s => s.category === category.name);
-    const isAddonInUse = addons.some(a => (a as any).category === category.name);
-    
-    if (isServiceInUse || isAddonInUse) {
-      if (!confirm(`This category is currently being used by services or add-ons. Deleting it may cause issues. Are you sure you want to proceed?`)) {
-        return;
-      }
-    } else {
-      if (!confirm("Are you sure you want to delete this category?")) return;
-    }
-
     try {
       await deleteDoc(doc(db, "categories", id));
       toast.success("Category deleted");
     } catch (error) {
-      toast.error("Failed to delete category");
+      console.error("Error deleting category:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `categories/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete category: ${err.message}`);
+      }
+    }
+  };
+
+  const handleDeleteService = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "services", id));
+      toast.success("Service deleted");
+    } catch (error) {
+      console.error("Error deleting service:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `services/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete service: ${err.message}`);
+      }
+    }
+  };
+
+  const handleDeleteAddon = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "addons", id));
+      toast.success("Add-on deleted");
+    } catch (error) {
+      console.error("Error deleting add-on:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `addons/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete add-on: ${err.message}`);
+      }
+    }
+  };
+
+  const handleDeleteCoupon = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "coupons", id));
+      toast.success("Coupon deleted");
+    } catch (error) {
+      console.error("Error deleting coupon:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `coupons/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete coupon: ${err.message}`);
+      }
+    }
+  };
+
+  const handleDeleteStaff = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "users", id));
+      toast.success("Staff member removed");
+    } catch (error) {
+      console.error("Error deleting staff:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `users/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to remove staff: ${err.message}`);
+      }
+    }
+  };
+
+  const handleDeleteClientType = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "client_types", id));
+      toast.success("Client type deleted");
+    } catch (error) {
+      console.error("Error deleting client type:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `client_types/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete client type: ${err.message}`);
+      }
+    }
+  };
+
+  const handleDeleteClientCategory = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "client_categories", id));
+      toast.success("Client category deleted");
+    } catch (error) {
+      console.error("Error deleting client category:", error);
+      try {
+        handleFirestoreError(error, OperationType.DELETE, `client_categories/${id}`);
+      } catch (err: any) {
+        toast.error(`Failed to delete client category: ${err.message}`);
+      }
     }
   };
 
@@ -580,18 +667,18 @@ export default function Settings() {
                     <span className="font-bold">Coupons</span>
                   </TabsTrigger>
                   <TabsTrigger 
-                    value="automation" 
-                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
-                  >
-                    <DatabaseZap className="w-4 h-4" />
-                    <span className="font-bold">Automation</span>
-                  </TabsTrigger>
-                  <TabsTrigger 
                     value="integrations" 
                     className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
                   >
                     <CreditCard className="w-4 h-4" />
                     <span className="font-bold">Integrations</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="automation" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <DatabaseZap className="w-4 h-4" />
+                    <span className="font-bold">Automation</span>
                   </TabsTrigger>
                   <TabsTrigger 
                     value="security" 
@@ -759,19 +846,20 @@ export default function Settings() {
                         </SelectContent>
                       </Select>
                       {member.email !== "flatlinedetail@gmail.com" && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-9 w-9 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={async () => {
-                            if (confirm(`Remove ${member.displayName || member.email} from staff?`)) {
-                              await deleteDoc(doc(db, "users", member.id));
-                              toast.success("Staff member removed");
-                            }
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <DeleteConfirmationDialog
+                          trigger={
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-9 w-9 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          }
+                          title="Remove Staff Member?"
+                          itemName={member.email}
+                          onConfirm={() => handleDeleteStaff(member.id)}
+                        />
                       )}
                     </div>
                   </div>
@@ -1055,7 +1143,7 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="integrations">
+        <TabsContent value="integrations" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card className="border-none shadow-sm bg-white">
               <CardHeader className="flex flex-row items-center justify-between">
@@ -1069,7 +1157,16 @@ export default function Settings() {
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-gray-500 mb-4 font-medium">Used for route optimization, geocoding, and travel fee calculations.</p>
-                <Button variant="outline" className="w-full font-bold">Configure API Key</Button>
+                <div className="space-y-2">
+                  <Label>API Key</Label>
+                  <Input 
+                    type="password"
+                    value={import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "••••••••••••••••"}
+                    disabled
+                    className="bg-gray-50 border-gray-200"
+                  />
+                  <p className="text-[10px] text-gray-400 italic">API Key is managed via environment variables.</p>
+                </div>
               </CardContent>
             </Card>
 
@@ -1085,9 +1182,224 @@ export default function Settings() {
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-gray-500 mb-4 font-medium">Automatically decode VINs to get vehicle year, make, model, and size class.</p>
-                <Button variant="outline" className="w-full font-bold">Settings</Button>
+                <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                  <p className="text-xs text-gray-600 font-medium">Free public API integration. No configuration required.</p>
+                </div>
               </CardContent>
             </Card>
+
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-[#635bff] rounded-lg flex items-center justify-center text-white">
+                      <CreditCard className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <CardTitle>Stripe</CardTitle>
+                      <CardDescription>Accept credit cards and Apple Pay.</CardDescription>
+                    </div>
+                  </div>
+                  <Switch 
+                    checked={settings?.paymentIntegrations?.stripe?.enabled || false}
+                    onCheckedChange={(v) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        stripe: { ...(prev?.paymentIntegrations?.stripe || { publishableKey: "", secretKey: "" }), enabled: v }
+                      }
+                    }))}
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Publishable Key</Label>
+                  <Input 
+                    value={settings?.paymentIntegrations?.stripe?.publishableKey || ""}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        stripe: { ...(prev?.paymentIntegrations?.stripe || { enabled: false, secretKey: "" }), publishableKey: e.target.value }
+                      }
+                    }))}
+                    placeholder="pk_test_..."
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Secret Key</Label>
+                  <Input 
+                    type="password"
+                    value={settings?.paymentIntegrations?.stripe?.secretKey || ""}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        stripe: { ...(prev?.paymentIntegrations?.stripe || { enabled: false, publishableKey: "" }), secretKey: e.target.value }
+                      }
+                    }))}
+                    placeholder="sk_test_..."
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-[#f7ad00] rounded-lg flex items-center justify-center text-white">
+                      <CreditCard className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <CardTitle>Square</CardTitle>
+                      <CardDescription>Accept payments via Square Terminal or online.</CardDescription>
+                    </div>
+                  </div>
+                  <Switch 
+                    checked={settings?.paymentIntegrations?.square?.enabled || false}
+                    onCheckedChange={(v) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        square: { ...(prev?.paymentIntegrations?.square || { applicationId: "", accessToken: "", locationId: "" }), enabled: v }
+                      }
+                    }))}
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Application ID</Label>
+                  <Input 
+                    value={settings?.paymentIntegrations?.square?.applicationId || ""}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        square: { ...(prev?.paymentIntegrations?.square || { enabled: false, accessToken: "", locationId: "" }), applicationId: e.target.value }
+                      }
+                    }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Access Token</Label>
+                  <Input 
+                    type="password"
+                    value={settings?.paymentIntegrations?.square?.accessToken || ""}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        square: { ...(prev?.paymentIntegrations?.square || { enabled: false, applicationId: "", locationId: "" }), accessToken: e.target.value }
+                      }
+                    }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Location ID</Label>
+                  <Input 
+                    value={settings?.paymentIntegrations?.square?.locationId || ""}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        square: { ...(prev?.paymentIntegrations?.square || { enabled: false, applicationId: "", accessToken: "" }), locationId: e.target.value }
+                      }
+                    }))}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-[#003087] rounded-lg flex items-center justify-center text-white">
+                      <CreditCard className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <CardTitle>PayPal</CardTitle>
+                      <CardDescription>Accept PayPal and Venmo payments.</CardDescription>
+                    </div>
+                  </div>
+                  <Switch 
+                    checked={settings?.paymentIntegrations?.paypal?.enabled || false}
+                    onCheckedChange={(v) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        paypal: { ...(prev?.paymentIntegrations?.paypal || { clientId: "", clientSecret: "" }), enabled: v }
+                      }
+                    }))}
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Client ID</Label>
+                  <Input 
+                    value={settings?.paymentIntegrations?.paypal?.clientId || ""}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        paypal: { ...(prev?.paymentIntegrations?.paypal || { enabled: false, clientSecret: "" }), clientId: e.target.value }
+                      }
+                    }))}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-[#3cb371] rounded-lg flex items-center justify-center text-white">
+                      <Truck className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <CardTitle>Clover</CardTitle>
+                      <CardDescription>Accept payments via Clover devices.</CardDescription>
+                    </div>
+                  </div>
+                  <Switch 
+                    checked={settings?.paymentIntegrations?.clover?.enabled || false}
+                    onCheckedChange={(v) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        clover: { ...(prev?.paymentIntegrations?.clover || { merchantId: "", accessToken: "" }), enabled: v }
+                      }
+                    }))}
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Merchant ID</Label>
+                  <Input 
+                    value={settings?.paymentIntegrations?.clover?.merchantId || ""}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        clover: { ...(prev?.paymentIntegrations?.clover || { enabled: false, accessToken: "" }), merchantId: e.target.value }
+                      }
+                    }))}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => handleSaveSettings(settings!)} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
+              Save Integrations
+            </Button>
           </div>
         </TabsContent>
 
@@ -1137,13 +1449,16 @@ export default function Settings() {
                         >
                           <Edit2 className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => {
-                          if (confirm("Are you sure you want to delete this service?")) {
-                            deleteDoc(doc(db, "services", service.id));
+                        <DeleteConfirmationDialog
+                          trigger={
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
                           }
-                        }}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                          title="Delete Service?"
+                          itemName={service.name}
+                          onConfirm={() => handleDeleteService(service.id)}
+                        />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-xs">
@@ -1195,13 +1510,16 @@ export default function Settings() {
                         >
                           <Edit2 className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => {
-                          if (confirm("Are you sure you want to delete this add-on?")) {
-                            deleteDoc(doc(db, "addons", addon.id));
+                        <DeleteConfirmationDialog
+                          trigger={
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
                           }
-                        }}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                          title="Delete Add-on?"
+                          itemName={addon.name}
+                          onConfirm={() => handleDeleteAddon(addon.id)}
+                        />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-xs">
@@ -1269,6 +1587,16 @@ export default function Settings() {
                       value={editingService?.estimatedDuration?.toString() || ""} 
                       onValueChange={val => setEditingService(prev => ({ ...prev!, estimatedDuration: parseInt(val) || 0 }))}
                       required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Buffer Time (minutes)</Label>
+                    <StableInput 
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="e.g. 15"
+                      value={editingService?.bufferTimeMinutes?.toString() || ""} 
+                      onValueChange={val => setEditingService(prev => ({ ...prev!, bufferTimeMinutes: parseInt(val) || 0 }))}
                     />
                   </div>
                   <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
@@ -1383,6 +1711,16 @@ export default function Settings() {
                     />
                   </div>
                 </div>
+                <div className="space-y-2">
+                  <Label>Buffer Time (minutes)</Label>
+                  <StableInput 
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="e.g. 5"
+                    value={editingAddon?.bufferTimeMinutes?.toString() || ""} 
+                    onValueChange={val => setEditingAddon(prev => ({ ...prev!, bufferTimeMinutes: parseInt(val) || 0 }))}
+                  />
+                </div>
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <Label>Taxable</Label>
                   <Switch 
@@ -1479,14 +1817,20 @@ export default function Settings() {
                                 >
                                   <Edit2 className="w-4 h-4" />
                                 </Button>
-                                <Button 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="h-8 w-8 text-gray-400 hover:text-red-600"
-                                  onClick={() => handleDeleteCategory(cat.id)}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                <DeleteConfirmationDialog
+                                  trigger={
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      className="h-8 w-8 text-gray-400 hover:text-red-600"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  }
+                                  title="Delete Category?"
+                                  itemName={cat.name}
+                                  onConfirm={() => handleDeleteCategory(cat.id)}
+                                />
                               </div>
                             </div>
                           ))}
@@ -1705,19 +2049,20 @@ export default function Settings() {
                         >
                           <Edit2 className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-gray-400 hover:text-red-600"
-                          onClick={async () => {
-                            if (confirm("Delete this coupon?")) {
-                              await deleteDoc(doc(db, "coupons", coupon.id));
-                              toast.success("Coupon deleted");
-                            }
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <DeleteConfirmationDialog
+                          trigger={
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-gray-400 hover:text-red-600"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          }
+                          title="Delete Coupon?"
+                          itemName={coupon.code}
+                          onConfirm={() => handleDeleteCoupon(coupon.id)}
+                        />
                       </div>
                     </div>
                     <div className="space-y-1">
@@ -1950,180 +2295,7 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="integrations">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card className="border-none shadow-sm bg-white">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-                    <CreditCard className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Stripe</CardTitle>
-                    <CardDescription>Accept credit cards and Apple Pay.</CardDescription>
-                  </div>
-                </div>
-                <Switch 
-                  checked={settings?.paymentIntegrations?.stripe?.enabled || false}
-                  onCheckedChange={(val) => handleSaveSettings({ 
-                    paymentIntegrations: { ...settings?.paymentIntegrations, stripe: { ...settings?.paymentIntegrations?.stripe!, enabled: val } } 
-                  })}
-                />
-              </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label>Publishable Key</Label>
-                  <StableInput 
-                    type="password"
-                    value={settings?.paymentIntegrations?.stripe?.publishableKey || ""}
-                    onValueChange={(val) => handleSaveSettings({ 
-                      paymentIntegrations: { ...settings?.paymentIntegrations, stripe: { ...settings?.paymentIntegrations?.stripe!, publishableKey: val } } 
-                    })}
-                    placeholder="pk_test_..."
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Secret Key</Label>
-                  <StableInput 
-                    type="password"
-                    value={settings?.paymentIntegrations?.stripe?.secretKey || ""}
-                    onValueChange={(val) => handleSaveSettings({ 
-                      paymentIntegrations: { ...settings?.paymentIntegrations, stripe: { ...settings?.paymentIntegrations?.stripe!, secretKey: val } } 
-                    })}
-                    placeholder="sk_test_..."
-                  />
-                </div>
-                <p className="text-[10px] text-gray-400 italic">Requires Stripe account setup. Live payments require valid API keys.</p>
-              </CardContent>
-            </Card>
 
-            <Card className="border-none shadow-sm bg-white">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center">
-                    <Layout className="w-5 h-5 text-gray-900" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Square</CardTitle>
-                    <CardDescription>Process payments via Square Terminal or Web.</CardDescription>
-                  </div>
-                </div>
-                <Switch 
-                  checked={settings?.paymentIntegrations?.square?.enabled || false}
-                  onCheckedChange={(val) => handleSaveSettings({ 
-                    paymentIntegrations: { ...settings?.paymentIntegrations, square: { ...settings?.paymentIntegrations?.square!, enabled: val } } 
-                  })}
-                />
-              </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label>Application ID</Label>
-                  <StableInput 
-                    value={settings?.paymentIntegrations?.square?.applicationId || ""}
-                    onValueChange={(val) => handleSaveSettings({ 
-                      paymentIntegrations: { ...settings?.paymentIntegrations, square: { ...settings?.paymentIntegrations?.square!, applicationId: val } } 
-                    })}
-                    placeholder="sq0idp-..."
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Access Token</Label>
-                  <StableInput 
-                    type="password"
-                    value={settings?.paymentIntegrations?.square?.accessToken || ""}
-                    onValueChange={(val) => handleSaveSettings({ 
-                      paymentIntegrations: { ...settings?.paymentIntegrations, square: { ...settings?.paymentIntegrations?.square!, accessToken: val } } 
-                    })}
-                    placeholder="EAAA..."
-                  />
-                </div>
-                <p className="text-[10px] text-gray-400 italic">Connect your Square account to sync transactions.</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-none shadow-sm bg-white">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-                    <Globe className="w-5 h-5 text-blue-500" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">PayPal</CardTitle>
-                    <CardDescription>Accept PayPal and Venmo payments.</CardDescription>
-                  </div>
-                </div>
-                <Switch 
-                  checked={settings?.paymentIntegrations?.paypal?.enabled || false}
-                  onCheckedChange={(val) => handleSaveSettings({ 
-                    paymentIntegrations: { ...settings?.paymentIntegrations, paypal: { ...settings?.paymentIntegrations?.paypal!, enabled: val } } 
-                  })}
-                />
-              </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label>Client ID</Label>
-                  <StableInput 
-                    value={settings?.paymentIntegrations?.paypal?.clientId || ""}
-                    onValueChange={(val) => handleSaveSettings({ 
-                      paymentIntegrations: { ...settings?.paymentIntegrations, paypal: { ...settings?.paymentIntegrations?.paypal!, clientId: val } } 
-                    })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Client Secret</Label>
-                  <StableInput 
-                    type="password"
-                    value={settings?.paymentIntegrations?.paypal?.clientSecret || ""}
-                    onValueChange={(val) => handleSaveSettings({ 
-                      paymentIntegrations: { ...settings?.paymentIntegrations, paypal: { ...settings?.paymentIntegrations?.paypal!, clientSecret: val } } 
-                    })}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-none shadow-sm bg-white">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center">
-                    <Truck className="w-5 h-5 text-green-600" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Clover</CardTitle>
-                    <CardDescription>Integrate with Clover POS systems.</CardDescription>
-                  </div>
-                </div>
-                <Switch 
-                  checked={settings?.paymentIntegrations?.clover?.enabled || false}
-                  onCheckedChange={(val) => handleSaveSettings({ 
-                    paymentIntegrations: { ...settings?.paymentIntegrations, clover: { ...settings?.paymentIntegrations?.clover!, enabled: val } } 
-                  })}
-                />
-              </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label>Merchant ID</Label>
-                  <StableInput 
-                    value={settings?.paymentIntegrations?.clover?.merchantId || ""}
-                    onValueChange={(val) => handleSaveSettings({ 
-                      paymentIntegrations: { ...settings?.paymentIntegrations, clover: { ...settings?.paymentIntegrations?.clover!, merchantId: val } } 
-                    })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Access Token</Label>
-                  <StableInput 
-                    type="password"
-                    value={settings?.paymentIntegrations?.clover?.accessToken || ""}
-                    onValueChange={(val) => handleSaveSettings({ 
-                      paymentIntegrations: { ...settings?.paymentIntegrations, clover: { ...settings?.paymentIntegrations?.clover!, accessToken: val } } 
-                    })}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
         <TabsContent value="security">
           <Card className="border-none shadow-sm bg-white">
             <CardHeader>
@@ -2278,25 +2450,20 @@ export default function Settings() {
                           <span className="font-bold text-gray-900">{type.name}</span>
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-gray-400 hover:text-red-600" 
-                            onClick={async () => {
-                              // Using a simple toast confirmation pattern for now to avoid window.confirm
-                              toast("Delete this client type?", {
-                                action: {
-                                  label: "Delete",
-                                  onClick: async () => {
-                                    await deleteDoc(doc(db, "client_types", type.id));
-                                    toast.success("Client type deleted");
-                                  }
-                                }
-                              });
-                            }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <DeleteConfirmationDialog
+                            trigger={
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 text-gray-400 hover:text-red-600" 
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            }
+                            title="Delete Client Type?"
+                            itemName={type.name}
+                            onConfirm={() => handleDeleteClientType(type.id)}
+                          />
                         </div>
                       </div>
                     ))}
@@ -2359,19 +2526,20 @@ export default function Settings() {
         </div>
 
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={async () => {
-              if (confirm("Delete this category?")) {
-                await deleteDoc(doc(db, "client_categories", cat.id));
-                toast.success("Category deleted");
-              }
-            }}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <DeleteConfirmationDialog
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            }
+            title="Delete Client Category?"
+            itemName={cat.name}
+            onConfirm={() => handleDeleteClientCategory(cat.id)}
+          />
         </div>
       </div>
     ))}
@@ -2385,6 +2553,8 @@ export default function Settings() {
 </div>
 </div>
 </TabsContent>
+
+
 </div>
 </Tabs>
 </div>

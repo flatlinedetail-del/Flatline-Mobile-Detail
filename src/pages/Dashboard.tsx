@@ -376,7 +376,7 @@ export default function Dashboard() {
             </div>
             <Button 
               className="w-full bg-primary text-white hover:bg-red-700 font-bold mt-4"
-              onClick={() => (window as any).openAIAssistant?.()}
+              onClick={() => (window as any).openAIAssistant?.({ stats, upcomingJobs, recentLeads })}
             >
               Ask Assistant
             </Button>

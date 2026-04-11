@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectIt
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardList, Search, Filter, MoreHorizontal, Phone, Mail, MapPin, Calendar, Clock, ArrowRight, Plus, Car, User, Loader2, Star, Truck, Repeat, Trash2 } from "lucide-react";
+import { ClipboardList, Search, Filter, MoreHorizontal, Phone, Mail, MapPin, Calendar, Clock, ArrowRight, Plus, Car, User, Loader2, Star, Truck, Repeat, Trash2, Save, Settings2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { format, addHours } from "date-fns";
@@ -26,6 +26,23 @@ import { StableInput } from "../components/StableInput";
 import { calculateDistance, calculateTravelFee, estimateTravelTime } from "../services/travelService";
 import { BusinessSettings } from "../types";
 
+import { SearchableSelector } from "../components/SearchableSelector";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
+
 export default function Appointments() {
   const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -35,6 +52,7 @@ export default function Appointments() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState<any>(null);
   const [clients, setClients] = useState<any[]>([]);
   const [clientTypes, setClientTypes] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
@@ -152,7 +170,7 @@ export default function Appointments() {
   }, [profile, authLoading]);
 
   useEffect(() => {
-    if (location.state?.lead || location.state?.openAddDialog) {
+    if (location.state?.lead || location.state?.openAddDialog || location.state?.editingAppointmentId) {
       if (location.state?.lead) {
         const lead = location.state.lead;
         const existingClient = clients.find(c => c.phone === lead.phone || c.email === lead.email);
@@ -165,12 +183,17 @@ export default function Appointments() {
         }
       } else if (location.state?.clientId) {
         setSelectedCustomerId(location.state.clientId);
+      } else if (location.state?.editingAppointmentId) {
+        const appToEdit = appointments.find(a => a.id === location.state.editingAppointmentId);
+        if (appToEdit) {
+          setEditingAppointment(appToEdit);
+        }
       }
       setShowAddDialog(true);
       // Clear state so it doesn't reopen on refresh
       window.history.replaceState({}, document.title);
     }
-  }, [location.state, clients]);
+  }, [location.state, clients, appointments]);
 
   // Auto-fill address when client is selected
   useEffect(() => {
@@ -208,19 +231,55 @@ export default function Appointments() {
 
   useEffect(() => {
     if (showAddDialog) {
-      setIsAddressManual(false);
-      setIsRecurring(false);
-      setRecurringFrequency("weekly");
-      setRecurringInterval(1);
-      setRecurringEndDate("");
-      setDiscount(0);
-      setRedeemedPoints(0);
-      setCouponCode("");
-      setSelectedServices([]);
-      setSelectedAddons([]);
-      setWaiverAccepted(false);
+      if (!editingAppointment) {
+        setIsAddressManual(false);
+        setIsRecurring(false);
+        setRecurringFrequency("weekly");
+        setRecurringInterval(1);
+        setRecurringEndDate("");
+        setDiscount(0);
+        setRedeemedPoints(0);
+        setCouponCode("");
+        setSelectedServices([]);
+        setSelectedAddons([]);
+        setWaiverAccepted(false);
+        setAppointmentAddress({ address: "", lat: 0, lng: 0 });
+        setSelectedCustomerId("");
+        setVehicleInfo("");
+        setVin("");
+        setVehicleSize("medium");
+        setBaseAmount(0);
+      } else {
+        // Pre-fill for editing
+        setSelectedCustomerId(editingAppointment.clientId || editingAppointment.customerId || "");
+        setVehicleInfo(editingAppointment.vehicleInfo || "");
+        setVehicleSize(editingAppointment.vehicleSize || "medium");
+        setVin(editingAppointment.vin || "");
+        setAppointmentAddress({ 
+          address: editingAppointment.address || "", 
+          lat: editingAppointment.latitude || 0, 
+          lng: editingAppointment.longitude || 0 
+        });
+        setBaseAmount(editingAppointment.baseAmount || 0);
+        setSelectedServices(editingAppointment.serviceSelections || []);
+        setSelectedAddons(editingAppointment.addOnSelections || []);
+        setWaiverAccepted(editingAppointment.waiverAccepted || false);
+        setDiscount(editingAppointment.discountAmount || 0);
+        setRedeemedPoints(editingAppointment.redeemedPoints || 0);
+        
+        if (editingAppointment.scheduledAt) {
+          const date = editingAppointment.scheduledAt.toDate();
+          const dateStr = format(date, "yyyy-MM-dd'T'HH:mm");
+          setTimeout(() => {
+            const input = document.getElementById("scheduledAt") as HTMLInputElement;
+            if (input) input.value = dateStr;
+          }, 0);
+        }
+      }
+    } else {
+      setEditingAppointment(null);
     }
-  }, [showAddDialog]);
+  }, [showAddDialog, editingAppointment]);
 
   useEffect(() => {
     if (selectedCustomerId) {
@@ -300,7 +359,23 @@ export default function Appointments() {
       };
     });
 
-    const newJob = {
+    const totalDuration = selectedServices.reduce((acc, s) => {
+      const service = services.find(srv => srv.id === s.id);
+      return acc + (service?.estimatedDuration || 0) * s.qty;
+    }, 0) + selectedAddons.reduce((acc, a) => {
+      const addon = addons.find(ad => ad.id === a.id);
+      return acc + (addon?.estimatedDuration || 0) * a.qty;
+    }, 0);
+
+    const totalBuffer = selectedServices.reduce((acc, s) => {
+      const service = services.find(srv => srv.id === s.id);
+      return acc + (service?.bufferTimeMinutes || 0);
+    }, 0) + selectedAddons.reduce((acc, a) => {
+      const addon = addons.find(ad => ad.id === a.id);
+      return acc + (addon?.bufferTimeMinutes || 0);
+    }, 0);
+
+    const appointmentData: any = {
       clientId,
       customerId: clientId, // Backward compatibility
       customerName: getClientDisplayName(client),
@@ -315,7 +390,7 @@ export default function Appointments() {
       latitude: appointmentAddress.lat,
       longitude: appointmentAddress.lng,
       scheduledAt: new Date(formData.get("scheduledAt") as string),
-      status: "scheduled",
+      status: editingAppointment?.status || "scheduled",
       baseAmount: totalAmount,
       travelFee: travelFee,
       travelFeeBreakdown: travelFeeData ? {
@@ -337,23 +412,34 @@ export default function Appointments() {
       waiverAccepted,
       estimatedTravelTime: travelFeeData ? estimateTravelTime(travelFeeData.miles) : 0,
       estimatedTravelDistance: travelFeeData ? travelFeeData.miles : 0,
+      totalDurationMinutes: totalDuration,
+      totalBufferMinutes: totalBuffer,
       recurringInfo: isRecurring ? {
         frequency: recurringFrequency,
         interval: recurringInterval,
         endDate: recurringEndDate ? new Date(recurringEndDate) : null,
-        seriesId: Math.random().toString(36).substring(7)
+        seriesId: editingAppointment?.recurringInfo?.seriesId || Math.random().toString(36).substring(7)
       } : null,
-      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     };
 
     try {
-      const docRef = await addDoc(collection(db, "appointments"), newJob);
-      toast.success("Appointment created!");
+      if (editingAppointment) {
+        await updateDoc(doc(db, "appointments", editingAppointment.id), appointmentData);
+        toast.success("Appointment updated!");
+      } else {
+        const docRef = await addDoc(collection(db, "appointments"), {
+          ...appointmentData,
+          createdAt: serverTimestamp(),
+        });
+        toast.success("Appointment created!");
+        navigate(`/appointments/${docRef.id}`);
+      }
       setShowAddDialog(false);
-      navigate(`/appointments/${docRef.id}`);
+      setEditingAppointment(null);
     } catch (error) {
-      console.error("Error creating appointment:", error);
-      toast.error("Failed to create appointment");
+      console.error("Error saving appointment:", error);
+      toast.error("Failed to save appointment");
     } finally {
       setIsCreating(false);
     }
@@ -383,7 +469,7 @@ export default function Appointments() {
       toast.error("Invalid appointment ID");
       return;
     }
-    
+
     try {
       await deleteDoc(doc(db, "appointments", id));
       toast.success("Appointment deleted successfully");
@@ -445,40 +531,25 @@ export default function Appointments() {
           </Button>
           <DialogContent className="max-w-xl bg-white rounded-2xl border-none shadow-2xl p-0 overflow-hidden flex flex-col">
             <DialogHeader className="p-6 bg-gray-50/50 border-b border-gray-100 shrink-0">
-              <DialogTitle className="text-xl font-bold text-gray-900">Schedule New Job</DialogTitle>
+              <DialogTitle className="text-xl font-bold text-gray-900">
+                {editingAppointment ? "Edit Appointment" : "Schedule New Job"}
+              </DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreateAppointment} className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="customerId">Select Client</Label>
-                    <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId} required>
-                      <SelectTrigger className="bg-white border-gray-200">
-                        <SelectValue placeholder="Select a client" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white">
-                        {clients.map(c => {
-                          const displayName = getClientDisplayName(c);
-                          const isDuplicate = clients.filter(other => getClientDisplayName(other) === displayName).length > 1;
-                          const type = clientTypes.find(t => t.id === c.clientTypeId);
-                          return (
-                            <SelectItem key={c.id} value={c.id}>
-                              <div className="flex flex-col">
-                                <div className="flex items-center gap-2">
-                                  <SelectItemText className="font-bold">{displayName}</SelectItemText>
-                                  {type && <Badge variant="outline" className="text-[8px] h-3 px-1">{type.name}</Badge>}
-                                </div>
-                                {isDuplicate && (
-                                  <span className="text-[10px] text-gray-500">
-                                    {c.phone || c.email || (c.address ? c.address.substring(0, 30) + "..." : "No secondary info")}
-                                  </span>
-                                )}
-                              </div>
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelector
+                      options={clients.map(c => ({
+                        value: c.id,
+                        label: getClientDisplayName(c),
+                        description: `${c.email || "No email"} • ${c.phone || "No phone"}`
+                      }))}
+                      value={selectedCustomerId}
+                      onSelect={(val) => setSelectedCustomerId(val)}
+                      placeholder="Search for a client..."
+                    />
                   </div>
                   {availableVehicles.length > 0 && (
                     <div className="space-y-2 col-span-2">
@@ -855,8 +926,8 @@ export default function Appointments() {
               <div className="flex justify-end gap-3 p-6 border-t bg-gray-50/50 shrink-0">
                 <Button variant="outline" type="button" onClick={() => setShowAddDialog(false)} className="font-bold">Cancel</Button>
                 <Button type="submit" className="bg-primary hover:bg-red-700 font-bold" disabled={isCreating}>
-                  {isCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
-                  Schedule Job
+                  {isCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : (editingAppointment ? <Save className="w-4 h-4 mr-2" /> : <Plus className="w-4 h-4 mr-2" />)}
+                  {editingAppointment ? "Update Appointment" : "Schedule Job"}
                 </Button>
               </div>
             </form>
@@ -973,24 +1044,38 @@ export default function Appointments() {
                           className="h-8 w-8 text-gray-400 hover:text-primary"
                           onClick={(e) => {
                             e.stopPropagation();
+                            setEditingAppointment(app);
+                            setShowAddDialog(true);
+                          }}
+                        >
+                          <Settings2 className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             navigate(`/appointments/${app.id}`);
                           }}
                         >
                           <ArrowRight className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-gray-400 hover:text-red-600"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (window.confirm("Are you sure you want to delete this appointment?")) {
-                              handleDeleteAppointment(app.id);
-                            }
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <DeleteConfirmationDialog
+                          trigger={
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-gray-400 hover:text-red-600"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          }
+                          title="Delete Appointment?"
+                          itemName={`${app.customerName} - ${app.vehicleInfo}`}
+                          onConfirm={() => handleDeleteAppointment(app.id)}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
