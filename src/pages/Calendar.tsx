@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2 } from "lucide-react";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { format, startOfDay, endOfDay, isSameDay, addDays, subDays } from "date-fns";
-import { cn } from "@/lib/utils";
+import { cn, formatDuration } from "@/lib/utils";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { optimizeRoute, RouteStop } from "../lib/scheduling";
@@ -54,8 +54,14 @@ export default function Calendar() {
   useEffect(() => {
     if (date) {
       optimizeRoute(date)
-        .then(setOptimizedStops)
-        .catch(error => console.error("Error optimizing route in Calendar:", error));
+        .then(({ stops, error }) => {
+          setOptimizedStops(stops);
+          if (error) toast.error(error);
+        })
+        .catch(error => {
+          console.error("Error optimizing route in Calendar:", error);
+          toast.error("An unexpected error occurred while optimizing the route.");
+        });
     }
   }, [date, appointments]);
 
@@ -172,7 +178,7 @@ export default function Calendar() {
             <CardContent className="p-6">
               {loading ? (
                 <div className="text-center py-12 text-gray-500">Loading schedule...</div>
-              ) : optimizedStops.length === 0 ? (
+              ) : (!optimizedStops || optimizedStops.length === 0) ? (
                 <div className="text-center py-12 space-y-4">
                   <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-gray-300 mx-auto">
                     <CalendarIcon className="w-8 h-8" />
@@ -197,7 +203,7 @@ export default function Calendar() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                            <span>Travel: {app.travelTimeFromPrevious} mins</span>
+                            <span>Travel: {formatDuration(app.travelTimeFromPrevious)}</span>
                             <span className="w-1 h-1 bg-gray-300 rounded-full" />
                             <span>{app.distanceFromPrevious} miles</span>
                           </div>
@@ -236,7 +242,7 @@ export default function Calendar() {
                         <div className="flex-shrink-0 text-right md:pl-4 md:border-l md:border-gray-100 flex flex-col items-end gap-2">
                           <p className="text-xl font-black text-gray-900">${app.totalAmount || 0}</p>
                           <div className="flex items-center gap-2">
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Est. 2.5 hrs</p>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Est. {formatDuration(app.estimatedDuration || 120)}</p>
                             <Button 
                               variant="ghost" 
                               size="icon" 

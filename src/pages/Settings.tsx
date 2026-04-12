@@ -1351,6 +1351,20 @@ export default function Settings() {
                     }))}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label>Client Secret</Label>
+                  <Input 
+                    type="password"
+                    value={settings?.paymentIntegrations?.paypal?.clientSecret || ""}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        paypal: { ...(prev?.paymentIntegrations?.paypal || { enabled: false, clientId: "" }), clientSecret: e.target.value }
+                      }
+                    }))}
+                  />
+                </div>
               </CardContent>
             </Card>
 
@@ -1359,7 +1373,7 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-[#3cb371] rounded-lg flex items-center justify-center text-white">
-                      <Truck className="w-6 h-6" />
+                      <CreditCard className="w-6 h-6" />
                     </div>
                     <div>
                       <CardTitle>Clover</CardTitle>
@@ -1388,6 +1402,20 @@ export default function Settings() {
                       paymentIntegrations: {
                         ...prev?.paymentIntegrations,
                         clover: { ...(prev?.paymentIntegrations?.clover || { enabled: false, accessToken: "" }), merchantId: e.target.value }
+                      }
+                    }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Access Token</Label>
+                  <Input 
+                    type="password"
+                    value={settings?.paymentIntegrations?.clover?.accessToken || ""}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev!,
+                      paymentIntegrations: {
+                        ...prev?.paymentIntegrations,
+                        clover: { ...(prev?.paymentIntegrations?.clover || { enabled: false, merchantId: "" }), accessToken: e.target.value }
                       }
                     }))}
                   />

@@ -15,6 +15,7 @@ export interface RouteStop {
   status: string;
   priority: number;
   totalAmount: number;
+  estimatedDuration: number; // in minutes
   travelTimeFromPrevious?: number; // in minutes
   distanceFromPrevious?: number; // in miles
   optimizationNote?: string;
@@ -27,7 +28,7 @@ export interface RouteStop {
  * 3. Uses Nearest Neighbor algorithm to suggest optimal sequence
  * 4. Calculates real travel estimates
  */
-export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
+export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], error?: string }> {
   const start = new Date(date);
   start.setHours(0, 0, 0, 0);
   const end = new Date(date);
@@ -56,8 +57,8 @@ export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
 
       // Fallback to geocoding if coordinates are missing
       if ((!lat || !lng) && data.address) {
-        const coords = await geocodeAddress(data.address);
-        if (coords) {
+        try {
+          const coords = await geocodeAddress(data.address);
           lat = coords.lat;
           lng = coords.lng;
           // Update the document with coordinates for future use
@@ -65,6 +66,9 @@ export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
             latitude: lat,
             longitude: lng
           });
+        } catch (error) {
+          console.error(`Geocoding failed for ${data.address}:`, error);
+          // Continue without coordinates, will be handled by Nearest Neighbor distance check
         }
       }
 
@@ -79,10 +83,11 @@ export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
         status: data.status,
         priority: data.status === "en_route" ? 1 : 2,
         totalAmount: data.totalAmount || 0,
+        estimatedDuration: data.estimatedDuration || 120,
       };
     }));
 
-    if (rawStops.length === 0) return [];
+    if (rawStops.length === 0) return { stops: [] };
 
     // 2. Optimization Algorithm (Nearest Neighbor)
     // We start from the business base location
@@ -121,7 +126,7 @@ export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
       currentLng = nextStop.longitude;
     }
 
-    return optimized;
+    return { stops: optimized };
   } catch (error) {
     console.error("Route optimization failed:", error);
     // Fallback: Return time-sorted stops without distance calculations if everything fails
@@ -132,7 +137,7 @@ export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
       orderBy("scheduledAt", "asc")
     );
     const snapshot = await getDocs(qFallback);
-    return snapshot.docs.map(doc => {
+    const stops = snapshot.docs.map(doc => {
       const data = doc.data() as Appointment;
       return {
         id: doc.id,
@@ -145,9 +150,11 @@ export async function optimizeRoute(date: Date): Promise<RouteStop[]> {
         status: data.status,
         priority: 2,
         totalAmount: data.totalAmount || 0,
+        estimatedDuration: data.estimatedDuration || 120,
         optimizationNote: "Fallback: Sorted by time"
       };
     });
+    return { stops, error: "Route optimization failed. Showing time-sorted list." };
   }
 }
 

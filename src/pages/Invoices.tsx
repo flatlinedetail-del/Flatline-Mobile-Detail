@@ -283,7 +283,7 @@ export default function Invoices() {
                     options={clients.map(c => ({
                       value: c.id,
                       label: getClientDisplayName(c),
-                      description: `${c.email || "No email"} • ${c.phone || "No phone"}`
+                      description: `${c.email || "No email"} • ${c.phone || "No phone"} • ${c.firstName || ""} ${c.lastName || ""} ${c.businessName || ""}`
                     }))}
                     value={selectedClientId}
                     onSelect={(val) => {

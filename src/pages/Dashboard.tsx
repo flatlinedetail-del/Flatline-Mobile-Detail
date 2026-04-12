@@ -22,11 +22,12 @@ import {
   MessageSquare,
   Receipt,
   TrendingDown,
-  BarChart3
+  BarChart3,
+  Truck
 } from "lucide-react";
 import { format, startOfDay, endOfDay, isToday, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { useNavigate } from "react-router-dom";
-import { cn } from "@/lib/utils";
+import { cn, formatDuration } from "@/lib/utils";
 import { optimizeRoute, RouteStop } from "@/lib/scheduling";
 import { Appointment, Lead, Expense } from "@/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -153,8 +154,14 @@ export default function Dashboard() {
 
     // 4. Route Optimization
     optimizeRoute(today)
-      .then(setOptimizedRoute)
-      .catch(error => console.error("Error optimizing route:", error));
+      .then(({ stops, error }) => {
+        setOptimizedRoute(Array.isArray(stops) ? stops : []);
+        if (error) toast.error(error);
+      })
+      .catch(error => {
+        console.error("Error optimizing route:", error);
+        setOptimizedRoute([]);
+      });
 
     setLoading(false);
 
@@ -309,15 +316,28 @@ export default function Dashboard() {
           <CardHeader className="border-b bg-gray-50/50 flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-lg font-black text-gray-900">Today's Optimized Route</CardTitle>
-              <p className="text-xs text-gray-500 font-medium">Sequence based on travel efficiency</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xs text-gray-500 font-medium">Sequence based on travel efficiency</p>
+                {optimizedRoute.length > 0 && (
+                  <>
+                    <span className="w-1 h-1 bg-gray-300 rounded-full" />
+                    <p className="text-xs font-bold text-primary">
+                      {formatDuration(optimizedRoute.reduce((acc, stop) => acc + (stop.travelTimeFromPrevious || 0), 0))} travel
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => optimizeRoute(new Date()).then(setOptimizedRoute)}>
+            <Button variant="outline" size="sm" onClick={() => optimizeRoute(new Date()).then(({ stops, error }) => {
+              setOptimizedRoute(Array.isArray(stops) ? stops : []);
+              if (error) toast.error(error);
+            }).catch(() => setOptimizedRoute([]))}>
               Re-Optimize
             </Button>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y divide-gray-100">
-              {optimizedRoute.length === 0 ? (
+              {(!optimizedRoute || optimizedRoute.length === 0) ? (
                 <div className="p-12 text-center text-gray-400">No jobs scheduled for today.</div>
               ) : (
                 optimizedRoute.map((stop, idx) => (
@@ -331,14 +351,21 @@ export default function Dashboard() {
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-1">
                         <p className="font-bold text-gray-900">{stop.customerName || "Client"}</p>
-                        <Badge variant="outline" className={cn(
-                          "text-[10px] uppercase font-black",
-                          stop.status === "completed" ? "bg-green-50 text-green-700 border-green-200" :
-                          stop.status === "in_progress" ? "bg-red-50 text-primary border-red-200" :
-                          "bg-gray-50 text-gray-700 border-gray-200"
-                        )}>
-                          {stop.status.replace("_", " ")}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          {stop.travelTimeFromPrevious !== undefined && stop.travelTimeFromPrevious > 0 && (
+                            <Badge variant="secondary" className="text-[10px] font-bold bg-blue-50 text-blue-700 border-blue-100">
+                              <Truck className="w-3 h-3 mr-1" /> {formatDuration(stop.travelTimeFromPrevious)}
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className={cn(
+                            "text-[10px] uppercase font-black",
+                            stop.status === "completed" ? "bg-green-50 text-green-700 border-green-200" :
+                            stop.status === "in_progress" ? "bg-red-50 text-primary border-red-200" :
+                            "bg-gray-50 text-gray-700 border-gray-200"
+                          )}>
+                            {stop.status.replace("_", " ")}
+                          </Badge>
+                        </div>
                       </div>
                       <p className="text-sm text-gray-600 flex items-center gap-1">
                         <MapPin className="w-3 h-3 text-gray-400" /> {stop.address}

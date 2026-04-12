@@ -246,6 +246,7 @@ export interface Appointment {
   };
   estimatedTravelTime?: number; // in minutes
   estimatedTravelDistance?: number; // in miles
+  estimatedDuration?: number; // in minutes
   followUpSent?: boolean;
   followUpSentAt?: Timestamp;
   createdAt: Timestamp;
@@ -342,6 +343,8 @@ export interface BusinessSettings {
   automationSettings?: {
     followUpEnabled: boolean;
     delayHours: number;
+    maintenanceReturnWeeks?: number;
+    autoCreateLeads?: boolean;
     channels: "email" | "sms" | "both";
     includeReviewLink: boolean;
     googleReviewUrl?: string;
@@ -354,6 +357,7 @@ export interface BusinessSettings {
       enabled: boolean;
       publishableKey: string;
       secretKey: string;
+      webhookSecret?: string;
     };
     square?: {
       enabled: boolean;
