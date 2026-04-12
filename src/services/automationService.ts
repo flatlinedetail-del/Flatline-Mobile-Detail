@@ -11,7 +11,7 @@ import {
   serverTimestamp
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { Appointment, Client, BusinessSettings } from "../types";
+import { Appointment, Client, BusinessSettings, Service } from "../types";
 
 export async function processFollowUps() {
   try {
@@ -100,3 +100,73 @@ export async function processFollowUps() {
     return { processed: 0, errors: 1 };
   }
 }
+
+export async function processMaintenanceAutomation(appointment: Appointment) {
+  try {
+    // 1. Get services for this appointment
+    const servicesSnap = await getDocs(query(collection(db, "services"), where("id", "in", appointment.serviceIds)));
+    const services = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service));
+
+    for (const service of services) {
+      if (service.maintenanceReturnEnabled) {
+        // 2. Calculate next maintenance date
+        const nextMaintenanceDate = new Date(appointment.scheduledAt.toDate());
+        if (service.maintenanceIntervalDays) {
+          nextMaintenanceDate.setDate(nextMaintenanceDate.getDate() + service.maintenanceIntervalDays);
+        } else if (service.maintenanceIntervalMonths) {
+          nextMaintenanceDate.setMonth(nextMaintenanceDate.getMonth() + service.maintenanceIntervalMonths);
+        }
+
+        // 3. Create future calendar return
+        if (service.autoCreateCalendarReturn) {
+          await addDoc(collection(db, "appointments"), {
+            customerId: appointment.customerId,
+            clientId: appointment.clientId,
+            customerName: appointment.customerName,
+            customerType: appointment.customerType,
+            vehicleId: appointment.vehicleId,
+            vehicleInfo: appointment.vehicleInfo,
+            address: appointment.address,
+            scheduledAt: Timestamp.fromDate(nextMaintenanceDate),
+            status: "scheduled",
+            technicianId: appointment.technicianId,
+            technicianName: appointment.technicianName,
+            serviceIds: [service.id],
+            serviceNames: [service.name],
+            baseAmount: 0, // Should be calculated or set to 0
+            totalAmount: 0,
+            isDepositPaid: false,
+            paymentStatus: "unpaid",
+            waiverAccepted: false,
+            photos: { before: [], after: [], damage: [] },
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            internalNotes: `Automatic maintenance return for ${service.name}`
+          });
+        }
+
+        // 4. Create maintenance follow-up lead
+        if (service.autoCreateLeadFollowUp) {
+          await addDoc(collection(db, "leads"), {
+            name: appointment.customerName,
+            email: "", // Need to fetch from client
+            phone: "", // Need to fetch from client
+            vehicleInfo: appointment.vehicleInfo,
+            requestedService: service.name,
+            source: "maintenance_automation",
+            status: "new",
+            priority: "medium",
+            nextFollowUpAt: Timestamp.fromDate(nextMaintenanceDate),
+            notes: `Maintenance follow-up for ${service.name}`,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error in processMaintenanceAutomation:", error);
+  }
+}
+
+

@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Badge } from "../components/ui/badge";
 import { Textarea } from "../components/ui/textarea";
 import { cn, formatPhoneNumber } from "../lib/utils";
+import { getGeocode, getLatLng } from "use-places-autocomplete";
 import { 
   UserPlus, 
   Search, 
@@ -60,7 +61,15 @@ export default function Leads() {
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [newLeadAddress, setNewLeadAddress] = useState({ address: "", lat: 0, lng: 0 });
+  const [newLeadAddress, setNewLeadAddress] = useState({ 
+    address: "", 
+    lat: 0, 
+    lng: 0,
+    city: "",
+    state: "",
+    zipCode: "",
+    placeId: ""
+  });
 
   useEffect(() => {
     if (authLoading || !profile) return;
@@ -70,6 +79,24 @@ export default function Leads() {
       const leadsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
       setLeads(leadsData);
       setLoading(false);
+
+      // Auto-geocode missing coordinates for visible leads
+      leadsData.forEach(async (lead: any) => {
+        if (lead.address && (!lead.latitude || !lead.longitude)) {
+          try {
+            const results = await getGeocode({ address: lead.address });
+            if (results && results.length > 0) {
+              const { lat, lng } = await getLatLng(results[0]);
+              await updateDoc(doc(db, "leads", lead.id), {
+                latitude: lat,
+                longitude: lng
+              });
+            }
+          } catch (error) {
+            console.error("Auto-geocode error for lead:", lead.id, error);
+          }
+        }
+      });
     }, (error) => {
       console.error("Error fetching leads:", error);
       toast.error("Failed to load leads");
@@ -88,6 +115,10 @@ export default function Leads() {
       address: newLeadAddress.address,
       latitude: newLeadAddress.lat,
       longitude: newLeadAddress.lng,
+      city: newLeadAddress.city,
+      state: newLeadAddress.state,
+      zipCode: newLeadAddress.zipCode,
+      placeId: newLeadAddress.placeId,
       vehicleInfo: formData.get("vehicleInfo"),
       requestedService: formData.get("requestedService"),
       source: formData.get("source") || "Direct",
@@ -176,7 +207,15 @@ export default function Leads() {
           setIsAddDialogOpen(open);
           if (!open) {
             setEditingLead(null);
-            setNewLeadAddress({ address: "", lat: 0, lng: 0 });
+            setNewLeadAddress({ 
+              address: "", 
+              lat: 0, 
+              lng: 0,
+              city: "",
+              state: "",
+              zipCode: "",
+              placeId: ""
+            });
           }
         }}>
           <DialogTrigger render={
@@ -220,7 +259,15 @@ export default function Leads() {
                 <Label htmlFor="address">Service Address</Label>
                 <AddressInput 
                   defaultValue={editingLead?.address || ""}
-                  onAddressSelect={(address, lat, lng) => setNewLeadAddress({ address, lat, lng })}
+                  onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({ 
+                    address, 
+                    lat, 
+                    lng,
+                    city: structured?.city || "",
+                    state: structured?.state || "",
+                    zipCode: structured?.zipCode || "",
+                    placeId: structured?.placeId || ""
+                  })}
                   placeholder="123 Main St, City, ST"
                 />
               </div>
@@ -354,6 +401,15 @@ export default function Leads() {
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingLead(lead);
+                            setNewLeadAddress({
+                              address: lead.address || "",
+                              lat: lead.latitude || 0,
+                              lng: lead.longitude || 0,
+                              city: lead.city || "",
+                              state: lead.state || "",
+                              zipCode: lead.zipCode || "",
+                              placeId: lead.placeId || ""
+                            });
                             setIsAddDialogOpen(true);
                           }}
                         >

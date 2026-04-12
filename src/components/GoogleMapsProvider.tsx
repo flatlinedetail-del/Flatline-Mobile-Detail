@@ -16,6 +16,10 @@ export function GoogleMapsProvider({ children }: { children: ReactNode }) {
     libraries: LIBRARIES,
   });
 
+  if (loadError) {
+    console.error("Google Maps Load Error:", loadError);
+  }
+
   return (
     <GoogleMapsContext.Provider value={{ isLoaded, loadError }}>
       {children}

@@ -25,11 +25,17 @@ import {
   FileText,
   Mail,
   User,
-  Settings2
+  Settings2,
+  CreditCard,
+  Eye
 } from "lucide-react";
+import { paymentService } from "../services/paymentService";
 import { toast } from "sonner";
+import AddressInput from "../components/AddressInput";
+import VehicleSelector from "../components/VehicleSelector";
 import { format } from "date-fns";
-import { Invoice, Client, Vehicle, Service, AddOn } from "../types";
+import { Invoice, Client, Vehicle, Service, AddOn, BusinessSettings } from "../types";
+import { DocumentPreview } from "../components/DocumentPreview";
 import { Checkbox } from "../components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -58,6 +64,8 @@ export default function Invoices() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   
   // Form state
   const [selectedClientId, setSelectedClientId] = useState("");
@@ -68,6 +76,14 @@ export default function Invoices() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [manualClient, setManualClient] = useState({
+    firstName: "",
+    lastName: "",
+    businessName: "",
+    phone: "",
+    email: "",
+    address: ""
+  });
 
   useEffect(() => {
     if (authLoading || !profile) return;
@@ -94,12 +110,17 @@ export default function Invoices() {
       setAddons(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AddOn)));
     });
 
+    const unsubSettings = onSnapshot(doc(db, "settings", "business"), (snap) => {
+      if (snap.exists()) setSettings(snap.data() as BusinessSettings);
+    });
+
     return () => {
       unsubscribe();
       unsubClients();
       unsubVehicles();
       unsubServices();
       unsubAddons();
+      unsubSettings();
     };
   }, [profile, authLoading]);
 
@@ -174,12 +195,15 @@ export default function Invoices() {
       }
 
       const client = clients.find(c => c.id === selectedClientId);
+      const clientName = client ? getClientDisplayName(client) : `${manualClient.firstName} ${manualClient.lastName}`.trim() || manualClient.businessName || "Unknown";
 
       const invoiceData: any = {
-        clientId: selectedClientId,
-        clientName: client ? getClientDisplayName(client) : "Unknown",
-        clientEmail: client?.email || "",
-        clientPhone: client?.phone || "",
+        clientId: selectedClientId || "manual",
+        clientName,
+        clientEmail: client?.email || manualClient.email || "",
+        clientPhone: client?.phone || manualClient.phone || "",
+        clientAddress: client?.address || manualClient.address || "",
+        businessName: client?.businessName || manualClient.businessName || "",
         vehicles,
         vehicleInfo,
         lineItems: finalLineItems,
@@ -217,6 +241,14 @@ export default function Invoices() {
     setLineItems([{ serviceName: "", price: 0 }]);
     setIsAddingVehicle(false);
     setNewVehicle({ year: "", make: "", model: "", vin: "", size: "medium" });
+    setManualClient({
+      firstName: "",
+      lastName: "",
+      businessName: "",
+      phone: "",
+      email: "",
+      address: ""
+    });
   };
 
   const handleDeleteInvoice = async (id: string) => {
@@ -239,6 +271,25 @@ export default function Invoices() {
       } catch (err: any) {
         toast.error(`Failed to delete invoice: ${err.message}`);
       }
+    }
+  };
+
+  const handleCloverPayment = async () => {
+    if (!selectedInvoice) return;
+    
+    const result = await paymentService.processPayment(selectedInvoice, "clover", { enabled: true });
+    
+    if (result.success) {
+      await updateDoc(doc(db, "invoices", selectedInvoice.id), {
+        paymentStatus: "paid",
+        amountPaid: selectedInvoice.total,
+        paymentProvider: "clover",
+        transactionId: result.transactionId,
+        paidAt: serverTimestamp()
+      });
+      toast.success("Payment processed via Clover!");
+    } else {
+      toast.error(result.error || "Payment failed.");
     }
   };
 
@@ -298,6 +349,48 @@ export default function Invoices() {
                   />
                 </div>
 
+                {!selectedClientId && (
+                  <div className="space-y-2 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                    <Label className="font-bold text-xs">Or Enter Client Manually</Label>
+                    <Input 
+                      placeholder="First Name" 
+                      className="bg-white" 
+                      value={manualClient.firstName}
+                      onChange={(e) => setManualClient(prev => ({ ...prev, firstName: e.target.value }))}
+                    />
+                    <Input 
+                      placeholder="Last Name" 
+                      className="bg-white" 
+                      value={manualClient.lastName}
+                      onChange={(e) => setManualClient(prev => ({ ...prev, lastName: e.target.value }))}
+                    />
+                    <Input 
+                      placeholder="Business Name" 
+                      className="bg-white" 
+                      value={manualClient.businessName}
+                      onChange={(e) => setManualClient(prev => ({ ...prev, businessName: e.target.value }))}
+                    />
+                    <Input 
+                      placeholder="Phone" 
+                      className="bg-white" 
+                      value={manualClient.phone}
+                      onChange={(e) => setManualClient(prev => ({ ...prev, phone: e.target.value }))}
+                    />
+                    <Input 
+                      placeholder="Email" 
+                      className="bg-white" 
+                      value={manualClient.email}
+                      onChange={(e) => setManualClient(prev => ({ ...prev, email: e.target.value }))}
+                    />
+                    <AddressInput 
+                      defaultValue={manualClient.address}
+                      onAddressSelect={(address, lat, lng) => setManualClient(prev => ({ ...prev, address, latitude: lat, longitude: lng }))}
+                      placeholder="Address"
+                      className="bg-white"
+                    />
+                  </div>
+                )}
+
                 {selectedClientId && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -314,45 +407,33 @@ export default function Invoices() {
                     </div>
                     
                     {isAddingVehicle ? (
-                      <div className="grid grid-cols-2 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-                        <Input 
-                          placeholder="Year" 
-                          value={newVehicle.year} 
-                          onChange={(e) => setNewVehicle(prev => ({ ...prev, year: e.target.value }))}
-                          className="bg-white"
+                      <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                        <VehicleSelector 
+                          onSelect={(v) => setNewVehicle(prev => ({ ...prev, ...v }))} 
+                          initialValues={newVehicle}
                         />
-                        <Input 
-                          placeholder="Make" 
-                          value={newVehicle.make} 
-                          onChange={(e) => setNewVehicle(prev => ({ ...prev, make: e.target.value }))}
-                          className="bg-white"
-                        />
-                        <Input 
-                          placeholder="Model" 
-                          value={newVehicle.model} 
-                          onChange={(e) => setNewVehicle(prev => ({ ...prev, model: e.target.value }))}
-                          className="bg-white"
-                        />
-                        <Input 
-                          placeholder="VIN (Optional)" 
-                          value={newVehicle.vin} 
-                          onChange={(e) => setNewVehicle(prev => ({ ...prev, vin: e.target.value }))}
-                          className="bg-white"
-                        />
-                        <Select 
-                          value={newVehicle.size} 
-                          onValueChange={(val: any) => setNewVehicle(prev => ({ ...prev, size: val }))}
-                        >
-                          <SelectTrigger className="bg-white">
-                            <SelectValue placeholder="Size" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="small">Small</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="large">Large</SelectItem>
-                            <SelectItem value="extra_large">Extra Large</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <div className="grid grid-cols-2 gap-3 mt-2">
+                          <Input 
+                            placeholder="VIN (Optional)" 
+                            value={newVehicle.vin} 
+                            onChange={(e) => setNewVehicle(prev => ({ ...prev, vin: e.target.value }))}
+                            className="bg-white"
+                          />
+                          <Select 
+                            value={newVehicle.size} 
+                            onValueChange={(val: any) => setNewVehicle(prev => ({ ...prev, size: val }))}
+                          >
+                            <SelectTrigger className="bg-white">
+                              <SelectValue placeholder="Size" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-white">
+                              <SelectItem value="small">Small</SelectItem>
+                              <SelectItem value="medium">Medium</SelectItem>
+                              <SelectItem value="large">Large</SelectItem>
+                              <SelectItem value="extra_large">Extra Large</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-2 border rounded-lg p-3 bg-gray-50 max-h-40 overflow-y-auto">
@@ -449,10 +530,51 @@ export default function Invoices() {
                   <span className="text-2xl font-black text-primary">${calculateTotal().toFixed(2)}</span>
                 </div>
               </div>
-              <Button type="submit" disabled={isCreating} className="w-full bg-primary font-bold">
-                {isCreating ? "Saving..." : (editingInvoice ? "Update Invoice" : "Create Invoice")}
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="flex-1 font-bold"
+                  onClick={() => setIsPreviewOpen(true)}
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  Preview
+                </Button>
+                <Button type="submit" disabled={isCreating} className="flex-1 bg-primary font-bold">
+                  {isCreating ? "Saving..." : (editingInvoice ? "Update Invoice" : "Create Invoice")}
+                </Button>
+              </div>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+          <DialogContent className="max-w-5xl p-0 overflow-hidden bg-gray-100 border-none">
+            <div className="max-h-[90vh] overflow-y-auto">
+              <DocumentPreview 
+                type="invoice"
+                settings={settings}
+                document={{
+                  clientName: selectedClientId ? getClientDisplayName(clients.find(c => c.id === selectedClientId)) : `${manualClient.firstName} ${manualClient.lastName}`,
+                  clientEmail: selectedClientId ? clients.find(c => c.id === selectedClientId)?.email : manualClient.email,
+                  clientPhone: selectedClientId ? clients.find(c => c.id === selectedClientId)?.phone : manualClient.phone,
+                  clientAddress: selectedClientId ? clients.find(c => c.id === selectedClientId)?.address : manualClient.address,
+                  lineItems: lineItems.filter(item => item.serviceName),
+                  total: calculateTotal(),
+                  status: editingInvoice?.status || "draft",
+                  vehicles: selectedVehicleIds.map(id => {
+                    const v = allVehicles.find(veh => veh.id === id);
+                    return v ? { id: v.id, year: v.year, make: v.make, model: v.model } : null;
+                  }).filter(Boolean) as any,
+                  createdAt: editingInvoice?.createdAt || undefined,
+                }}
+              />
+            </div>
+            <DialogFooter className="p-4 bg-white border-t">
+              <Button variant="outline" onClick={() => setIsPreviewOpen(false)} className="font-bold">
+                Close Preview
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
@@ -639,6 +761,12 @@ export default function Invoices() {
                 </Button>
                 <Button variant="outline" className="flex-1 border-gray-200 font-bold">
                   <Mail className="w-4 h-4 mr-2" /> Email Client
+                </Button>
+                <Button 
+                  onClick={handleCloverPayment} 
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 font-bold"
+                >
+                  <CreditCard className="w-4 h-4 mr-2" /> Pay with Clover
                 </Button>
                 <DeleteConfirmationDialog
                   trigger={

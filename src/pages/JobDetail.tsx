@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, deleteDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
+import { processMaintenanceAutomation } from "../services/automationService";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +51,18 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
+
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -64,6 +77,49 @@ export default function JobDetail() {
   const [formTemplates, setFormTemplates] = useState<any[]>([]);
   const [signedForms, setSignedForms] = useState<any[]>([]);
   const [showFormSigner, setShowFormSigner] = useState<any>(null);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancellationFee, setCancellationFee] = useState(0);
+  const [isAfterCutoff, setIsAfterCutoff] = useState(false);
+
+  const calculateCancellationFee = () => {
+    if (!job?.scheduledAt) return;
+    const scheduledDate = job.scheduledAt.toDate();
+    const now = new Date();
+    const hoursUntilJob = (scheduledDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+    const afterCutoff = hoursUntilJob < (job.cancellationCutoffHours || 0);
+    setIsAfterCutoff(afterCutoff);
+
+    let fee = 0;
+    if (job.cancellationFeeEnabled && afterCutoff) {
+      if (job.cancellationFeeType === "percentage") {
+        fee = (job.totalAmount * job.cancellationFeeAmount) / 100;
+      } else {
+        fee = job.cancellationFeeAmount;
+      }
+    }
+    setCancellationFee(fee);
+  };
+
+  const handleCancelJob = async () => {
+    setIsUpdating(true);
+    try {
+      const docRef = doc(db, "appointments", id!);
+      await updateDoc(docRef, { 
+        status: "canceled",
+        cancellationStatus: cancellationFee > 0 ? "applied" : "none",
+        cancellationFeeApplied: cancellationFee,
+        cancellationTimestamp: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      toast.success("Job canceled successfully");
+      setShowCancelDialog(false);
+    } catch (error) {
+      console.error("Error canceling job:", error);
+      toast.error("Failed to cancel job");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const checkRequiredForms = (stage: string) => {
     const applicableTemplates = formTemplates.filter(t => {
@@ -152,6 +208,12 @@ export default function JobDetail() {
         status: "completed",
         completedAt: serverTimestamp()
       });
+      
+      // Call maintenance automation
+      if (job) {
+        await processMaintenanceAutomation(job);
+      }
+
       setShowSignature(false);
       toast.success("Job completed with signature!");
     } catch (error) {
@@ -344,6 +406,17 @@ export default function JobDetail() {
               </Button>
             } />
             <DropdownMenuContent align="end" className="bg-white">
+              <DropdownMenuItem 
+                onSelect={() => {
+                  calculateCancellationFee();
+                  setShowCancelDialog(true);
+                }} 
+                className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 font-bold"
+                disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid"}
+              >
+                <AlertCircle className="w-4 h-4 mr-2" />
+                Cancel Job
+              </DropdownMenuItem>
               <DeleteConfirmationDialog
                 trigger={
                   <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-600 focus:text-red-700 focus:bg-red-50 font-bold">
@@ -865,6 +938,52 @@ export default function JobDetail() {
           />
         </div>
       )}
+
+      <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <AlertDialogContent className="bg-white rounded-2xl border-none shadow-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-black text-xl">Cancel Appointment?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4 pt-2">
+              <p>Are you sure you want to cancel this appointment? This action cannot be undone.</p>
+              
+              {job.cancellationFeeEnabled && (
+                <div className={cn(
+                  "p-4 rounded-xl border",
+                  isAfterCutoff ? "bg-red-50 border-red-100" : "bg-green-50 border-green-100"
+                )}>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Policy Status</span>
+                    <Badge variant="outline" className={cn(
+                      "text-[10px] uppercase font-black",
+                      isAfterCutoff ? "bg-red-100 text-red-700 border-red-200" : "bg-green-100 text-green-700 border-green-200"
+                    )}>
+                      {isAfterCutoff ? "After Cutoff" : "Before Cutoff"}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-gray-700">Cancellation Fee</span>
+                    <span className={cn("text-lg font-black", isAfterCutoff ? "text-red-600" : "text-green-600")}>
+                      ${cancellationFee.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2">
+                    Cutoff: {job.cancellationCutoffHours} hours before scheduled time.
+                  </p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel className="font-bold rounded-xl">Keep Appointment</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleCancelJob}
+              className="bg-red-600 hover:bg-red-700 text-white font-black rounded-xl"
+            >
+              Confirm Cancellation
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

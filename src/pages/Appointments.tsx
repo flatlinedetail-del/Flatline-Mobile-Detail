@@ -25,6 +25,8 @@ import AddressInput from "../components/AddressInput";
 import { StableInput } from "../components/StableInput";
 import { calculateDistance, calculateTravelFee, estimateTravelTime } from "../services/travelService";
 import { BusinessSettings } from "../types";
+import { getGeocode, getLatLng } from "use-places-autocomplete";
+import { getRecommendedSlots, RecommendedSlot } from "../services/schedulingService";
 
 import { SearchableSelector } from "../components/SearchableSelector";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -47,6 +49,16 @@ export default function Appointments() {
   const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [appointment, setAppointment] = useState({ 
+    vehicleSize: "medium",
+    vehicleInfo: "",
+    vin: "",
+    jobNum: "",
+    cancellationFeeEnabled: false,
+    cancellationFeeAmount: 0,
+    cancellationFeeType: "fixed" as "fixed" | "percentage",
+    cancellationCutoffHours: 24
+  });
   const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -61,19 +73,34 @@ export default function Appointments() {
   const [selectedAddons, setSelectedAddons] = useState<{ id: string; qty: number }[]>([]);
   const [serviceSearch, setServiceSearch] = useState("");
   const [addonSearch, setAddonSearch] = useState("");
-  const [vehicleSize, setVehicleSize] = useState<"small" | "medium" | "large" | "extra_large">("medium");
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
   const [customerType, setCustomerType] = useState<"retail" | "vendor">("retail");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [availableVehicles, setAvailableVehicles] = useState<any[]>([]);
-  const [vehicleInfo, setVehicleInfo] = useState("");
-  const [vin, setVin] = useState("");
   const [couponCode, setCouponCode] = useState("");
   const [discount, setDiscount] = useState(0);
   const [redeemedPoints, setRedeemedPoints] = useState(0);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
+  const [depositAmount, setDepositAmount] = useState(0);
+  const [depositType, setDepositType] = useState<"fixed" | "percentage">("fixed");
+  const [depositPaid, setDepositPaid] = useState(false);
+  const [cancellationFeeEnabled, setCancellationFeeEnabled] = useState(false);
+  const [cancellationFeeAmount, setCancellationFeeAmount] = useState(0);
+  const [cancellationFeeType, setCancellationFeeType] = useState<"fixed" | "percentage">("fixed");
+  const [cancellationCutoffHours, setCancellationCutoffHours] = useState(24);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
-  const [appointmentAddress, setAppointmentAddress] = useState({ address: "", lat: 0, lng: 0 });
+  const [appointmentAddress, setAppointmentAddress] = useState({ 
+    address: "", 
+    lat: 0, 
+    lng: 0,
+    city: "",
+    state: "",
+    zipCode: "",
+    placeId: ""
+  });
   const [travelFeeData, setTravelFeeData] = useState<any>(null);
+  const [recommendations, setRecommendations] = useState<RecommendedSlot[]>([]);
+  const [isCalculatingSlots, setIsCalculatingSlots] = useState(false);
   const [baseAmount, setBaseAmount] = useState<number>(0);
   const [isAddressManual, setIsAddressManual] = useState(false);
   const [isRecurring, setIsRecurring] = useState(false);
@@ -122,6 +149,24 @@ export default function Appointments() {
       const appointmentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAppointments(appointmentsData);
       setLoading(false);
+
+      // Auto-geocode missing coordinates for visible appointments
+      appointmentsData.forEach(async (app: any) => {
+        if (app.address && (!app.latitude || !app.longitude)) {
+          try {
+            const results = await getGeocode({ address: app.address });
+            if (results && results.length > 0) {
+              const { lat, lng } = await getLatLng(results[0]);
+              await updateDoc(doc(db, "appointments", app.id), {
+                latitude: lat,
+                longitude: lng
+              });
+            }
+          } catch (error) {
+            console.error("Auto-geocode error for appointment:", app.id, error);
+          }
+        }
+      });
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "appointments");
     });
@@ -217,15 +262,17 @@ export default function Appointments() {
         // If there's only one vehicle, pre-fill it
         if (vehicles.length === 1) {
           const v = vehicles[0] as any;
-          setVehicleInfo(`${v.year} ${v.make} ${v.model}`);
-          setVehicleSize(v.size);
-          setVin(v.vin || "");
+          setAppointment(prev => ({ 
+            ...prev, 
+            vehicleInfo: `${v.year} ${v.make} ${v.model}`, 
+            vehicleSize: v.size || "medium", 
+            vin: v.vin || "" 
+          }));
         }
       });
     } else {
       setAvailableVehicles([]);
-      setVehicleInfo("");
-      setVin("");
+      setAppointment(prev => ({ ...prev, vehicleInfo: "", vin: "" }));
     }
   }, [selectedCustomerId, clients, showAddDialog]);
 
@@ -243,22 +290,27 @@ export default function Appointments() {
         setSelectedServices([]);
         setSelectedAddons([]);
         setWaiverAccepted(false);
-        setAppointmentAddress({ address: "", lat: 0, lng: 0 });
+        setAppointmentAddress({ address: "", lat: 0, lng: 0, city: "", state: "", zipCode: "", placeId: "" });
         setSelectedCustomerId("");
-        setVehicleInfo("");
-        setVin("");
-        setVehicleSize("medium");
+        setAppointment(prev => ({ 
+          ...prev, 
+          vehicleInfo: "", 
+          vin: "", 
+          vehicleSize: "medium" 
+        }));
         setBaseAmount(0);
       } else {
         // Pre-fill for editing
         setSelectedCustomerId(editingAppointment.clientId || editingAppointment.customerId || "");
-        setVehicleInfo(editingAppointment.vehicleInfo || "");
-        setVehicleSize(editingAppointment.vehicleSize || "medium");
-        setVin(editingAppointment.vin || "");
+        setSelectedVehicleIds(editingAppointment.vehicleIds || (editingAppointment.vehicleId ? [editingAppointment.vehicleId] : []));
         setAppointmentAddress({ 
           address: editingAppointment.address || "", 
           lat: editingAppointment.latitude || 0, 
-          lng: editingAppointment.longitude || 0 
+          lng: editingAppointment.longitude || 0,
+          city: editingAppointment.city || "",
+          state: editingAppointment.state || "",
+          zipCode: editingAppointment.zipCode || "",
+          placeId: editingAppointment.placeId || ""
         });
         setBaseAmount(editingAppointment.baseAmount || 0);
         setSelectedServices(editingAppointment.serviceSelections || []);
@@ -305,7 +357,7 @@ export default function Appointments() {
     selectedServices.forEach(selection => {
       const service = services.find(s => s.id === selection.id);
       if (service) {
-        const price = service.pricingBySize?.[vehicleSize] || service.basePrice || 0;
+        const price = service.pricingBySize?.[appointment.vehicleSize] || service.basePrice || 0;
         total += price * selection.qty;
       }
     });
@@ -316,18 +368,69 @@ export default function Appointments() {
       }
     });
     setBaseAmount(total);
-  }, [selectedServices, selectedAddons, vehicleSize, services, addons]);
+  }, [selectedServices, selectedAddons, appointment.vehicleSize, services, addons]);
 
-  const handleAddressSelect = (address: string, lat: number, lng: number, isAuto = false) => {
-    setAppointmentAddress({ address, lat, lng });
-    if (!isAuto) setIsAddressManual(true);
+  const handleAddressSelect = (address: string, lat: number, lng: number, structured?: any) => {
+    setAppointmentAddress({ 
+      address, 
+      lat, 
+      lng,
+      city: structured?.city || "",
+      state: structured?.state || "",
+      zipCode: structured?.zipCode || "",
+      placeId: structured?.placeId || ""
+    });
     
-    if (settings && settings.baseLatitude && settings.baseLongitude) {
+    if (settings && settings.baseLatitude && settings.baseLongitude && lat !== 0) {
       const distance = calculateDistance(settings.baseLatitude, settings.baseLongitude, lat, lng);
       const feeData = calculateTravelFee(distance, settings.travelPricing);
       setTravelFeeData(feeData);
+    } else {
+      setTravelFeeData(null);
     }
   };
+
+  const updateRecommendations = () => {
+    if (!appointmentAddress.lat || !settings || (selectedServices.length === 0 && selectedAddons.length === 0)) {
+      setRecommendations([]);
+      return;
+    }
+
+    setIsCalculatingSlots(true);
+    
+    const totalDuration = selectedServices.reduce((acc, s) => {
+      const service = services.find(srv => srv.id === s.id);
+      return acc + (service?.estimatedDuration || 0) * s.qty;
+    }, 0) + selectedAddons.reduce((acc, a) => {
+      const addon = addons.find(ad => ad.id === a.id);
+      return acc + (addon?.estimatedDuration || 0) * a.qty;
+    }, 0);
+
+    const totalBuffer = selectedServices.reduce((acc, s) => {
+      const service = services.find(srv => srv.id === s.id);
+      return acc + (service?.bufferTimeMinutes || 0);
+    }, 0) + selectedAddons.reduce((acc, a) => {
+      const addon = addons.find(ad => ad.id === a.id);
+      return acc + (addon?.bufferTimeMinutes || 0);
+    }, 0);
+
+    const slots = getRecommendedSlots(
+      appointmentAddress.lat,
+      appointmentAddress.lng,
+      totalDuration + totalBuffer,
+      appointments,
+      settings
+    );
+
+    setRecommendations(slots);
+    setIsCalculatingSlots(false);
+  };
+
+  useEffect(() => {
+    if (showAddDialog) {
+      updateRecommendations();
+    }
+  }, [appointmentAddress.lat, selectedServices, selectedAddons, showAddDialog, appointments, settings]);
 
   const handleCreateAppointment = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -346,7 +449,7 @@ export default function Appointments() {
       return {
         id: s.id,
         qty: s.qty,
-        price: service?.pricingBySize?.[vehicleSize] || service?.basePrice || 0
+        price: service?.pricingBySize?.[appointment.vehicleSize] || service?.basePrice || 0
       };
     });
 
@@ -383,14 +486,22 @@ export default function Appointments() {
       customerEmail: client?.email || "",
       customerType: "client",
       vendorId: null,
-      vehicleInfo: formData.get("vehicleInfo") || "No Vehicle Provided",
-      vin: formData.get("vin"),
-      roNumber: formData.get("roNumber"),
+      vehicleIds: selectedVehicleIds,
+      vehicleId: selectedVehicleIds[0] || null, // Backward compatibility
+      vehicleInfo: selectedVehicleIds.map(id => {
+        const v = availableVehicles.find(v => v.id === id);
+        return v ? `${v.year} ${v.make} ${v.model}` : "";
+      }).join(", "),
       address: appointmentAddress.address,
+      city: appointmentAddress.city,
+      state: appointmentAddress.state,
+      zipCode: appointmentAddress.zipCode,
+      placeId: appointmentAddress.placeId,
       latitude: appointmentAddress.lat,
       longitude: appointmentAddress.lng,
       scheduledAt: new Date(formData.get("scheduledAt") as string),
       status: editingAppointment?.status || "scheduled",
+      jobNum: formData.get("jobNum") as string || "",
       baseAmount: totalAmount,
       travelFee: travelFee,
       travelFeeBreakdown: travelFeeData ? {
@@ -401,6 +512,15 @@ export default function Appointments() {
       } : null,
       discountAmount: discount + redeemedPoints,
       totalAmount: finalAmount,
+      depositAmount,
+      depositType,
+      depositPaid,
+      depositPaidAt: depositPaid ? serverTimestamp() : null,
+      cancellationFeeEnabled,
+      cancellationFeeAmount,
+      cancellationFeeType,
+      cancellationCutoffHours,
+      cancellationStatus: "none",
       serviceIds: selectedServices.map(s => s.id),
       serviceNames: services.filter(s => selectedServices.some(sel => sel.id === s.id)).map(s => s.name),
       serviceSelections,
@@ -422,6 +542,13 @@ export default function Appointments() {
       } : null,
       updatedAt: serverTimestamp(),
     };
+
+    const jobNumRegex = /^([A-Za-z]{0,2})([0-9]+)$/;
+    if (appointmentData.jobNum && !jobNumRegex.test(appointmentData.jobNum)) {
+      toast.error("Invalid job number format. Use optional 2 letters followed by numbers.");
+      setIsCreating(false);
+      return;
+    }
 
     try {
       if (editingAppointment) {
@@ -512,6 +639,12 @@ export default function Appointments() {
     paid: "bg-emerald-100 text-emerald-700 border-emerald-200",
     canceled: "bg-red-100 text-red-700 border-red-200",
     no_show: "bg-gray-100 text-gray-700 border-gray-200",
+    suggested: "bg-indigo-100 text-indigo-700 border-indigo-200",
+    requested: "bg-orange-100 text-orange-700 border-orange-200",
+    pending_approval: "bg-orange-100 text-orange-700 border-orange-200",
+    approved: "bg-green-100 text-green-700 border-green-200",
+    declined: "bg-red-100 text-red-700 border-red-200",
+    reschedule_suggested: "bg-pink-100 text-pink-700 border-pink-200",
   };
 
   return (
@@ -552,29 +685,37 @@ export default function Appointments() {
                     />
                   </div>
                   {availableVehicles.length > 0 && (
-                    <div className="space-y-2 col-span-2">
-                      <Label>Select Saved Vehicle</Label>
-                      <Select onValueChange={(vId) => {
-                        const v = availableVehicles.find(veh => veh.id === vId);
-                        if (v) {
-                          setVehicleInfo(`${v.year} ${v.make} ${v.model}`);
-                          setVehicleSize(v.size);
-                          setVin(v.vin || "");
-                        }
-                      }}>
-                        <SelectTrigger className="bg-white border-gray-200">
-                          <SelectValue placeholder="Choose a saved vehicle" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-white">
-                          {availableVehicles.map(v => (
-                            <SelectItem key={v.id} value={v.id}>
-                              {v.year} {v.make} {v.model} ({v.color})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    <div className="space-y-2 col-span-2 border p-4 rounded-lg">
+                      <Label>Select Vehicles</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {availableVehicles.map(v => (
+                          <div key={v.id} className="flex items-center space-x-2">
+                            <Checkbox 
+                              id={v.id}
+                              checked={selectedVehicleIds.includes(v.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedVehicleIds([...selectedVehicleIds, v.id]);
+                                } else {
+                                  setSelectedVehicleIds(selectedVehicleIds.filter(id => id !== v.id));
+                                }
+                              }}
+                            />
+                            <Label htmlFor={v.id}>{v.year} {v.make} {v.model}</Label>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
+                  <div className="space-y-2">
+                    <Label htmlFor="jobNum">Job Number</Label>
+                    <Input 
+                      id="jobNum"
+                      name="jobNum"
+                      placeholder="e.g. JD1001"
+                      className="bg-white border-gray-200"
+                    />
+                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="vehicleInfo">Vehicle (Year Make Model)</Label>
                     <StableInput 
@@ -582,13 +723,13 @@ export default function Appointments() {
                       name="vehicleInfo" 
                       placeholder="e.g. 2024 Tesla Model 3" 
                       className="bg-white border-gray-200" 
-                      value={vehicleInfo}
-                      onValueChange={setVehicleInfo}
+                      value={appointment.vehicleInfo}
+                      onValueChange={(val) => setAppointment(prev => ({ ...prev, vehicleInfo: val }))}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Vehicle Size</Label>
-                    <Select value={vehicleSize} onValueChange={(v: any) => setVehicleSize(v)}>
+                    <Select value={appointment.vehicleSize} onValueChange={(v: any) => setAppointment(prev => ({ ...prev, vehicleSize: v }))}>
                       <SelectTrigger className="bg-white border-gray-200">
                         <SelectValue />
                       </SelectTrigger>
@@ -607,8 +748,8 @@ export default function Appointments() {
                       name="vin" 
                       placeholder="17-character VIN" 
                       className="bg-white border-gray-200 uppercase font-mono" 
-                      value={vin}
-                      onValueChange={setVin}
+                      value={appointment.vin}
+                      onValueChange={(val) => setAppointment(prev => ({ ...prev, vin: val }))}
                     />
                   </div>
                 {customerType === "vendor" && (
@@ -634,11 +775,6 @@ export default function Appointments() {
                     onAddressSelect={handleAddressSelect}
                     placeholder="123 Main St, Austin, TX"
                   />
-                  {appointmentAddress.address && appointmentAddress.lat === 0 && (
-                    <p className="text-[10px] text-amber-600 font-bold mt-1 uppercase tracking-widest">
-                      ⚠️ Manual entry detected. Travel fees cannot be calculated automatically.
-                    </p>
-                  )}
                   {travelFeeData && appointmentAddress.lat !== 0 && (
                     <div className="flex items-center gap-3 mt-2 p-4 bg-red-50 rounded-2xl border-2 border-red-100 shadow-sm animate-in fade-in slide-in-from-top-1">
                       <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white shrink-0 shadow-md">
@@ -656,6 +792,51 @@ export default function Appointments() {
                     </div>
                   )}
                 </div>
+
+                {/* Smart Recommendations */}
+                {recommendations.length > 0 && (
+                  <div className="space-y-2 col-span-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                      <Star className="w-3 h-3 fill-primary" /> Smart Recommendations
+                    </Label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {recommendations.map((slot, idx) => (
+                        <div 
+                          key={idx}
+                          className={cn(
+                            "p-3 rounded-xl border cursor-pointer transition-all hover:shadow-md flex items-center justify-between group",
+                            slot.recommendationLevel === "best" ? "bg-green-50 border-green-100 hover:bg-green-100" : "bg-blue-50 border-blue-100 hover:bg-blue-100"
+                          )}
+                          onClick={() => {
+                            const input = document.getElementById("scheduledAt") as HTMLInputElement;
+                            if (input) {
+                              input.value = format(slot.start, "yyyy-MM-dd'T'HH:mm");
+                            }
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "w-10 h-10 rounded-full flex items-center justify-center font-black text-xs",
+                              slot.recommendationLevel === "best" ? "bg-green-500 text-white" : "bg-blue-500 text-white"
+                            )}>
+                              {slot.recommendationLevel === "best" ? "BEST" : "GOOD"}
+                            </div>
+                            <div>
+                              <div className="text-sm font-bold text-gray-900">
+                                {format(slot.start, "EEEE, MMM d @ h:mm a")}
+                              </div>
+                              <div className="text-[10px] text-gray-500 font-medium leading-tight">
+                                {slot.explanation}
+                              </div>
+                            </div>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 group-hover:translate-x-1 transition-all" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="scheduledAt">Date & Time</Label>
                   <Input 
@@ -752,7 +933,7 @@ export default function Appointments() {
                                 }}
                               />
                               <Label htmlFor={`service-${service.id}`} className="text-xs cursor-pointer flex-1">
-                                {service.name} (${service.pricingBySize?.[vehicleSize] || service.basePrice})
+                                {service.name} (${service.pricingBySize?.[appointment.vehicleSize] || service.basePrice})
                               </Label>
                             </div>
                             {selection && (
@@ -911,6 +1092,80 @@ export default function Appointments() {
                     </span>
                   </div>
                 </div>
+                  <div className="grid grid-cols-2 gap-4 py-2">
+                    <div className="space-y-2">
+                      <Label>Deposit Amount</Label>
+                      <Input 
+                        type="number" 
+                        value={depositAmount} 
+                        onChange={(e) => setDepositAmount(Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Deposit Type</Label>
+                      <Select value={depositType} onValueChange={(v: any) => setDepositType(v)}>
+                        <SelectTrigger className="bg-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white">
+                          <SelectItem value="fixed">Fixed ($)</SelectItem>
+                          <SelectItem value="percentage">Percentage (%)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center space-x-2 col-span-2">
+                      <Checkbox 
+                        id="depositPaid" 
+                        checked={depositPaid} 
+                        onCheckedChange={(checked) => setDepositPaid(!!checked)}
+                      />
+                      <Label htmlFor="depositPaid">Deposit Paid</Label>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-gray-50 rounded-2xl space-y-4 border border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <Label className="font-bold">Cancellation Policy</Label>
+                      <Switch 
+                        checked={cancellationFeeEnabled} 
+                        onCheckedChange={setCancellationFeeEnabled}
+                      />
+                    </div>
+                    
+                    {cancellationFeeEnabled && (
+                      <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                        <div className="space-y-2">
+                          <Label>Fee Amount</Label>
+                          <Input 
+                            type="number" 
+                            value={cancellationFeeAmount} 
+                            onChange={(e) => setCancellationFeeAmount(Number(e.target.value))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Fee Type</Label>
+                          <Select value={cancellationFeeType} onValueChange={(v: any) => setCancellationFeeType(v)}>
+                            <SelectTrigger className="bg-white">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-white">
+                              <SelectItem value="fixed">Fixed ($)</SelectItem>
+                              <SelectItem value="percentage">Percentage (%)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2 col-span-2">
+                          <Label>Cutoff (Hours before appointment)</Label>
+                          <Input 
+                            type="number" 
+                            value={cancellationCutoffHours} 
+                            onChange={(e) => setCancellationCutoffHours(Number(e.target.value))}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex items-center space-x-2 col-span-2 py-2">
                     <Checkbox 
                       id="waiver" 

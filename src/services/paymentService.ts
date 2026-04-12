@@ -86,10 +86,23 @@ class PaymentService {
   }
 
   private async processClover(invoice: Invoice, config: any): Promise<PaymentResult> {
-    // TODO: Implement Clover SDK integration
-    // Requires: clover-android-sdk or REST API
-    console.log("Clover integration requires Merchant ID:", config.merchantId);
-    return { success: true, transactionId: `clover_${Math.random().toString(36).substr(2, 9)}` };
+    try {
+      const response = await fetch("/api/payments/clover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: invoice.total, invoiceId: invoice.id })
+      });
+
+      if (!response.ok) {
+        throw new Error("Clover payment failed.");
+      }
+
+      const data = await response.json();
+      return { success: true, transactionId: data.transactionId };
+    } catch (error) {
+      console.error("Clover payment error:", error);
+      return { success: false, error: "Clover payment failed." };
+    }
   }
 }
 

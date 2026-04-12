@@ -26,6 +26,7 @@ import { Switch } from "../components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Textarea } from "../components/ui/textarea";
 import { useNavigate } from "react-router-dom";
+import { getGeocode, getLatLng } from "use-places-autocomplete";
 import { 
   Users, 
   Search, 
@@ -53,6 +54,7 @@ import {
   FileText,
   Receipt,
   Camera,
+  Edit2,
   Settings2,
   Building2,
   Briefcase,
@@ -61,6 +63,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import VehicleSelector from "../components/VehicleSelector";
 import { 
   cn, 
   formatPhoneNumber, 
@@ -71,6 +74,87 @@ import AddressInput from "../components/AddressInput";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { getClientTypes, getClientCategories, migrateDataToClients, ensureClientTypes, ensureClientNameFields } from "../services/clientService";
+
+interface AddVehicleFormProps {
+  clientId: string;
+  isCollisionCenter: boolean;
+  onSuccess?: () => void;
+}
+
+function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFormProps) {
+  const [vData, setVData] = useState({ year: "", make: "", model: "" });
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const newVehicle = {
+      clientId: clientId,
+      ownerId: clientId,
+      ownerType: "client",
+      year: vData.year,
+      make: vData.make,
+      model: vData.model,
+      color: formData.get("color"),
+      size: formData.get("size"),
+      vin: formData.get("vin"),
+      roNumber: formData.get("roNumber") || null,
+      createdAt: serverTimestamp(),
+    };
+
+    if (!newVehicle.year || !newVehicle.make || !newVehicle.model) {
+      toast.error("Please select a complete vehicle (Year, Make, and Model)");
+      return;
+    }
+    try {
+      await addDoc(collection(db, "vehicles"), newVehicle);
+      toast.success("Vehicle added");
+      if (onSuccess) onSuccess();
+    } catch (error) {
+      console.error("Error adding vehicle:", error);
+      toast.error("Failed to add vehicle");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 py-4">
+      <VehicleSelector onSelect={setVData} />
+      
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Color</Label>
+          <Input name="color" placeholder="Color" />
+        </div>
+        <div className="space-y-2">
+          <Label>VIN</Label>
+          <Input name="vin" placeholder="VIN (Optional)" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Vehicle Size</Label>
+          <Select name="size" defaultValue="medium">
+            <SelectTrigger className="bg-white border-gray-200">
+              <SelectValue placeholder="Vehicle Size" />
+            </SelectTrigger>
+            <SelectContent className="bg-white">
+              <SelectItem value="small">Small</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="large">Large</SelectItem>
+              <SelectItem value="extra_large">Extra Large</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {isCollisionCenter && (
+          <div className="space-y-2">
+            <Label className="text-xs font-black uppercase tracking-widest text-gray-400">RO Number</Label>
+            <Input name="roNumber" placeholder="Repair Order #" required />
+          </div>
+        )}
+      </div>
+      <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
+    </form>
+  );
+}
 
 export default function Clients() {
   const { profile, loading: authLoading } = useAuth();
@@ -193,6 +277,25 @@ export default function Clients() {
       query(collection(db, "quotes"), where("clientId", "==", selectedClient.id), orderBy("createdAt", "desc")),
       (snap) => setClientQuotes(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quote)))
     );
+
+    // Auto-geocode if missing lat/lng
+    if (selectedClient.address && (!selectedClient.latitude || !selectedClient.longitude)) {
+      const geocodeAddress = async () => {
+        try {
+          const results = await getGeocode({ address: selectedClient.address });
+          if (results && results.length > 0) {
+            const { lat, lng } = await getLatLng(results[0]);
+            await updateDoc(doc(db, "clients", selectedClient.id), {
+              latitude: lat,
+              longitude: lng
+            });
+          }
+        } catch (error) {
+          console.error("Auto-geocode error for client:", error);
+        }
+      };
+      geocodeAddress();
+    }
 
     return () => {
       unsubVehicles();
@@ -719,8 +822,8 @@ export default function Clients() {
             <Tabs defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
               <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12 shrink-0">
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Profile</TabsTrigger>
+                <TabsTrigger value="appointments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Appointments ({clientHistory.length})</TabsTrigger>
                 <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Vehicles ({clientVehicles.length})</TabsTrigger>
-                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">History ({clientHistory.length})</TabsTrigger>
                 <TabsTrigger value="billing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Billing ({clientInvoices.length + clientQuotes.length})</TabsTrigger>
                 <TabsTrigger value="photos" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Photos</TabsTrigger>
               </TabsList>
@@ -772,7 +875,17 @@ export default function Clients() {
                         </div>
                         <AddressInput 
                           defaultValue={selectedClient.address}
-                          onAddressSelect={(address, lat, lng) => updateClient({ address, latitude: lat, longitude: lng })}
+                          onAddressSelect={(address, lat, lng, structured) => {
+                            updateClient({ 
+                              address, 
+                              latitude: lat, 
+                              longitude: lng,
+                              city: structured?.city || "",
+                              state: structured?.state || "",
+                              zipCode: structured?.zipCode || "",
+                              placeId: structured?.placeId || ""
+                            });
+                          }}
                         />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
@@ -917,52 +1030,12 @@ export default function Clients() {
                                 <Plus className="w-4 h-4 mr-2" /> Add Vehicle
                               </Button>
                             } />
-                            <DialogContent>
+                            <DialogContent className="max-w-2xl">
                               <DialogHeader><DialogTitle className="font-black">Add New Vehicle</DialogTitle></DialogHeader>
-                              <form onSubmit={async (e) => {
-                                e.preventDefault();
-                                const formData = new FormData(e.currentTarget);
-                                const newVehicle = {
-                                  clientId: selectedClient.id,
-                                  ownerId: selectedClient.id,
-                                  ownerType: "client",
-                                  year: formData.get("year"),
-                                  make: formData.get("make"),
-                                  model: formData.get("model"),
-                                  color: formData.get("color"),
-                                  size: formData.get("size"),
-                                  vin: formData.get("vin"),
-                                  roNumber: formData.get("roNumber") || null,
-                                  createdAt: serverTimestamp(),
-                                };
-                                await addDoc(collection(db, "vehicles"), newVehicle);
-                                toast.success("Vehicle added");
-                                // The onSnapshot in useEffect will handle the list refresh
-                              }} className="space-y-4 py-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                  <Input name="year" placeholder="Year" required />
-                                  <Input name="make" placeholder="Make" required />
-                                  <Input name="model" placeholder="Model" required />
-                                  <Input name="color" placeholder="Color" />
-                                </div>
-                                <Select name="size" defaultValue="medium">
-                                  <SelectTrigger><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="small">Small</SelectItem>
-                                    <SelectItem value="medium">Medium</SelectItem>
-                                    <SelectItem value="large">Large</SelectItem>
-                                    <SelectItem value="extra_large">Extra Large</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <Input name="vin" placeholder="VIN (Optional)" />
-                                {isCollisionCenter && (
-                                  <div className="space-y-2">
-                                    <Label className="text-xs font-black uppercase tracking-widest text-gray-400">RO Number</Label>
-                                    <Input name="roNumber" placeholder="Repair Order #" required />
-                                  </div>
-                                )}
-                                <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
-                              </form>
+                              <AddVehicleForm 
+                                clientId={selectedClient.id} 
+                                isCollisionCenter={isCollisionCenter} 
+                              />
                             </DialogContent>
                           </Dialog>
                         </div>
@@ -1024,13 +1097,22 @@ export default function Clients() {
                   })()}
                 </TabsContent>
 
-                <TabsContent value="history" className="mt-0 space-y-6">
+                <TabsContent value="appointments" className="mt-0 space-y-6">
                   <div className="space-y-4">
-                    <h3 className="text-lg font-black text-gray-900">Appointment History</h3>
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-lg font-black text-gray-900">Appointments & Jobs</h3>
+                      <Button 
+                        size="sm" 
+                        className="bg-primary font-bold"
+                        onClick={() => navigate("/appointments", { state: { clientId: selectedClient.id, openAddDialog: true } })}
+                      >
+                        <Plus className="w-4 h-4 mr-2" /> New Appointment
+                      </Button>
+                    </div>
                     {clientHistory.length === 0 ? (
                       <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border border-dashed">
-                        <History className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                        <p className="font-bold">No history found.</p>
+                        <Calendar className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                        <p className="font-bold">No appointments found.</p>
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -1041,13 +1123,54 @@ export default function Clients() {
                                 <Calendar className="w-5 h-5" />
                               </div>
                               <div>
-                                <p className="font-bold text-gray-900">{app.vehicleInfo}</p>
-                                <p className="text-xs text-gray-500 font-medium">{format(app.scheduledAt.toDate(), "MMM d, yyyy")} • {app.status}</p>
+                                <p className="font-bold text-gray-900">{app.vehicleInfo || "No Vehicle Info"}</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-tight h-5">
+                                    {app.status}
+                                  </Badge>
+                                  <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                                    {format(app.scheduledAt.toDate(), "MMM d, yyyy")} @ {format(app.scheduledAt.toDate(), "h:mm a")}
+                                  </p>
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-1 font-medium truncate max-w-[200px]">
+                                  {app.serviceNames?.join(", ")}
+                                </p>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className="font-black text-gray-900">${app.totalAmount}</p>
-                              <Button variant="ghost" size="sm" className="h-7 text-[10px] font-bold" onClick={() => navigate(`/appointments/${app.id}`)}>Details</Button>
+                            <div className="flex items-center gap-2">
+                              <div className="text-right mr-4">
+                                <p className="font-black text-gray-900">${app.totalAmount?.toFixed(2)}</p>
+                              </div>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 text-gray-400 hover:text-primary"
+                                onClick={() => navigate("/appointments", { state: { editingAppointmentId: app.id } })}
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </Button>
+                              <DeleteConfirmationDialog
+                                trigger={
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 text-gray-400 hover:text-red-500"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                }
+                                title="Delete Appointment?"
+                                itemName={`Appointment on ${format(app.scheduledAt.toDate(), "MMM d")}`}
+                                onConfirm={async () => {
+                                  try {
+                                    await deleteDoc(doc(db, "appointments", app.id));
+                                    toast.success("Appointment deleted");
+                                  } catch (error) {
+                                    console.error("Error deleting appointment:", error);
+                                    toast.error("Failed to delete appointment");
+                                  }
+                                }}
+                              />
                             </div>
                           </div>
                         ))}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronDown, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet } from "lucide-react";
+import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronDown, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet, HelpCircle } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -22,6 +22,7 @@ const navigation = [
   { name: "Expenses", href: "/expenses", icon: Wallet },
   { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck },
   { name: "Reports", href: "/reports", icon: BarChart },
+  { name: "Help", href: "/help", icon: HelpCircle },
   { 
     name: "Settings", 
     href: "/settings", 

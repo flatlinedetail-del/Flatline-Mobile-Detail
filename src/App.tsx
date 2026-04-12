@@ -11,7 +11,9 @@ import JobDetail from "./pages/JobDetail";
 import Invoices from "./pages/Invoices";
 import Quotes from "./pages/Quotes";
 import Settings from "./pages/Settings";
+import PublicBooking from "./pages/PublicBooking";
 import Reports from "./pages/Reports";
+import Help from "./pages/Help";
 import Expenses from "./pages/Expenses";
 import Marketing from "./pages/Marketing";
 import FormsBuilder from "./pages/FormsBuilder";
@@ -31,6 +33,7 @@ function AppContent() {
     <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/book" element={<PublicBooking />} />
         <Route
           path="/"
           element={
@@ -48,6 +51,7 @@ function AppContent() {
           <Route path="invoices" element={<Invoices />} />
           <Route path="quotes" element={<Quotes />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="help" element={<Help />} />
           <Route path="marketing" element={<Marketing />} />
           <Route path="expenses" element={<Expenses />} />
           <Route path="forms" element={<FormsBuilder />} />

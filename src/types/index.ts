@@ -1,5 +1,18 @@
 import { Timestamp, FieldValue } from "firebase/firestore";
 
+export interface StructuredAddress {
+  formattedAddress: string;
+  streetNumber?: string;
+  route?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  country?: string;
+  latitude: number;
+  longitude: number;
+  placeId?: string;
+}
+
 export type VehicleSize = "small" | "medium" | "large" | "extra_large";
 
 export type CategoryType = "service" | "addon" | "expense" | "inventory";
@@ -35,6 +48,11 @@ export interface Service {
   bufferTimeMinutes: number; // cleanup/wrap-up time
   requiresWaiver: boolean;
   isActive: boolean;
+  maintenanceReturnEnabled?: boolean;
+  maintenanceIntervalDays?: number;
+  maintenanceIntervalMonths?: number;
+  autoCreateCalendarReturn?: boolean;
+  autoCreateLeadFollowUp?: boolean;
 }
 
 export interface AddOn {
@@ -73,6 +91,10 @@ export interface Client {
   email: string;
   phone: string;
   address: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  placeId?: string;
   addresses?: {
     id: string;
     label: string;
@@ -172,6 +194,10 @@ export interface Lead {
   email: string;
   phone: string;
   address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  placeId?: string;
   latitude?: number;
   longitude?: number;
   vehicleInfo: string;
@@ -193,15 +219,20 @@ export interface Appointment {
   customerName: string;
   customerType: "retail" | "vendor" | "client";
   vendorId?: string;
-  vehicleId: string;
+  vehicleId?: string; // Kept for compatibility
+  vehicleIds?: string[]; // New: Supports multiple vehicles
   vehicleInfo: string;
   vin?: string;
   roNumber?: string;
   address: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  placeId?: string;
   latitude?: number;
   longitude?: number;
   scheduledAt: Timestamp;
-  status: "scheduled" | "confirmed" | "en_route" | "in_progress" | "completed" | "paid" | "canceled";
+  status: "scheduled" | "confirmed" | "en_route" | "in_progress" | "completed" | "paid" | "canceled" | "suggested" | "requested" | "pending_approval" | "approved" | "declined" | "reschedule_suggested";
   technicianId: string;
   technicianName: string;
   serviceIds: string[];
@@ -222,7 +253,10 @@ export interface Appointment {
   taxAmount: number;
   totalAmount: number;
   depositAmount: number;
-  isDepositPaid: boolean;
+  depositType: "fixed" | "percentage"; // New
+  depositPaid: boolean; 
+  depositPaidAt?: Timestamp; // New
+  depositPaymentProvider?: string; // New
   paymentStatus: "unpaid" | "partial" | "paid";
   paymentMethod?: "cash" | "card" | "venmo" | "check" | "invoice";
   commissionAmount?: number;
@@ -252,6 +286,23 @@ export interface Appointment {
   createdAt: Timestamp;
   updatedAt: Timestamp;
   overrideBufferTimeMinutes?: number;
+  smartSchedulingData?: {
+    score: number;
+    explanation: string;
+    travelTimeFromPrior?: number;
+    travelTimeToNext?: number;
+    distanceFromPrior?: number;
+    distanceToNext?: number;
+    isRecommended: boolean;
+    recommendationLevel: "best" | "good" | "avoid";
+  };
+  cancellationFeeEnabled: boolean; // New
+  cancellationFeeAmount: number; // New
+  cancellationFeeType: "fixed" | "percentage"; // New
+  cancellationCutoffHours: number; // New
+  cancellationStatus?: "none" | "applied" | "waived"; // New
+  cancellationFeeApplied?: number; // New
+  cancellationTimestamp?: Timestamp; // New
 }
 
 export interface LineItem {
@@ -265,6 +316,8 @@ export interface Invoice {
   clientName: string;
   clientEmail?: string;
   clientPhone?: string;
+  clientAddress?: string;
+  businessName?: string;
   vehicles: {
     id: string;
     year: string;
@@ -282,6 +335,12 @@ export interface Invoice {
   transactionReference?: string;
   amountPaid: number;
   paidAt?: Timestamp | FieldValue;
+  lateFeeEnabled: boolean; // New
+  lateFeeType: "fixed" | "percentage"; // New
+  lateFeeAmount: number; // New
+  lateFeeGracePeriodDays: number; // New
+  lateFeeApplied?: number; // New
+  lateFeeAppliedAt?: Timestamp; // New
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 }
@@ -293,6 +352,7 @@ export interface Quote {
   clientEmail?: string;
   clientPhone?: string;
   clientAddress?: string;
+  businessName?: string;
   isPotentialClient?: boolean;
   vehicles: {
     id: string;
@@ -351,6 +411,11 @@ export interface BusinessSettings {
     emailSubject?: string;
     emailBody?: string;
     smsBody?: string;
+  };
+  workingHours?: {
+    start: string; // "HH:mm"
+    end: string;   // "HH:mm"
+    daysEnabled: number[]; // 0-6 (Sun-Sat)
   };
   paymentIntegrations?: {
     stripe?: {

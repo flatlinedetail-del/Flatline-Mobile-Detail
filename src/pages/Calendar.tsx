@@ -294,7 +294,7 @@ export default function Calendar() {
               <p className="text-gray-400 text-sm mb-4">
                 Your route is optimized based on proximity and travel time. 
                 Total estimated travel for today: <strong className="text-white">
-                  {optimizedStops.reduce((acc, stop) => acc + (stop.travelTimeFromPrevious || 0), 0)} mins
+                  {formatDuration(optimizedStops.reduce((acc, stop) => acc + (stop.travelTimeFromPrevious || 0), 0))}
                 </strong>
               </p>
               <Button className="bg-primary text-white hover:bg-red-700 font-bold w-full">

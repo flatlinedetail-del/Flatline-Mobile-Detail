@@ -13,7 +13,7 @@ import {
   User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map as MapIcon, Globe, 
   DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, 
   Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, 
-  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, Upload, ChevronRight, Menu
+  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, Upload, ChevronRight, Menu, Plug, Calendar
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -80,12 +80,20 @@ export default function Settings() {
   const [isAddonDialogOpen, setIsAddonDialogOpen] = useState(false);
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [isCouponDialogOpen, setIsCouponDialogOpen] = useState(false);
+  const [cloverConfigured, setCloverConfigured] = useState(false);
   const [travelPricingInputs, setTravelPricingInputs] = useState({
     pricePerMile: "",
     freeMilesThreshold: "",
     minTravelFee: "",
     maxTravelFee: ""
   });
+
+  useEffect(() => {
+    fetch("/api/clover/status")
+      .then(res => res.json())
+      .then(data => setCloverConfigured(data.configured))
+      .catch(err => console.error("Error checking Clover status:", err));
+  }, []);
 
   useEffect(() => {
     if (authLoading || !profile) return;
@@ -248,26 +256,48 @@ export default function Settings() {
     if (!settings) return;
     setIsSaving(true);
     try {
-      // Parse travel pricing inputs
-      const pricePerMile = parseFloat(travelPricingInputs.pricePerMile);
-      const freeMilesThreshold = parseFloat(travelPricingInputs.freeMilesThreshold);
-      const minTravelFee = parseFloat(travelPricingInputs.minTravelFee);
-      const maxTravelFee = parseFloat(travelPricingInputs.maxTravelFee);
+      let updatedTravelPricing = settings.travelPricing;
 
-      if (isNaN(pricePerMile) || isNaN(freeMilesThreshold) || isNaN(minTravelFee) || isNaN(maxTravelFee)) {
-        toast.error("Please enter valid numbers for travel pricing.");
-        setIsSaving(false);
-        return;
+      // Only validate travel pricing inputs if we are NOT just updating specific fields like logoUrl
+      // or if we are explicitly on the business tab
+      const isUpdatingLogoOnly = Object.keys(newData).length === 1 && 'logoUrl' in newData;
+      
+      if (!isUpdatingLogoOnly) {
+        const pricePerMile = parseFloat(travelPricingInputs.pricePerMile);
+        const freeMilesThreshold = parseFloat(travelPricingInputs.freeMilesThreshold);
+        const minTravelFee = parseFloat(travelPricingInputs.minTravelFee);
+        const maxTravelFee = parseFloat(travelPricingInputs.maxTravelFee);
+
+        // If we are on the business tab, we require valid numbers
+        if (activeTab === 'business') {
+          if (isNaN(pricePerMile) || isNaN(freeMilesThreshold) || isNaN(minTravelFee) || isNaN(maxTravelFee)) {
+            toast.error("Please enter valid numbers for travel pricing.");
+            setIsSaving(false);
+            return;
+          }
+          
+          updatedTravelPricing = {
+            ...settings.travelPricing,
+            pricePerMile,
+            freeMilesThreshold,
+            minTravelFee,
+            maxTravelFee,
+            ...(newData.travelPricing || {})
+          };
+        } else {
+          // If we are not on the business tab, only update if inputs are valid numbers
+          if (!isNaN(pricePerMile) && !isNaN(freeMilesThreshold) && !isNaN(minTravelFee) && !isNaN(maxTravelFee)) {
+            updatedTravelPricing = {
+              ...settings.travelPricing,
+              pricePerMile,
+              freeMilesThreshold,
+              minTravelFee,
+              maxTravelFee,
+              ...(newData.travelPricing || {})
+            };
+          }
+        }
       }
-
-      const updatedTravelPricing = {
-        ...settings.travelPricing,
-        pricePerMile,
-        freeMilesThreshold,
-        minTravelFee,
-        maxTravelFee,
-        ...(newData.travelPricing || {})
-      };
 
       const updatedSettings = { 
         ...settings, 
@@ -565,8 +595,11 @@ export default function Settings() {
     if (!file || !settings) return;
 
     // Validate file type
-    if (!file.type.startsWith('image/')) {
-      toast.error("Please upload an image file.");
+    const isImage = file.type.startsWith('image/');
+    const isAcceptedExtension = /\.(jpg|jpeg|png)$/i.test(file.name);
+    
+    if (!isImage && !isAcceptedExtension) {
+      toast.error("Please upload a valid image file (JPG, JPEG, or PNG).");
       return;
     }
 
@@ -658,6 +691,13 @@ export default function Settings() {
                   >
                     <ClipboardList className="w-4 h-4" />
                     <span className="font-bold">Services & Add-ons</span>
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="integrations" 
+                    className="w-full justify-start gap-3 px-4 py-3 data-[state=active]:bg-red-50 data-[state=active]:text-primary rounded-xl transition-all"
+                  >
+                    <Plug className="w-4 h-4" />
+                    <span className="font-bold">Integrations</span>
                   </TabsTrigger>
                   <TabsTrigger 
                     value="coupons" 
@@ -1030,6 +1070,35 @@ export default function Settings() {
                 </div>
               </div>
 
+              <div className="pt-6 border-t border-gray-100">
+                <h3 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-primary" />
+                  Public Booking Link
+                </h3>
+                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
+                  <p className="text-sm text-gray-500 font-medium">
+                    Share this link with your clients to allow them to book appointments directly. 
+                    Smart recommendations will be shown based on your current schedule.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input 
+                      readOnly 
+                      value={`${window.location.origin}/book`} 
+                      className="bg-white font-mono text-xs"
+                    />
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/book`);
+                        toast.success("Booking link copied to clipboard!");
+                      }}
+                    >
+                      Copy Link
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               <Button 
                 onClick={() => handleSaveSettings(settings || {})} 
                 className="bg-primary hover:bg-red-700 font-bold"
@@ -1070,7 +1139,7 @@ export default function Settings() {
                       type="file"
                       ref={fileInputRef}
                       onChange={handleLogoUpload}
-                      accept="image/*"
+                      accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                       className="hidden"
                     />
                     <Button 
@@ -1648,6 +1717,51 @@ export default function Settings() {
                       onCheckedChange={v => setEditingService(prev => ({ ...prev!, isActive: v }))}
                     />
                   </div>
+                  <div className="col-span-2 p-4 bg-gray-50 rounded-xl space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="font-bold">Maintenance Return Automation</Label>
+                      <Switch 
+                        checked={editingService?.maintenanceReturnEnabled ?? false} 
+                        onCheckedChange={v => setEditingService(prev => ({ ...prev!, maintenanceReturnEnabled: v }))}
+                      />
+                    </div>
+                    {editingService?.maintenanceReturnEnabled && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Interval (Days)</Label>
+                          <StableInput 
+                            type="text"
+                            inputMode="numeric"
+                            value={editingService?.maintenanceIntervalDays?.toString() || ""} 
+                            onValueChange={val => setEditingService(prev => ({ ...prev!, maintenanceIntervalDays: parseInt(val) || 0 }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Interval (Months)</Label>
+                          <StableInput 
+                            type="text"
+                            inputMode="numeric"
+                            value={editingService?.maintenanceIntervalMonths?.toString() || ""} 
+                            onValueChange={val => setEditingService(prev => ({ ...prev!, maintenanceIntervalMonths: parseInt(val) || 0 }))}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between col-span-2">
+                          <Label>Auto-create Calendar Return</Label>
+                          <Switch 
+                            checked={editingService?.autoCreateCalendarReturn ?? false} 
+                            onCheckedChange={v => setEditingService(prev => ({ ...prev!, autoCreateCalendarReturn: v }))}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between col-span-2">
+                          <Label>Auto-create Lead Follow-up</Label>
+                          <Switch 
+                            checked={editingService?.autoCreateLeadFollowUp ?? false} 
+                            onCheckedChange={v => setEditingService(prev => ({ ...prev!, autoCreateLeadFollowUp: v }))}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="col-span-2 space-y-3 pt-4 border-t border-gray-100">
                     <Label className="font-bold">Pricing by Vehicle Size</Label>
@@ -1770,6 +1884,65 @@ export default function Settings() {
               </form>
             </DialogContent>
           </Dialog>
+        </TabsContent>
+
+        <TabsContent value="integrations">
+          <Card className="border-none shadow-sm bg-white">
+            <CardHeader>
+              <CardTitle>Integrations</CardTitle>
+              <CardDescription>Connect your payment providers.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {["Stripe", "Square", "PayPal", "Clover"].map(provider => (
+                <div key={provider} className="p-4 border border-gray-100 rounded-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-gray-900">{provider}</h4>
+                    {provider === "Clover" ? (
+                      <Badge variant={cloverConfigured ? "default" : "destructive"}>
+                        {cloverConfigured ? "Connected" : "Not Configured"}
+                      </Badge>
+                    ) : (
+                      <Switch 
+                        checked={settings?.paymentIntegrations?.[provider.toLowerCase() as keyof typeof settings.paymentIntegrations]?.enabled || false}
+                        onCheckedChange={(val) => handleSaveSettings({ 
+                          paymentIntegrations: { 
+                            ...settings?.paymentIntegrations, 
+                            [provider.toLowerCase()]: { 
+                              ...settings?.paymentIntegrations?.[provider.toLowerCase() as keyof typeof settings.paymentIntegrations],
+                              enabled: val 
+                            } 
+                          } 
+                        })}
+                      />
+                    )}
+                  </div>
+                  {settings?.paymentIntegrations?.[provider.toLowerCase() as keyof typeof settings.paymentIntegrations]?.enabled && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {provider === "Stripe" && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Publishable Key</Label>
+                            <Input 
+                              value={settings?.paymentIntegrations?.stripe?.publishableKey || ""}
+                              onChange={(e) => handleSaveSettings({ paymentIntegrations: { ...settings?.paymentIntegrations, stripe: { ...settings?.paymentIntegrations?.stripe, publishableKey: e.target.value } } })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Secret Key</Label>
+                            <Input 
+                              type="password"
+                              value={settings?.paymentIntegrations?.stripe?.secretKey || ""}
+                              onChange={(e) => handleSaveSettings({ paymentIntegrations: { ...settings?.paymentIntegrations, stripe: { ...settings?.paymentIntegrations?.stripe, secretKey: e.target.value } } })}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="categories">

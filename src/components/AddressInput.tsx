@@ -3,13 +3,14 @@ import usePlacesAutocomplete, {
   getLatLng,
 } from "use-places-autocomplete";
 import { useState, useEffect, useRef } from "react";
-import { MapPin, AlertCircle, Loader2 } from "lucide-react";
+import { MapPin, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 import { useGoogleMaps } from "./GoogleMapsProvider";
 import { cn } from "@/lib/utils";
+import { StructuredAddress } from "../types";
 
 interface AddressInputProps {
   defaultValue?: string;
-  onAddressSelect: (address: string, lat: number, lng: number) => void;
+  onAddressSelect: (address: string, lat: number, lng: number, structured?: StructuredAddress) => void;
   placeholder?: string;
   className?: string;
 }
@@ -24,6 +25,8 @@ export default function AddressInput({
 
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [geocodingSuccess, setGeocodingSuccess] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const isFocused = useRef(false);
   const selectionMadeRef = useRef(false);
@@ -82,20 +85,47 @@ export default function AddressInput({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const extractAddressComponents = (results: google.maps.GeocoderResult): StructuredAddress => {
+    const components = results.address_components;
+    const getComponent = (types: string[]) => 
+      components.find(c => types.some(t => c.types.includes(t)))?.long_name;
+
+    const { lat, lng } = results.geometry.location;
+
+    return {
+      formattedAddress: results.formatted_address,
+      streetNumber: getComponent(["street_number"]),
+      route: getComponent(["route"]),
+      city: getComponent(["locality"]) || getComponent(["sublocality"]),
+      state: getComponent(["administrative_area_level_1"]),
+      zipCode: getComponent(["postal_code"]),
+      country: getComponent(["country"]),
+      latitude: typeof lat === "function" ? lat() : lat,
+      longitude: typeof lng === "function" ? lng() : lng,
+      placeId: results.place_id
+    };
+  };
+
   const handleSelect = async (address: string) => {
     selectionMadeRef.current = true;
     setValue(address, false);
     clearSuggestions();
     setShowSuggestions(false);
+    setIsGeocoding(true);
+    setGeocodingSuccess(false);
 
     try {
       const results = await getGeocode({ address });
-      const { lat, lng } = await getLatLng(results[0]);
-      onAddressSelect(address, lat, lng);
+      if (results && results.length > 0) {
+        const structured = extractAddressComponents(results[0]);
+        onAddressSelect(structured.formattedAddress, structured.latitude, structured.longitude, structured);
+        setGeocodingSuccess(true);
+      }
     } catch (error: any) {
       console.error("Geocoding error: ", error);
       onAddressSelect(address, 0, 0);
     } finally {
+      setIsGeocoding(false);
       setTimeout(() => {
         selectionMadeRef.current = false;
       }, 200);
@@ -106,15 +136,34 @@ export default function AddressInput({
     const val = e.target.value;
     setValue(val);
     setShowSuggestions(val.length > 0);
+    setGeocodingSuccess(false);
   };
 
   const handleBlur = () => {
     isFocused.current = false;
     // Delay to allow handleSelect to run first if a suggestion was clicked
-    setTimeout(() => {
-      if (!selectionMadeRef.current) {
+    setTimeout(async () => {
+      if (!selectionMadeRef.current && value && value !== defaultValue) {
         setShowSuggestions(false);
-        onAddressSelect(value, 0, 0);
+        // Background geocode manual entry
+        setIsGeocoding(true);
+        try {
+          const results = await getGeocode({ address: value });
+          if (results && results.length > 0) {
+            const structured = extractAddressComponents(results[0]);
+            onAddressSelect(structured.formattedAddress, structured.latitude, structured.longitude, structured);
+            setGeocodingSuccess(true);
+          } else {
+            onAddressSelect(value, 0, 0);
+          }
+        } catch (error) {
+          console.error("Manual geocode error:", error);
+          onAddressSelect(value, 0, 0);
+        } finally {
+          setIsGeocoding(false);
+        }
+      } else if (!selectionMadeRef.current) {
+        setShowSuggestions(false);
       }
     }, 200);
   };
@@ -135,30 +184,35 @@ export default function AddressInput({
           placeholder={!isLoaded ? "Loading maps..." : placeholder}
           className={cn(
             "h-10 w-full rounded-xl border-none bg-gray-50 pl-10 pr-10 text-sm font-medium transition-all outline-none focus:ring-2 focus:ring-primary/20",
-            (!isLoaded || loadError) && "opacity-50 cursor-not-allowed",
-            loadError && "border-red-200 ring-red-100"
+            !isLoaded && !loadError && "opacity-50 cursor-not-allowed",
+            loadError && "border-amber-200 ring-amber-100"
           )}
-          disabled={!isLoaded || !!loadError}
+          disabled={!isLoaded && !loadError}
         />
-        {(!isLoaded || suggestionsLoading) && !loadError && (
+        {(isGeocoding || suggestionsLoading) && !loadError && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
             <Loader2 className="w-4 h-4 animate-spin text-gray-300" />
           </div>
         )}
+        {geocodingSuccess && !isGeocoding && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <CheckCircle2 className="w-4 h-4 text-green-500" />
+          </div>
+        )}
         {loadError && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <AlertCircle className="w-4 h-4 text-red-500" />
+            <AlertCircle className="w-4 h-4 text-amber-500" />
           </div>
         )}
       </div>
 
       {loadError && (
-        <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-xl">
-          <p className="text-[10px] text-red-600 font-bold uppercase tracking-wider mb-1">Maps Configuration Error</p>
-          <p className="text-xs text-red-800 font-medium">
+        <div className="mt-2 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+          <p className="text-[10px] text-amber-600 font-bold uppercase tracking-wider mb-1">Maps Configuration Note</p>
+          <p className="text-xs text-amber-800 font-medium">
             {loadError.message.includes("ApiTargetBlockedMapError") 
-              ? "The Places API is not enabled for this API key. Please enable 'Places API' in your Google Cloud Console."
-              : loadError.message}
+              ? "The Places API is not authorized for this API key. Autocomplete is disabled, but you can still type the address manually."
+              : "Maps could not load. Autocomplete is disabled, but you can still type the address manually."}
           </p>
         </div>
       )}
