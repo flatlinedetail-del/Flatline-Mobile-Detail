@@ -2,6 +2,7 @@ import { useState, useEffect, createContext, useContext } from "react";
 import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, onSnapshot, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db, handleFirestoreError, OperationType } from "../firebase";
+import { toast } from "sonner";
 
 interface AuthContextType {
   user: User | null;
@@ -23,54 +24,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      if (user) {
-        const userDocRef = doc(db, "users", user.uid);
+    const unsubscribeAuth = onAuthStateChanged(auth, async (authUser) => {
+      setUser(authUser);
+      if (authUser) {
+        const userDocRef = doc(db, "users", authUser.uid);
         
         // Use onSnapshot for real-time profile updates
+        if (unsubscribeProfile) unsubscribeProfile();
+        
         unsubscribeProfile = onSnapshot(userDocRef, async (docSnap) => {
           if (docSnap.exists()) {
-            const data = docSnap.data();
-            // Ensure owner email always has admin role
-            if (user.email?.toLowerCase() === "flatlinedetail@gmail.com" && data.role !== "admin") {
+            let data = docSnap.data();
+            // Ensure owner email always has admin role (maintain logic from before)
+            if (authUser.email?.toLowerCase() === "flatlinedetail@gmail.com" && data.role !== "admin") {
               await updateDoc(userDocRef, { role: "admin" });
-              // The next snapshot will trigger with the updated role
-            } else {
-              setProfile({ ...data, uid: user.uid });
             }
+            setProfile({ ...data, uid: authUser.uid, id: authUser.uid });
+            setLoading(false);
           } else {
             // Create profile if it doesn't exist
-            // Check if this email was pre-authorized with a role
-            let initialRole = user.email?.toLowerCase() === "flatlinedetail@gmail.com" ? "admin" : "technician";
+            let initialRole = authUser.email?.toLowerCase() === "flatlinedetail@gmail.com" ? "admin" : "technician";
             
             try {
-              const authDocs = await getDocs(query(collection(db, "staff_authorizations"), where("email", "==", user.email?.toLowerCase())));
+              const authDocs = await getDocs(query(collection(db, "staff_authorizations"), where("email", "==", authUser.email?.toLowerCase())));
               if (!authDocs.empty) {
                 initialRole = authDocs.docs[0].data().role || initialRole;
               }
-            } catch (e) {
-              console.error("Error checking staff authorizations:", e);
+  
+              const newProfile = {
+                uid: authUser.uid,
+                id: authUser.uid,
+                email: authUser.email || "",
+                displayName: authUser.displayName || "",
+                photoURL: authUser.photoURL || "",
+                role: initialRole,
+                createdAt: serverTimestamp(),
+              };
+              await setDoc(userDocRef, newProfile);
+            } catch (err) {
+              console.error("Error creating new profile:", err);
+              setLoading(false);
             }
-
-            const newProfile = {
-              uid: user.uid,
-              email: user.email || "",
-              displayName: user.displayName || "",
-              photoURL: user.photoURL || "",
-              role: initialRole,
-              createdAt: serverTimestamp(),
-            };
-            await setDoc(userDocRef, newProfile);
-            // setProfile will be called by the next snapshot
           }
-          setLoading(false);
         }, (error: any) => {
-          handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+          console.error("Error watching profile:", error);
+          if (error?.message?.includes('Quota limit exceeded')) {
+            toast.error("Firestore quota exceeded. Real-time updates paused.");
+          }
           setLoading(false);
         });
       } else {
-        if (unsubscribeProfile) unsubscribeProfile();
         setProfile(null);
         setLoading(false);
       }

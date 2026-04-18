@@ -64,12 +64,20 @@ export default function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps)
           Add New Customer
         </Button>
       } />
-      <DialogContent className="sm:max-w-[500px] p-0">
-        <DialogHeader className="px-6 pt-6 pb-2">
-          <DialogTitle className="text-xl font-black">Add New Customer</DialogTitle>
+      <DialogContent className="sm:max-w-4xl p-0 overflow-hidden border border-white/10 shadow-2xl bg-popover">
+        <DialogHeader className="px-8 pt-8 pb-4 bg-black/40 border-b border-white/5">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
+              <UserPlus className="w-6 h-6" />
+            </div>
+            <div>
+              <DialogTitle className="text-2xl font-black tracking-tighter uppercase text-white">Add New Customer</DialogTitle>
+              <p className="text-white/40 text-xs font-medium">Create a new retail client profile.</p>
+            </div>
+          </div>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-4 px-6 py-4">
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-6 px-8 py-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
               <StableInput id="name" name="name" placeholder="John Doe" required />
@@ -91,10 +99,14 @@ export default function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps)
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
-            <StableTextarea id="notes" name="notes" placeholder="Special requests, gate codes, etc." />
+            <Label htmlFor="notes">Internal Notes</Label>
+            <StableTextarea id="notes" name="notes" placeholder="Special requests, gate codes, etc." className="min-h-[120px]" />
           </div>
-          <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">Create Customer</Button>
+          <div className="pt-4">
+            <Button type="submit" className="w-full h-12 bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest shadow-lg shadow-primary/20 rounded-xl">
+              Create Customer Profile
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

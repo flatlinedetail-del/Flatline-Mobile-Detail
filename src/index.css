@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&family=Inter:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&family=Inter:wght@300;400;500;700&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -8,6 +8,7 @@
 @theme inline {
     --font-heading: 'Outfit', sans-serif;
     --font-sans: 'Inter', sans-serif;
+    --font-serif: 'Cormorant Garamond', serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,77 +50,164 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0 0 0); /* Pure Black */
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0 0 0);
-    --primary: oklch(0.577 0.245 27.325); /* Heartbeat Red */
-    --primary-foreground: oklch(1 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.4 0 0);
-    --accent: oklch(0.577 0.245 27.325 / 0.1); /* Light Red */
-    --accent-foreground: oklch(0.577 0.245 27.325);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.9 0 0);
-    --input: oklch(0.9 0 0);
-    --ring: oklch(0.577 0.245 27.325);
-    --radius: 0.5rem;
-    --sidebar: oklch(1 0 0);
-    --sidebar-foreground: oklch(0 0 0);
-    --sidebar-primary: oklch(0.577 0.245 27.325);
-    --sidebar-primary-foreground: oklch(1 0 0);
-    --sidebar-accent: oklch(0.577 0.245 27.325 / 0.05);
-    --sidebar-accent-foreground: oklch(0.577 0.245 27.325);
-    --sidebar-border: oklch(0.9 0 0);
-    --sidebar-ring: oklch(0.577 0.245 27.325);
+    --background: #09090B;
+    --foreground: #F8F9FB;
+    --card: #111114;
+    --card-foreground: #F8F9FB;
+    --popover: #111114;
+    --popover-foreground: #F8F9FB;
+    --primary: #E53935;
+    --primary-foreground: #FFFFFF;
+    --secondary: #1A1C23;
+    --secondary-foreground: #F8F9FB;
+    --muted: #151821;
+    --muted-foreground: #94A3B8;
+    --accent: #1A1C23;
+    --accent-foreground: #E53935;
+    --destructive: #EF4444;
+    --border: rgba(255, 255, 255, 0.08);
+    --input: #1A1C23;
+    --ring: #E53935;
+    --radius: 1rem;
+    --sidebar: #09090B;
+    --sidebar-foreground: #F8F9FB;
+    --sidebar-primary: #E53935;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: rgba(255, 255, 255, 0.05);
+    --sidebar-accent-foreground: #FFFFFF;
+    --sidebar-border: rgba(255, 255, 255, 0.05);
+    --sidebar-ring: #E53935;
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: #09090B;
+    --foreground: #F8F9FB;
+    --card: #111114;
+    --card-foreground: #F8F9FB;
+    --popover: #111114;
+    --popover-foreground: #F8F9FB;
+    --primary: #E53935;
+    --primary-foreground: #FFFFFF;
+    --secondary: #1A1C23;
+    --secondary-foreground: #F8F9FB;
+    --muted: #151821;
+    --muted-foreground: #94A3B8;
+    --accent: #1A1C23;
+    --accent-foreground: #E53935;
+    --destructive: #EF4444;
+    --border: rgba(255, 255, 255, 0.08);
+    --input: #1A1C23;
+    --ring: #E53935;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
-  body {
-    @apply bg-background text-foreground;
-    }
+  }
+  
   html {
     @apply font-sans;
-    }
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    overflow-x: hidden;
+  }
+}
+
+/* React Big Calendar Overrides for Dark Tactical Theme */
+.rbc-calendar {
+  @apply text-white font-sans;
+}
+
+.rbc-header {
+  @apply border-white/5 py-4 font-black uppercase tracking-widest text-[10px] text-gray-400 bg-black/40;
+}
+
+.rbc-month-view, .rbc-time-view, .rbc-agenda-view {
+  @apply border-white/5 rounded-3xl overflow-hidden bg-card shadow-2xl;
+}
+
+.rbc-day-bg {
+  @apply border-white/5;
+}
+
+.rbc-today {
+  @apply !bg-primary/5;
+}
+
+.rbc-off-range-bg {
+  @apply !bg-transparent !opacity-30;
+}
+
+.rbc-event {
+  @apply !p-0 !border-none !bg-transparent;
+}
+
+.rbc-event:focus {
+  @apply !outline-none !ring-2 !ring-primary;
+}
+
+.rbc-all-day-cell {
+  @apply border-white/5;
+}
+
+.rbc-time-header {
+  @apply border-white/5;
+}
+
+.rbc-time-header-content {
+  @apply border-white/5;
+}
+
+.rbc-time-content {
+  @apply border-white/5;
+}
+
+.rbc-timeslot-group {
+  @apply border-white/5 min-h-[60px];
+}
+
+.rbc-time-slot {
+  @apply border-white/5;
+}
+
+.rbc-time-gutter .rbc-timeslot-group {
+  @apply border-none text-[10px] font-black text-gray-500 uppercase pr-2;
+}
+
+.rbc-current-time-indicator {
+  @apply bg-primary h-[2px];
+}
+
+.rbc-agenda-view table.rbc-agenda-table {
+  @apply border-collapse border-none;
+}
+
+.rbc-agenda-view table.rbc-agenda-table .rbc-agenda-date-cell,
+.rbc-agenda-view table.rbc-agenda-table .rbc-agenda-time-cell {
+  @apply border-white/5 text-gray-400 font-bold text-xs p-4 bg-black/20;
+}
+
+.rbc-agenda-view table.rbc-agenda-table .rbc-agenda-event-cell {
+  @apply border-white/5 p-2;
+}
+
+.rbc-btn-group button {
+  @apply bg-white/5 border-white/10 text-white font-black uppercase tracking-widest text-[9px] hover:bg-white/10 transition-all;
+}
+
+.rbc-toolbar button:active, .rbc-toolbar button.rbc-active {
+  @apply !bg-primary !text-white !border-primary !shadow-lg !shadow-primary/20;
+}
+
+.rbc-toolbar {
+  @apply mb-4 flex-wrap gap-4;
+}
+
+.rbc-toolbar-label {
+  @apply text-xl font-black uppercase tracking-tighter text-white;
 }

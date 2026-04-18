@@ -49,11 +49,11 @@ export function SearchableSelector({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className={cn("w-full justify-between font-normal", className)}
+            className={cn("w-full justify-between font-bold", className)}
             disabled={disabled}
           >
             {selectedOption ? (
-              <span className="truncate">{selectedOption.label}</span>
+              <span className="truncate text-black">{selectedOption.label}</span>
             ) : (
               <span className="text-muted-foreground">{placeholder}</span>
             )}
@@ -63,7 +63,7 @@ export function SearchableSelector({
       />
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <Command>
-          <CommandInput placeholder={searchPlaceholder} />
+          <CommandInput placeholder={searchPlaceholder} autoFocus={false} />
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>

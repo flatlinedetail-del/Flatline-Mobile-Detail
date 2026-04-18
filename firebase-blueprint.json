@@ -290,6 +290,53 @@
         "technicianId": { "type": "string" }
       },
       "required": ["formId", "formVersion", "appointmentId", "signedAt"]
+    },
+    "TimeBlock": {
+      "title": "TimeBlock",
+      "description": "Personal time blocking for technicians/admins",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["time_off", "busy", "unavailable"] },
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string" },
+        "notes": { "type": "string" },
+        "googleEventId": { "type": "string" }
+      },
+      "required": ["title", "type", "start", "end", "userId"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System alert or notification",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "type": { "type": "string", "enum": ["booking", "client", "message", "system"] },
+        "relatedId": { "type": "string" },
+        "relatedType": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "title", "message", "type"]
+    },
+    "CommunicationLog": {
+      "title": "CommunicationLog",
+      "description": "Log of communication with a client",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string" },
+        "type": { "type": "string", "enum": ["sms", "email", "note", "alert"] },
+        "content": { "type": "string" },
+        "subject": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["clientId", "type", "content"]
     }
   },
   "firestore": {
@@ -309,6 +356,11 @@
     "/categories/{categoryId}": { "schema": "Category", "description": "Custom categories" },
     "/coupons/{couponId}": { "schema": "Coupon", "description": "Discount coupons" },
     "/form_templates/{formId}": { "schema": "FormTemplate", "description": "Form templates" },
-    "/signed_forms/{signedId}": { "schema": "SignedForm", "description": "Signed forms" }
+    "/signed_forms/{signedId}": { "schema": "SignedForm", "description": "Signed forms" },
+    "/campaign_logs/{logId}": { "schema": "object", "description": "Marketing campaign logs" },
+    "/time_blocks/{blockId}": { "schema": "TimeBlock", "description": "Personal time blocks" },
+    "/users/{uid}/integrations/{integrationId}": { "schema": "object", "description": "User integrations like Google Calendar" },
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" },
+    "/communication_logs/{logId}": { "schema": "CommunicationLog", "description": "Client communication logs" }
   }
 }

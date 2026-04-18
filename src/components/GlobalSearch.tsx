@@ -49,7 +49,7 @@ export default function GlobalSearch() {
     setQuery("");
     switch (result.type) {
       case "appointment":
-        navigate(`/appointments/${result.id}`);
+        navigate(`/calendar/${result.id}`);
         break;
       case "customer":
         navigate(`/customers/${result.id}`);

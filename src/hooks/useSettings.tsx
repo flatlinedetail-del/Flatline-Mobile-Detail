@@ -13,6 +13,9 @@ export function useSettings() {
         setSettings(doc.data() as BusinessSettings);
       }
       setLoading(false);
+    }, (error) => {
+      console.error("Error fetching settings:", error);
+      setLoading(false);
     });
 
     return () => unsubscribe();

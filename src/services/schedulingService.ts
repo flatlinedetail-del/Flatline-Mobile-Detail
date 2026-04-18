@@ -1,6 +1,6 @@
 import { addMinutes, startOfDay, endOfDay, addDays, isBefore, isAfter, differenceInMinutes, setHours, setMinutes } from "date-fns";
 import { Appointment, BusinessSettings } from "../types";
-import { calculateDistance, estimateTravelTime } from "./travelService";
+import { calculateDistance, calculateTravelFee, estimateTravelTime } from "./travelService";
 
 export interface RecommendedSlot {
   start: Date;
@@ -50,10 +50,20 @@ export function getRecommendedSlots(
 
     // Get appointments for this day
     const dayAppointments = existingAppointments.filter(app => {
-      const appDate = app.scheduledAt.toDate();
-      return appDate >= startOfDay(currentDay) && appDate <= endOfDay(currentDay) && 
-             app.status !== 'canceled' && app.status !== 'declined';
-    }).sort((a, b) => a.scheduledAt.toMillis() - b.scheduledAt.toMillis());
+      if (!app.scheduledAt) return false;
+      try {
+        const appDate = typeof app.scheduledAt.toDate === 'function' ? app.scheduledAt.toDate() : new Date(app.scheduledAt as any);
+        return appDate >= startOfDay(currentDay) && appDate <= endOfDay(currentDay) && 
+               app.status !== 'canceled' && app.status !== 'declined';
+      } catch (e) {
+        console.error("Error parsing appointment date:", app.id, e);
+        return false;
+      }
+    }).sort((a, b) => {
+      const aTime = typeof a.scheduledAt.toMillis === 'function' ? a.scheduledAt.toMillis() : new Date(a.scheduledAt as any).getTime();
+      const bTime = typeof b.scheduledAt.toMillis === 'function' ? b.scheduledAt.toMillis() : new Date(b.scheduledAt as any).getTime();
+      return aTime - bTime;
+    });
 
     // Check slots every 30 minutes
     let checkTime = dayStart;
@@ -74,7 +84,9 @@ export function getRecommendedSlots(
       // Check for overlap with existing appointments
       const overlap = dayAppointments.find(app => {
         const appStart = app.scheduledAt.toDate();
-        const appEnd = addMinutes(appStart, (app.estimatedDuration || 60) + (app.overrideBufferTimeMinutes || 15));
+        const duration = app.estimatedDuration || (app as any).totalDurationMinutes || 60;
+        const buffer = app.overrideBufferTimeMinutes || (app as any).totalBufferMinutes || 15;
+        const appEnd = addMinutes(appStart, duration + buffer);
         return (slotStart < appEnd && slotEnd > appStart);
       });
 
@@ -118,6 +130,16 @@ function scoreSlot(
   let explanation = "Standard available slot.";
   let level: "best" | "good" | "avoid" = "good";
   
+  // Tactical Service Area Evaluation
+  if (settings.travelPricing.enabled && settings.travelPricing.mode === "map_zones") {
+    const feeData = calculateTravelFee(0, settings.travelPricing, { lat, lng });
+    if (feeData.zoneName === "Outside Service Area") {
+      score -= 50;
+      explanation = "Location flagged as outside tactical service perimeters.";
+      level = "avoid";
+    }
+  }
+
   // Find prior and next appointments
   const prior = [...dayAppointments].reverse().find(app => app.scheduledAt.toDate() < start);
   const next = dayAppointments.find(app => app.scheduledAt.toDate() > end);
@@ -128,7 +150,9 @@ function scoreSlot(
   let distTo = 0;
 
   if (prior) {
-    const priorEnd = addMinutes(prior.scheduledAt.toDate(), (prior.estimatedDuration || 60) + (prior.overrideBufferTimeMinutes || 15));
+    const duration = prior.estimatedDuration || (prior as any).totalDurationMinutes || 60;
+    const buffer = prior.overrideBufferTimeMinutes || (prior as any).totalBufferMinutes || 15;
+    const priorEnd = addMinutes(prior.scheduledAt.toDate(), duration + buffer);
     const gap = differenceInMinutes(start, priorEnd);
     
     distFrom = calculateDistance(prior.latitude || settings.baseLatitude, prior.longitude || settings.baseLongitude, lat, lng);

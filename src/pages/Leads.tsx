@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, Timestamp, deleteDoc } from "firebase/firestore";
+import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, Timestamp, deleteDoc, limit } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
+import { PageHeader } from "../components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -30,13 +31,16 @@ import {
   History,
   ExternalLink,
   Trash2,
-  Settings2
+  Settings2,
+  DatabaseZap
 } from "lucide-react";
 import { toast } from "sonner";
 import { format, addDays } from "date-fns";
 import { Lead } from "../types";
 import { useNavigate } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
+import { createNotification } from "../services/notificationService";
+import VehicleSelector from "../components/VehicleSelector";
 
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
@@ -61,6 +65,7 @@ export default function Leads() {
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [newVehicleData, setNewVehicleData] = useState({ year: "", make: "", model: "" });
   const [newLeadAddress, setNewLeadAddress] = useState({ 
     address: "", 
     lat: 0, 
@@ -74,32 +79,17 @@ export default function Leads() {
   useEffect(() => {
     if (authLoading || !profile) return;
 
-    const q = query(collection(db, "leads"), orderBy("createdAt", "desc"));
+    // Fetch leads limited to most recent 100 to save quota
+    const q = query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(100));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const leadsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
       setLeads(leadsData);
       setLoading(false);
-
-      // Auto-geocode missing coordinates for visible leads
-      leadsData.forEach(async (lead: any) => {
-        if (lead.address && (!lead.latitude || !lead.longitude)) {
-          try {
-            const results = await getGeocode({ address: lead.address });
-            if (results && results.length > 0) {
-              const { lat, lng } = await getLatLng(results[0]);
-              await updateDoc(doc(db, "leads", lead.id), {
-                latitude: lat,
-                longitude: lng
-              });
-            }
-          } catch (error) {
-            console.error("Auto-geocode error for lead:", lead.id, error);
-          }
-        }
-      });
     }, (error) => {
       console.error("Error fetching leads:", error);
-      toast.error("Failed to load leads");
+      if (error.message?.includes('quota')) {
+        toast.error("Firestore quota exceeded. Try again later.");
+      }
     });
 
     return () => unsubscribe();
@@ -119,7 +109,7 @@ export default function Leads() {
       state: newLeadAddress.state,
       zipCode: newLeadAddress.zipCode,
       placeId: newLeadAddress.placeId,
-      vehicleInfo: formData.get("vehicleInfo"),
+      vehicleInfo: `${newVehicleData.year} ${newVehicleData.make} ${newVehicleData.model}`.trim(),
       requestedService: formData.get("requestedService"),
       source: formData.get("source") || "Direct",
       status: editingLead?.status || "new",
@@ -132,12 +122,23 @@ export default function Leads() {
         await updateDoc(doc(db, "leads", editingLead.id), leadData);
         toast.success("Lead updated successfully");
       } else {
-        await addDoc(collection(db, "leads"), {
+        const docRef = await addDoc(collection(db, "leads"), {
           ...leadData,
           createdAt: serverTimestamp(),
           createdBy: profile?.uid,
           nextFollowUpAt: Timestamp.fromDate(addDays(new Date(), 1)),
         });
+
+        // Trigger Notification
+        await createNotification({
+          userId: profile!.id,
+          title: "New Opportunity Detected",
+          message: `New lead ${leadData.name} initialized via ${leadData.source}`,
+          type: "client",
+          relatedId: docRef.id,
+          relatedType: "lead"
+        });
+
         toast.success("Lead added successfully");
       }
       setIsAddDialogOpen(false);
@@ -150,11 +151,32 @@ export default function Leads() {
 
   const updateLeadStatus = async (leadId: string, status: Lead["status"]) => {
     try {
-      await updateDoc(doc(db, "leads", leadId), { 
+      const updateData: any = { 
         status,
         updatedAt: serverTimestamp(),
         lastFollowUp: serverTimestamp()
+      };
+
+      if (status === "contacted") {
+        updateData.contactedAt = serverTimestamp();
+      } else if (status === "quoted") {
+        updateData.quotedAt = serverTimestamp();
+      } else if (status === "converted") {
+        updateData.convertedAt = serverTimestamp();
+      }
+
+      await updateDoc(doc(db, "leads", leadId), updateData);
+
+      // Trigger Notification
+      await createNotification({
+        userId: profile!.id,
+        title: "Lead Status Progress",
+        message: `Opportunity ${selectedLead?.name || "Lead"} progressed to ${status}`,
+        type: "client",
+        relatedId: leadId,
+        relatedType: "lead"
       });
+
       toast.success(`Status updated to ${status}`);
     } catch (error) {
       toast.error("Failed to update status");
@@ -197,207 +219,249 @@ export default function Leads() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tighter">LEADS</h1>
-          <p className="text-gray-500 font-medium">Manage your potential customers and inquiries.</p>
-        </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
-          setIsAddDialogOpen(open);
-          if (!open) {
-            setEditingLead(null);
-            setNewLeadAddress({ 
-              address: "", 
-              lat: 0, 
-              lng: 0,
-              city: "",
-              state: "",
-              zipCode: "",
-              placeId: ""
-            });
-          }
-        }}>
-          <DialogTrigger render={
-            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold" onClick={() => {
-              setEditingLead(null);
-              setIsAddDialogOpen(true);
-            }}>
-              <UserPlus className="w-4 h-4 mr-2" />
-              Add New Lead
+    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto">
+      <PageHeader 
+        title="Lead PIPELINE" 
+        accentWord="PIPELINE" 
+        subtitle={`Conversion Engine: Active • ${leads.length} Opportunities`}
+        actions={
+          <div className="flex items-center gap-3">
+            <Button 
+              variant="outline" 
+              className="rounded-xl border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 font-bold uppercase tracking-widest text-[10px] h-12 px-6"
+              onClick={() => navigate("/leads/engine")}
+            >
+              <DatabaseZap className="w-4 h-4 mr-2" />
+              AI Lead Engine
             </Button>
-          } />
-          <DialogContent className="sm:max-w-[500px] p-0">
-            <DialogHeader className="px-6 pt-6 pb-2">
-              <DialogTitle className="text-xl font-black">{editingLead ? "Edit Lead" : "Add New Lead"}</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleAddLead} className="flex-1 overflow-y-auto space-y-4 px-6 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" name="name" defaultValue={editingLead?.name || ""} placeholder="John Doe" required />
+            <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+            setIsAddDialogOpen(open);
+            if (!open) {
+              setEditingLead(null);
+              setNewLeadAddress({ 
+                address: "", 
+                lat: 0, 
+                lng: 0,
+                city: "",
+                state: "",
+                zipCode: "",
+                placeId: ""
+              });
+            }
+          }}>
+            <DialogTrigger render={
+              <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105" onClick={() => {
+                setEditingLead(null);
+                setIsAddDialogOpen(true);
+              }}>
+                <UserPlus className="w-4 h-4 mr-2" />
+                Initialize Lead
+              </Button>
+            } />
+          <DialogContent className="bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black sm:max-w-[700px]">
+            <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+                  <UserPlus className="w-6 h-6" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input 
-                    id="phone" 
-                    name="phone" 
-                    defaultValue={editingLead?.phone || ""}
-                    placeholder="(555) 000-0000" 
-                    required 
-                    onChange={(e) => {
-                      e.target.value = formatPhoneNumber(e.target.value);
-                    }}
+                <div>
+                  <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase">{editingLead ? "Modify Opportunity" : "New Opportunity Acquisition"}</DialogTitle>
+                  <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mt-1">Strategic Lead Intake Protocol</p>
+                </div>
+              </div>
+            </DialogHeader>
+            <form onSubmit={handleAddLead} className="p-8 space-y-8 max-h-[75vh] overflow-y-auto custom-scrollbar">
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Target Full Name</Label>
+                    <Input id="name" name="name" defaultValue={editingLead?.name || ""} placeholder="John Doe" required className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold" />
+                  </div>
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Contact Frequency (Phone)</Label>
+                    <Input 
+                      id="phone" 
+                      name="phone" 
+                      defaultValue={editingLead?.phone || ""}
+                      placeholder="(555) 000-0000" 
+                      required 
+                      className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold"
+                      onChange={(e) => {
+                        e.target.value = formatPhoneNumber(e.target.value);
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Digital Identity (Email)</Label>
+                  <Input id="email" name="email" type="email" defaultValue={editingLead?.email || ""} placeholder="john@example.com" className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold" />
+                </div>
+                <div className="space-y-3">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Mission Coordinates (Address)</Label>
+                  <AddressInput 
+                    defaultValue={editingLead?.address || ""}
+                    onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({ 
+                      address, 
+                      lat, 
+                      lng,
+                      city: structured?.city || "",
+                      state: structured?.state || "",
+                      zipCode: structured?.zipCode || "",
+                      placeId: structured?.placeId || ""
+                    })}
+                    placeholder="123 Main St, City, ST"
+                    className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold"
                   />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input id="email" name="email" type="email" defaultValue={editingLead?.email || ""} placeholder="john@example.com" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="address">Service Address</Label>
-                <AddressInput 
-                  defaultValue={editingLead?.address || ""}
-                  onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({ 
-                    address, 
-                    lat, 
-                    lng,
-                    city: structured?.city || "",
-                    state: structured?.state || "",
-                    zipCode: structured?.zipCode || "",
-                    placeId: structured?.placeId || ""
-                  })}
-                  placeholder="123 Main St, City, ST"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="vehicleInfo">Vehicle Info</Label>
-                  <Input id="vehicleInfo" name="vehicleInfo" defaultValue={editingLead?.vehicleInfo || ""} placeholder="2022 Tesla Model 3" />
+                <div className="space-y-3">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Asset Profile (Vehicle)</Label>
+                  <VehicleSelector 
+                    onSelect={setNewVehicleData}
+                    initialValues={editingLead?.vehicleInfo ? {
+                      year: editingLead.vehicleInfo.split(" ")[0] || "",
+                      make: editingLead.vehicleInfo.split(" ")[1] || "",
+                      model: editingLead.vehicleInfo.split(" ").slice(2).join(" ") || ""
+                    } : undefined}
+                  />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="requestedService">Requested Service</Label>
-                  <Input id="requestedService" name="requestedService" defaultValue={editingLead?.requestedService || ""} placeholder="Full Detail" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="priority">Priority</Label>
-                  <Select name="priority" defaultValue={editingLead?.priority || "medium"}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select priority" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="hot">Hot (Ready to book)</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="low">Low</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="source">Source</Label>
-                  <Input id="source" name="source" defaultValue={editingLead?.source || ""} placeholder="Google, FB, Referral" />
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Requested Protocol (Service)</Label>
+                    <Input id="requestedService" name="requestedService" defaultValue={editingLead?.requestedService || ""} placeholder="Full Detail" className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold" />
+                  </div>
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Priority Designation</Label>
+                    <Select name="priority" defaultValue={editingLead?.priority || "medium"}>
+                      <SelectTrigger className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold">
+                        <SelectValue placeholder="Select priority" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border-gray-100 text-black">
+                        <SelectItem value="hot" className="font-bold text-red-600">HOT (READY TO BOOK)</SelectItem>
+                        <SelectItem value="high" className="font-bold">HIGH</SelectItem>
+                        <SelectItem value="medium" className="font-bold">MEDIUM</SelectItem>
+                        <SelectItem value="low" className="font-bold">LOW</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Acquisition Source</Label>
+                    <Input id="source" name="source" defaultValue={editingLead?.source || ""} placeholder="Google, FB, Referral" className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold" />
+                  </div>
                 </div>
               </div>
-              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">
-                {editingLead ? "Update Lead" : "Create Lead"}
-              </Button>
+              <div className="flex items-center gap-4 pt-6 border-t border-white/5">
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  onClick={() => setIsAddDialogOpen(false)}
+                  className="flex-1 text-white/40 hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
+                >
+                  Abort
+                </Button>
+                <Button type="submit" className="flex-[2] bg-primary text-white hover:bg-red-700 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 transition-all hover:scale-105">
+                  {editingLead ? "Authorize Update" : "Authorize Acquisition"}
+                </Button>
+              </div>
             </form>
           </DialogContent>
         </Dialog>
       </div>
+    }
+  />
 
-      <Card className="border-none shadow-sm bg-white overflow-hidden">
-        <CardHeader className="border-b border-gray-50 bg-gray-50/50">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input 
-                placeholder="Search leads..." 
-                className="pl-10 bg-white border-gray-200 rounded-full"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="border-gray-200">
-                <Filter className="w-4 h-4 mr-2" />
-                Filter
-              </Button>
-            </div>
+      <Card className="border-none bg-card rounded-3xl overflow-hidden shadow-xl">
+        <CardHeader className="p-8 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-black/40">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" />
+            <Input 
+              placeholder="Search opportunities..." 
+              className="pl-12 bg-white border-border text-black rounded-xl h-12 font-medium focus:ring-primary/50"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" className="border-border bg-white text-black hover:bg-gray-50 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
+              <Filter className="w-4 h-4 mr-2 text-primary" />
+              Filter Pipeline
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
-            <TableHeader className="bg-gray-50/50">
-              <TableRow>
-                <TableHead className="w-[250px]">Customer</TableHead>
-                <TableHead>Vehicle & Service</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Next Follow-up</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+            <TableHeader className="bg-black/20 border-b border-white/5">
+              <TableRow className="hover:bg-transparent border-none">
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Customer Entity</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Asset & Service</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Status</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Next Engagement</TableHead>
+                <TableHead className="px-8 py-5 text-right text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Tactical Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-10 text-gray-500">Loading leads...</TableCell>
+                <TableRow className="hover:bg-transparent border-border">
+                  <TableCell colSpan={5} className="text-center py-20 text-white/40 font-black uppercase tracking-widest text-[10px] animate-pulse">Scanning Pipeline...</TableCell>
                 </TableRow>
               ) : filteredLeads.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-10 text-gray-500">No leads found.</TableCell>
+                <TableRow className="hover:bg-transparent border-border">
+                  <TableCell colSpan={5} className="text-center py-20 text-white/40 font-black uppercase tracking-widest text-[10px]">No opportunities detected.</TableCell>
                 </TableRow>
               ) : (
                 filteredLeads.map((lead) => (
                   <TableRow 
                     key={lead.id} 
-                    className="hover:bg-gray-50/50 transition-colors cursor-pointer group"
+                    className="hover:bg-white/5 transition-all duration-300 cursor-pointer group border-border"
                     onClick={() => {
                       setSelectedLead(lead);
                       setIsDetailOpen(true);
                     }}
                   >
-                    <TableCell>
+                    <TableCell className="px-8 py-6">
                       <div className="flex flex-col">
-                        <span className="font-bold text-gray-900">{lead.name}</span>
-                        <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
-                          <Phone className="w-3 h-3" />
+                        <span className="font-black text-white uppercase tracking-tight text-sm">{lead.name}</span>
+                        <div className="flex items-center gap-2 text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
+                          <Phone className="w-3 h-3 text-primary" />
                           {formatPhoneNumber(lead.phone)}
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="px-8 py-6">
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium text-gray-700">{lead.vehicleInfo}</span>
-                        <span className="text-xs text-gray-500">{lead.requestedService}</span>
+                        <span className="text-sm font-bold text-white/80">{lead.vehicleInfo}</span>
+                        <span className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-0.5">{lead.requestedService}</span>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={cn("font-black uppercase text-[10px] tracking-wider", statusColors[lead.status] || "bg-gray-100 text-gray-700")}>
+                    <TableCell className="px-8 py-6">
+                      <Badge variant="outline" className={cn(
+                        "text-[9px] uppercase font-black tracking-widest px-2.5 py-1 rounded-md border-none",
+                        lead.status === "new" ? "bg-white/10 text-white/60" :
+                        lead.status === "contacted" ? "bg-primary/10 text-primary" :
+                        lead.status === "converted" ? "bg-green-500/10 text-green-400" :
+                        "bg-white/10 text-white/40"
+                      )}>
                         {lead.status?.replace("_", " ")}
                       </Badge>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="px-8 py-6">
                       <div className="flex flex-col">
                         <span className={cn(
-                          "text-xs font-bold",
-                          lead.nextFollowUpAt && lead.nextFollowUpAt.toDate() < new Date() ? "text-red-600" : "text-gray-600"
+                          "text-[10px] font-black uppercase tracking-widest",
+                          lead.nextFollowUpAt && lead.nextFollowUpAt.toDate() < new Date() ? "text-primary" : "text-white/40"
                         )}>
-                          {lead.nextFollowUpAt ? format(lead.nextFollowUpAt.toDate(), "MMM d, yyyy") : "No date"}
+                          {lead.nextFollowUpAt ? format(lead.nextFollowUpAt.toDate(), "MMM d, yyyy") : "TBD"}
                         </span>
                         {lead.priority === "hot" && (
-                          <Badge className="bg-red-600 text-white text-[9px] w-fit mt-1">HOT</Badge>
+                          <Badge className="bg-primary text-white text-[8px] font-black uppercase tracking-widest w-fit mt-1.5 px-2 py-0.5">HOT</Badge>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
+                    <TableCell className="px-8 py-6 text-right">
+                      <div className="flex items-center justify-end gap-2 transition-all">
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          className="h-9 w-9 text-white/70 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingLead(lead);
@@ -418,7 +482,7 @@ export default function Leads() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          className="h-9 w-9 text-white/70 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
                             window.location.href = `tel:${lead.phone}`;
@@ -429,10 +493,10 @@ export default function Leads() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-gray-400 hover:text-green-600"
+                          className="h-9 w-9 text-white/70 hover:text-green-400 hover:bg-green-500/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate("/appointments", { state: { lead } });
+                            navigate("/calendar", { state: { lead } });
                           }}
                         >
                           <CheckCircle2 className="w-4 h-4" />
@@ -442,13 +506,13 @@ export default function Leads() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-8 w-8 text-gray-400 hover:text-red-600"
+                              className="h-9 w-9 text-white/70 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           }
-                          title="Delete Lead?"
+                          title="Purge Opportunity?"
                           itemName={lead.name}
                           onConfirm={() => handleDeleteLead(lead.id)}
                         />
@@ -465,89 +529,94 @@ export default function Leads() {
       {/* Lead Details Dialog */}
       {selectedLead && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-          <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-primary p-6 text-white shrink-0">
-              <div className="flex justify-between items-start">
+          <DialogContent className="bg-white border-none p-0 overflow-hidden rounded-3xl shadow-2xl sm:max-w-[600px]">
+            <div className="bg-primary p-8 text-white shrink-0 relative overflow-hidden">
+              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
+              <div className="relative z-10 flex justify-between items-start">
                 <div>
-                  <Badge className="bg-white/20 text-white border-none mb-2 uppercase font-black tracking-widest">
-                    {selectedLead.status} Lead
+                  <Badge className="bg-white/20 text-white border-none mb-3 uppercase font-black tracking-widest text-[10px] px-3 py-1">
+                    {selectedLead.status} OPPORTUNITY
                   </Badge>
-                  <h2 className="text-3xl font-black tracking-tighter">{selectedLead.name}</h2>
-                  <p className="text-red-100 flex items-center gap-2 mt-1">
-                    <Phone className="w-4 h-4" /> {formatPhoneNumber(selectedLead.phone)}
-                    <span className="opacity-30">|</span>
-                    <Mail className="w-4 h-4" /> {selectedLead.email}
-                  </p>
+                  <h2 className="text-4xl font-black tracking-tighter uppercase font-heading">{selectedLead.name}</h2>
+                  <div className="flex items-center gap-4 mt-3">
+                    <p className="text-red-100 flex items-center gap-2 text-sm font-bold">
+                      <Phone className="w-4 h-4" /> {formatPhoneNumber(selectedLead.phone)}
+                    </p>
+                    <span className="w-1 h-1 bg-white/30 rounded-full"></span>
+                    <p className="text-red-100 flex items-center gap-2 text-sm font-bold">
+                      <Mail className="w-4 h-4" /> {selectedLead.email}
+                    </p>
+                  </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-red-200 font-bold uppercase">Priority</p>
-                  <p className="text-xl font-black capitalize">{selectedLead.priority}</p>
+                  <p className="text-[10px] text-red-200 font-black uppercase tracking-widest mb-1">Priority</p>
+                  <p className="text-2xl font-black capitalize tracking-tighter">{selectedLead.priority}</p>
                 </div>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-1">
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vehicle</p>
-                  <p className="text-lg font-bold text-gray-900">{selectedLead.vehicleInfo}</p>
+            <div className="p-8 space-y-8 bg-white">
+              <div className="grid grid-cols-2 gap-8">
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black text-black/40 uppercase tracking-widest">Target Asset</p>
+                  <p className="text-lg font-black text-black uppercase tracking-tight">{selectedLead.vehicleInfo}</p>
                 </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Requested Service</p>
-                  <p className="text-lg font-bold text-gray-900">{selectedLead.requestedService}</p>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black text-black/40 uppercase tracking-widest">Requested Protocol</p>
+                  <p className="text-lg font-black text-black uppercase tracking-tight">{selectedLead.requestedService}</p>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Notes</p>
+              <div className="space-y-3">
+                <p className="text-[10px] font-black text-black/40 uppercase tracking-widest">Intelligence Notes</p>
                 <Textarea 
                   defaultValue={selectedLead.notes}
                   placeholder="Add details about the inquiry..."
-                  className="min-h-[100px] bg-gray-50 border-none focus-visible:ring-primary"
+                  className="min-h-[120px] bg-gray-50 border-gray-100 text-black rounded-2xl focus-visible:ring-primary p-5 leading-relaxed"
                   onBlur={async (e) => {
                     await updateDoc(doc(db, "leads", selectedLead.id), { notes: e.target.value });
                   }}
                 />
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 gap-4">
                 <Button 
-                  className="flex-1 bg-primary hover:bg-red-700 font-bold"
-                  onClick={() => navigate("/appointments", { state: { lead: selectedLead } })}
+                  className="bg-primary hover:bg-red-700 text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
+                  onClick={() => navigate("/calendar", { state: { lead: selectedLead } })}
                 >
                   <CheckCircle2 className="w-4 h-4 mr-2" /> Convert to Job
                 </Button>
                 <Button 
                   variant="outline" 
-                  className="flex-1 border-gray-200 font-bold"
+                  className="bg-gray-50 border-gray-100 text-black hover:bg-gray-100 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs transition-all hover:scale-[1.02]"
                   onClick={() => updateLeadStatus(selectedLead.id, "contacted")}
                 >
-                  <MessageSquare className="w-4 h-4 mr-2" /> Mark Contacted
+                  <MessageSquare className="w-4 h-4 mr-2 text-primary" /> Mark Contacted
                 </Button>
                 <Button 
                   variant="outline" 
-                  className="flex-1 border-gray-200 font-bold text-red-600 hover:bg-red-50 hover:text-red-700"
+                  className="bg-gray-50 border-gray-100 text-black hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/20 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs transition-all hover:scale-[1.02]"
                   onClick={() => updateLeadStatus(selectedLead.id, "lost")}
                 >
-                  <XCircle className="w-4 h-4 mr-2" /> Mark Lost
+                  <XCircle className="w-4 h-4 mr-2 text-primary" /> Mark Lost
                 </Button>
                 <DeleteConfirmationDialog
                   trigger={
                     <Button 
                       variant="ghost" 
-                      className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold"
+                      className="text-black/40 hover:text-primary hover:bg-primary/5 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs transition-all"
                     >
-                      <Trash2 className="w-4 h-4 mr-2" /> Delete Lead
+                      <Trash2 className="w-4 h-4 mr-2" /> Purge Opportunity
                     </Button>
                   }
-                  title="Delete Lead?"
+                  title="Purge Opportunity?"
                   itemName={selectedLead.name}
                   onConfirm={() => handleDeleteLead(selectedLead.id)}
                 />
               </div>
 
-              <div className="pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400 font-medium">
-                <p>Created: {format(selectedLead.createdAt.toDate(), "MMM d, yyyy h:mm a")}</p>
+              <div className="pt-6 border-t border-gray-100 flex items-center justify-between text-[10px] text-black/40 font-black uppercase tracking-widest">
+                <p>Captured: {format(selectedLead.createdAt.toDate(), "MMM d, yyyy h:mm a")}</p>
                 <p>Source: {selectedLead.source}</p>
               </div>
             </div>

@@ -7,8 +7,22 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { askAssistant } from "../services/gemini";
 import Markdown from "react-markdown";
 
-export default function AIAssistant({ context }: { context: any }) {
-  const [isOpen, setIsOpen] = useState(false);
+export default function AIAssistant({ 
+  context, 
+  isOpen: externalIsOpen, 
+  onOpenChange 
+}: { 
+  context: any;
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
+  const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
+  const setIsOpen = (val: boolean) => {
+    if (onOpenChange) onOpenChange(val);
+    setInternalIsOpen(val);
+  };
+
   const [dynamicContext, setDynamicContext] = useState<any>(null);
 
   // Expose to window so other components can trigger it and pass context
@@ -32,10 +46,27 @@ export default function AIAssistant({ context }: { context: any }) {
     setIsLoading(true);
 
     const fullContext = { ...context, ...dynamicContext };
-    const response = await askAssistant(input, fullContext);
-    const content = response?.suggestion || "I'm not sure how to respond to that.";
-    setMessages(prev => [...prev, { role: "assistant", content }]);
-    setIsLoading(false);
+    try {
+      const response = await askAssistant(input, fullContext);
+      const content = response?.suggestion || "I'm not sure how to respond to that.";
+      setMessages(prev => [...prev, { role: "assistant", content }]);
+    } catch (error: any) {
+      console.error("AI Assistant Error:", error);
+      let errorMessage = "I'm having trouble connecting to my brain right now. Please try again in a moment.";
+      
+      if (error.message?.includes("QUOTA_EXCEEDED")) {
+        errorMessage = "My daily intelligence quota has been reached. Please check back tomorrow or contact support to upgrade.";
+      } else if (error.message?.includes("high demand") || error.status === "UNAVAILABLE") {
+        errorMessage = "I'm currently experiencing high demand. Please try again in a few seconds.";
+      }
+      
+      setMessages(prev => [...prev, { 
+        role: "assistant", 
+        content: errorMessage 
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

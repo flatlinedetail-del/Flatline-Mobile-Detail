@@ -6,7 +6,6 @@ import Dashboard from "./pages/Dashboard";
 import Leads from "./pages/Leads";
 import Clients from "./pages/Clients";
 import Calendar from "./pages/Calendar";
-import Appointments from "./pages/Appointments";
 import JobDetail from "./pages/JobDetail";
 import Invoices from "./pages/Invoices";
 import Quotes from "./pages/Quotes";
@@ -17,6 +16,7 @@ import Help from "./pages/Help";
 import Expenses from "./pages/Expenses";
 import Marketing from "./pages/Marketing";
 import FormsBuilder from "./pages/FormsBuilder";
+import AILeadEngine from "./pages/AILeadEngine";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
 import { Toaster } from "@/components/ui/sonner";
@@ -44,10 +44,10 @@ function AppContent() {
         >
           <Route index element={<Dashboard />} />
           <Route path="leads" element={<Leads />} />
+          <Route path="leads/engine" element={<AILeadEngine />} />
           <Route path="clients" element={<Clients />} />
           <Route path="calendar" element={<Calendar />} />
-          <Route path="appointments" element={<Appointments />} />
-          <Route path="appointments/:id" element={<JobDetail />} />
+          <Route path="calendar/:id" element={<JobDetail />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="quotes" element={<Quotes />} />
           <Route path="reports" element={<Reports />} />

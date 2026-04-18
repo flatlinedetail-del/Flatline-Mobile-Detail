@@ -16,6 +16,7 @@ export interface RouteStop {
   priority: number;
   totalAmount: number;
   estimatedDuration: number; // in minutes
+  recurringInfo?: Appointment["recurringInfo"];
   travelTimeFromPrevious?: number; // in minutes
   distanceFromPrevious?: number; // in miles
   optimizationNote?: string;
@@ -84,6 +85,7 @@ export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], e
         priority: data.status === "en_route" ? 1 : 2,
         totalAmount: data.totalAmount || 0,
         estimatedDuration: data.estimatedDuration || 120,
+        recurringInfo: data.recurringInfo || null,
       };
     }));
 
@@ -151,6 +153,7 @@ export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], e
         priority: 2,
         totalAmount: data.totalAmount || 0,
         estimatedDuration: data.estimatedDuration || 120,
+        recurringInfo: data.recurringInfo || null,
         optimizationNote: "Fallback: Sorted by time"
       };
     });

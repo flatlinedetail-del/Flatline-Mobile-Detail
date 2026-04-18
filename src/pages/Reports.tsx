@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, query, where, onSnapshot, Timestamp, orderBy, getDocs } from "firebase/firestore";
+import { collection, query, where, onSnapshot, Timestamp, orderBy, getDocs, getDoc, doc } from "firebase/firestore";
 import { db } from "../firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -26,9 +26,10 @@ import {
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths, eachDayOfInterval, isSameDay } from "date-fns";
 import { cn } from "../lib/utils";
-import { Appointment, Expense } from "../types";
+import { Appointment, Expense, BusinessSettings } from "../types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { useAuth } from "../hooks/useAuth";
+import { PageHeader } from "../components/PageHeader";
 import { ShieldAlert } from "lucide-react";
 
 export default function Reports() {
@@ -77,24 +78,34 @@ export default function Reports() {
       where("date", "<=", Timestamp.fromDate(end))
     );
 
-    const unsubAppts = onSnapshot(qAppts, (snap) => {
-      setAppointments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-    }, (error) => {
-      console.error("Error listening to appointments in reports:", error);
-    });
-
-    const unsubExpenses = onSnapshot(qExpenses, (snap) => {
-      setExpenses(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense)));
-    }, (error) => {
-      console.error("Error listening to expenses in reports:", error);
-    });
-
-    setLoading(false);
-    return () => {
-      unsubAppts();
-      unsubExpenses();
+    const fetchReportsData = async () => {
+      try {
+        const [apptsSnap, expensesSnap] = await Promise.all([
+          getDocs(qAppts),
+          getDocs(qExpenses)
+        ]);
+        setAppointments(apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+        setExpenses(expensesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense)));
+        setLoading(false);
+      } catch (error) {
+        console.error("Error fetching reports data:", error);
+        setLoading(false);
+      }
     };
+
+    fetchReportsData();
+    return () => {};
   }, [timeRange, profile, authLoading]);
+
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const snap = await getDoc(doc(db, "settings", "business"));
+      if (snap.exists()) setSettings(snap.data() as BusinessSettings);
+    };
+    fetchSettings();
+  }, []);
 
   const totalSales = appointments
     .filter(a => a.status === "completed" || a.status === "paid")
@@ -102,8 +113,17 @@ export default function Reports() {
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const netProfit = totalSales - totalExpenses;
-  const commissionRate = 0.3; // 30%
-  const totalCommissions = totalSales * commissionRate;
+  
+  const totalCommissions = appointments
+    .filter(a => a.status === "completed" || a.status === "paid")
+    .reduce((sum, a) => {
+      if (a.commissionAmount !== undefined) return sum + a.commissionAmount;
+      // Fallback for legacy appointments
+      const rate = settings?.commissionRate || 0;
+      const type = settings?.commissionType || "percentage";
+      if (type === "percentage") return sum + (a.totalAmount * rate) / 100;
+      return sum + rate;
+    }, 0);
 
   // Chart Data
   const days = eachDayOfInterval({
@@ -113,7 +133,7 @@ export default function Reports() {
 
   const chartData = days.map(day => {
     const daySales = appointments
-      .filter(a => (a.status === "completed" || a.status === "paid") && isSameDay(a.scheduledAt.toDate(), day))
+      .filter(a => (a.status === "completed" || a.status === "paid") && a.scheduledAt && isSameDay(a.scheduledAt.toDate(), day))
       .reduce((sum, a) => sum + a.totalAmount, 0);
     
     return {
@@ -133,26 +153,27 @@ export default function Reports() {
 
   return (
     <div className="space-y-6 pb-20">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tighter">REPORTS</h1>
-          <p className="text-gray-500 font-medium">Analyze your business performance and financials.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={timeRange} onValueChange={setTimeRange}>
-            <SelectTrigger className="w-[180px] bg-white border-gray-200 font-bold">
-              <SelectValue placeholder="Select range" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="this_month">This Month</SelectItem>
-              <SelectItem value="last_month">Last Month</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" className="border-gray-200">
-            <Download className="w-4 h-4 mr-2" /> Export CSV
-          </Button>
-        </div>
-      </div>
+      <PageHeader 
+        title="Intelligence REPORTS" 
+        accentWord="REPORTS" 
+        subtitle="Performance Analytics & Growth Metrics"
+        actions={
+          <div className="flex items-center gap-3">
+            <Select value={timeRange} onValueChange={setTimeRange}>
+              <SelectTrigger className="w-[180px] bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/50">
+                <SelectValue placeholder="Select range" />
+              </SelectTrigger>
+              <SelectContent className="bg-black border-white/10 text-white">
+                <SelectItem value="this_month">This Month</SelectItem>
+                <SelectItem value="last_month">Last Month</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" className="border-border bg-white text-gray-900 hover:bg-gray-50 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
+              <Download className="w-4 h-4 mr-2 text-primary" /> Export CSV
+            </Button>
+          </div>
+        }
+      />
 
       {/* Financial Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -184,9 +205,9 @@ export default function Reports() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Sales Chart */}
-        <Card className="lg:col-span-2 border-none shadow-sm bg-white overflow-hidden">
-          <CardHeader className="border-b bg-gray-50/50">
-            <CardTitle className="text-lg font-black text-gray-900">Sales Performance</CardTitle>
+        <Card className="lg:col-span-2 border-none shadow-xl bg-card overflow-hidden">
+          <CardHeader className="border-b border-white/5 bg-black/40">
+            <CardTitle className="text-lg font-black text-white uppercase tracking-tighter">Sales Performance</CardTitle>
           </CardHeader>
           <CardContent className="p-6">
             <div className="h-[300px] w-full">
@@ -218,9 +239,9 @@ export default function Reports() {
         </Card>
 
         {/* Expense Breakdown */}
-        <Card className="border-none shadow-sm bg-white overflow-hidden">
-          <CardHeader className="border-b bg-gray-50/50">
-            <CardTitle className="text-lg font-black text-gray-900">Expense Breakdown</CardTitle>
+        <Card className="border-none shadow-xl bg-card overflow-hidden">
+          <CardHeader className="border-b border-white/5 bg-black/40">
+            <CardTitle className="text-lg font-black text-white uppercase tracking-tighter">Expense Breakdown</CardTitle>
           </CardHeader>
           <CardContent className="p-6">
             <div className="h-[250px] w-full">
@@ -248,9 +269,9 @@ export default function Reports() {
                 <div key={cat.name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                    <span className="text-sm font-bold text-gray-600">{cat.name}</span>
+                    <span className="text-sm font-bold text-white/60">{cat.name}</span>
                   </div>
-                  <span className="text-sm font-black text-gray-900">${cat.value}</span>
+                  <span className="text-sm font-black text-white">${cat.value}</span>
                 </div>
               ))}
             </div>
@@ -259,13 +280,13 @@ export default function Reports() {
       </div>
 
       {/* Service Popularity */}
-      <Card className="border-none shadow-sm bg-white overflow-hidden">
-        <CardHeader className="border-b bg-gray-50/50">
-          <CardTitle className="text-lg font-black text-gray-900">Service Popularity</CardTitle>
+      <Card className="border-none shadow-xl bg-card overflow-hidden">
+        <CardHeader className="border-b border-white/5 bg-black/40">
+          <CardTitle className="text-lg font-black text-white uppercase tracking-tighter">Service Popularity</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
-            <TableHeader className="bg-gray-50/50">
+            <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow>
                 <TableHead>Service Name</TableHead>
                 <TableHead>Bookings</TableHead>
@@ -284,11 +305,11 @@ export default function Reports() {
                   return acc;
                 }, {})
               ).map(([name, stats]: [string, any]) => (
-                <TableRow key={name}>
-                  <TableCell className="font-bold">{name}</TableCell>
-                  <TableCell>{stats.count}</TableCell>
-                  <TableCell>${Math.round(stats.revenue).toLocaleString()}</TableCell>
-                  <TableCell>${Math.round(stats.revenue / stats.count).toLocaleString()}</TableCell>
+                <TableRow key={name} className="border-white/5 hover:bg-white/5">
+                  <TableCell className="font-bold text-white">{name}</TableCell>
+                  <TableCell className="text-white/60">{stats.count}</TableCell>
+                  <TableCell className="text-white/60">${Math.round(stats.revenue).toLocaleString()}</TableCell>
+                  <TableCell className="text-white/60">${Math.round(stats.revenue / stats.count).toLocaleString()}</TableCell>
                 </TableRow>
               ))}
               {appointments.length === 0 && (
@@ -306,22 +327,22 @@ export default function Reports() {
 
 function ReportCard({ title, value, icon, color }: any) {
   const colors: any = {
-    red: "bg-red-50 text-primary",
-    green: "bg-green-50 text-green-600",
-    purple: "bg-purple-50 text-purple-600"
+    red: "bg-primary/10 text-primary border-primary/20",
+    green: "bg-green-500/10 text-green-500 border-green-500/20",
+    purple: "bg-purple-500/10 text-purple-500 border-purple-500/20"
   };
 
   return (
-    <Card className="border-none shadow-sm bg-white overflow-hidden">
+    <Card className="border-none shadow-xl bg-card overflow-hidden">
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <div className={cn("p-3 rounded-2xl", colors[color])}>
+          <div className={cn("p-3 rounded-2xl border", colors[color])}>
             {icon}
           </div>
         </div>
         <div>
-          <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">{title}</p>
-          <h3 className="text-3xl font-black text-gray-900 tracking-tighter">{value}</h3>
+          <p className="text-xs font-black text-white/40 uppercase tracking-widest mb-1">{title}</p>
+          <h3 className="text-3xl font-black text-white tracking-tighter">{value}</h3>
         </div>
       </CardContent>
     </Card>

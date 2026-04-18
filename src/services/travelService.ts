@@ -18,26 +18,91 @@ export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2
 }
 
 /**
- * Calculates the travel fee based on business settings and distance.
+ * Checks if a coordinate is inside a polygon defined by paths.
+ */
+export function isPointInPolygon(point: { lat: number; lng: number }, polygon: { lat: number; lng: number }[]): boolean {
+  let isInside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lat, yi = polygon[i].lng;
+    const xj = polygon[j].lat, yj = polygon[j].lng;
+    const intersect = ((yi > point.lng) !== (yj > point.lng)) &&
+        (point.lat < (xj - xi) * (point.lng - yi) / (yj - yi) + xi);
+    if (intersect) isInside = !isInside;
+  }
+  return isInside;
+}
+
+/**
+ * Checks if a coordinate is inside a circle defined by center and radius (meters).
+ */
+export function isPointInCircle(point: { lat: number; lng: number }, center: { lat: number; lng: number }, radius: number): boolean {
+  const distance = calculateDistance(point.lat, point.lng, center.lat, center.lng);
+  const radiusMiles = radius / 1609.34;
+  return distance <= radiusMiles;
+}
+
+/**
+ * Calculates the travel fee based on business settings, distance, and coordinates.
  */
 export function calculateTravelFee(
   distance: number,
-  settings: BusinessSettings["travelPricing"]
+  settings: BusinessSettings["travelPricing"],
+  coordinates?: { lat: number; lng: number }
 ) {
-  const { pricePerMile, freeMilesThreshold, minTravelFee, maxTravelFee, roundTripToggle } = settings;
-
-  let billableMiles = Math.max(0, distance - freeMilesThreshold);
-  if (roundTripToggle) {
-    billableMiles *= 2;
+  if (!settings.enabled) {
+    return { fee: 0, miles: distance, zoneName: "", rate: 0, isRoundTrip: false };
   }
 
-  let fee = billableMiles * pricePerMile;
-  fee = Math.max(minTravelFee, Math.min(maxTravelFee, fee));
+  const { pricePerMile, freeMilesThreshold, minTravelFee, maxTravelFee, roundTripToggle, mode, zones, mapZones } = settings;
+
+  let fee = 0;
+  let zoneName = "";
+
+  // 1. Map-based Zones (Highest Priority)
+  if (mode === "map_zones" && mapZones && mapZones.length > 0 && coordinates) {
+    const matchingZone = mapZones.find(zone => {
+      if (zone.type === 'circle' && zone.center && zone.radius) {
+        return isPointInCircle(coordinates, zone.center, zone.radius);
+      }
+      return zone.paths ? isPointInPolygon(coordinates, zone.paths) : false;
+    });
+    if (matchingZone) {
+      fee = matchingZone.fee;
+      zoneName = matchingZone.name;
+    } else {
+      // Fallback if no map zone matches
+      fee = 0;
+      zoneName = "Outside Service Area";
+    }
+  } 
+  // 2. Distance-based Zones
+  else if (mode === "zones" && zones && zones.length > 0) {
+    const matchingZone = zones.find(z => distance >= z.minDistance && distance < z.maxDistance);
+    if (matchingZone) {
+      fee = matchingZone.fee;
+      zoneName = matchingZone.name;
+    } else {
+      const lastZone = [...zones].sort((a,b) => b.maxDistance - a.maxDistance)[0];
+      if (distance >= lastZone.maxDistance) {
+        fee = lastZone.fee;
+        zoneName = lastZone.name;
+      }
+    }
+  } 
+  // 3. Mileage-based
+  else {
+    let billableMiles = Math.max(0, distance - freeMilesThreshold);
+    if (roundTripToggle) {
+      billableMiles *= 2;
+    }
+    fee = billableMiles * pricePerMile;
+    fee = Math.max(minTravelFee, Math.min(maxTravelFee, fee));
+  }
 
   return {
     fee: parseFloat(fee.toFixed(2)),
-    miles: parseFloat(distance.toFixed(2)),
-    billableMiles: parseFloat(billableMiles.toFixed(2)),
+    miles: parseFloat(distance.toFixed(2)), // For internal use
+    zoneName,
     rate: pricePerMile,
     isRoundTrip: roundTripToggle,
   };

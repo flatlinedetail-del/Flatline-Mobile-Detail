@@ -1,197 +1,227 @@
 import { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronDown, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet, HelpCircle } from "lucide-react";
+import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronDown, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet, HelpCircle, Zap, Plug } from "lucide-react";
+import { NotificationHub } from "./NotificationHub";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import AIAssistant from "./AIAssistant";
 import GlobalSearch from "./GlobalSearch";
 import Logo from "./Logo";
 
-const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Calendar", href: "/calendar", icon: Calendar },
-  { name: "Appointments", href: "/appointments", icon: ClipboardList },
-  { name: "Leads", href: "/leads", icon: UserPlus },
-  { name: "Clients", href: "/clients", icon: Users },
-  { name: "Quotes", href: "/quotes", icon: FileText },
-  { name: "Invoices", href: "/invoices", icon: Receipt },
-  { name: "Marketing", href: "/marketing", icon: MessageSquare },
-  { name: "Expenses", href: "/expenses", icon: Wallet },
-  { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck },
-  { name: "Reports", href: "/reports", icon: BarChart },
-  { name: "Help", href: "/help", icon: HelpCircle },
-  { 
-    name: "Settings", 
-    href: "/settings", 
-    icon: Settings,
-    children: [
-      { name: "Personal Info", href: "/settings?tab=profile", icon: User },
+const navigationGroups = [
+  {
+    title: "OPERATIONS",
+    items: [
+      { name: "Dashboard", href: "/", icon: LayoutDashboard },
+      { name: "Calendar", href: "/calendar", icon: Calendar },
+      { name: "Clients", href: "/clients", icon: Users },
+      { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck, adminOnly: true },
+    ]
+  },
+  {
+    title: "SALES & GROWTH",
+    items: [
+      { name: "Leads", href: "/leads", icon: UserPlus },
+      { name: "Marketing", href: "/marketing", icon: MessageSquare },
+      { name: "Smart Quote", href: "/quotes", icon: FileText },
+    ]
+  },
+  {
+    title: "FINANCE",
+    items: [
+      { name: "Invoices", href: "/invoices", icon: Receipt },
+      { name: "Expenses", href: "/expenses", icon: Wallet },
+    ]
+  },
+  {
+    title: "REPORTING",
+    items: [
+      { name: "Reports", href: "/reports", icon: BarChart, adminOnly: true },
+    ]
+  },
+  {
+    title: "SYSTEM",
+    items: [
+      { name: "Personal Profile", href: "/settings?tab=profile", icon: User },
       { name: "Business Profile", href: "/settings?tab=business", icon: Globe, adminOnly: true },
       { name: "Branding", href: "/settings?tab=branding", icon: Palette, adminOnly: true },
       { name: "Staff Management", href: "/settings?tab=staff", icon: Users, adminOnly: true },
-      { name: "Client Settings", href: "/settings?tab=client-management", icon: DatabaseZap, adminOnly: true },
-      { name: "Services & Add-ons", href: "/settings?tab=services", icon: ClipboardList, adminOnly: true },
+      { name: "Client Settings", href: "/settings?tab=client-types", icon: DatabaseZap, adminOnly: true },
+      { name: "Services & Add-Ons", href: "/settings?tab=services", icon: ClipboardList, adminOnly: true },
       { name: "Coupons", href: "/settings?tab=coupons", icon: Ticket, adminOnly: true },
+      { name: "Automations", href: "/settings?tab=automation", icon: Zap, adminOnly: true },
+      { name: "Integrations", href: "/settings?tab=integrations", icon: Plug, adminOnly: true },
       { name: "Security", href: "/settings?tab=security", icon: Shield, adminOnly: true },
+      { name: "Help", href: "/help", icon: HelpCircle },
     ]
-  },
+  }
 ];
 
 export default function Layout() {
   const { logout, profile } = useAuth();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
 
   const isAdminOrManager = profile?.role === "admin" || profile?.role === "manager";
-  const [isSettingsOpen, setIsSettingsOpen] = useState(location.pathname.startsWith("/settings"));
-
-  const filteredNavigation = navigation.filter(item => {
-    if (item.href === "/forms" || item.href === "/reports") {
-      return isAdminOrManager;
-    }
-    return true;
-  });
 
   const renderNavItem = (item: any, isMobile = false) => {
-    const isActive = location.pathname === item.href || (item.href === "/settings" && location.pathname.startsWith("/settings"));
-    
-    if (item.children) {
-      return (
-        <Collapsible
-          key={item.name}
-          open={isSettingsOpen}
-          onOpenChange={setIsSettingsOpen}
-          className="space-y-1"
-        >
-          <CollapsibleTrigger
-            className={cn(
-              "flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors group",
-              isActive
-                ? "bg-accent text-primary"
-                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-            )}
-          >
-            <div className="flex items-center gap-3">
-              <item.icon className="w-5 h-5" />
-              {item.name}
-            </div>
-            {isSettingsOpen ? (
-              <ChevronDown className="w-4 h-4 text-gray-400" />
-            ) : (
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            )}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pl-9 space-y-1">
-            {item.children.map((child: any) => {
-              if (child.adminOnly && !isAdminOrManager) return null;
-              
-              const isChildActive = location.pathname + location.search === child.href;
-              
-              return (
-                <Link
-                  key={child.name}
-                  to={child.href}
-                  onClick={() => isMobile && setIsMobileMenuOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors",
-                    isChildActive
-                      ? "text-primary font-bold"
-                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                  )}
-                >
-                  <child.icon className="w-3.5 h-3.5" />
-                  {child.name}
-                </Link>
-              );
-            })}
-          </CollapsibleContent>
-        </Collapsible>
-      );
-    }
+    if (item.adminOnly && !isAdminOrManager) return null;
+
+    const isActive = location.pathname === item.href.split('?')[0] && 
+                     (item.href.includes('?') ? location.search === `?${item.href.split('?')[1]}` : true);
 
     return (
       <Link
-        key={item.name}
+        key={item.href}
         to={item.href}
         onClick={() => isMobile && setIsMobileMenuOpen(false)}
         className={cn(
-          "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-          location.pathname === item.href
-            ? "bg-accent text-primary"
-            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+          "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group",
+          isActive
+            ? "bg-primary text-white shadow-lg shadow-primary/20"
+            : "text-white/60 hover:bg-white/5 hover:text-white"
         )}
       >
-        <item.icon className="w-5 h-5" />
-        {item.name}
+        <item.icon className={cn("w-5 h-5 transition-transform group-hover:scale-110", isActive ? "text-white" : "text-white/50")} />
+        <span className={cn("tracking-tight font-bold", isActive ? "text-white" : "text-white/60")}>{item.name}</span>
       </Link>
     );
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-background flex font-sans selection:bg-primary selection:text-white">
       {/* Sidebar for Desktop */}
-      <aside className="hidden md:flex w-64 flex-col bg-white border-r border-gray-200 fixed inset-y-0 left-0 z-20">
-        <div className="p-6">
-          <Logo variant="full" />
+      <aside className="hidden md:flex w-72 flex-col bg-sidebar border-r border-sidebar-border fixed inset-y-0 left-0 z-20">
+        <div className="p-8">
+          <Link to="/">
+            <Logo variant="full" color="white" />
+          </Link>
         </div>
-        <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
-          {filteredNavigation.map((item) => renderNavItem(item))}
+        <nav className="flex-1 px-6 space-y-6 overflow-y-auto custom-scrollbar pb-6">
+          {navigationGroups.map((group) => {
+            const hasVisibleItems = group.items.some(item => !item.adminOnly || isAdminOrManager);
+            if (!hasVisibleItems) return null;
+            return (
+              <div key={group.title} className="space-y-2">
+                <h3 className="px-3 text-[10px] font-black text-white/40 uppercase tracking-widest">{group.title}</h3>
+                <div className="space-y-1">
+                  {group.items.map((item) => renderNavItem(item))}
+                </div>
+              </div>
+            );
+          })}
         </nav>
-        <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center gap-3 mb-4 px-3">
-            <div className="w-8 h-8 bg-gray-200 rounded-full overflow-hidden">
-              {profile?.photoURL && <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" />}
+        <div className="p-6 border-t border-sidebar-border bg-black/20">
+          <div className="flex items-center gap-4 mb-6 px-2">
+            <div className="relative group">
+              <div className="w-10 h-10 bg-primary/20 rounded-xl overflow-hidden ring-2 ring-primary/20 group-hover:ring-primary/50 transition-all duration-300">
+                {profile?.photoURL ? (
+                  <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-primary font-bold">
+                    {profile?.displayName?.charAt(0)}
+                  </div>
+                )}
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-sidebar rounded-full shadow-sm"></div>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{profile?.displayName}</p>
-              <p className="text-xs text-gray-500 truncate capitalize">{profile?.role}</p>
+              <p className="text-sm font-bold text-white truncate tracking-tight">{profile?.displayName}</p>
+              <p className="text-[10px] text-primary truncate uppercase tracking-widest font-black">{profile?.role}</p>
             </div>
           </div>
-          <Button variant="ghost" className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50" onClick={logout}>
-            <LogOut className="w-5 h-5 mr-3" />
-            Sign Out
+          <Button 
+            variant="ghost" 
+            className="w-full justify-start text-gray-400 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-300 group" 
+            onClick={logout}
+          >
+            <LogOut className="w-5 h-5 mr-3 transition-transform group-hover:-translate-x-1" />
+            <span className="font-bold text-xs uppercase tracking-widest">Sign Out</span>
           </Button>
         </div>
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 md:pl-64">
+      <div className="flex-1 flex flex-col min-w-0 md:pl-72">
         {/* Top Header */}
-        <header className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex items-center justify-between sticky top-0 z-10 h-16">
-          <div className="flex items-center gap-4 flex-1">
+        <header className="bg-sidebar/95 backdrop-blur-xl border-b border-white/5 px-6 md:px-10 py-4 flex items-center justify-between sticky top-0 z-10 h-20">
+          <div className="flex items-center gap-6 flex-1">
             <div className="md:hidden flex items-center gap-3">
-              <Logo variant="icon" className="w-8 h-8" />
+              <Link to="/">
+                <Logo variant="icon" className="w-10 h-10" />
+              </Link>
             </div>
-            <div className="flex-1 max-w-md hidden sm:block">
+            <div className="flex-1 max-w-xl hidden lg:block">
               <GlobalSearch />
             </div>
           </div>
 
-          <div className="flex items-center gap-2 md:gap-4">
-            <Button variant="ghost" size="icon" className="text-gray-500 hover:text-primary">
-              <Bell className="w-5 h-5" />
-            </Button>
+          <div className="flex items-center gap-3 md:gap-6">
+            <div className="flex items-center gap-2">
+              <Sheet open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
+                <SheetTrigger render={
+                  <Button variant="ghost" size="icon" className="text-gray-400 hover:text-primary hover:bg-white/5 rounded-xl transition-all duration-300 relative">
+                    <Bell className="w-5 h-5" />
+                    <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full ring-2 ring-sidebar"></span>
+                  </Button>
+                } />
+                <SheetContent side="right" className="p-0 border-none w-full sm:max-w-[450px] bg-sidebar">
+                  <NotificationHub />
+                </SheetContent>
+              </Sheet>
+
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setIsAIAssistantOpen(true)}
+                className="text-gray-400 hover:text-primary hover:bg-white/5 rounded-xl transition-all duration-300"
+              >
+                <MessageSquare className="w-5 h-5" />
+              </Button>
+            </div>
+            
+            <div className="h-8 w-[1px] bg-white/10 hidden sm:block"></div>
             
             <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
               <SheetTrigger render={
-                <Button variant="ghost" size="icon" className="md:hidden">
+                <Button variant="ghost" size="icon" className="md:hidden text-white hover:bg-white/5 rounded-xl">
                   <Menu className="w-6 h-6" />
                 </Button>
               } />
-              <SheetContent side="left" className="p-0 w-64">
-                <div className="p-6 border-b border-gray-100">
-                  <Logo variant="full" />
+              <SheetContent side="left" className="p-0 w-72 bg-sidebar border-r-white/5 text-white">
+                <div className="p-8 border-b border-white/5">
+                  <Link to="/" onClick={() => setIsMobileMenuOpen(false)}>
+                    <Logo variant="full" color="white" />
+                  </Link>
                 </div>
-                <nav className="p-4 space-y-1 overflow-y-auto max-h-[calc(100vh-160px)]">
-                  {filteredNavigation.map((item) => renderNavItem(item, true))}
+                <nav className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-180px)] custom-scrollbar">
+                  {navigationGroups.map((group) => {
+                    const hasVisibleItems = group.items.some(item => !item.adminOnly || isAdminOrManager);
+                    if (!hasVisibleItems) return null;
+                    return (
+                      <div key={group.title} className="space-y-2">
+                        <h3 className="px-3 text-[10px] font-black text-white/40 uppercase tracking-widest">{group.title}</h3>
+                        <div className="space-y-1">
+                          {group.items.map((item) => renderNavItem(item, true))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </nav>
-                <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
-                  <Button variant="ghost" className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50" onClick={logout}>
+                <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-white/5 bg-black/40">
+                  <Button 
+                    variant="ghost" 
+                    className="w-full justify-start text-gray-400 hover:text-primary hover:bg-white/5 rounded-xl transition-all duration-300" 
+                    onClick={logout}
+                  >
                     <LogOut className="w-5 h-5 mr-3" />
-                    Sign Out
+                    <span className="font-bold text-xs uppercase tracking-widest">Sign Out</span>
                   </Button>
                 </div>
               </SheetContent>
@@ -199,17 +229,23 @@ export default function Layout() {
           </div>
         </header>
 
-        {/* Mobile Search Bar (Only visible on very small screens) */}
-        <div className="sm:hidden px-4 py-2 bg-white border-b border-gray-100">
+        {/* Mobile Search Bar (Only visible on medium and smaller screens) */}
+        <div className="lg:hidden px-6 py-3 bg-sidebar/50 border-b border-white/5">
           <GlobalSearch />
         </div>
 
-        <main className="flex-1 p-4 md:p-8 overflow-auto">
-          <Outlet />
+        <main className="flex-1 p-4 sm:p-6 md:p-10 overflow-auto bg-background selection:bg-primary/30">
+          <div className="max-w-[1440px] mx-auto w-full">
+            <Outlet />
+          </div>
         </main>
       </div>
 
-      <AIAssistant context={{ profile }} />
+      <AIAssistant 
+        context={{ profile }} 
+        isOpen={isAIAssistantOpen} 
+        onOpenChange={setIsAIAssistantOpen} 
+      />
     </div>
   );
 }

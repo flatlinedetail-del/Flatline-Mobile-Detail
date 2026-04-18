@@ -55,13 +55,17 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (
-          request.auth.token.get('email', '').lower() == "flatlinedetail@gmail.com" ||
+          (request.auth.token.email.lower() == "flatlinedetail@gmail.com" && request.auth.token.email_verified == true) ||
           hasRole('admin')
         );
     }
 
     function isTechnician() {
       return isAuthenticated() && (hasRole('technician') || isAdmin());
+    }
+
+    function isPublic() {
+      return true; // For now, allowing public read on specific collections
     }
 
     function isValidUser(data) {
@@ -96,6 +100,11 @@ service cloud.firestore {
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
                     (isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role));
       allow delete: if isAdmin();
+      
+      match /integrations/{integrationId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId) || isAdmin();
+      }
     }
 
     match /clients/{clientId} {
@@ -117,7 +126,7 @@ service cloud.firestore {
 
     match /leads/{leadId} {
       allow read: if isTechnician();
-      allow create: if isTechnician();
+      allow create: if isPublic(); // Allow public lead creation
       allow update: if isTechnician();
       allow delete: if isAdmin();
     }
@@ -137,8 +146,8 @@ service cloud.firestore {
     }
 
     match /appointments/{appointmentId} {
-      allow read: if isTechnician();
-      allow create: if isTechnician();
+      allow read: if isPublic(); // Needed for checking availability in public booking
+      allow create: if isPublic(); // Allow public booking
       allow update: if isTechnician();
       allow delete: if isAdmin();
     }
@@ -158,12 +167,12 @@ service cloud.firestore {
     }
 
     match /services/{serviceId} {
-      allow read: if isAuthenticated();
+      allow read: if isPublic();
       allow write: if isAdmin();
     }
 
     match /addons/{addOnId} {
-      allow read: if isAuthenticated();
+      allow read: if isPublic();
       allow write: if isAdmin();
     }
 
@@ -173,16 +182,11 @@ service cloud.firestore {
     }
 
     match /settings/{settingId} {
-      allow read: if isAuthenticated();
+      allow read: if isPublic();
       allow write: if isAdmin();
     }
 
     match /categories/{categoryId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-
-    match /coupons/{couponId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
@@ -223,6 +227,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /campaign_logs/{logId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update, delete: if isAdmin();
+    }
+
     match /email_templates/{templateId} {
       allow read: if isTechnician();
       allow write: if isAdmin();
@@ -232,6 +242,25 @@ service cloud.firestore {
       allow read: if isTechnician();
       allow create: if isTechnician();
       allow update, delete: if isAdmin();
+    }
+
+    match /custom_vehicle_makes/{makeId} {
+      allow read: if isPublic();
+      allow create: if isPublic(); // Allow anyone to add custom makes (or restrict to isTechnician() if preferred, but public booking might need it)
+      allow update, delete: if isAdmin();
+    }
+
+    match /custom_vehicle_models/{modelId} {
+      allow read: if isPublic();
+      allow create: if isPublic();
+      allow update, delete: if isAdmin();
+    }
+
+    match /time_blocks/{blockId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     // Default deny

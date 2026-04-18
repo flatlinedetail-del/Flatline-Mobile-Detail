@@ -8,7 +8,7 @@ interface GoogleMapsContextType {
 
 const GoogleMapsContext = createContext<GoogleMapsContextType | undefined>(undefined);
 
-const LIBRARIES: Libraries = ["places"];
+const LIBRARIES: Libraries = ["places", "drawing"];
 
 export function GoogleMapsProvider({ children }: { children: ReactNode }) {
   const { isLoaded, loadError } = useJsApiLoader({

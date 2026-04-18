@@ -101,7 +101,7 @@ export default function PhotoDocumentation({ jobId, type }: PhotoDocumentationPr
               <img src={url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               <button 
                 onClick={() => handleDelete(url)}
-                className="absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full transition-opacity"
               >
                 <X className="w-3 h-3" />
               </button>

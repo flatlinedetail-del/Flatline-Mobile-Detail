@@ -183,7 +183,7 @@ export default function AddressInput({
           }}
           placeholder={!isLoaded ? "Loading maps..." : placeholder}
           className={cn(
-            "h-10 w-full rounded-xl border-none bg-gray-50 pl-10 pr-10 text-sm font-medium transition-all outline-none focus:ring-2 focus:ring-primary/20",
+            "h-10 w-full rounded-xl border-none bg-gray-50 pl-10 pr-10 text-sm font-bold text-black transition-all outline-none focus:ring-2 focus:ring-primary/20",
             !isLoaded && !loadError && "opacity-50 cursor-not-allowed",
             loadError && "border-amber-200 ring-amber-100"
           )}

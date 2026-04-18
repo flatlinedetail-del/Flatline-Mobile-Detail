@@ -1,4 +1,4 @@
-import { collection, query, where, getDocs, or, orderBy, limit } from "firebase/firestore";
+import { collection, query, where, getDocs, or, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
 import { Appointment, Customer, Vendor, Lead } from "../types";
 
@@ -23,75 +23,72 @@ export async function globalSearch(searchTerm: string): Promise<SearchResult[]> 
   const results: SearchResult[] = [];
   const term = searchTerm.toLowerCase();
 
-  // 1. Search Customers
-  const customerQuery = query(
-    collection(db, "customers"),
-    limit(10)
-  );
-  const customerSnap = await getDocs(customerQuery);
-  customerSnap.docs.forEach(doc => {
-    const data = doc.data() as Customer;
-    if (
-      data.name?.toLowerCase().includes(term) ||
-      data.phone?.includes(term) ||
-      data.email?.toLowerCase().includes(term)
-    ) {
-      results.push({
-        type: "customer",
-        id: doc.id,
-        title: data.name || "Unnamed Customer",
-        subtitle: `${data.phone || "No phone"} • ${data.email || "No email"}`,
-      });
-    }
-  });
+  try {
+    // 1. Search Clients
+    const clientsSnap = await getDocs(collection(db, "clients"));
+    clientsSnap.docs.forEach(doc => {
+      const data = doc.data() as any;
+      const combined = `${data.name} ${data.firstName} ${data.lastName} ${data.businessName} ${data.phone}`.toLowerCase();
+      if (combined.includes(term)) {
+        results.push({
+          type: "customer",
+          id: doc.id,
+          title: data.name || "Unnamed Client",
+          subtitle: `${data.phone || "No phone"} • ${data.email || "No email"}`,
+        });
+      }
+    });
 
-  // 2. Search Appointments (VIN, RO, Customer Name)
-  const appQuery = query(
-    collection(db, "appointments"),
-    limit(20)
-  );
-  const appSnap = await getDocs(appQuery);
-  appSnap.docs.forEach(doc => {
-    const data = doc.data() as Appointment;
-    if (
-      data.customerName?.toLowerCase().includes(term) ||
-      data.vin?.toLowerCase().includes(term) ||
-      data.roNumber?.toLowerCase().includes(term) ||
-      data.vehicleInfo?.toLowerCase().includes(term) ||
-      doc.id.toLowerCase().includes(term)
-    ) {
-      results.push({
-        type: "appointment",
-        id: doc.id,
-        title: `Job #${doc.id.slice(-6).toUpperCase()}`,
-        subtitle: `${data.customerName || "Unknown"} • ${data.vehicleInfo || "Unknown Vehicle"}`,
-        status: data.status,
-        amount: data.totalAmount,
-      });
-    }
-  });
+    // 2. Search Appointments
+    const appsSnap = await getDocs(collection(db, "appointments"));
+    appsSnap.docs.forEach(doc => {
+      const data = doc.data() as any;
+      const combined = `${data.customerName} ${data.vin} ${data.roNumber} ${data.vehicleInfo} ${doc.id}`.toLowerCase();
+      if (combined.includes(term)) {
+        results.push({
+          type: "appointment",
+          id: doc.id,
+          title: `Job #${doc.id.slice(-6).toUpperCase()}`,
+          subtitle: `${data.customerName || "Unknown"} • ${data.vehicleInfo || "Unknown Vehicle"}`,
+          status: data.status,
+          amount: data.totalAmount,
+        });
+      }
+    });
 
-  // 3. Search Vendors
-  const vendorQuery = query(
-    collection(db, "vendors"),
-    limit(5)
-  );
-  const vendorSnap = await getDocs(vendorQuery);
-  vendorSnap.docs.forEach(doc => {
-    const data = doc.data() as Vendor;
-    if (
-      data.name?.toLowerCase().includes(term) ||
-      data.contactPerson?.toLowerCase().includes(term) ||
-      data.phone?.includes(term)
-    ) {
-      results.push({
-        type: "vendor",
-        id: doc.id,
-        title: data.name || "Unnamed Vendor",
-        subtitle: `Contact: ${data.contactPerson || "N/A"} • ${data.phone || "No phone"}`,
-      });
-    }
-  });
+    // 3. Search Vendors
+    const vendorsSnap = await getDocs(collection(db, "vendors"));
+    vendorsSnap.docs.forEach(doc => {
+      const data = doc.data() as any;
+      const combined = `${data.name} ${data.contactPerson} ${data.phone}`.toLowerCase();
+      if (combined.includes(term)) {
+        results.push({
+          type: "vendor",
+          id: doc.id,
+          title: data.name || "Unnamed Vendor",
+          subtitle: `Contact: ${data.contactPerson || "N/A"} • ${data.phone || "No phone"}`,
+        });
+      }
+    });
 
-  return results;
+    // 4. Search Leads
+    const leadsSnap = await getDocs(collection(db, "leads"));
+    leadsSnap.docs.forEach(doc => {
+      const data = doc.data() as any;
+      const combined = `${data.name} ${data.email} ${data.phone} ${data.vehicleInfo}`.toLowerCase();
+      if (combined.includes(term)) {
+        results.push({
+          type: "lead",
+          id: doc.id,
+          title: data.name || "Unnamed Lead",
+          subtitle: `${data.phone || "No phone"} • ${data.source || "Direct"}`,
+        });
+      }
+    });
+
+  } catch (error) {
+    console.error("Global search error:", error);
+  }
+
+  return results.slice(0, 10);
 }

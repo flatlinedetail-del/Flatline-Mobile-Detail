@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, doc, getDoc, getDocs } from "firebase/firestore";
+import { collection, query, onSnapshot, addDoc, serverTimestamp, doc, getDoc, getDocs, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,9 @@ import { format } from "date-fns";
 import AddressInput from "../components/AddressInput";
 import { getRecommendedSlots, RecommendedSlot } from "../services/schedulingService";
 import { BusinessSettings, Service, AddOn, Appointment } from "../types";
+import { createNotification } from "../services/notificationService";
 import { cn } from "@/lib/utils";
+import VehicleSelector from "../components/VehicleSelector";
 
 export default function PublicBooking() {
   const [step, setStep] = useState(1);
@@ -122,7 +124,23 @@ export default function PublicBooking() {
         completedTasks: {}
       };
 
-      await addDoc(collection(db, "appointments"), appointmentData);
+      const docRef = await addDoc(collection(db, "appointments"), appointmentData);
+      
+      // Notify Admin
+      const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
+      const adminsSnap = await getDocs(adminsQuery);
+      const notifyPromises = adminsSnap.docs.map(admin => 
+        createNotification({
+          userId: admin.id,
+          title: "Public Booking Request",
+          message: `${clientInfo.name} has requested a booking for ${format(new Date(scheduledAt), "MMM d, h:mm a")}`,
+          type: "booking",
+          relatedId: docRef.id,
+          relatedType: "appointment"
+        })
+      );
+      await Promise.all(notifyPromises);
+
       setBookingStatus("success");
       toast.success(isRecommendation ? "Booking request submitted!" : "Special time request submitted for approval.");
     } catch (error) {
@@ -220,13 +238,10 @@ export default function PublicBooking() {
                           required
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label>Vehicle (Year Make Model)</Label>
-                        <Input 
-                          placeholder="e.g. 2024 Tesla Model 3" 
-                          value={clientInfo.vehicleInfo}
-                          onChange={e => setClientInfo(prev => ({ ...prev, vehicleInfo: e.target.value }))}
-                          required
+                      <div className="space-y-2 md:col-span-2">
+                        <Label>Vehicle Selection (NHTSA Verified)</Label>
+                        <VehicleSelector 
+                          onSelect={(v) => setClientInfo(prev => ({ ...prev, vehicleInfo: `${v.year} ${v.make} ${v.model}` }))}
                         />
                       </div>
                     </div>
@@ -335,7 +350,7 @@ export default function PublicBooking() {
                     <div className="grid grid-cols-1 gap-3">
                       {recommendations.map((slot, idx) => (
                         <div 
-                          key={idx}
+                          key={`${slot.start.getTime()}-${idx}`}
                           className={cn(
                             "p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-center justify-between group",
                             scheduledAt === format(slot.start, "yyyy-MM-dd'T'HH:mm") 
@@ -386,6 +401,15 @@ export default function PublicBooking() {
                       <p className="text-[10px] text-gray-400 font-medium italic">
                         * Custom time requests require manual approval from our team.
                       </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-gray-100">
+                    <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-primary/20 transition-all">
+                      <Checkbox id="agreement" className="mt-1" required />
+                      <Label htmlFor="agreement" className="text-[11px] leading-relaxed text-gray-500 font-medium cursor-pointer">
+                        I acknowledge that I have read and agree to the <span className="text-primary font-black uppercase tracking-widest text-[9px]">Service Agreement</span> and understand the cancellation policy. I authorize the team to perform requested services at the provided location.
+                      </Label>
                     </div>
                   </div>
 

@@ -4,10 +4,39 @@ import { Coupon, Customer } from "../types";
 
 /**
  * Loyalty Points System
- * 1 point per $1 spent
- * 100 points = $10 discount
  */
 export async function addLoyaltyPoints(clientId: string, amount: number) {
+  try {
+    // 1. Get Loyalty Settings
+    const settingsSnap = await getDoc(doc(db, "settings", "business"));
+    const settings = settingsSnap.exists() ? settingsSnap.data() : null;
+    const loyalty = settings?.loyaltySettings;
+
+    if (!loyalty) {
+      // Fallback to default if settings don't exist
+      const points = Math.floor(amount);
+      await updatePoints(clientId, points);
+      return;
+    }
+
+    // 2. Calculate points
+    let points = 0;
+    if (loyalty.pointsPerDollar > 0) {
+      points += Math.floor(amount * loyalty.pointsPerDollar);
+    }
+    if (loyalty.pointsPerVisit > 0) {
+      points += loyalty.pointsPerVisit;
+    }
+
+    if (points > 0) {
+      await updatePoints(clientId, points);
+    }
+  } catch (error) {
+    console.error("Error adding loyalty points:", error);
+  }
+}
+
+async function updatePoints(clientId: string, points: number) {
   // Try clients first, fallback to customers for legacy
   let clientRef = doc(db, "clients", clientId);
   let clientSnap = await getDoc(clientRef);
@@ -19,12 +48,23 @@ export async function addLoyaltyPoints(clientId: string, amount: number) {
 
   if (clientSnap.exists()) {
     await updateDoc(clientRef, {
-      loyaltyPoints: increment(Math.floor(amount))
+      loyaltyPoints: increment(points)
     });
   }
 }
 
 export async function redeemLoyaltyPoints(clientId: string, points: number) {
+  const settingsSnap = await getDoc(doc(db, "settings", "business"));
+  const settings = settingsSnap.exists() ? settingsSnap.data() : null;
+  const loyalty = settings?.loyaltySettings;
+
+  const redemptionRate = loyalty?.redemptionRate || 0.1; // Default $0.1 per point
+  const minPoints = loyalty?.minPointsToRedeem || 0;
+
+  if (points < minPoints) {
+    throw new Error(`Minimum ${minPoints} points required to redeem`);
+  }
+
   let clientRef = doc(db, "clients", clientId);
   let clientSnap = await getDoc(clientRef);
   
@@ -42,7 +82,7 @@ export async function redeemLoyaltyPoints(clientId: string, points: number) {
     loyaltyPoints: increment(-points)
   });
   
-  return points / 10; // $ discount
+  return points * redemptionRate; // $ discount
 }
 
 /**

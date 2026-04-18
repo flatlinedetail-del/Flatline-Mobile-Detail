@@ -45,6 +45,7 @@ import { format } from "date-fns";
 import { cn } from "../lib/utils";
 import { Customer, Vehicle, Service } from "../types";
 import CustomerAddressInput, { CustomerAddressInputRef } from "../components/CustomerAddressInput";
+import VehicleSelector from "../components/VehicleSelector";
 import AddCustomerDialog from "../components/AddCustomerDialog";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -65,21 +66,27 @@ export default function Customers() {
   useEffect(() => {
     if (authLoading || !profile) return;
 
-    const q = query(collection(db, "customers"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const customersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer));
-      setCustomers(customersData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error listening to customers:", error);
-    });
+    const fetchCustomerData = async () => {
+      try {
+        const q = query(collection(db, "customers"), orderBy("createdAt", "desc"));
+        const snapshot = await getDocs(q);
+        const customersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer));
+        setCustomers(customersData);
+        setLoading(false);
+      } catch (error) {
+        console.error("Error fetching customers:", error);
+        setLoading(false);
+      }
+    };
+
+    fetchCustomerData();
 
     const qServices = query(collection(db, "services"));
     getDocs(qServices).then(snap => {
       setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
     }).catch(error => console.error("Error fetching services in Customers:", error));
 
-    return () => unsubscribe();
+    return () => {};
   }, [profile, authLoading]);
 
   useEffect(() => {
@@ -152,16 +159,25 @@ export default function Customers() {
     }
   };
 
+  const [newVehicleData, setNewVehicleData] = useState({ year: "", make: "", model: "" });
+
   const handleAddVehicle = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedCustomer) return;
     const formData = new FormData(e.currentTarget);
+    
+    if (!newVehicleData.year || !newVehicleData.make || !newVehicleData.model) {
+      toast.error("Please select a complete vehicle (Year, Make, and Model)");
+      return;
+    }
+
     const newVehicle = {
       ownerId: selectedCustomer.id,
+      clientId: selectedCustomer.id, // Ensure clientId is also set for consistency
       ownerType: "customer",
-      year: formData.get("year"),
-      make: formData.get("make"),
-      model: formData.get("model"),
+      year: newVehicleData.year,
+      make: newVehicleData.make,
+      model: newVehicleData.model,
       color: formData.get("color"),
       size: formData.get("size"),
       vin: formData.get("vin"),
@@ -218,26 +234,26 @@ export default function Customers() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tighter">CUSTOMERS</h1>
-          <p className="text-gray-500 font-medium">Manage your retail client database and loyalty.</p>
+          <h1 className="text-4xl font-black text-white tracking-tighter uppercase">CUSTOMERS</h1>
+          <p className="text-white/40 font-medium">Manage your retail client database and loyalty.</p>
         </div>
         <AddCustomerDialog />
       </div>
 
-      <Card className="border-none shadow-sm bg-white overflow-hidden">
-        <CardHeader className="border-b border-gray-50 bg-gray-50/50">
+      <Card className="border-white/5 bg-card shadow-xl overflow-hidden">
+        <CardHeader className="border-b border-white/5 bg-black/40">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
               <Input 
                 placeholder="Search customers..." 
-                className="pl-10 bg-white border-gray-200 rounded-full"
+                className="pl-10 bg-black/40 border-white/10 text-white rounded-full"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="border-gray-200">
+              <Button variant="outline" size="sm" className="border-white/10 text-white hover:bg-white/5">
                 <Filter className="w-4 h-4 mr-2" />
                 Filter
               </Button>
@@ -246,7 +262,7 @@ export default function Customers() {
         </CardHeader>
         <CardContent className="p-0">
           <Table>
-            <TableHeader className="bg-gray-50/50">
+            <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow>
                 <TableHead className="w-[250px]">Customer</TableHead>
                 <TableHead>Contact</TableHead>
@@ -266,89 +282,80 @@ export default function Customers() {
                 </TableRow>
               ) : (
                 filteredCustomers.map((customer) => (
-                  <TableRow 
-                    key={customer.id} 
-                    className="hover:bg-gray-50/50 transition-colors cursor-pointer group"
-                    onClick={() => {
-                      setSelectedCustomer(customer);
-                      setIsDetailOpen(true);
-                    }}
-                  >
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center text-primary font-black text-sm">
-                          {customer.name?.charAt(0)}
-                        </div>
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-gray-900">{customer.name}</span>
-                            {customer.isVIP && <Crown className="w-3 h-3 text-yellow-500 fill-yellow-500" />}
+                    <TableRow 
+                      key={customer.id} 
+                      className="hover:bg-white/5 border-b border-white/5 transition-colors cursor-pointer group"
+                      onClick={() => {
+                        setSelectedCustomer(customer);
+                        setIsDetailOpen(true);
+                      }}
+                    >
+                      <TableCell className="py-4">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center text-primary font-black text-lg shadow-inner">
+                            {customer.name?.charAt(0)}
                           </div>
-                          <span className="text-xs text-gray-500 truncate max-w-[150px]">{customer.address || "No address"}</span>
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white text-base">{customer.name}</span>
+                              {customer.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
+                            </div>
+                            <span className="text-xs text-white/40 truncate max-w-[200px] font-medium">{customer.address || "No address"}</span>
+                          </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <a 
-                          href={`tel:${customer.phone}`} 
-                          className="flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-primary transition-colors"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Phone className="w-3 h-3 text-gray-400" />
-                          {customer.phone}
-                        </a>
-                        {customer.email && (
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1.5">
                           <a 
-                            href={`mailto:${customer.email}`} 
-                            className="flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-primary transition-colors"
+                            href={`tel:${customer.phone}`} 
+                            className="flex items-center gap-2 text-xs font-bold text-white/60 hover:text-primary transition-colors"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <Mail className="w-3 h-3 text-gray-400" />
-                            {customer.email}
+                            <Phone className="w-3.5 h-3.5 text-primary" />
+                            {customer.phone}
                           </a>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                        <span className="text-sm font-black text-gray-900">{customer.loyaltyPoints || 0}</span>
-                        <span className="text-[10px] text-gray-400 font-black uppercase tracking-wider">pts</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={cn(
-                        "text-[10px] font-black uppercase tracking-widest",
-                        customer.membershipLevel === "platinum" ? "bg-purple-100 text-purple-700 border-purple-200" :
-                        customer.membershipLevel === "gold" ? "bg-yellow-100 text-yellow-700 border-yellow-200" :
-                        customer.membershipLevel === "silver" ? "bg-gray-100 text-gray-700 border-gray-200" :
-                        "bg-white text-gray-400 border-gray-100"
-                      )}>
-                        {customer.membershipLevel || "NONE"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
-                          <ChevronRight className="w-5 h-5" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (window.confirm("Are you sure you want to delete this customer?")) {
-                              handleDeleteCustomer(customer.id);
-                            }
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                          {customer.email && (
+                            <a 
+                              href={`mailto:${customer.email}`} 
+                              className="flex items-center gap-2 text-xs font-bold text-white/60 hover:text-primary transition-colors"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Mail className="w-3.5 h-3.5 text-primary" />
+                              {customer.email}
+                            </a>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 bg-yellow-500/10 rounded-lg">
+                            <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-black text-white leading-none">{customer.loyaltyPoints || 0}</span>
+                            <span className="text-[9px] text-white/30 font-black uppercase tracking-widest mt-1">loyalty pts</span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={cn(
+                          "text-[9px] font-black uppercase tracking-widest px-2.5 py-1 border-none",
+                          customer.membershipLevel === "platinum" ? "bg-purple-500/20 text-purple-400" :
+                          customer.membershipLevel === "gold" ? "bg-yellow-500/20 text-yellow-400" :
+                          customer.membershipLevel === "silver" ? "bg-blue-500/20 text-blue-400" :
+                          "bg-white/5 text-white/40"
+                        )}>
+                          {customer.membershipLevel || "NONE"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl bg-white/5 text-white/40 group-hover:text-primary group-hover:bg-primary/10 transition-all">
+                            <ChevronRight className="w-5 h-5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                 ))
               )}
             </TableBody>
@@ -360,21 +367,21 @@ export default function Customers() {
       {selectedCustomer && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="sm:max-w-[800px] p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-primary p-8 text-white shrink-0">
+            <div className="bg-black/80 p-8 text-white shrink-0 border-b border-white/5">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-white font-black text-2xl backdrop-blur-sm">
+                  <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-primary/20">
                     {selectedCustomer.name.charAt(0)}
                   </div>
                   <div>
-                    <h2 className="text-3xl font-black tracking-tighter">{selectedCustomer.name}</h2>
-                    <div className="text-red-100 flex items-center gap-4 mt-1 font-medium">
-                      <a href={`tel:${selectedCustomer.phone}`} className="flex items-center gap-2 hover:text-white transition-colors">
-                        <Phone className="w-4 h-4" /> {selectedCustomer.phone}
+                    <h2 className="text-3xl font-black tracking-tighter uppercase">{selectedCustomer.name}</h2>
+                    <div className="text-white/60 flex items-center gap-4 mt-1 font-medium">
+                      <a href={`tel:${selectedCustomer.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors">
+                        <Phone className="w-4 h-4 text-primary" /> {selectedCustomer.phone}
                       </a>
                       <span className="opacity-30">|</span>
-                      <a href={`mailto:${selectedCustomer.email}`} className="flex items-center gap-2 hover:text-white transition-colors">
-                        <Mail className="w-4 h-4" /> {selectedCustomer.email}
+                      <a href={`mailto:${selectedCustomer.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
+                        <Mail className="w-4 h-4 text-primary" /> {selectedCustomer.email}
                       </a>
                     </div>
                   </div>
@@ -382,22 +389,22 @@ export default function Customers() {
                 <div className="text-right">
                   <div className="flex items-center gap-2 justify-end mb-2">
                     {selectedCustomer.isVIP && (
-                      <Badge className="bg-yellow-400 text-yellow-900 border-none font-black uppercase tracking-widest">
-                        VIP
+                      <Badge className="bg-primary text-white border-none font-black uppercase tracking-widest text-[10px] px-3 py-1">
+                        VIP ELITE
                       </Badge>
                     )}
-                    <Badge className="bg-white/20 text-white border-none font-black uppercase tracking-widest">
+                    <Badge className="bg-white/10 text-white/60 border-none font-black uppercase tracking-widest text-[10px] px-3 py-1">
                       {selectedCustomer.membershipLevel} MEMBER
                     </Badge>
                   </div>
                   <div className="flex flex-col items-end">
-                    <p className="text-4xl font-black tracking-tighter">{selectedCustomer.loyaltyPoints} <span className="text-lg opacity-50">PTS</span></p>
+                    <p className="text-4xl font-black tracking-tighter text-primary">{selectedCustomer.loyaltyPoints} <span className="text-lg text-white/40">PTS</span></p>
                     <div className="flex items-center gap-2 mt-2">
                       <Button 
                         size="sm" 
-                        className="bg-white text-primary hover:bg-red-50 font-bold shadow-lg"
+                        className="bg-primary text-white hover:bg-primary/90 font-black uppercase tracking-widest text-[10px] rounded-xl h-9 px-4 shadow-lg shadow-primary/20"
                         onClick={() => {
-                          navigate("/appointments", { 
+                          navigate("/calendar", { 
                             state: { 
                               openAddDialog: true, 
                               customerId: selectedCustomer.id,
@@ -412,7 +419,7 @@ export default function Customers() {
                       <Button 
                         size="sm" 
                         variant="ghost" 
-                        className="h-6 px-2 text-[10px] font-black uppercase bg-white/10 hover:bg-white/20 text-white"
+                        className="h-9 px-4 text-[10px] font-black uppercase bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
                         onClick={() => {
                           const amount = prompt("Adjust points (use negative for deduction):");
                           if (amount) {
@@ -430,20 +437,20 @@ export default function Customers() {
             </div>
 
             <Tabs defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
-              <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12 shrink-0">
-                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Profile</TabsTrigger>
-                <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Vehicles ({customerVehicles.length})</TabsTrigger>
-                <TabsTrigger value="pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Special Pricing</TabsTrigger>
-                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">History</TabsTrigger>
+              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-12 shrink-0">
+                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Profile</TabsTrigger>
+                <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Vehicles ({customerVehicles.length})</TabsTrigger>
+                <TabsTrigger value="pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Special Pricing</TabsTrigger>
+                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">History</TabsTrigger>
               </TabsList>
 
-              <div className="flex-1 overflow-y-auto p-8 bg-white">
-                <TabsContent value="profile" className="mt-0 space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <div className="space-y-2">
+              <div className="flex-1 overflow-y-auto p-8 bg-black/20">
+                <TabsContent value="profile" className="mt-0 space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-6">
+                      <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Default Address</Label>
+                          <Label>Default Address</Label>
                           {selectedCustomer.address && (
                             <a 
                               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedCustomer.address)}`}
@@ -461,13 +468,13 @@ export default function Customers() {
                           onAddressSelect={(address, lat, lng) => updateCustomer({ address, latitude: lat, longitude: lng })}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Membership Level</Label>
+                      <div className="space-y-3">
+                        <Label>Membership Level</Label>
                         <Select 
                           defaultValue={selectedCustomer.membershipLevel}
                           onValueChange={(val: any) => updateCustomer({ membershipLevel: val })}
                         >
-                          <SelectTrigger className="bg-gray-50 border-none font-medium">
+                          <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -480,11 +487,16 @@ export default function Customers() {
                       </div>
                     </div>
 
-                    <div className="space-y-4 p-6 bg-gray-50 rounded-2xl border border-gray-100">
+                    <div className="space-y-6 p-8 bg-white/5 rounded-3xl border border-white/5">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Crown className="w-5 h-5 text-yellow-500" />
-                          <Label className="text-base font-black uppercase tracking-tighter">VIP Status</Label>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-yellow-500/10 rounded-xl">
+                            <Crown className="w-6 h-6 text-yellow-500" />
+                          </div>
+                          <div>
+                            <Label className="text-lg font-black uppercase tracking-tighter text-white">VIP Status</Label>
+                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Premium Client Access</p>
+                          </div>
                         </div>
                         <Switch 
                           checked={selectedCustomer.isVIP || false}
@@ -493,11 +505,11 @@ export default function Customers() {
                       </div>
                       
                       {selectedCustomer.isVIP && (
-                        <div className="space-y-4 pt-4 border-t border-gray-200 animate-in fade-in slide-in-from-top-2">
+                        <div className="space-y-6 pt-6 border-t border-white/5 animate-in fade-in slide-in-from-top-2">
                           <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label className="text-xs font-bold">Waive Travel Fee</Label>
-                              <p className="text-[10px] text-gray-500">Always $0 travel fee regardless of distance.</p>
+                            <div className="space-y-1">
+                              <Label className="text-sm font-bold text-white">Waive Travel Fee</Label>
+                              <p className="text-[10px] text-white/40 font-medium">Always $0 travel fee regardless of distance.</p>
                             </div>
                             <Switch 
                               checked={selectedCustomer.vipSettings?.waiveTravelFee || false}
@@ -507,9 +519,9 @@ export default function Customers() {
                             />
                           </div>
                           <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label className="text-xs font-bold">Exempt from Fees</Label>
-                              <p className="text-[10px] text-gray-500">No deposits, cancellation, or late fees.</p>
+                            <div className="space-y-1">
+                              <Label className="text-sm font-bold text-white">Exempt from Fees</Label>
+                              <p className="text-[10px] text-white/40 font-medium">No deposits, cancellation, or late fees.</p>
                             </div>
                             <Switch 
                               checked={selectedCustomer.vipSettings?.exemptFromFees || false}
@@ -518,12 +530,11 @@ export default function Customers() {
                               })}
                             />
                           </div>
-                          <div className="space-y-2">
-                            <Label className="text-xs font-bold">Travel Fee Discount (%)</Label>
+                          <div className="space-y-3">
+                            <Label>Travel Fee Discount (%)</Label>
                             <Input 
                               type="number"
                               placeholder="0"
-                              className="h-8 bg-white"
                               defaultValue={selectedCustomer.vipSettings?.travelFeeDiscount}
                               onBlur={(e) => {
                                 const travelFeeDiscount = parseFloat(e.target.value);
@@ -543,36 +554,36 @@ export default function Customers() {
                       )}
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Internal Notes</Label>
+                  <div className="space-y-3">
+                    <Label>Internal Notes</Label>
                     <Textarea 
                       defaultValue={selectedCustomer.notes} 
-                      className="bg-gray-50 border-none min-h-[100px] font-medium"
+                      className="min-h-[120px]"
                       onBlur={(e) => updateCustomer({ notes: e.target.value })}
                     />
                   </div>
 
-                  <div className="pt-6 border-t border-gray-100">
+                  <div className="pt-8 border-t border-white/5">
                     <AlertDialog>
                       <AlertDialogTrigger render={
-                        <Button variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold">
+                        <Button variant="ghost" className="text-red-500 hover:text-red-400 hover:bg-red-500/10 font-black uppercase tracking-widest text-[10px] h-10 px-6 rounded-xl border border-red-500/20">
                           <Trash2 className="w-4 h-4 mr-2" />
                           Delete Customer Profile
                         </Button>
                       } />
-                      <AlertDialogContent>
+                      <AlertDialogContent className="bg-popover border border-white/10 shadow-2xl rounded-3xl">
                         <AlertDialogHeader>
-                          <AlertDialogTitle className="font-black">Are you absolutely sure?</AlertDialogTitle>
-                          <AlertDialogDescription>
+                          <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-white">Are you absolutely sure?</AlertDialogTitle>
+                          <AlertDialogDescription className="text-white/60 font-medium">
                             This action cannot be undone. This will permanently delete the customer profile
-                            and all associated local data. We will check for linked vehicles and appointments first.
+                            and all associated records.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="font-bold">Cancel</AlertDialogCancel>
+                        <AlertDialogFooter className="mt-6">
+                          <AlertDialogCancel className="font-bold rounded-xl bg-white/5 border-white/10 text-white hover:bg-white/10">Cancel</AlertDialogCancel>
                           <AlertDialogAction 
                             onClick={() => handleDeleteCustomer(selectedCustomer.id)}
-                            className="bg-red-600 hover:bg-red-700 font-bold"
+                            className="bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest rounded-xl"
                           >
                             Delete Customer
                           </AlertDialogAction>
@@ -590,22 +601,20 @@ export default function Customers() {
                       <DialogContent>
                         <DialogHeader><DialogTitle className="font-black">Add New Vehicle</DialogTitle></DialogHeader>
                         <form onSubmit={handleAddVehicle} className="space-y-4 py-4">
+                          <VehicleSelector onSelect={setNewVehicleData} />
                           <div className="grid grid-cols-2 gap-4">
-                            <Input name="year" placeholder="Year (e.g. 2022)" required />
-                            <Input name="make" placeholder="Make (e.g. Tesla)" required />
-                            <Input name="model" placeholder="Model (e.g. Model 3)" required />
-                            <Input name="color" placeholder="Color" />
+                            <Input name="color" placeholder="Color" className="bg-white border-gray-200" />
+                            <Input name="vin" placeholder="VIN (Optional)" className="bg-white border-gray-200" />
                           </div>
                           <Select name="size" defaultValue="medium">
-                            <SelectTrigger><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
-                            <SelectContent>
+                            <SelectTrigger className="bg-white border-gray-200"><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
+                            <SelectContent className="bg-white">
                               <SelectItem value="small">Small (Coupe/Compact)</SelectItem>
                               <SelectItem value="medium">Medium (Sedan/Small SUV)</SelectItem>
                               <SelectItem value="large">Large (Full SUV/Truck)</SelectItem>
                               <SelectItem value="extra_large">Extra Large (Van/Lifted)</SelectItem>
                             </SelectContent>
                           </Select>
-                          <Input name="vin" placeholder="VIN (Optional)" />
                           <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
                         </form>
                       </DialogContent>
@@ -623,7 +632,7 @@ export default function Customers() {
                         </div>
                         <AlertDialog>
                           <AlertDialogTrigger render={
-                            <Button variant="ghost" size="icon" className="text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="icon" className="text-red-400 hover:text-red-600">
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           } />

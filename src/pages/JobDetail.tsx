@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, deleteDoc } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, deleteDoc, getDocs } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { processMaintenanceAutomation } from "../services/automationService";
@@ -152,21 +152,22 @@ export default function JobDetail() {
   useEffect(() => {
     if (!id || authLoading || !profile) return;
     
-    // Fetch active form templates
-    const templatesQuery = query(collection(db, "form_templates"), where("isActive", "==", true));
-    const unsubscribeTemplates = onSnapshot(templatesQuery, (snapshot) => {
-      setFormTemplates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => {
-      console.error("Error listening to form templates:", error);
-    });
+    // Fetch templates and signed forms once to save quota
+    const fetchMetadata = async () => {
+      try {
+        const [templatesSnap, signedSnap] = await Promise.all([
+          getDocs(query(collection(db, "form_templates"), where("isActive", "==", true))),
+          getDocs(query(collection(db, "signed_forms"), where("appointmentId", "==", id)))
+        ]);
 
-    // Fetch signed forms for this appointment
-    const signedQuery = query(collection(db, "signed_forms"), where("appointmentId", "==", id));
-    const unsubscribeSigned = onSnapshot(signedQuery, (snapshot) => {
-      setSignedForms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => {
-      console.error("Error listening to signed forms:", error);
-    });
+        setFormTemplates(templatesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        setSignedForms(signedSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error) {
+        console.error("Error fetching job metadata:", error);
+      }
+    };
+
+    fetchMetadata();
 
     // Real-time job listener
     const docRef = doc(db, "appointments", id);
@@ -185,7 +186,7 @@ export default function JobDetail() {
         setLoading(false);
       } else {
         toast.error("Job not found");
-        navigate("/appointments");
+        navigate("/calendar");
       }
     }, (error) => {
       console.error("Error listening to job:", error);
@@ -194,8 +195,6 @@ export default function JobDetail() {
     });
 
     return () => {
-      unsubscribeTemplates();
-      unsubscribeSigned();
       unsubscribeJob();
     };
   }, [id, profile, authLoading]);
@@ -203,10 +202,31 @@ export default function JobDetail() {
   const handleSaveSignature = async (dataUrl: string) => {
     try {
       const docRef = doc(db, "appointments", id!);
+      
+      // Calculate commission based on settings
+      let commissionAmount = 0;
+      try {
+        const settingsSnap = await getDoc(doc(db, "settings", "business"));
+        if (settingsSnap.exists()) {
+          const settings = settingsSnap.data();
+          const rate = settings.commissionRate || 0;
+          const type = settings.commissionType || "percentage";
+          
+          if (type === "percentage") {
+            commissionAmount = (job.totalAmount * rate) / 100;
+          } else {
+            commissionAmount = rate;
+          }
+        }
+      } catch (err) {
+        console.error("Error calculating commission:", err);
+      }
+
       await updateDoc(docRef, { 
         signature: dataUrl,
         status: "completed",
-        completedAt: serverTimestamp()
+        completedAt: serverTimestamp(),
+        commissionAmount: commissionAmount
       });
       
       // Call maintenance automation
@@ -269,7 +289,7 @@ export default function JobDetail() {
     try {
       await deleteDoc(doc(db, "appointments", id));
       toast.success("Job deleted successfully");
-      navigate("/appointments");
+      navigate("/calendar");
     } catch (error) {
       console.error("Error deleting job:", error);
       try {
@@ -283,40 +303,81 @@ export default function JobDetail() {
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   const statusColors: any = {
-    scheduled: "bg-gray-100 text-gray-700 border-gray-200",
+    scheduled: "bg-white text-black border-black",
     confirmed: "bg-black text-white border-black",
-    en_route: "bg-red-50 text-primary border-red-200",
-    in_progress: "bg-primary text-white border-primary",
-    completed: "bg-green-100 text-green-700 border-green-200",
-    paid: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    canceled: "bg-red-100 text-red-700 border-red-200",
+    en_route: "bg-primary text-white border-primary",
+    in_progress: "bg-primary text-white border-primary border-2",
+    completed: "bg-green-600 text-white border-green-700",
+    paid: "bg-emerald-600 text-white border-emerald-700",
+    canceled: "bg-red-600 text-white border-red-700",
+    suggested: "bg-indigo-600 text-white border-indigo-700",
+    requested: "bg-orange-600 text-white border-orange-700",
+    pending_approval: "bg-orange-600 text-white border-orange-700",
+    approved: "bg-green-600 text-white border-green-700",
+    declined: "bg-red-600 text-white border-red-700",
+    reschedule_suggested: "bg-pink-600 text-white border-pink-700",
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-20">
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-20">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full">
-            <ChevronLeft className="w-5 h-5" />
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div className="flex items-center gap-6">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => navigate(-1)} 
+            className="rounded-2xl w-12 h-12 bg-card border border-border text-gray-400 hover:text-primary transition-all shadow-sm"
+          >
+            <ChevronLeft className="w-6 h-6" />
           </Button>
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Job #{id?.slice(-6).toUpperCase()}</h1>
-              <Badge variant="outline" className={cn("text-[10px] font-bold uppercase tracking-wider", statusColors[job.status])}>
+            <div className="flex items-center gap-4 mb-2">
+              <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter uppercase font-heading">
+                Deployment <span className="text-primary italic">Details</span>
+              </h1>
+              <Badge variant="outline" className={cn(
+                "text-[10px] font-black uppercase tracking-[0.2em] px-4 py-1 rounded-full border-none",
+                statusColors[job.status]
+              )}>
                 {job.status?.replace("_", " ")}
               </Badge>
+            </div>
+            <div className="flex items-center gap-3">
+              <p className="text-white font-black tracking-[0.2em] uppercase text-[10px] flex items-center gap-2">
+                <span className="flex h-2 w-2 rounded-full bg-primary animate-pulse"></span>
+                Job ID: #{id?.slice(-6).toUpperCase()}
+              </p>
               {job.followUpSent && (
-                <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                <Badge variant="secondary" className="bg-primary text-white border-primary text-[9px] font-black uppercase tracking-widest flex items-center gap-1 px-3 py-1">
                   <CheckCircle2 className="w-3 h-3" />
                   Follow-up Sent
                 </Badge>
               )}
             </div>
-            <p className="text-sm text-gray-500">{job.customerName || "Client"}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {job.status === "requested" && (
+            <div className="flex gap-2">
+              <Button onClick={() => updateStatus("pending_approval")} disabled={isUpdating} className="bg-black text-white hover:bg-gray-900 font-bold">
+                Review & Pre-Approve
+              </Button>
+              <Button onClick={() => updateStatus("declined")} variant="outline" disabled={isUpdating} className="border-red-200 text-red-600 hover:bg-red-50 font-bold">
+                Decline
+              </Button>
+            </div>
+          )}
+          {job.status === "pending_approval" && (
+            <div className="flex gap-2">
+              <Button onClick={() => updateStatus("scheduled")} disabled={isUpdating} className="bg-primary hover:bg-red-700 text-white font-bold">
+                Approve & Schedule
+              </Button>
+              <Button onClick={() => updateStatus("declined")} variant="outline" disabled={isUpdating} className="border-red-200 text-red-600 hover:bg-red-50 font-bold">
+                Decline
+              </Button>
+            </div>
+          )}
           {job.status === "scheduled" && (
             <Button onClick={() => updateStatus("confirmed")} disabled={isUpdating} className="bg-black text-white hover:bg-gray-900 font-bold">
               Confirm Job
@@ -356,12 +417,27 @@ export default function JobDetail() {
                 }
               }} 
               disabled={isUpdating} 
-              className="bg-black text-white hover:bg-gray-900 font-bold"
+              className="bg-green-600 hover:bg-green-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-green-600/20"
             >
-              Complete Job
+              Complete Mission & Secure Signature
             </Button>
           )}
           {job.status === "completed" && (
+            <div className="flex gap-2">
+            <Button 
+              onClick={() => {
+                navigate("/invoices", { 
+                  state: { 
+                    preFillJob: job,
+                    clientId: job.clientId || job.customerId,
+                    vehicleIds: job.vehicleIds || (job.vehicleId ? [job.vehicleId] : [])
+                  } 
+                });
+              }}
+              className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+            >
+              Generate Invoice
+            </Button>
             <Dialog>
               <DialogTrigger render={
                 <Button 
@@ -370,9 +446,9 @@ export default function JobDetail() {
                       e.preventDefault();
                     }
                   }}
-                  className="bg-emerald-600 hover:bg-emerald-700 font-bold"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-600/20"
                 >
-                  Collect Payment
+                  Record Instant Payment
                 </Button>
               } />
               <DialogContent className="bg-white border-none shadow-2xl rounded-2xl p-0 overflow-hidden">
@@ -398,6 +474,7 @@ export default function JobDetail() {
                 </div>
               </DialogContent>
             </Dialog>
+            </div>
           )}
           <DropdownMenu>
             <DropdownMenuTrigger render={
@@ -437,96 +514,107 @@ export default function JobDetail() {
         {/* Left Column: Info Cards */}
         <div className="lg:col-span-1 space-y-6">
           {/* Customer Card */}
-          <Card className="border-none shadow-sm bg-white overflow-hidden">
-            <CardHeader className="bg-gray-50/50 border-b border-gray-100">
-              <CardTitle className="text-sm font-bold uppercase tracking-widest text-gray-400">Customer Info</CardTitle>
+          <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
+            <CardHeader className="bg-black/20 border-b border-white/5 p-6">
+              <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Target Intel</CardTitle>
             </CardHeader>
-            <CardContent className="p-5 space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-primary">
-                  <User className="w-6 h-6" />
+            <CardContent className="p-8 space-y-6">
+              <div className="flex items-center gap-5">
+                <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center text-primary border border-primary/20 shadow-inner">
+                  <User className="w-8 h-8" />
                 </div>
                 <div>
-                  <p className="font-bold text-gray-900">{job.customerName}</p>
-                  <p className="text-xs text-gray-500">Client</p>
+                  <p className="text-xl font-black text-white tracking-tight uppercase">{job.customerName}</p>
+                  <p className="text-[10px] text-primary font-black uppercase tracking-widest">Premium Client</p>
                 </div>
               </div>
-              <div className="space-y-2 pt-2">
-                <div className="flex items-center gap-3 text-sm text-gray-600">
-                  <Phone className="w-4 h-4 text-gray-400" />
-                  <a href={`tel:${job.customerPhone}`} className="hover:text-primary transition-colors font-medium">
+              <div className="space-y-4 pt-4 border-t border-white/5">
+                <div className="flex items-center gap-4 text-white group">
+                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-white/40 group-hover:text-primary transition-colors">
+                    <Phone className="w-4 h-4" />
+                  </div>
+                  <a href={`tel:${job.customerPhone}`} className="hover:text-primary transition-colors font-black uppercase tracking-tight text-xs">
                     {job.customerPhone || "(555) 123-4567"}
                   </a>
                 </div>
-                <div className="flex items-center gap-3 text-sm text-gray-600">
-                  <Mail className="w-4 h-4 text-gray-400" />
-                  <a href={`mailto:${job.customerEmail}`} className="hover:text-primary transition-colors font-medium">
+                <div className="flex items-center gap-4 text-white group">
+                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-white/40 group-hover:text-primary transition-colors">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <a href={`mailto:${job.customerEmail}`} className="hover:text-primary transition-colors font-black uppercase tracking-tight text-xs">
                     {job.customerEmail || "customer@example.com"}
                   </a>
                 </div>
-                <div className="flex items-start gap-3 text-sm text-gray-600">
-                  <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                  <a 
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.address)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 hover:text-primary transition-colors font-medium"
-                  >
-                    {job.address}
-                  </a>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-6 w-6 text-primary hover:bg-red-50"
-                    onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}`, '_blank')}
-                  >
-                    <Navigation className="w-3 h-3" />
-                  </Button>
+                <div className="flex items-start gap-4 text-white group">
+                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-white/40 group-hover:text-primary transition-colors shrink-0">
+                    <MapPin className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <a 
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.address)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-primary transition-colors font-black uppercase tracking-tight text-xs block mb-2"
+                    >
+                      {job.address}
+                    </a>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-8 border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-lg font-black uppercase tracking-widest text-[9px] w-full"
+                      onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}`, '_blank')}
+                    >
+                      <Navigation className="w-3 h-3 mr-2 text-primary" />
+                      Tactical Route
+                    </Button>
+                  </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
           {/* Vehicle Card */}
-          <Card className="border-none shadow-sm bg-white overflow-hidden">
-            <CardHeader className="bg-gray-50/50 border-b border-gray-100">
-              <CardTitle className="text-sm font-bold uppercase tracking-widest text-gray-400">Vehicle Info</CardTitle>
+          <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
+            <CardHeader className="bg-muted/30 border-b border-border p-6">
+              <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Asset Profile</CardTitle>
             </CardHeader>
-            <CardContent className="p-5 space-y-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center text-white">
-                      <Car className="w-6 h-6" />
+            <CardContent className="p-8 space-y-6">
+                  <div className="flex items-center gap-5">
+                    <div className="w-16 h-16 bg-gray-900 rounded-2xl flex items-center justify-center text-white shadow-lg">
+                      <Car className="w-8 h-8" />
                     </div>
                     <div className="flex-1">
-                      <p className="font-bold text-gray-900">{job.vehicleInfo}</p>
+                      <p className="text-xl font-black text-white tracking-tight uppercase">{job.vehicleInfo}</p>
                       <div className="flex items-center gap-2">
                         {job.vin ? (
-                          <p className="text-[10px] font-mono text-gray-400 uppercase">{job.vin}</p>
+                          <p className="text-[10px] font-mono text-white/40 font-black uppercase tracking-widest">{job.vin}</p>
                         ) : (
-                          <p className="text-[10px] text-gray-400 italic">No VIN recorded</p>
+                          <p className="text-[10px] text-white/40 font-black uppercase tracking-widest italic">No VIN recorded</p>
                         )}
                       </div>
                     </div>
                     <Dialog>
                       <DialogTrigger render={
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-red-50">
-                          <Scan className="w-4 h-4" />
+                        <Button variant="outline" size="icon" className="h-10 w-10 border-border bg-white text-gray-900 hover:bg-gray-50 rounded-xl shadow-sm">
+                          <Scan className="w-5 h-5 text-primary" />
                         </Button>
                       } />
-                      <DialogContent className="bg-white border-none shadow-2xl rounded-2xl p-0 overflow-hidden">
-                        <DialogHeader className="p-6 border-b"><DialogTitle className="font-black">Vehicle Details Management</DialogTitle></DialogHeader>
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                      <DialogContent className="bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black">
+                        <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
+                          <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase">Asset Intelligence</DialogTitle>
+                        </DialogHeader>
+                        <div className="p-8 space-y-6">
                           <div className="space-y-2">
-                            <Label className="font-bold">Enter VIN</Label>
-                            <div className="flex gap-2">
+                            <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Tactical VIN Entry</Label>
+                            <div className="flex gap-3">
                               <Input 
                                 placeholder="17-character VIN" 
-                                className="bg-white border-gray-200 uppercase font-mono"
+                                className="bg-white/5 border-white/10 text-white rounded-xl h-12 uppercase font-mono focus:ring-primary/50"
                                 defaultValue={job.vin}
                                 id="vin-input"
                               />
                               <Button 
-                                className="bg-black text-white font-bold"
+                                className="bg-primary text-white font-black h-12 px-6 rounded-xl uppercase tracking-widest text-[10px] hover:bg-red-700 transition-all"
                                 onClick={async () => {
                                   const vin = (document.getElementById("vin-input") as HTMLInputElement).value;
                                   if (vin) {
@@ -545,44 +633,44 @@ export default function JobDetail() {
                             </div>
                           </div>
                           <div className="space-y-2">
-                            <Label className="font-bold">RO Number</Label>
+                            <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">RO Identifier</Label>
                             <Input 
                               placeholder="Repair Order #" 
-                              className="bg-white border-gray-200"
+                              className="bg-white border-border text-gray-900 rounded-xl h-12 focus:ring-primary/50"
                               defaultValue={job.roNumber || (job as any).ro || (job as any).ro_number || (job as any).RONumber || (job as any).repairOrder || ""}
                               id="ro-input"
                             />
                           </div>
                           <Button 
-                            className="w-full bg-primary font-bold"
+                            className="w-full bg-primary text-white font-black h-14 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 hover:bg-red-700 transition-all"
                             onClick={async () => {
                               const vin = (document.getElementById("vin-input") as HTMLInputElement).value;
                               const roNumber = (document.getElementById("ro-input") as HTMLInputElement).value;
                               await updateDoc(doc(db, "appointments", id!), { vin, roNumber });
                               setJob(prev => ({ ...prev, vin, roNumber }));
-                              toast.success("Vehicle Details Saved!");
+                              toast.success("Asset Intelligence Updated!");
                             }}
                           >
-                            Save to Job
+                            Synchronize Asset Data
                           </Button>
                         </div>
                       </DialogContent>
                     </Dialog>
                   </div>
               {decodedVin && (
-                <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wider">
-                  <div className="text-gray-400">Make: <span className="text-gray-900">{decodedVin.make}</span></div>
-                  <div className="text-gray-400">Model: <span className="text-gray-900">{decodedVin.model}</span></div>
-                  <div className="text-gray-400">Year: <span className="text-gray-900">{decodedVin.year}</span></div>
-                  <div className="text-gray-400">Type: <span className="text-gray-900">{decodedVin.type}</span></div>
+                <div className="bg-white/5 border border-white/10 rounded-xl p-3 grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wider">
+                  <div className="text-white/40">Make: <span className="text-white">{decodedVin.make}</span></div>
+                  <div className="text-white/40">Model: <span className="text-white">{decodedVin.model}</span></div>
+                  <div className="text-white/40">Year: <span className="text-white">{decodedVin.year}</span></div>
+                  <div className="text-white/40">Type: <span className="text-white">{decodedVin.type}</span></div>
                 </div>
               )}
               {(() => {
                 const rawRo = job.roNumber || (job as any).ro || (job as any).ro_number || (job as any).RONumber || (job as any).repairOrder;
                 if (!rawRo) return null;
                 return (
-                  <div className="flex items-center justify-between p-3 bg-red-50 rounded-xl">
-                    <span className="text-xs font-bold text-primary">RO Number</span>
+                  <div className="flex items-center justify-between p-3 bg-primary/10 border border-primary/20 rounded-xl">
+                    <span className="text-xs font-black text-primary">RO Number</span>
                     <span className="text-xs font-black text-primary">{rawRo}</span>
                   </div>
                 );
@@ -591,52 +679,44 @@ export default function JobDetail() {
           </Card>
 
           {/* Pricing Card */}
-          <Card className="border-none shadow-sm bg-white overflow-hidden">
-            <CardHeader className="bg-gray-50/50 border-b border-gray-100">
-              <CardTitle className="text-sm font-bold uppercase tracking-widest text-gray-400">Financials</CardTitle>
+          <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
+            <CardHeader className="bg-muted/30 border-b border-border p-6">
+              <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Financial Intelligence</CardTitle>
             </CardHeader>
-            <CardContent className="p-5 space-y-4">
-              <div className="space-y-2">
+            <CardContent className="p-8 space-y-6">
+              <div className="space-y-4">
                 {job.serviceNames?.map((service: string) => (
                   <div key={service} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">{service}</span>
-                    <span className="font-medium text-gray-900">Included</span>
+                    <span className="text-white/70 font-black uppercase tracking-tight text-xs">{service}</span>
+                    <span className="font-black text-white text-xs uppercase tracking-widest">Included</span>
                   </div>
                 ))}
                 {job.addOnNames?.map((addon: string) => (
                   <div key={addon} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600 italic">{addon} (Add-on)</span>
-                    <span className="font-medium text-gray-900">Included</span>
+                    <span className="text-white/70 font-black uppercase tracking-tight text-xs italic">{addon} (Add-on)</span>
+                    <span className="font-black text-white text-xs uppercase tracking-widest">Included</span>
                   </div>
                 ))}
-                <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-50">
-                  <span className="text-gray-400 uppercase text-[10px] font-bold">Subtotal</span>
-                  <span className="font-bold text-gray-900">${job.baseAmount}</span>
+                <div className="flex items-center justify-between text-sm pt-4 border-t border-border">
+                  <span className="text-gray-400 uppercase text-[10px] font-black tracking-widest">Subtotal</span>
+                  <span className="font-black text-gray-900">${job.baseAmount}</span>
                 </div>
                 {job.travelFee > 0 && (
-                  <div className="flex items-center justify-between p-3 bg-red-50 rounded-xl border border-red-100 animate-in fade-in slide-in-from-right-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-white">
-                        <Truck className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-xs font-black text-primary uppercase tracking-widest">Travel Surcharge</span>
-                        <span className="text-[10px] text-red-700 font-medium">{job.travelFeeBreakdown?.miles || 0} miles</span>
-                      </div>
-                    </div>
-                    <span className="font-black text-primary">${job.travelFee}</span>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600 font-black uppercase tracking-tight text-xs">Travel Fee</span>
+                    <span className="font-black text-gray-900 text-xs uppercase tracking-widest">${job.travelFee}</span>
                   </div>
                 )}
                 {job.discountAmount > 0 && (
-                  <div className="flex items-center justify-between text-sm text-green-600 font-bold">
-                    <span>Discount</span>
+                  <div className="flex items-center justify-between text-sm text-green-600 font-black uppercase tracking-widest">
+                    <span>Tactical Discount</span>
                     <span>-${job.discountAmount}</span>
                   </div>
                 )}
               </div>
-              <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
-                <span className="text-lg font-bold text-gray-900">Total</span>
-                <span className="text-2xl font-black text-red-600">${job.totalAmount}</span>
+              <div className="pt-6 border-t border-border flex items-center justify-between">
+                <span className="text-xl font-black text-gray-900 uppercase tracking-tighter">Final Total</span>
+                <span className="text-3xl font-black text-primary">${job.totalAmount}</span>
               </div>
               <Dialog open={showInvoice} onOpenChange={(open) => {
                 if (open && !checkRequiredForms("before_invoice")) return;
@@ -645,11 +725,11 @@ export default function JobDetail() {
                 <DialogTrigger render={
                   <Button 
                     variant="outline" 
-                    className="w-full border-gray-200"
+                    className="w-full border-border bg-white text-gray-900 hover:bg-gray-50 rounded-xl h-12 font-black uppercase tracking-widest text-[10px]"
                   >
                     <div className="flex items-center">
-                      <FileText className="w-4 h-4 mr-2" />
-                      Generate Invoice
+                      <FileText className="w-4 h-4 mr-2 text-primary" />
+                      Generate Tactical Invoice
                     </div>
                   </Button>
                 } />
@@ -716,7 +796,7 @@ export default function JobDetail() {
                             <tr>
                               <td className="py-4 text-gray-700 flex items-center gap-2">
                                 <Truck className="w-3 h-3 text-primary" />
-                                Travel Fee ({job.travelFeeBreakdown?.miles} miles)
+                                Travel Fee
                               </td>
                               <td className="py-4 text-right font-bold text-primary">${job.travelFee}</td>
                             </tr>
@@ -759,22 +839,22 @@ export default function JobDetail() {
         {/* Right Column: Tabs for Operations */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="checklist" className="w-full">
-            <TabsList className="w-full bg-white border border-gray-100 p-1 h-12 rounded-2xl shadow-sm mb-6">
-              <TabsTrigger value="checklist" className="flex-1 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white font-bold">
+            <TabsList className="w-full bg-card border border-border p-1.5 h-16 rounded-3xl shadow-xl mb-8">
+              <TabsTrigger value="checklist" className="flex-1 rounded-2xl data-[state=active]:bg-primary data-[state=active]:text-white font-black uppercase tracking-widest text-[10px] transition-all duration-300 h-full">
                 <ClipboardList className="w-4 h-4 mr-2" />
-                Checklist
+                Operations
               </TabsTrigger>
-              <TabsTrigger value="photos" className="flex-1 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white font-bold">
+              <TabsTrigger value="photos" className="flex-1 rounded-2xl data-[state=active]:bg-primary data-[state=active]:text-white font-black uppercase tracking-widest text-[10px] transition-all duration-300 h-full">
                 <Camera className="w-4 h-4 mr-2" />
-                Photos
+                Visual Intel
               </TabsTrigger>
-              <TabsTrigger value="notes" className="flex-1 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white font-bold">
+              <TabsTrigger value="notes" className="flex-1 rounded-2xl data-[state=active]:bg-primary data-[state=active]:text-white font-black uppercase tracking-widest text-[10px] transition-all duration-300 h-full">
                 <AlertCircle className="w-4 h-4 mr-2" />
-                Notes
+                Field Notes
               </TabsTrigger>
-              <TabsTrigger value="forms" className="flex-1 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white font-bold">
+              <TabsTrigger value="forms" className="flex-1 rounded-2xl data-[state=active]:bg-primary data-[state=active]:text-white font-black uppercase tracking-widest text-[10px] transition-all duration-300 h-full">
                 <ShieldCheck className="w-4 h-4 mr-2" />
-                Forms
+                Tactical Forms
               </TabsTrigger>
             </TabsList>
 

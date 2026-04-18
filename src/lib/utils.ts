@@ -36,3 +36,79 @@ export function formatDuration(minutes: number) {
   if (hours === 0) return `${mins}m`;
   return `${hours}h ${mins}m`;
 }
+
+export async function resizeImage(dataUrl: string, maxWidth = 800): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(dataUrl);
+
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+export function trimCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+
+  const copy = document.createElement('canvas').getContext('2d');
+  if (!copy) return canvas;
+
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const l = pixels.data.length;
+  let i;
+  const bound = {
+    top: null as number | null,
+    left: null as number | null,
+    right: null as number | null,
+    bottom: null as number | null
+  };
+  let x, y;
+
+  for (i = 0; i < l; i += 4) {
+    if (pixels.data[i + 3] !== 0) {
+      x = (i / 4) % canvas.width;
+      y = ~~((i / 4) / canvas.width);
+
+      if (bound.top === null) bound.top = y;
+      if (bound.left === null) bound.left = x;
+      else if (x < bound.left) bound.left = x;
+      
+      if (bound.right === null) bound.right = x;
+      else if (bound.right < x) bound.right = x;
+      
+      if (bound.bottom === null) bound.bottom = y;
+      else if (bound.bottom < y) bound.bottom = y;
+    }
+  }
+
+  if (bound.top === null || bound.bottom === null || bound.left === null || bound.right === null) {
+      return canvas;
+  }
+
+  const trimHeight = bound.bottom - bound.top + 1;
+  const trimWidth = bound.right - bound.left + 1;
+  const trimmed = ctx.getImageData(bound.left, bound.top, trimWidth, trimHeight);
+
+  copy.canvas.width = trimWidth;
+  copy.canvas.height = trimHeight;
+  copy.putImageData(trimmed, 0, 0);
+
+  return copy.canvas;
+}

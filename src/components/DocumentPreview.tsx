@@ -108,6 +108,9 @@ export function DocumentPreview({ document, settings, type }: DocumentPreviewPro
               <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Bill To</h3>
               <div className="space-y-1">
                 <p className="text-xl font-black text-gray-900">{document.clientName}</p>
+                {document.businessName && document.businessName !== document.clientName && (
+                  <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">{document.businessName}</p>
+                )}
                 {document.clientEmail && (
                   <div className="flex items-center gap-2 text-gray-500 font-medium">
                     <Mail className="w-3 h-3" />
@@ -146,6 +149,14 @@ export function DocumentPreview({ document, settings, type }: DocumentPreviewPro
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+            {document.description && (
+              <div className="space-y-4">
+                <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Service Description</h3>
+                <div className="p-4 bg-gray-50 rounded-xl">
+                  <p className="text-sm text-gray-700 leading-relaxed font-medium whitespace-pre-wrap">{document.description}</p>
                 </div>
               </div>
             )}

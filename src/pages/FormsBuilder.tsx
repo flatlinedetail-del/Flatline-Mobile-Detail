@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, deleteDoc, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
+import { PageHeader } from "../components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, FileText, Edit2, Trash2, ShieldCheck, Settings2, AlertCircle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 
 export default function FormsBuilder() {
   const { profile, loading: authLoading } = useAuth();
@@ -161,11 +163,17 @@ export default function FormsBuilder() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this template?")) return;
+    // Optimistic delete
+    const previousTemplates = [...templates];
+    setTemplates(prev => prev.filter(t => t.id !== id));
+    toast.success("Template deleted");
+    
+    // Background sync
     try {
       await deleteDoc(doc(db, "form_templates", id));
-      toast.success("Template deleted");
     } catch (error) {
+      // Revert if error
+      setTemplates(previousTemplates);
       toast.error("Failed to delete template");
     }
   };
@@ -216,16 +224,20 @@ export default function FormsBuilder() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">Forms & Waivers</h1>
-          <p className="text-gray-500 font-medium">Create and manage custom liability forms and acknowledgments.</p>
-        </div>
-        <Button onClick={() => handleOpenEdit()} className="bg-primary hover:bg-red-700 shadow-md shadow-red-100 font-bold">
-          <Plus className="w-4 h-4 mr-2" />
-          Create New Form
-        </Button>
-      </div>
+      <PageHeader 
+        title="Forms & WAIVERS" 
+        accentWord="WAIVERS" 
+        subtitle="Legal Compliance & Protocol Management"
+        actions={
+          <Button 
+            onClick={() => handleOpenEdit()} 
+            className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Initialize Protocol
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {templates.map((template) => (
@@ -257,12 +269,19 @@ export default function FormsBuilder() {
               </div>
             </CardContent>
             <div className="p-4 border-t border-gray-50 bg-gray-50/50 flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(template)} className="h-8 w-8 p-0">
+              <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(template)} className="h-9 w-9 p-0 text-gray-500 hover:text-primary hover:bg-primary/10 rounded-xl">
                 <Edit2 className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => handleDelete(template.id)} className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50">
-                <Trash2 className="w-4 h-4" />
-              </Button>
+              <DeleteConfirmationDialog
+                trigger={
+                  <Button variant="ghost" size="icon" className="h-9 w-9 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl">
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                }
+                title="Delete Form Template?"
+                itemName={template.title}
+                onConfirm={() => handleDelete(template.id)}
+              />
             </div>
           </Card>
         ))}
@@ -284,9 +303,9 @@ export default function FormsBuilder() {
       </div>
 
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
-          <DialogHeader className="p-6 border-b shrink-0">
-            <DialogTitle className="text-xl font-bold">
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden bg-card border-none rounded-3xl shadow-2xl shadow-black">
+          <DialogHeader className="p-6 border-b border-white/5 bg-black/40 shrink-0">
+            <DialogTitle className="text-xl font-black text-white uppercase tracking-tighter">
               {editingTemplate ? "Edit Form Template" : "Create New Form Template"}
             </DialogTitle>
           </DialogHeader>
@@ -300,15 +319,16 @@ export default function FormsBuilder() {
                   placeholder="e.g. General Liability Waiver" 
                   value={formData.title}
                   onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                  className="bg-white/5 border-white/10 text-white h-12 rounded-xl font-bold"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Category</Label>
                 <Select value={formData.category} onValueChange={v => setFormData(prev => ({ ...prev, category: v }))}>
-                  <SelectTrigger>
+                  <SelectTrigger className="bg-white/5 border-white/10 text-white h-12 rounded-xl font-bold">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-gray-900 border-white/10 text-white">
                     <SelectItem value="liability">Liability Waiver</SelectItem>
                     <SelectItem value="acknowledgment">Acknowledgment</SelectItem>
                     <SelectItem value="inspection">Pre-Service Inspection</SelectItem>
@@ -324,7 +344,7 @@ export default function FormsBuilder() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-64">
                 <Textarea 
                   placeholder="Enter the legal text or acknowledgment content here..."
-                  className="h-full resize-none font-mono text-xs"
+                  className="h-full resize-none font-mono text-xs bg-white/5 border-white/10 text-white rounded-xl p-4"
                   value={formData.content}
                   onChange={e => setFormData(prev => ({ ...prev, content: e.target.value }))}
                 />

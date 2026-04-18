@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, where, getDocs } from "firebase/firestore";
+import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, where, getDocs, limit } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -40,13 +40,15 @@ import {
   Upload,
   Image as ImageIcon,
   X,
-  Loader2
+  Loader2,
+  Edit2
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "../lib/utils";
 import { Vendor, Service, Appointment, Vehicle } from "../types";
 import AddressInput from "../components/AddressInput";
+import VehicleSelector from "../components/VehicleSelector";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
@@ -60,6 +62,7 @@ export default function Vendors() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [vendorHistory, setVendorHistory] = useState<Appointment[]>([]);
@@ -74,24 +77,27 @@ export default function Vendors() {
   useEffect(() => {
     if (authLoading || !profile) return;
 
-    const q = query(collection(db, "vendors"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const vendorsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor));
-      setVendors(vendorsData);
+    const q = query(collection(db, "vendors"), orderBy("createdAt", "desc"), limit(100));
+    const unsubscribeVendors = onSnapshot(q, (snapshot) => {
+      setVendors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor)));
       setLoading(false);
     }, (error) => {
-      console.error("Error listening to vendors:", error);
+      console.error("Error fetching vendors:", error);
+      setLoading(false);
     });
 
-    const unsubServices = onSnapshot(query(collection(db, "services")), (snap) => {
-      setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
-    }, (error) => {
-      console.error("Error listening to services:", error);
-    });
+    const loadServices = async () => {
+      try {
+        const servicesSnap = await getDocs(collection(db, "services"));
+        setServices(servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
+      } catch (error) {
+        console.error("Error fetching services in vendors:", error);
+      }
+    };
+    loadServices();
 
     return () => {
-      unsubscribe();
-      unsubServices();
+      unsubscribeVendors();
     };
   }, [profile, authLoading]);
 
@@ -103,49 +109,31 @@ export default function Vendors() {
       return;
     }
 
-    const qHistory = query(
-      collection(db, "appointments"), 
-      where("vendorId", "==", selectedVendor.id),
-      orderBy("scheduledAt", "desc")
-    );
-    const unsubHistory = onSnapshot(qHistory, (snap) => {
-      setVendorHistory(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-    }, (error) => {
-      console.error("Error listening to vendor history:", error);
-    });
+    const fetchVendorDetails = async () => {
+      try {
+        const [historySnap, vehiclesSnap, formsSnap] = await Promise.all([
+          getDocs(query(collection(db, "appointments"), where("vendorId", "==", selectedVendor.id), orderBy("scheduledAt", "desc"), limit(50))),
+          getDocs(query(collection(db, "vehicles"), where("ownerId", "==", selectedVendor.id), where("ownerType", "==", "vendor"))),
+          getDocs(query(collection(db, "signed_forms"), where("vendorId", "==", selectedVendor.id)))
+        ]);
 
-    const qVehicles = query(
-      collection(db, "vehicles"),
-      where("ownerId", "==", selectedVendor.id),
-      where("ownerType", "==", "vendor")
-    );
-    const unsubVehicles = onSnapshot(qVehicles, (snap) => {
-      setVendorVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
-    }, (error) => {
-      console.error("Error listening to vendor vehicles:", error);
-    });
-
-    const qForms = query(
-      collection(db, "signed_forms"),
-      where("vendorId", "==", selectedVendor.id)
-    );
-    const unsubForms = onSnapshot(qForms, (snap) => {
-      setSignedForms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => {
-      console.error("Error listening to vendor forms:", error);
-    });
-
-    return () => {
-      unsubHistory();
-      unsubVehicles();
-      unsubForms();
+        setVendorHistory(historySnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+        setVendorVehicles(vehiclesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+        setSignedForms(formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error) {
+        console.error("Error fetching vendor details:", error);
+      }
     };
+
+    fetchVendorDetails();
+
+    return () => {};
   }, [selectedVendor]);
 
   const handleAddVendor = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const newVendor = {
+    const vendorData: any = {
       name: formData.get("name"),
       contactPerson: formData.get("contactPerson"),
       phone: formData.get("phone"),
@@ -154,19 +142,28 @@ export default function Vendors() {
       latitude: newVendorAddress.lat,
       longitude: newVendorAddress.lng,
       billingCycle: formData.get("billingCycle") || "monthly",
-      vendorRates: {},
       notes: formData.get("notes"),
-      createdAt: serverTimestamp(),
-      createdBy: profile?.uid,
+      updatedAt: serverTimestamp(),
     };
 
     try {
-      await addDoc(collection(db, "vendors"), newVendor);
-      toast.success("Vendor added successfully");
+      if (editingVendor) {
+        await updateDoc(doc(db, "vendors", editingVendor.id), vendorData);
+        toast.success("Vendor profile updated");
+      } else {
+        await addDoc(collection(db, "vendors"), {
+          ...vendorData,
+          vendorRates: {},
+          createdAt: serverTimestamp(),
+          createdBy: profile?.uid,
+        });
+        toast.success("Vendor added successfully");
+      }
       setIsAddDialogOpen(false);
+      setEditingVendor(null);
     } catch (error) {
-      console.error("Error adding vendor:", error);
-      toast.error("Failed to add vendor");
+      console.error("Error saving vendor:", error);
+      toast.error(editingVendor ? "Failed to update vendor" : "Failed to add vendor");
     }
   };
 
@@ -181,16 +178,25 @@ export default function Vendors() {
     }
   };
 
+  const [newVehicleData, setNewVehicleData] = useState({ year: "", make: "", model: "" });
+
   const handleAddVehicle = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedVendor) return;
     const formData = new FormData(e.currentTarget);
+    
+    if (!newVehicleData.year || !newVehicleData.make || !newVehicleData.model) {
+      toast.error("Please select a complete vehicle (Year, Make, and Model)");
+      return;
+    }
+
     const newVehicle = {
       ownerId: selectedVendor.id,
+      clientId: selectedVendor.id, // For consistency
       ownerType: "vendor",
-      year: formData.get("year"),
-      make: formData.get("make"),
-      model: formData.get("model"),
+      year: newVehicleData.year,
+      make: newVehicleData.make,
+      model: newVehicleData.model,
       color: formData.get("color"),
       size: formData.get("size"),
       vin: formData.get("vin"),
@@ -337,7 +343,15 @@ export default function Vendors() {
           <h1 className="text-3xl font-black text-gray-900 tracking-tighter">VENDORS</h1>
           <p className="text-gray-500 font-medium">Manage business accounts, collision centers, and dealerships.</p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+            if (!open) {
+              setIsAddDialogOpen(false);
+              setEditingVendor(null);
+              setNewVendorAddress({ address: "", lat: 0, lng: 0 });
+            } else {
+              setIsAddDialogOpen(true);
+            }
+          }}>
           <DialogTrigger render={
             <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
               <Building2 className="w-4 h-4 mr-2" />
@@ -346,37 +360,38 @@ export default function Vendors() {
           } />
           <DialogContent className="sm:max-w-[500px] p-0">
             <DialogHeader className="px-6 pt-6 pb-2">
-              <DialogTitle className="text-xl font-black">Add New Vendor</DialogTitle>
+              <DialogTitle className="text-xl font-black">{editingVendor ? "Modify Vendor Profile" : "Add New Vendor"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleAddVendor} className="flex-1 overflow-y-auto space-y-4 px-6 py-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Business Name</Label>
-                <Input id="name" name="name" placeholder="Elite Collision Center" required />
+                <Input id="name" name="name" defaultValue={editingVendor?.name || ""} placeholder="Elite Collision Center" required />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="contactPerson">Contact Name</Label>
-                  <Input id="contactPerson" name="contactPerson" placeholder="Jane Smith" required />
+                  <Input id="contactPerson" name="contactPerson" defaultValue={editingVendor?.contactPerson || ""} placeholder="Jane Smith" required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number</Label>
-                  <Input id="phone" name="phone" placeholder="(555) 000-0000" required />
+                  <Input id="phone" name="phone" defaultValue={editingVendor?.phone || ""} placeholder="(555) 000-0000" required />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Billing Email</Label>
-                <Input id="email" name="email" type="email" placeholder="billing@elite.com" />
+                <Input id="email" name="email" type="email" defaultValue={editingVendor?.email || ""} placeholder="billing@elite.com" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="address">Address</Label>
                 <AddressInput 
+                  defaultValue={editingVendor?.address || ""}
                   onAddressSelect={(address, lat, lng) => setNewVendorAddress({ address, lat, lng })}
                   placeholder="123 Main St, City, ST"
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="billingCycle">Billing Cycle</Label>
-                <Select name="billingCycle" defaultValue="monthly">
+                <Select name="billingCycle" defaultValue={editingVendor?.billingCycle || "monthly"}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select cycle" />
                   </SelectTrigger>
@@ -387,26 +402,32 @@ export default function Vendors() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">Create Vendor Account</Button>
+              <div className="space-y-2">
+                <Label htmlFor="notes">Internal Notes</Label>
+                <Textarea id="notes" name="notes" defaultValue={editingVendor?.notes || ""} placeholder="Terms, preferences, etc." />
+              </div>
+              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">
+                {editingVendor ? "Update Vendor Profile" : "Create Vendor Account"}
+              </Button>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
-      <Card className="border-none shadow-sm bg-white overflow-hidden">
-        <CardHeader className="border-b border-gray-50 bg-gray-50/50">
+      <Card className="border-white/5 bg-card shadow-xl overflow-hidden">
+        <CardHeader className="border-b border-white/5 bg-black/40">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
               <Input 
                 placeholder="Search vendors..." 
-                className="pl-10 bg-white border-gray-200 rounded-full"
+                className="pl-10 bg-black/40 border-white/10 text-white rounded-full"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="border-gray-200">
+              <Button variant="outline" size="sm" className="border-white/10 text-white hover:bg-white/5">
                 <Filter className="w-4 h-4 mr-2" />
                 Filter
               </Button>
@@ -415,7 +436,7 @@ export default function Vendors() {
         </CardHeader>
         <CardContent className="p-0">
           <Table>
-            <TableHeader className="bg-gray-50/50">
+            <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow>
                 <TableHead className="w-[300px]">Business</TableHead>
                 <TableHead>Contact</TableHead>
@@ -478,9 +499,28 @@ export default function Vendors() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
-                        <ChevronRight className="w-5 h-5" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-gray-500 hover:text-primary transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingVendor(vendor);
+                            setNewVendorAddress({
+                              address: vendor.address || "",
+                              lat: vendor.latitude || 0,
+                              lng: vendor.longitude || 0
+                            });
+                            setIsAddDialogOpen(true);
+                          }}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
+                          <ChevronRight className="w-5 h-5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -494,21 +534,21 @@ export default function Vendors() {
       {selectedVendor && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="sm:max-w-[800px] p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-black p-8 text-white shrink-0">
+            <div className="bg-black/80 p-8 text-white shrink-0 border-b border-white/5">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center text-white font-black text-2xl backdrop-blur-sm">
+                  <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-primary/20">
                     <Building2 className="w-8 h-8" />
                   </div>
                   <div>
-                    <h2 className="text-3xl font-black tracking-tighter">{selectedVendor.name}</h2>
-                    <div className="text-gray-400 flex items-center gap-4 mt-1 font-medium">
-                      <a href={`tel:${selectedVendor.phone}`} className="flex items-center gap-2 hover:text-white transition-colors">
-                        <Phone className="w-4 h-4" /> {selectedVendor.phone}
+                    <h2 className="text-3xl font-black tracking-tighter uppercase">{selectedVendor.name}</h2>
+                    <div className="text-white/60 flex items-center gap-4 mt-1 font-medium">
+                      <a href={`tel:${selectedVendor.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors">
+                        <Phone className="w-4 h-4 text-primary" /> {selectedVendor.phone}
                       </a>
                       <span className="opacity-30">|</span>
-                      <a href={`mailto:${selectedVendor.email}`} className="flex items-center gap-2 hover:text-white transition-colors">
-                        <Mail className="w-4 h-4" /> {selectedVendor.email}
+                      <a href={`mailto:${selectedVendor.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
+                        <Mail className="w-4 h-4 text-primary" /> {selectedVendor.email}
                       </a>
                     </div>
                   </div>
@@ -517,9 +557,9 @@ export default function Vendors() {
                   <div className="flex items-center gap-2 mb-2">
                     <Button 
                       size="sm" 
-                      className="bg-white text-primary hover:bg-red-50 font-bold shadow-lg"
+                      className="bg-primary text-white hover:bg-primary/90 font-black uppercase tracking-widest text-[10px] rounded-xl h-9 px-4 shadow-lg shadow-primary/20"
                       onClick={() => {
-                        navigate("/appointments", { 
+                        navigate("/calendar", { 
                           state: { 
                             openAddDialog: true, 
                             vendorId: selectedVendor.id,
@@ -531,23 +571,23 @@ export default function Vendors() {
                       <Calendar className="w-4 h-4 mr-2" />
                       Book Appointment
                     </Button>
-                    <Badge className="bg-primary text-white border-none font-black uppercase tracking-widest">
+                    <Badge className="bg-white/10 text-white/60 border-none font-black uppercase tracking-widest text-[10px] px-3 py-1">
                       {selectedVendor.billingCycle} BILLING
                     </Badge>
                   </div>
-                  <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Contact Person</p>
-                  <p className="text-xl font-black">{selectedVendor.contactPerson}</p>
+                  <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Contact Person</p>
+                  <p className="text-xl font-black text-white">{selectedVendor.contactPerson}</p>
                 </div>
               </div>
             </div>
 
             <Tabs defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
-              <TabsList className="w-full justify-start rounded-none border-b bg-gray-50/50 px-8 h-12 shrink-0">
-                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Profile</TabsTrigger>
-                <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Vehicles ({vendorVehicles.length})</TabsTrigger>
-                <TabsTrigger value="photos" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Photos ({selectedVendor.inspectionPhotos?.length || 0})</TabsTrigger>
-                <TabsTrigger value="rates" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">Fixed Rates</TabsTrigger>
-                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full font-bold">RO History ({vendorHistory.length})</TabsTrigger>
+              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-12 shrink-0">
+                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Profile</TabsTrigger>
+                <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Vehicles ({vendorVehicles.length})</TabsTrigger>
+                <TabsTrigger value="photos" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Photos ({selectedVendor.inspectionPhotos?.length || 0})</TabsTrigger>
+                <TabsTrigger value="rates" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Fixed Rates</TabsTrigger>
+                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">RO History ({vendorHistory.length})</TabsTrigger>
               </TabsList>
 
               <div className="flex-1 overflow-y-auto p-8 bg-white">
@@ -640,7 +680,7 @@ export default function Vendors() {
                         {selectedVendor.inspectionPhotos.map((url, idx) => (
                           <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border group">
                             <img src={url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <div className="absolute inset-0 bg-black/40 transition-opacity flex items-center justify-center gap-2">
                               <a href={url} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full text-gray-900 hover:bg-gray-100">
                                 <ExternalLink className="w-4 h-4" />
                               </a>
@@ -702,32 +742,21 @@ export default function Vendors() {
                       <DialogContent>
                         <DialogHeader><DialogTitle className="font-black">Add New Vehicle</DialogTitle></DialogHeader>
                         <form onSubmit={handleAddVehicle} className="space-y-4 py-4">
+                          <VehicleSelector onSelect={setNewVehicleData} />
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                              <Label>Year</Label>
-                              <Input name="year" placeholder="2022" required />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Make</Label>
-                              <Input name="make" placeholder="Tesla" required />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Model</Label>
-                              <Input name="model" placeholder="Model 3" required />
-                            </div>
-                            <div className="space-y-2">
                               <Label>Color</Label>
-                              <Input name="color" placeholder="White" />
+                              <Input name="color" placeholder="White" className="bg-white border-gray-200" />
                             </div>
                             <div className="space-y-2">
                               <Label>RO Number</Label>
-                              <Input name="roNumber" placeholder="RO-12345" />
+                              <Input name="roNumber" placeholder="RO-12345" className="bg-white border-gray-200" />
                             </div>
                             <div className="space-y-2">
                               <Label>Size</Label>
                               <Select name="size" defaultValue="medium">
-                                <SelectTrigger><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
-                                <SelectContent>
+                                <SelectTrigger className="bg-white border-gray-200"><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
+                                <SelectContent className="bg-white">
                                   <SelectItem value="small">Small (Coupe/Compact)</SelectItem>
                                   <SelectItem value="medium">Medium (Sedan/Small SUV)</SelectItem>
                                   <SelectItem value="large">Large (Full SUV/Truck)</SelectItem>
@@ -735,14 +764,14 @@ export default function Vendors() {
                                 </SelectContent>
                               </Select>
                             </div>
-                          </div>
-                          <div className="space-y-2">
-                            <Label>VIN (Optional)</Label>
-                            <Input name="vin" placeholder="VIN Number" />
+                            <div className="space-y-2">
+                              <Label>VIN (Optional)</Label>
+                              <Input name="vin" placeholder="VIN Number" className="bg-white border-gray-200" />
+                            </div>
                           </div>
                           <div className="space-y-2">
                             <Label>Notes</Label>
-                            <Textarea name="notes" placeholder="Vehicle specific notes..." />
+                            <Textarea name="notes" placeholder="Vehicle specific notes..." className="bg-white border-gray-200" />
                           </div>
                           <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
                         </form>
@@ -767,7 +796,7 @@ export default function Vendors() {
                             <div className="flex items-center gap-2">
                               <AlertDialog>
                                 <AlertDialogTrigger render={
-                                  <Button variant="ghost" size="icon" className="text-gray-300 hover:text-red-600">
+                                  <Button variant="ghost" size="icon" className="text-gray-500 hover:text-red-600">
                                     <Trash2 className="w-4 h-4" />
                                   </Button>
                                 } />
@@ -845,7 +874,7 @@ export default function Vendors() {
                                   {v.inspectionPhotos.map((url, idx) => (
                                     <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border shrink-0 group">
                                       <img src={url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-1">
                                         <Button 
                                           size="icon" 
                                           variant="destructive" 
@@ -914,7 +943,7 @@ export default function Vendors() {
                       {selectedVendor.inspectionPhotos.map((url, idx) => (
                         <div key={idx} className="relative aspect-video rounded-2xl overflow-hidden border group">
                           <img src={url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <div className="absolute inset-0 bg-black/40 transition-opacity flex items-center justify-center gap-2">
                             <a href={url} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full text-gray-900 hover:bg-gray-100">
                               <ExternalLink className="w-4 h-4" />
                             </a>
