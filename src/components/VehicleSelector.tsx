@@ -162,29 +162,25 @@ export default function VehicleSelector({ onSelect, initialValues }: VehicleSele
     setYear(val);
     setMake("");
     setModel("");
-    onSelect({ year: val, make: "", model: "" });
   };
 
   const handleMakeSelect = async (val: string, isCustom: boolean = false) => {
-    const upperVal = val.toUpperCase();
-    setMake(upperVal);
+    setMake(val);
     setModel("");
-    onSelect({ year, make: upperVal, model: "" });
     
     if (isCustom) {
-      await saveCustomVehicle(upperVal, "");
+      await saveCustomVehicle(val, "");
       const data = await getMakesForYear(year);
       setMakes(data);
     }
   };
 
   const handleModelSelect = async (val: string, isCustom: boolean = false) => {
-    const upperVal = val.toUpperCase();
-    setModel(upperVal);
-    onSelect({ year, make, model: upperVal });
+    setModel(val);
+    onSelect({ year, make, model: val });
 
     if (isCustom) {
-      await saveCustomVehicle(make, upperVal);
+      await saveCustomVehicle(make, val);
       const data = await getModelsForMakeYear(make, year);
       setModels(data);
     }

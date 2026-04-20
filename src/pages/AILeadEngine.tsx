@@ -183,45 +183,9 @@ export default function AILeadEngine() {
       const data = await response.json();
 
       if (data.error) {
-        if (data.isMock) {
-          toast.info("Using AI to simulate real business leads in your area.");
-          
-          const mockLeads = [
-            {
-              name: `${location.split(',')[0]} Premium Collision`,
-              address: `123 Main St, ${location}`,
-              phone: "(555) 123-4567",
-              businessWebsite: "https://example.com",
-              businessType: searchType,
-              source: "AI Market Search",
-            },
-            {
-              name: `Elite ${searchType.replace('_', ' ')} of ${location.split(',')[0]}`,
-              address: `456 Business Pkwy, ${location}`,
-              phone: "(555) 987-6543",
-              businessWebsite: "https://example.com",
-              businessType: searchType,
-              source: "AI Market Search",
-            }
-          ];
-
-          const qualified = [];
-          for (let i = 0; i < mockLeads.length; i++) {
-            try {
-              const q = await aiLeadService.qualifyLead(mockLeads[i]);
-              qualified.push(q);
-              setGenerationProgress(Math.round(((i + 1) / mockLeads.length) * 100));
-            } catch (err) {
-              console.error(`Failed to qualify mock lead:`, err);
-              qualified.push(mockLeads[i]);
-            }
-          }
-          setGeneratedLeads(qualified);
-        } else {
-          toast.error(data.error, {
-            description: data.message || "Please check your configuration."
-          });
-        }
+        toast.error(data.error, {
+          description: data.message || "Please check your configuration."
+        });
         return;
       }
 

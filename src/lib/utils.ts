@@ -112,3 +112,15 @@ export function trimCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
 
   return copy.canvas;
 }
+
+export function toTitleCase(str: string): string {
+  if (!str) return "";
+  return str.toLowerCase().split(' ').map(word => {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(' ');
+}
+
+export function cleanAddress(address: string | undefined | null): string {
+  if (!address) return "";
+  return address.replace(/,\s*(USA|United States)$/i, "").trim();
+}

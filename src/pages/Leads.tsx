@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
 import { Textarea } from "../components/ui/textarea";
-import { cn, formatPhoneNumber } from "../lib/utils";
+import { cn, formatPhoneNumber, cleanAddress } from "../lib/utils";
 import { getGeocode, getLatLng } from "use-places-autocomplete";
 import { 
   UserPlus, 
@@ -496,7 +496,7 @@ export default function Leads() {
                           className="h-9 w-9 text-white/70 hover:text-green-400 hover:bg-green-500/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate("/calendar", { state: { lead } });
+                          navigate(`/book-appointment?leadId=${lead.id}`);
                           }}
                         >
                           <CheckCircle2 className="w-4 h-4" />
@@ -582,7 +582,17 @@ export default function Leads() {
               <div className="grid grid-cols-2 gap-4">
                 <Button 
                   className="bg-primary hover:bg-red-700 text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
-                  onClick={() => navigate("/calendar", { state: { lead: selectedLead } })}
+                  onClick={() => {
+                    setIsDetailOpen(false);
+                    
+                    document.body.style.pointerEvents = "";
+                    document.body.style.overflow = "";
+                    document.body.removeAttribute("data-scroll-locked");
+                    
+                    setTimeout(() => {
+                      navigate(`/book-appointment?leadId=${selectedLead.id}`);
+                    }, 350);
+                  }}
                 >
                   <CheckCircle2 className="w-4 h-4 mr-2" /> Convert to Job
                 </Button>

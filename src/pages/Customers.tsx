@@ -404,13 +404,14 @@ export default function Customers() {
                         size="sm" 
                         className="bg-primary text-white hover:bg-primary/90 font-black uppercase tracking-widest text-[10px] rounded-xl h-9 px-4 shadow-lg shadow-primary/20"
                         onClick={() => {
-                          navigate("/calendar", { 
-                            state: { 
-                              openAddDialog: true, 
-                              customerId: selectedCustomer.id,
-                              customerType: "retail"
-                            } 
-                          });
+                          toast.success("Book Appointment Clicked");
+                          setIsDetailOpen(false);
+                          
+                          document.body.style.pointerEvents = "";
+                          document.body.style.overflow = "";
+                          document.body.removeAttribute("data-scroll-locked");
+                          
+                          navigate(`/book-appointment?clientId=${selectedCustomer.id}`);
                         }}
                       >
                         <Calendar className="w-4 h-4 mr-2" />
@@ -706,8 +707,27 @@ export default function Customers() {
                 </TabsContent>
 
                 <TabsContent value="history" className="mt-0 space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Engagement History</h3>
+                    <Button 
+                      size="sm" 
+                      className="bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-9 rounded-xl"
+                      onClick={() => {
+                        toast.success("Book Appointment Clicked");
+                        setIsDetailOpen(false);
+                        
+                        document.body.style.pointerEvents = "";
+                        document.body.style.overflow = "";
+                        document.body.removeAttribute("data-scroll-locked");
+                        
+                        navigate(`/book-appointment?clientId=${selectedCustomer.id}`);
+                      }}
+                    >
+                      <Plus className="w-4 h-4 mr-2" /> Book Appointment
+                    </Button>
+                  </div>
                   <div className="space-y-4">
-                    <h3 className="text-lg font-black text-gray-900">Signed Forms & Waivers</h3>
+                    <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest">Signed Forms & Waivers</h3>
                     {signedForms.length === 0 ? (
                       <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border border-dashed">
                         <History className="w-12 h-12 mx-auto mb-4 opacity-20" />

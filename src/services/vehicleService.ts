@@ -26,10 +26,20 @@ const CLEAN_MAKES = [
   "Volkswagen", "Volvo"
 ].sort();
 
+function formatVehicleName(name: string): string {
+  if (!name) return "";
+  return name.split(' ').map(word => {
+    // Keep short acronyms like BMW, GMC, DBX, 911 (numbers)
+    if (word.length <= 3 && word.length > 0) return word.toUpperCase();
+    // Title case for longer words
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  }).join(' ');
+}
+
 export async function getMakesForYear(year: string): Promise<VehicleMake[]> {
   const makes: VehicleMake[] = CLEAN_MAKES.map((make, index) => ({
     Make_ID: `clean_${index}`,
-    Make_Name: make.toUpperCase()
+    Make_Name: make // Keep original title case from CLEAN_MAKES
   }));
 
   // Fetch custom makes added by users
@@ -39,7 +49,7 @@ export async function getMakesForYear(year: string): Promise<VehicleMake[]> {
       const data = doc.data();
       return {
         Make_ID: doc.id,
-        Make_Name: data.make.toUpperCase(),
+        Make_Name: formatVehicleName(data.make),
         isCustom: true
       };
     });
@@ -47,7 +57,7 @@ export async function getMakesForYear(year: string): Promise<VehicleMake[]> {
     // Merge and deduplicate
     const allMakes = [...makes];
     for (const cm of customMakes) {
-      if (!allMakes.some(m => m.Make_Name === cm.Make_Name)) {
+      if (!allMakes.some(m => m.Make_Name.toUpperCase() === cm.Make_Name.toUpperCase())) {
         allMakes.push(cm);
       }
     }
@@ -71,7 +81,7 @@ export async function getModelsForMakeYear(make: string, year: string): Promise<
           Make_ID: m.Make_ID,
           Make_Name: m.Make_Name,
           Model_ID: m.Model_ID,
-          Model_Name: m.Model_Name.toUpperCase()
+          Model_Name: formatVehicleName(m.Model_Name)
         }));
       }
     }
@@ -94,16 +104,16 @@ export async function getModelsForMakeYear(make: string, year: string): Promise<
       const data = doc.data();
       return {
         Make_ID: "custom",
-        Make_Name: data.make.toUpperCase(),
+        Make_Name: formatVehicleName(data.make),
         Model_ID: doc.id,
-        Model_Name: data.model.toUpperCase(),
+        Model_Name: formatVehicleName(data.model),
         isCustom: true
       };
     });
 
     // Merge and deduplicate
     for (const cm of customModels) {
-      if (!models.some(m => m.Model_Name === cm.Model_Name)) {
+      if (!models.some(m => m.Model_Name.toUpperCase() === cm.Model_Name.toUpperCase())) {
         models.push(cm);
       }
     }
@@ -115,8 +125,11 @@ export async function getModelsForMakeYear(make: string, year: string): Promise<
 }
 
 export async function saveCustomVehicle(make: string, model: string) {
-  const makeUpper = make.trim().toUpperCase();
-  const modelUpper = model.trim().toUpperCase();
+  const makeFormatted = formatVehicleName(make.trim());
+  const modelFormatted = formatVehicleName(model.trim());
+  
+  const makeUpper = makeFormatted.toUpperCase();
+  const modelUpper = modelFormatted.toUpperCase();
 
   if (!makeUpper) return;
 
@@ -143,7 +156,7 @@ export async function saveCustomVehicle(make: string, model: string) {
     const makeSnap = await getDocs(makeQ);
     if (makeSnap.empty && !CLEAN_MAKES.map(m => m.toUpperCase()).includes(makeUpper)) {
       await addDoc(collection(db, "custom_vehicle_makes"), {
-        make: makeUpper,
+        make: makeFormatted,
         createdAt: serverTimestamp()
       });
     }
@@ -158,8 +171,8 @@ export async function saveCustomVehicle(make: string, model: string) {
       const modelSnap = await getDocs(modelQ);
       if (modelSnap.empty) {
         await addDoc(collection(db, "custom_vehicle_models"), {
-          make: makeUpper,
-          model: modelUpper,
+          make: makeFormatted,
+          model: modelFormatted,
           createdAt: serverTimestamp()
         });
       }

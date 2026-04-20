@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, deleteDoc, getDocs } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, deleteDoc, getDocs, addDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { processMaintenanceAutomation } from "../services/automationService";
@@ -31,10 +31,12 @@ import {
   Scan,
   ShieldCheck,
   Plus,
-  Trash2
+  Trash2,
+  Receipt,
+  Calendar
 } from "lucide-react";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
+import { cn, cleanAddress } from "@/lib/utils";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import PhotoDocumentation from "../components/PhotoDocumentation";
@@ -42,6 +44,7 @@ import ServiceChecklist from "../components/ServiceChecklist";
 import SignaturePad from "../components/SignaturePad";
 import { decodeVin } from "../services/vin";
 import { addLoyaltyPoints } from "../services/promotions";
+import { getUpsellRecommendations, UpsellRecommendation } from "../services/gemini";
 import Logo from "../components/Logo";
 import FormSigner from "../components/FormSigner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -80,6 +83,73 @@ export default function JobDetail() {
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancellationFee, setCancellationFee] = useState(0);
   const [isAfterCutoff, setIsAfterCutoff] = useState(false);
+
+  // AI Upsell State
+  const [technicianAssessment, setTechnicianAssessment] = useState("");
+  const [isGeneratingUpsells, setIsGeneratingUpsells] = useState(false);
+  const [recommendations, setRecommendations] = useState<UpsellRecommendation[]>([]);
+  const [selectedRecommendations, setSelectedRecommendations] = useState<UpsellRecommendation[]>([]);
+
+  // Manual Service Addition State
+  const [showAddServiceDialog, setShowAddServiceDialog] = useState(false);
+  const [allServices, setAllServices] = useState<any[]>([]);
+  const [allAddons, setAllAddons] = useState<any[]>([]);
+  const [customServiceName, setCustomServiceName] = useState("");
+  const [customServicePrice, setCustomServicePrice] = useState("");
+  const [isAddingCustom, setIsAddingCustom] = useState(false);
+
+  const handleConvertJobToInvoice = async () => {
+    if (!job || !profile) return;
+    try {
+      const invoiceData = {
+        clientId: job.clientId || job.customerId,
+        clientName: job.customerName,
+        clientEmail: job.customerEmail || "",
+        clientPhone: job.customerPhone || "",
+        clientAddress: job.address || "",
+        technicianId: profile.uid,
+        appointmentId: id,
+        vehicles: [
+          {
+            id: job.vehicleId || "",
+            year: "", 
+            make: "", 
+            model: job.vehicleInfo || "Vehicle",
+            roNumber: job.roNumber || ""
+          }
+        ],
+        vehicleInfo: job.vehicleInfo,
+        lineItems: [
+          ...(job.serviceNames || []).map((name: string, idx: number) => ({
+            serviceName: name,
+            price: job.servicePrices?.[idx] || (job.totalAmount / ((job.serviceNames?.length || 0) + (job.addOnNames?.length || 0) || 1))
+          })),
+          ...(job.addOnNames || []).map((name: string) => ({
+            serviceName: `ADD-ON: ${name}`,
+            price: 0 
+          }))
+        ],
+        total: job.totalAmount || 0,
+        amountPaid: 0,
+        status: "pending",
+        paymentStatus: "unpaid",
+        createdAt: serverTimestamp(),
+        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        description: job.internalNotes || `Generated from Job #${id?.slice(-6).toUpperCase()}`,
+        lateFeeEnabled: false,
+        lateFeeType: "fixed",
+        lateFeeAmount: 0,
+        lateFeeGracePeriodDays: 3
+      };
+
+      const docRef = await addDoc(collection(db, "invoices"), invoiceData);
+      toast.success("Deployment converted to Tactical Invoice!");
+      return docRef.id;
+    } catch (error) {
+      console.error("Error converting job to invoice:", error);
+      toast.error("Invoice conversion failed");
+    }
+  };
 
   const calculateCancellationFee = () => {
     if (!job?.scheduledAt) return;
@@ -169,6 +239,21 @@ export default function JobDetail() {
 
     fetchMetadata();
 
+    // Fetch all services and addons for manual addition
+    const fetchServices = async () => {
+      try {
+        const [servSnap, addSnap] = await Promise.all([
+          getDocs(collection(db, "services")),
+          getDocs(collection(db, "addons"))
+        ]);
+        setAllServices(servSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        setAllAddons(addSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (err) {
+        console.error("Error fetching services:", err);
+      }
+    };
+    fetchServices();
+
     // Real-time job listener
     const docRef = doc(db, "appointments", id);
     const unsubscribeJob = onSnapshot(docRef, async (docSnap) => {
@@ -229,6 +314,9 @@ export default function JobDetail() {
         commissionAmount: commissionAmount
       });
       
+      // Auto-convert to invoice
+      await handleConvertJobToInvoice();
+      
       // Call maintenance automation
       if (job) {
         await processMaintenanceAutomation(job);
@@ -265,11 +353,18 @@ export default function JobDetail() {
     setIsUpdating(true);
     try {
       const docRef = doc(db, "appointments", id!);
-      await updateDoc(docRef, { 
+      const updates: any = { 
         status: newStatus,
         updatedAt: serverTimestamp(),
         [`statusHistory.${newStatus}`]: serverTimestamp()
-      });
+      };
+      
+      // Handle status specific side effects
+      if (newStatus === "completed") {
+        await handleConvertJobToInvoice();
+      }
+      
+      await updateDoc(docRef, updates);
       toast.success(`Status updated to ${newStatus.replace("_", " ")}`);
     } catch (error) {
       console.error("Error updating status:", error);
@@ -305,7 +400,8 @@ export default function JobDetail() {
   const statusColors: any = {
     scheduled: "bg-white text-black border-black",
     confirmed: "bg-black text-white border-black",
-    en_route: "bg-primary text-white border-primary",
+    en_route: "bg-orange-600 text-white border-orange-700",
+    arrived: "bg-blue-600 text-white border-blue-700",
     in_progress: "bg-primary text-white border-primary border-2",
     completed: "bg-green-600 text-white border-green-700",
     paid: "bg-emerald-600 text-white border-emerald-700",
@@ -334,10 +430,10 @@ export default function JobDetail() {
           <div>
             <div className="flex items-center gap-4 mb-2">
               <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter uppercase font-heading">
-                Deployment <span className="text-primary italic">Details</span>
+                Deployment <span className="text-primary italic">Intelligence</span>
               </h1>
               <Badge variant="outline" className={cn(
-                "text-[10px] font-black uppercase tracking-[0.2em] px-4 py-1 rounded-full border-none",
+                "text-[10px] font-black uppercase tracking-[0.2em] px-4 py-1 rounded-full border-none shadow-lg",
                 statusColors[job.status]
               )}>
                 {job.status?.replace("_", " ")}
@@ -383,7 +479,7 @@ export default function JobDetail() {
               Confirm Job
             </Button>
           )}
-          {job.status === "confirmed" && (
+          {(job.status === "confirmed" || job.status === "scheduled") && (
             <Button 
               onClick={() => {
                 if (checkRequiredForms("before_start")) {
@@ -391,39 +487,100 @@ export default function JobDetail() {
                 }
               }} 
               disabled={isUpdating} 
-              className="bg-primary hover:bg-red-700 font-bold"
+              className="bg-primary hover:bg-red-700 font-bold uppercase tracking-widest text-[10px] px-8 h-12 rounded-xl"
             >
-              Start Route
+              In Route
             </Button>
           )}
           {job.status === "en_route" && (
-            <Button 
-              onClick={() => {
-                if (checkRequiredForms("before_start")) {
-                  updateStatus("in_progress");
-                }
-              }} 
-              disabled={isUpdating} 
-              className="bg-primary hover:bg-red-700 font-bold"
-            >
-              Arrived & Start
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                onClick={() => updateStatus("scheduled")} 
+                disabled={isUpdating} 
+                variant="outline"
+                className="border-white/10 bg-transparent text-white/50 hover:text-white rounded-xl font-bold uppercase tracking-widest text-[10px] px-4 h-12"
+              >
+                « Back
+              </Button>
+              <Button 
+                onClick={() => updateStatus("arrived")} 
+                disabled={isUpdating} 
+                className="bg-blue-600 hover:bg-blue-700 font-bold uppercase tracking-widest text-[10px] px-8 h-12 rounded-xl"
+              >
+                Arrived
+              </Button>
+            </div>
+          )}
+          {job.status === "arrived" && (
+            <div className="flex items-center gap-2">
+              <Button 
+                onClick={() => updateStatus("en_route")} 
+                disabled={isUpdating} 
+                variant="outline"
+                className="border-white/10 bg-transparent text-white/50 hover:text-white rounded-xl font-bold uppercase tracking-widest text-[10px] px-4 h-12"
+              >
+                « Back
+              </Button>
+              <Button 
+                onClick={() => {
+                  if (checkRequiredForms("before_start")) {
+                    updateStatus("in_progress");
+                  }
+                }} 
+                disabled={isUpdating} 
+                className="bg-primary hover:bg-red-700 font-bold uppercase tracking-widest text-[10px] px-8 h-12 rounded-xl"
+              >
+                Start Job
+              </Button>
+            </div>
           )}
           {job.status === "in_progress" && (
-            <Button 
-              onClick={() => {
-                if (checkRequiredForms("before_complete")) {
-                  setShowSignature(true);
-                }
-              }} 
-              disabled={isUpdating} 
-              className="bg-green-600 hover:bg-green-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-green-600/20"
-            >
-              Complete Mission & Secure Signature
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                onClick={() => updateStatus("arrived")} 
+                disabled={isUpdating} 
+                variant="outline"
+                className="border-white/10 bg-transparent text-white/50 hover:text-white rounded-xl font-bold uppercase tracking-widest text-[10px] px-4 h-12"
+              >
+                « Back
+              </Button>
+              <Button 
+                onClick={() => {
+                  if (checkRequiredForms("before_complete")) {
+                    setShowSignature(true);
+                  }
+                }} 
+                disabled={isUpdating} 
+                className="bg-green-600 hover:bg-green-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-green-600/20"
+              >
+                Complete Job
+              </Button>
+            </div>
+          )}
+          {(job.status === "completed" || job.status === "paid") && (
+            <div className="flex items-center gap-2">
+              {job.status === "completed" && (
+                <Button 
+                  onClick={() => updateStatus("in_progress")} 
+                  disabled={isUpdating} 
+                  variant="outline"
+                  className="border-white/10 bg-transparent text-white/50 hover:text-white rounded-xl font-bold uppercase tracking-widest text-[10px] px-4 h-12"
+                >
+                  « Revert
+                </Button>
+              )}
+              <Button 
+                onClick={() => {
+                  navigate(`/book-appointment?clientId=${job.clientId || job.customerId}`);
+                }}
+                className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 flex shrink-0"
+              >
+                <Calendar className="w-4 h-4 mr-2" /> Schedule Next
+              </Button>
+            </div>
           )}
           {job.status === "completed" && (
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
             <Button 
               onClick={() => {
                 navigate("/invoices", { 
@@ -434,7 +591,7 @@ export default function JobDetail() {
                   } 
                 });
               }}
-              className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+              className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 shrink-0"
             >
               Generate Invoice
             </Button>
@@ -495,6 +652,7 @@ export default function JobDetail() {
                 Cancel Job
               </DropdownMenuItem>
               <DeleteConfirmationDialog
+                isNativeButton={false}
                 trigger={
                   <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-600 focus:text-red-700 focus:bg-red-50 font-bold">
                     <Trash2 className="w-4 h-4 mr-2" />
@@ -556,7 +714,7 @@ export default function JobDetail() {
                       rel="noopener noreferrer"
                       className="hover:text-primary transition-colors font-black uppercase tracking-tight text-xs block mb-2"
                     >
-                      {job.address}
+                      {cleanAddress(job.address)}
                     </a>
                     <Button 
                       variant="outline" 
@@ -584,7 +742,7 @@ export default function JobDetail() {
                       <Car className="w-8 h-8" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-xl font-black text-white tracking-tight uppercase">{job.vehicleInfo}</p>
+                      <p className="text-xl font-black text-white tracking-tight">{job.vehicleInfo}</p>
                       <div className="flex items-center gap-2">
                         {job.vin ? (
                           <p className="text-[10px] font-mono text-white/40 font-black uppercase tracking-widest">{job.vin}</p>
@@ -685,40 +843,74 @@ export default function JobDetail() {
             </CardHeader>
             <CardContent className="p-8 space-y-6">
               <div className="space-y-4">
-                {job.serviceNames?.map((service: string) => (
-                  <div key={service} className="flex items-center justify-between text-sm">
-                    <span className="text-white/70 font-black uppercase tracking-tight text-xs">{service}</span>
-                    <span className="font-black text-white text-xs uppercase tracking-widest">Included</span>
+                {/* 1. Itemize Core Services */}
+                {(job.serviceSelections || []).map((service: any, idx: number) => (
+                  <div key={`service-${service.id || idx}`} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">{service.vehicleName ? `[${service.vehicleName}] ` : ""}{service.name}</span>
+                    <span className="text-white font-black">${(service.price || 0).toFixed(2)}</span>
                   </div>
                 ))}
-                {job.addOnNames?.map((addon: string) => (
-                  <div key={addon} className="flex items-center justify-between text-sm">
-                    <span className="text-white/70 font-black uppercase tracking-tight text-xs italic">{addon} (Add-on)</span>
-                    <span className="font-black text-white text-xs uppercase tracking-widest">Included</span>
+                
+                {/* 2. Itemize Add-ons & Enhancements */}
+                {(job.addOnSelections || []).map((addon: any, idx: number) => (
+                  <div key={`addon-${addon.id || idx}`} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px] italic">{addon.name} {addon.qty > 1 ? `(x${addon.qty})` : ""}</span>
+                    <span className="text-white font-black">${((addon.price || 0) * (addon.qty || 1)).toFixed(2)}</span>
                   </div>
                 ))}
-                <div className="flex items-center justify-between text-sm pt-4 border-t border-border">
-                  <span className="text-gray-400 uppercase text-[10px] font-black tracking-widest">Subtotal</span>
-                  <span className="font-black text-gray-900">${job.baseAmount}</span>
-                </div>
-                {job.travelFee > 0 && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600 font-black uppercase tracking-tight text-xs">Travel Fee</span>
-                    <span className="font-black text-gray-900 text-xs uppercase tracking-widest">${job.travelFee}</span>
-                  </div>
-                )}
+
+                {/* 3. Backward Compatibility: Unlisted Manual Additions */}
+                {(() => {
+                  const mappedServicesTotal = (job.serviceSelections || []).reduce((sum: number, s: any) => sum + (s.price || 0), 0);
+                  const mappedAddonsTotal = (job.addOnSelections || []).reduce((sum: number, a: any) => sum + ((a.price || 0) * (a.qty || 1)), 0);
+                  const unlistedTotal = (job.baseAmount || 0) - (mappedServicesTotal + mappedAddonsTotal);
+                  
+                  if (unlistedTotal > 0.01) {
+                    return (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">Additional Line Items</span>
+                        <span className="text-white font-black">${unlistedTotal.toFixed(2)}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+                
                 {job.discountAmount > 0 && (
-                  <div className="flex items-center justify-between text-sm text-green-600 font-black uppercase tracking-widest">
-                    <span>Tactical Discount</span>
-                    <span>-${job.discountAmount}</span>
+                  <div className="flex items-center justify-between text-sm pt-2">
+                    <span className="text-green-500 font-bold uppercase tracking-widest text-[10px]">Tactical Discount</span>
+                    <span className="text-green-500 font-black">-${job.discountAmount.toFixed(2)}</span>
                   </div>
                 )}
+                {/* Linked Invoice Link */}
+                {(() => {
+                  // We could fetch the invoice, but for DI summary we can just link to it if we know the ID or search by appointmentId
+                  // For now, let's just show a note that an invoice was generated
+                  if (job.status === "completed" || job.status === "paid") {
+                    return (
+                      <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-xl mt-4">
+                        <Receipt className="w-4 h-4 text-green-500" />
+                        <span className="text-[10px] font-black text-green-500 uppercase tracking-widest leading-none">Invoice Synchronized & Archived</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
               <div className="pt-6 border-t border-border flex items-center justify-between">
-                <span className="text-xl font-black text-gray-900 uppercase tracking-tighter">Final Total</span>
-                <span className="text-3xl font-black text-primary">${job.totalAmount}</span>
+                <span className="text-xl font-black text-white uppercase tracking-tighter">Final Total</span>
+                <span className="text-3xl font-black text-primary">${job.totalAmount?.toFixed(2)}</span>
               </div>
-              <Dialog open={showInvoice} onOpenChange={(open) => {
+              <div className="flex flex-col gap-2">
+                <Button 
+                  onClick={() => setShowAddServiceDialog(true)}
+                  variant="outline"
+                  className="w-full border-border bg-white text-gray-900 hover:bg-gray-50 rounded-xl h-12 font-black uppercase tracking-widest text-[10px]"
+                >
+                  <Plus className="w-4 h-4 mr-2 text-primary" />
+                  Manually Add Service/Add-on
+                </Button>
+                <Dialog open={showInvoice} onOpenChange={(open) => {
                 if (open && !checkRequiredForms("before_invoice")) return;
                 setShowInvoice(open);
               }}>
@@ -743,7 +935,7 @@ export default function JobDetail() {
                         <p className="text-xs text-gray-500">(555) 000-1111 • flatlinedetail.com</p>
                       </div>
                       <div className="text-right">
-                        <h3 className="text-4xl font-black text-gray-100 uppercase tracking-tighter mb-2">Invoice</h3>
+                        <h3 className="text-4xl font-black text-gray-900 uppercase tracking-tighter mb-2">Invoice</h3>
                         <p className="text-sm font-bold text-gray-900">#{id?.slice(-6).toUpperCase()}</p>
                         <p className="text-xs text-gray-500">{format(new Date(), "MMM d, yyyy")}</p>
                       </div>
@@ -753,7 +945,7 @@ export default function JobDetail() {
                       <div>
                         <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Bill To</h4>
                         <p className="text-sm font-bold text-gray-900">{job.customerName}</p>
-                        <p className="text-xs text-gray-500">{job.address}</p>
+                        <p className="text-xs text-gray-500">{cleanAddress(job.address)}</p>
                       </div>
                       <div className="text-right">
                         <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Vehicle</h4>
@@ -776,42 +968,47 @@ export default function JobDetail() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
-                          {job.serviceNames?.map((service: string) => (
-                            <tr key={service}>
-                              <td className="py-4 text-gray-700">{service}</td>
-                              <td className="py-4 text-right font-bold text-gray-900">Included</td>
+                          {(job.serviceSelections || []).map((service: any, idx: number) => (
+                            <tr key={`invoice-service-${service.id || idx}`}>
+                              <td className="py-4 text-gray-700">{service.vehicleName ? `[${service.vehicleName}] ` : ""}{service.name}</td>
+                              <td className="py-4 text-right font-bold text-gray-900">${(service.price || 0).toFixed(2)}</td>
                             </tr>
                           ))}
-                          {job.addOnNames?.map((addon: string) => (
-                            <tr key={addon}>
-                              <td className="py-4 text-gray-700 italic">{addon} (Add-on)</td>
-                              <td className="py-4 text-right font-bold text-gray-900">Included</td>
+                          
+                          {(job.addOnSelections || []).map((addon: any, idx: number) => (
+                            <tr key={`invoice-addon-${addon.id || idx}`}>
+                              <td className="py-4 text-gray-700 italic">{addon.name} {addon.qty > 1 ? `(x${addon.qty})` : ""}</td>
+                              <td className="py-4 text-right font-bold text-gray-900">${((addon.price || 0) * (addon.qty || 1)).toFixed(2)}</td>
                             </tr>
                           ))}
-                          <tr className="bg-gray-50/50">
-                            <td className="py-2 px-4 text-gray-500 font-bold text-xs uppercase">Service Subtotal</td>
-                            <td className="py-2 px-4 text-right font-black text-gray-900">${job.baseAmount}</td>
-                          </tr>
-                          {job.travelFee > 0 && (
-                            <tr>
-                              <td className="py-4 text-gray-700 flex items-center gap-2">
-                                <Truck className="w-3 h-3 text-primary" />
-                                Travel Fee
-                              </td>
-                              <td className="py-4 text-right font-bold text-primary">${job.travelFee}</td>
-                            </tr>
-                          )}
+
+                          {(() => {
+                            const mappedServicesTotal = (job.serviceSelections || []).reduce((sum: number, s: any) => sum + (s.price || 0), 0);
+                            const mappedAddonsTotal = (job.addOnSelections || []).reduce((sum: number, a: any) => sum + ((a.price || 0) * (a.qty || 1)), 0);
+                            const unlistedTotal = (job.baseAmount || 0) - (mappedServicesTotal + mappedAddonsTotal);
+                            
+                            if (unlistedTotal > 0.01) {
+                              return (
+                                <tr>
+                                  <td className="py-4 text-gray-700">Additional Line Items</td>
+                                  <td className="py-4 text-right font-bold text-gray-900">${unlistedTotal.toFixed(2)}</td>
+                                </tr>
+                              );
+                            }
+                            return null;
+                          })()}
+
                           {job.discountAmount > 0 && (
                             <tr>
                               <td className="py-4 text-green-600 font-bold italic">Discount / Promotion</td>
-                              <td className="py-4 text-right font-bold text-green-600">-${job.discountAmount}</td>
+                              <td className="py-4 text-right font-bold text-green-600">-${(job.discountAmount || 0).toFixed(2)}</td>
                             </tr>
                           )}
                         </tbody>
                         <tfoot>
                           <tr>
-                            <td className="pt-8 text-right font-bold text-gray-400 uppercase text-[10px] tracking-widest">Total Amount Due</td>
-                            <td className="pt-8 text-right text-2xl font-black text-red-600">${job.totalAmount}</td>
+                            <td className="pt-8 text-right font-bold text-gray-400 uppercase text-[10px] tracking-widest">Total</td>
+                            <td className="pt-8 text-right text-2xl font-black text-red-600">${(job.totalAmount || 0).toFixed(2)}</td>
                           </tr>
                         </tfoot>
                       </table>
@@ -832,6 +1029,7 @@ export default function JobDetail() {
                   </div>
                 </DialogContent>
               </Dialog>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -853,10 +1051,161 @@ export default function JobDetail() {
                 Field Notes
               </TabsTrigger>
               <TabsTrigger value="forms" className="flex-1 rounded-2xl data-[state=active]:bg-primary data-[state=active]:text-white font-black uppercase tracking-widest text-[10px] transition-all duration-300 h-full">
-                <ShieldCheck className="w-4 h-4 mr-2" />
-                Tactical Forms
+                <ShieldCheck className="w-4 h-4 mr-2 hidden md:inline-block" />
+                <span className="hidden md:inline-block">Tactical </span>Forms
+              </TabsTrigger>
+              <TabsTrigger value="ai_upsell" className="flex-1 rounded-2xl data-[state=active]:bg-primary data-[state=active]:text-white font-black uppercase tracking-widest text-[10px] transition-all duration-300 h-full">
+                <Scan className="w-4 h-4 mr-2 hidden md:inline-block" />
+                Revenue Intel
               </TabsTrigger>
             </TabsList>
+
+            <TabsContent value="ai_upsell" className="mt-0">
+              <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
+                <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+                      <Scan className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter">Tactical Upsell Intelligence</CardTitle>
+                      <p className="text-[10px] text-white/50 font-black uppercase tracking-[0.2em] mt-1">AI-Powered Revenue Optimization</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-8 space-y-8">
+                  <div className="space-y-4">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Field Assessment</Label>
+                    <textarea 
+                      className="w-full h-32 p-4 rounded-2xl bg-white/5 border border-white/10 text-white text-sm font-medium resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      placeholder="Describe what you see: 'Extreme pet hair in rear', 'Deep scratches on hood', 'Mold on driver seat belt'..."
+                      value={technicianAssessment}
+                      onChange={(e) => setTechnicianAssessment(e.target.value)}
+                    />
+                    <Button 
+                      onClick={async () => {
+                        if (!technicianAssessment) return;
+                        setIsGeneratingUpsells(true);
+                        try {
+                          const recs = await getUpsellRecommendations(technicianAssessment, job);
+                          setRecommendations(recs);
+                          toast.success("AI Analysis Complete!");
+                        } catch (err) {
+                          toast.error("Failed to generate recommendations");
+                        } finally {
+                          setIsGeneratingUpsells(false);
+                        }
+                      }}
+                      disabled={isGeneratingUpsells || !technicianAssessment}
+                      className="w-full h-14 bg-primary hover:bg-red-700 text-white font-black rounded-xl uppercase tracking-[0.2em] text-[10px]"
+                    >
+                      {isGeneratingUpsells ? <Loader2 className="w-5 h-5 animate-spin" /> : "Initiate AI Analysis"}
+                    </Button>
+                  </div>
+
+                  {recommendations.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                      {recommendations.map((rec, idx) => {
+                        const isSelected = selectedRecommendations.some(r => r.serviceName === rec.serviceName);
+                        return (
+                          <div 
+                            key={idx} 
+                            className={cn(
+                              "p-6 rounded-2xl border transition-all cursor-pointer group flex flex-col",
+                              isSelected ? "bg-primary/20 border-primary" : "bg-white/5 border-white/10 hover:border-white/20"
+                            )}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedRecommendations(selectedRecommendations.filter(r => r.serviceName !== rec.serviceName));
+                              } else {
+                                setSelectedRecommendations([...selectedRecommendations, rec]);
+                              }
+                            }}
+                          >
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-black text-white uppercase tracking-tight">{rec.serviceName}</h4>
+                              {isSelected ? (
+                                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                  <span className="text-primary font-black text-lg">$</span>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={rec.recommendedPrice}
+                                    onChange={(e) => {
+                                      const newPrice = parseFloat(e.target.value) || 0;
+                                      const updatedRec = { ...rec, recommendedPrice: newPrice };
+                                      setRecommendations(recommendations.map(r => r.serviceName === rec.serviceName ? updatedRec : r));
+                                      setSelectedRecommendations(selectedRecommendations.map(r => r.serviceName === rec.serviceName ? updatedRec : r));
+                                    }}
+                                    className="w-20 h-auto py-1 px-2 bg-black/40 border border-primary/50 text-white font-black text-lg text-right"
+                                  />
+                                </div>
+                              ) : (
+                                <span className="font-black text-primary text-lg">${rec.recommendedPrice}</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-white/60 font-medium mb-4 leading-relaxed flex-1">{rec.reason}</p>
+                            <div className="flex items-center justify-between mt-auto">
+                              <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">{rec.priceRange}</span>
+                              <div className={cn(
+                                "w-5 h-5 rounded-full border flex items-center justify-center transition-all",
+                                isSelected ? "bg-primary border-primary text-white" : "border-white/20 text-transparent"
+                              )}>
+                                <CheckCircle2 className="w-3 h-3" />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {selectedRecommendations.length > 0 && (
+                    <Button 
+                      onClick={async () => {
+                        setIsUpdating(true);
+                        try {
+                          const docRef = doc(db, "appointments", id!);
+                          const currentAddons = job.addOnNames || [];
+                          const currentTotal = job.totalAmount || 0;
+                          const currentBase = job.baseAmount || 0;
+                          
+                          const newAddons = [...currentAddons, ...selectedRecommendations.map(r => `${r.serviceName} ($${r.recommendedPrice})`)];
+                          const addedValue = selectedRecommendations.reduce((sum, r) => sum + r.recommendedPrice, 0);
+                          
+                          const newAddonSelections = [...(job.addOnSelections || []), ...selectedRecommendations.map(r => ({
+                            id: `ai-upsell-${Date.now()}-${Math.random()}`,
+                            name: r.serviceName,
+                            price: r.recommendedPrice,
+                            qty: 1
+                          }))];
+
+                          await updateDoc(docRef, {
+                            addOnNames: newAddons,
+                            addOnSelections: newAddonSelections,
+                            totalAmount: currentTotal + addedValue,
+                            baseAmount: currentBase + addedValue,
+                            internalNotes: (job.internalNotes || "") + `\n\nAI Upsells Applied: ${selectedRecommendations.map(r => `${r.serviceName} ($${r.recommendedPrice})`).join(", ")}`
+                          });
+                          
+                          toast.success("Tactical Upsells Synchronized!");
+                          setRecommendations([]);
+                          setSelectedRecommendations([]);
+                          setTechnicianAssessment("");
+                        } catch (err) {
+                          toast.error("Failed to sync upsells");
+                        } finally {
+                          setIsUpdating(false);
+                        }
+                      }}
+                      className="w-full h-14 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl uppercase tracking-[0.2em] text-xs shadow-xl shadow-green-600/20 shrink-0 mt-8"
+                    >
+                      Apply Selected Assets (+${selectedRecommendations.reduce((sum, r) => sum + r.recommendedPrice, 0)})
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
             <TabsContent value="checklist" className="mt-0">
               <ServiceChecklist jobId={job.id} services={job.serviceNames || []} />
@@ -1064,6 +1413,162 @@ export default function JobDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Manual Service Addition Dialog */}
+      <Dialog open={showAddServiceDialog} onOpenChange={setShowAddServiceDialog}>
+        <DialogContent className="max-w-xl bg-card border-none rounded-3xl shadow-2xl p-0 overflow-hidden">
+          <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
+            <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Manual Asset Addition</DialogTitle>
+          </DialogHeader>
+          <div className="p-8 space-y-4">
+            <div className="flex items-center justify-between">
+              <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Global Services</Label>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setIsAddingCustom(!isAddingCustom)}
+                className="text-primary font-black uppercase text-[9px] tracking-widest hover:bg-primary/5"
+              >
+                {isAddingCustom ? "Cancel Custom" : "+ Add Custom Asset"}
+              </Button>
+            </div>
+
+            {isAddingCustom && (
+              <Card className="bg-white/5 border-white/10 p-4 space-y-4 animate-in slide-in-from-top-2 duration-300">
+                <div className="space-y-2">
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-white/40">Asset Name</Label>
+                  <Input 
+                    placeholder="e.g. Excessive Clay Bar Treatment" 
+                    value={customServiceName}
+                    onChange={(e) => setCustomServiceName(e.target.value)}
+                    className="bg-black/40 border-white/10 text-white rounded-xl h-10 text-xs"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-white/40">Custom Price ($)</Label>
+                  <Input 
+                    type="number"
+                    placeholder="0.00" 
+                    value={customServicePrice}
+                    onChange={(e) => setCustomServicePrice(e.target.value)}
+                    className="bg-black/40 border-white/10 text-white rounded-xl h-10 text-xs"
+                  />
+                </div>
+                <Button 
+                  disabled={!customServiceName || !customServicePrice}
+                  onClick={async () => {
+                    setIsUpdating(true);
+                    try {
+                      const docRef = doc(db, "appointments", id!);
+                      const price = parseFloat(customServicePrice);
+                      const newServiceSelection = {
+                          id: `custom-asset-${Date.now()}`,
+                          name: customServiceName,
+                          price: price
+                      };
+                      await updateDoc(docRef, {
+                        serviceNames: [...(job.serviceNames || []), customServiceName],
+                        serviceSelections: [...(job.serviceSelections || []), newServiceSelection],
+                        totalAmount: (job.totalAmount || 0) + price,
+                        baseAmount: (job.baseAmount || 0) + price
+                      });
+                      toast.success(`Custom Asset Added: ${customServiceName}`);
+                      setIsAddingCustom(false);
+                      setCustomServiceName("");
+                      setCustomServicePrice("");
+                      setShowAddServiceDialog(false);
+                    } catch (err) {
+                      toast.error("Failed to add custom asset");
+                    } finally {
+                      setIsUpdating(false);
+                    }
+                  }}
+                  className="w-full bg-primary hover:bg-red-700 text-white font-black rounded-lg h-10 uppercase text-[9px] tracking-widest"
+                >
+                  Deploy Custom Asset
+                </Button>
+              </Card>
+            )}
+
+            <div className="grid grid-cols-1 gap-2">
+              {allServices.map(s => (
+                <Button 
+                  key={s.id}
+                  variant="outline"
+                  className="bg-white/5 border-white/10 text-white hover:bg-white/10 h-auto p-4 flex justify-between items-center text-left"
+                  onClick={async () => {
+                    if (!job) return;
+                    setIsUpdating(true);
+                    try {
+                      const docRef = doc(db, "appointments", id!);
+                      const newServiceSelection = {
+                        id: s.id,
+                        name: s.name,
+                        price: s.basePrice || 0
+                      };
+                      await updateDoc(docRef, {
+                        serviceIds: [...(job.serviceIds || []), s.id],
+                        serviceNames: [...(job.serviceNames || []), s.name],
+                        serviceSelections: [...(job.serviceSelections || []), newServiceSelection],
+                        totalAmount: (job.totalAmount || 0) + (s.basePrice || 0),
+                        baseAmount: (job.baseAmount || 0) + (s.basePrice || 0)
+                      });
+                      toast.success(`Service Added: ${s.name}`);
+                      setShowAddServiceDialog(false);
+                    } catch (err) {
+                      toast.error("Failed to add service");
+                    } finally {
+                      setIsUpdating(false);
+                    }
+                  }}
+                >
+                  <span className="font-black uppercase tracking-tight text-xs">{s.name}</span>
+                  <span className="font-black text-primary">${s.basePrice}</span>
+                </Button>
+              ))}
+            </div>
+            <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Add-ons</Label>
+            <div className="grid grid-cols-1 gap-2">
+              {allAddons.map(a => (
+                <Button 
+                  key={a.id}
+                  variant="outline"
+                  className="bg-white/5 border-white/10 text-white hover:bg-white/10 h-auto p-4 flex justify-between items-center text-left"
+                  onClick={async () => {
+                    if (!job) return;
+                    setIsUpdating(true);
+                    try {
+                      const docRef = doc(db, "appointments", id!);
+                      const newAddonSelection = {
+                        id: a.id,
+                        name: a.name,
+                        price: a.price || 0,
+                        qty: 1
+                      };
+                      await updateDoc(docRef, {
+                        addOnIds: [...(job.addOnIds || []), a.id],
+                        addOnNames: [...(job.addOnNames || []), a.name],
+                        addOnSelections: [...(job.addOnSelections || []), newAddonSelection],
+                        totalAmount: (job.totalAmount || 0) + (a.price || 0),
+                        baseAmount: (job.baseAmount || 0) + (a.price || 0)
+                      });
+                      toast.success(`Add-on Added: ${a.name}`);
+                      setShowAddServiceDialog(false);
+                    } catch (err) {
+                      toast.error("Failed to add add-on");
+                    } finally {
+                      setIsUpdating(false);
+                    }
+                  }}
+                >
+                  <span className="font-black uppercase tracking-tight text-xs italic">{a.name}</span>
+                  <span className="font-black text-primary">${a.price}</span>
+                </Button>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

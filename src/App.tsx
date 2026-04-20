@@ -16,6 +16,7 @@ import Help from "./pages/Help";
 import Expenses from "./pages/Expenses";
 import Marketing from "./pages/Marketing";
 import FormsBuilder from "./pages/FormsBuilder";
+import BookAppointment from "./pages/BookAppointment";
 import AILeadEngine from "./pages/AILeadEngine";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
@@ -46,6 +47,7 @@ function AppContent() {
           <Route path="leads" element={<Leads />} />
           <Route path="leads/engine" element={<AILeadEngine />} />
           <Route path="clients" element={<Clients />} />
+          <Route path="book-appointment" element={<BookAppointment />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="calendar/:id" element={<JobDetail />} />
           <Route path="invoices" element={<Invoices />} />

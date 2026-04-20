@@ -6,7 +6,7 @@ import usePlacesAutocomplete, {
 } from "use-places-autocomplete";
 import { useGoogleMaps } from "./GoogleMapsProvider";
 import { MapPin, Loader2, AlertCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cleanAddress } from "@/lib/utils";
 
 interface CustomerAddressInputProps {
   onAddressSelect?: (address: string, lat: number, lng: number) => void;
@@ -99,15 +99,15 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
 
   useEffect(() => {
     if (defaultValue && !initialValueSetRef.current) {
-      setInputValue(defaultValue);
-      setAddressData({ address: defaultValue, lat: 0, lng: 0 });
-      setValue(defaultValue, false);
+      setInputValue(cleanAddress(defaultValue));
+      setAddressData({ address: cleanAddress(defaultValue), lat: 0, lng: 0 });
+      setValue(cleanAddress(defaultValue), false);
       initialValueSetRef.current = true;
       lastDefaultValue.current = defaultValue;
     } else if (defaultValue !== lastDefaultValue.current && !isFocused.current) {
-      setInputValue(defaultValue);
-      setAddressData({ address: defaultValue, lat: 0, lng: 0 });
-      setValue(defaultValue, false);
+      setInputValue(cleanAddress(defaultValue));
+      setAddressData({ address: cleanAddress(defaultValue), lat: 0, lng: 0 });
+      setValue(cleanAddress(defaultValue), false);
       lastDefaultValue.current = defaultValue;
     }
   }, [defaultValue, setValue]);
@@ -131,26 +131,27 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
   };
 
   const handleSelect = async (description: string) => {
+    const cleanedDescription = cleanAddress(description);
     selectionMadeRef.current = true;
-    setInputValue(description);
-    setValue(description, false);
+    setInputValue(cleanedDescription);
+    setValue(cleanedDescription, false);
     clearSuggestions();
     setShowSuggestions(false);
 
     try {
       const results = await getGeocode({ address: description });
       const { lat, lng } = await getLatLng(results[0]);
-      const newData = { address: description, lat, lng };
+      const newData = { address: cleanedDescription, lat, lng };
       setAddressData(newData);
-      if (onAddressSelect) onAddressSelect(description, lat, lng);
+      if (onAddressSelect) onAddressSelect(cleanedDescription, lat, lng);
     } catch (error: any) {
       console.error("Geocoding error:", error);
       if (error?.toString().includes("ApiTargetBlockedMapError") || error?.message?.includes("ApiTargetBlockedMapError")) {
         setLoadError(new Error("Geocoding API is not enabled for this API key. Please enable it in Google Cloud Console."));
       }
-      const newData = { address: description, lat: 0, lng: 0 };
+      const newData = { address: cleanedDescription, lat: 0, lng: 0 };
       setAddressData(newData);
-      if (onAddressSelect) onAddressSelect(description, 0, 0);
+      if (onAddressSelect) onAddressSelect(cleanedDescription, 0, 0);
     }
   };
 
@@ -248,10 +249,10 @@ const CustomerAddressInput = React.forwardRef<CustomerAddressInputRef, CustomerA
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="text-sm font-bold text-gray-900 truncate">
-                    {structured_formatting?.main_text || description}
+                    {structured_formatting?.main_text || cleanAddress(description)}
                   </span>
                   <span className="text-[10px] text-gray-500 truncate">
-                    {structured_formatting?.secondary_text || ""}
+                    {cleanAddress(structured_formatting?.secondary_text || "")}
                   </span>
                 </div>
               </button>

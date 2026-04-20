@@ -2,6 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import "dotenv/config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,6 +13,120 @@ async function startServer() {
   app.use(express.json());
 
   // API routes
+  app.get("/api/weather", async (req, res) => {
+    const { lat, lon } = req.query;
+    const apiKey = process.env.VITE_OPENWEATHER_API_KEY;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: "OpenWeather API Key is missing." });
+    }
+
+    try {
+      const [currentRes, forecastRes] = await Promise.all([
+        fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=imperial`),
+        fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=imperial`)
+      ]);
+
+      if (!currentRes.ok || !forecastRes.ok) {
+        throw new Error("Failed to fetch weather data from OpenWeather");
+      }
+
+      const currentData = await currentRes.json() as any;
+      const forecastData = await forecastRes.json() as any;
+
+      const dailyForecasts: any[] = [];
+      const seenDates = new Set();
+      forecastData.list.forEach((item: any) => {
+        const date = new Date(item.dt * 1000).toLocaleDateString();
+        if (!seenDates.has(date) && dailyForecasts.length < 7) {
+          seenDates.add(date);
+          dailyForecasts.push({
+            date,
+            temp: { min: item.main.temp_min, max: item.main.temp_max },
+            condition: item.weather[0].main,
+            description: item.weather[0].description,
+            rainProbability: Math.round((item.pop || 0) * 100)
+          });
+        }
+      });
+
+      const condition = currentData.weather[0].main.toLowerCase();
+      const temp = currentData.main.temp;
+      let businessGuidance = "";
+      if (condition.includes("rain") || condition.includes("drizzle")) {
+        businessGuidance = "Rain detected. Pivot to interior detailing, odor removal, and mold prevention services. Push maintenance reminders for existing clients.";
+      } else if (condition.includes("clear") || condition.includes("sun")) {
+        businessGuidance = "Clear skies. Perfect for exterior washes, ceramic coatings, and high-gloss wax packages. Promote premium shine services.";
+      } else if (temp < 40) {
+        businessGuidance = "Cold snap. Focus on interior protection and winter prep packages. Great time for salt removal and undercarriage protection.";
+      } else if (temp > 85) {
+        businessGuidance = "High heat. Promote UV protection for interiors and ceramic coatings to protect paint from sun damage. Cabin comfort refresh is a must.";
+      } else {
+        businessGuidance = "Moderate weather. Ideal for full details and multi-stage paint correction. Push your most popular all-in-one packages.";
+      }
+
+      res.json({
+        current: {
+          temp: Math.round(temp),
+          condition: currentData.weather[0].main,
+          icon: currentData.weather[0].icon,
+          description: currentData.weather[0].description
+        },
+        forecast: dailyForecasts,
+        businessGuidance
+      });
+    } catch (error) {
+      // Check if it's a connection timeout or general fetch error to avoid noise
+      if (error instanceof TypeError && error.message === "fetch failed") {
+        // Silently swallow OpenWeather timeout trace output for clean logs
+      } else {
+        console.error("Weather fetch error:", error);
+      }
+      res.status(500).json({ error: "Failed to fetch weather data" });
+    }
+  });
+
+  app.get("/api/weather/appointment", async (req, res) => {
+    const { lat, lon, timestamp } = req.query;
+    const apiKey = process.env.VITE_OPENWEATHER_API_KEY;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: "OpenWeather API Key is missing." });
+    }
+
+    try {
+      const response = await fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=imperial`);
+      if (!response.ok) throw new Error("Failed to fetch forecast");
+      
+      const data = await response.json() as any;
+      let closestItem = data.list[0];
+      let minDiff = Math.abs(data.list[0].dt - Number(timestamp) / 1000);
+
+      for (const item of data.list) {
+        const diff = Math.abs(item.dt - Number(timestamp) / 1000);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestItem = item;
+        }
+      }
+
+      if (minDiff > 6 * 3600) return res.json(null);
+
+      res.json({
+        temp: Math.round(closestItem.main.temp),
+        condition: closestItem.weather[0].main,
+        rainProbability: Math.round((closestItem.pop || 0) * 100),
+        description: closestItem.weather[0].description
+      });
+    } catch (error) {
+      if (error instanceof TypeError && error.message === "fetch failed") {
+        // Silently swallow OpenWeather timeout trace output for clean logs
+      } else {
+        console.error("Appointment weather fetch error:", error);
+      }
+      res.status(500).json({ error: "Failed to fetch appointment weather" });
+    }
+  });
   app.get("/api/clover/status", (req, res) => {
     const token = process.env.CLOVER_API_TOKEN;
     res.json({ configured: !!token });
@@ -23,8 +138,7 @@ async function startServer() {
 
     if (!apiKey) {
       return res.status(400).json({ 
-        error: "Google Maps API Key is missing. Please add it to your settings to enable real business search.",
-        isMock: true 
+        error: "Google Maps API Key is missing. Please configure it to enable lead generation."
       });
     }
 
@@ -80,7 +194,7 @@ async function startServer() {
   app.post("/api/payments/clover", async (req, res) => {
     const token = process.env.CLOVER_API_TOKEN;
     if (!token) {
-      return res.status(500).json({ error: "Clover API token is missing." });
+      return res.status(500).json({ error: "Payment system not configured" });
     }
 
     const { amount, invoiceId } = req.body;
@@ -88,8 +202,7 @@ async function startServer() {
     // TODO: Implement Clover REST API integration using the token
     console.log(`Processing Clover payment for invoice ${invoiceId} of $${amount}`);
     
-    // Mock success
-    res.json({ success: true, transactionId: `clover_${Date.now()}` });
+    return res.status(501).json({ error: "Payment system not configured" });
   });
 
   // Vite middleware for development

@@ -51,7 +51,8 @@ export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], e
     const settings = settingsSnap.exists() ? settingsSnap.data() as BusinessSettings : null;
     
     // 1. Prepare stops and geocode if necessary
-    const rawStops = await Promise.all(snapshot.docs.map(async (appointmentDoc) => {
+    const errors: string[] = [];
+    const rawStopsResults = await Promise.all(snapshot.docs.map(async (appointmentDoc) => {
       const data = appointmentDoc.data() as Appointment;
       let lat = data.latitude;
       let lng = data.longitude;
@@ -69,15 +70,19 @@ export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], e
           });
         } catch (error) {
           console.error(`Geocoding failed for ${data.address}:`, error);
-          // Continue without coordinates, will be handled by Nearest Neighbor distance check
+          errors.push(`Missing coordinates for appointment: ${data.customerName} - ${data.address}`);
         }
+      }
+
+      if (!lat || !lng) {
+        return null;
       }
 
       return {
         id: appointmentDoc.id,
         address: data.address,
-        latitude: lat || 0,
-        longitude: lng || 0,
+        latitude: lat,
+        longitude: lng,
         scheduledAt: data.scheduledAt,
         customerName: data.customerName,
         vehicleInfo: data.vehicleInfo,
@@ -89,7 +94,9 @@ export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], e
       };
     }));
 
-    if (rawStops.length === 0) return { stops: [] };
+    const rawStops = rawStopsResults.filter(Boolean) as RouteStop[];
+
+    if (rawStops.length === 0) return { stops: [], error: errors.length > 0 ? errors.join("\n") : undefined };
 
     // 2. Optimization Algorithm (Nearest Neighbor)
     // We start from the business base location
@@ -128,7 +135,10 @@ export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], e
       currentLng = nextStop.longitude;
     }
 
-    return { stops: optimized };
+    return { 
+      stops: optimized,
+      error: errors.length > 0 ? errors.join("\n") : undefined
+    };
   } catch (error) {
     console.error("Route optimization failed:", error);
     // Fallback: Return time-sorted stops without distance calculations if everything fails

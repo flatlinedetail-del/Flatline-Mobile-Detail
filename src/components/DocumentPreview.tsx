@@ -4,7 +4,7 @@ import { Invoice, Quote, BusinessSettings, LineItem } from "../types";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
-import { cn } from "@/lib/utils";
+import { cn, cleanAddress } from "@/lib/utils";
 import { FileText, Receipt, Phone, Mail, MapPin, Calendar, Clock } from "lucide-react";
 
 interface DocumentPreviewProps {
@@ -51,7 +51,7 @@ export function DocumentPreview({ document, settings, type }: DocumentPreviewPro
                 {settings?.baseAddress && (
                   <div className="flex items-center gap-2">
                     <MapPin className="w-3 h-3" />
-                    <span>{settings.baseAddress}</span>
+                    <span>{cleanAddress(settings.baseAddress)}</span>
                   </div>
                 )}
                 {settings?.businessPhone && (
@@ -126,7 +126,7 @@ export function DocumentPreview({ document, settings, type }: DocumentPreviewPro
                 {document.clientAddress && (
                   <div className="flex items-center gap-2 text-gray-500 font-medium">
                     <MapPin className="w-3 h-3" />
-                    <span>{document.clientAddress}</span>
+                    <span>{cleanAddress(document.clientAddress)}</span>
                   </div>
                 )}
               </div>

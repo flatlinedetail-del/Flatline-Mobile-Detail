@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, AlertTriangle, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown } from "lucide-react";
+import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, AlertTriangle, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe } from "lucide-react";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { format, startOfDay, endOfDay, isSameDay, addDays, subDays, addHours, addWeeks, addMonths, subMonths, startOfMonth, endOfMonth, isBefore, parseISO, parse, startOfWeek, getDay, addMinutes } from "date-fns";
@@ -31,10 +31,8 @@ import { Switch } from "@/components/ui/switch";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
 import { StableInput } from "../components/StableInput";
-import { calculateDistance, calculateTravelFee, estimateTravelTime } from "../services/travelService";
 import { BusinessSettings } from "../types";
 import { getGeocode, getLatLng } from "use-places-autocomplete";
-import { getRecommendedSlots, RecommendedSlot } from "../services/schedulingService";
 import { SearchableSelector } from "../components/SearchableSelector";
 import { 
   AlertDialog, 
@@ -73,7 +71,6 @@ export default function Calendar() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
-  const [showMapOverlay, setShowMapOverlay] = useState(false);
   const [googleEvents, setGoogleEvents] = useState<any[]>([]);
   const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
   const [selectedStop, setSelectedStop] = useState<any>(null);
@@ -174,9 +171,6 @@ export default function Calendar() {
     zipCode: "",
     placeId: ""
   });
-  const [travelFeeData, setTravelFeeData] = useState<any>(null);
-  const [recommendations, setRecommendations] = useState<RecommendedSlot[]>([]);
-  const [isCalculatingSlots, setIsCalculatingSlots] = useState(false);
   const [baseAmount, setBaseAmount] = useState<number>(0);
   const [isAddressManual, setIsAddressManual] = useState(false);
   const [isRecurring, setIsRecurring] = useState(false);
@@ -277,11 +271,16 @@ export default function Calendar() {
     syncGoogle();
   }, [date, profile?.id]);
 
+  const locationStateProcessed = useRef(false);
+
   useEffect(() => {
     if (loading) return; // Wait for appointments to load
+    if (locationStateProcessed.current) return;
 
-    if (location.state?.lead || location.state?.openAddDialog || location.state?.editingAppointmentId) {
-      if (location.state?.lead) {
+    if (location.state && (location.state.lead || location.state.openAddDialog || location.state.editingAppointmentId)) {
+      toast.success("Calendar State Received");
+      
+      if (location.state.lead) {
         const lead = location.state.lead;
         setActiveLeadId(lead.id);
         const existingClient = clients.find(c => c.phone === lead.phone || c.email === lead.email);
@@ -292,9 +291,9 @@ export default function Calendar() {
         if (lead.address) {
           handleAddressSelect(lead.address, lead.latitude || 0, lead.longitude || 0, true);
         }
-      } else if (location.state?.clientId) {
-        setSelectedCustomerId(location.state.clientId);
-      } else if (location.state?.editingAppointmentId) {
+      } else if (location.state.clientId || location.state.customerId || location.state.vendorId) {
+        setSelectedCustomerId(location.state.clientId || location.state.customerId || location.state.vendorId);
+      } else if (location.state.editingAppointmentId) {
         const appToEdit = appointments.find(a => a.id === location.state.editingAppointmentId);
         if (appToEdit) {
           setEditingAppointment({
@@ -304,8 +303,7 @@ export default function Calendar() {
         }
       }
       setShowAddDialog(true);
-      // Clear state so it doesn't reopen on refresh
-      navigate(location.pathname, { replace: true, state: {} });
+      locationStateProcessed.current = true;
     }
   }, [location.state, clients, appointments, navigate, location.pathname, loading]);
 
@@ -347,9 +345,54 @@ export default function Calendar() {
     }
   }, [selectedCustomerId, clients, showAddDialog]);
 
+  const isMounted = useRef(false);
+
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
     if (showAddDialog) {
-      if (!editingAppointment) {
+      isMounted.current = true; // Mark as mounted once opened
+      toast.success("Booking Form Opened");
+      if (editingAppointment) {
+        // Pre-fill for editing
+        setActiveLeadId(editingAppointment.leadId || null);
+        setSelectedCustomerId(editingAppointment.clientId || editingAppointment.customerId || "");
+        setSelectedVehicleIds(editingAppointment.vehicleIds || (editingAppointment.vehicleId ? [editingAppointment.vehicleId] : []));
+        setAppointmentAddress({ 
+          address: editingAppointment.address || "", 
+          lat: editingAppointment.latitude || 0, 
+          lng: editingAppointment.longitude || 0,
+          city: editingAppointment.city || "",
+          state: editingAppointment.state || "",
+          zipCode: editingAppointment.zipCode || "",
+          placeId: editingAppointment.placeId || ""
+        });
+        setBaseAmount(editingAppointment.baseAmount || 0);
+        setSelectedServices(editingAppointment.serviceSelections || []);
+        setSelectedAddons(editingAppointment.addOnSelections || []);
+        setWaiverAccepted(editingAppointment.waiverAccepted || false);
+        setDiscount(editingAppointment.discountAmount || 0);
+        setRedeemedPoints(editingAppointment.redeemedPoints || 0);
+        setAppointmentStatus(editingAppointment.status || "scheduled");
+        
+        if (editingAppointment.scheduledAt) {
+          const date = editingAppointment.scheduledAt.toDate ? editingAppointment.scheduledAt.toDate() : new Date(editingAppointment.scheduledAt);
+          setScheduledAtValue(format(date, "yyyy-MM-dd'T'HH:mm"));
+        }
+        
+        setAppointment(prev => ({
+          ...prev,
+          vehicleInfo: editingAppointment.vehicleInfo || "",
+          vin: editingAppointment.vin || "",
+          vehicleSize: editingAppointment.vehicleSize || "medium"
+        }));
+      }
+    } else {
+      if (!isMounted.current) {
+        isMounted.current = true;
+        return;
+      }
+      timeoutId = setTimeout(() => {
         setIsAddressManual(false);
         setIsRecurring(false);
         setRecurringFrequency("weekly");
@@ -374,61 +417,14 @@ export default function Calendar() {
         setScheduledAtValue("");
         setAppointmentStatus("scheduled");
         setActiveLeadId(null);
-        setRecommendations([]);
-      } else {
-        // Pre-fill for editing
-        setActiveLeadId(editingAppointment.leadId || null);
-        setRecommendations([]);
-        setSelectedCustomerId(editingAppointment.clientId || editingAppointment.customerId || "");
-        setSelectedVehicleIds(editingAppointment.vehicleIds || (editingAppointment.vehicleId ? [editingAppointment.vehicleId] : []));
-        setAppointmentAddress({ 
-          address: editingAppointment.address || "", 
-          lat: editingAppointment.latitude || 0, 
-          lng: editingAppointment.longitude || 0,
-          city: editingAppointment.city || "",
-          state: editingAppointment.state || "",
-          zipCode: editingAppointment.zipCode || "",
-          placeId: editingAppointment.placeId || ""
-        });
-        setBaseAmount(editingAppointment.baseAmount || 0);
-        setSelectedServices(editingAppointment.serviceSelections || []);
-        setSelectedAddons(editingAppointment.addOnSelections || []);
-        setWaiverAccepted(editingAppointment.waiverAccepted || false);
-        setDiscount(editingAppointment.discountAmount || 0);
-        setRedeemedPoints(editingAppointment.redeemedPoints || 0);
-        setAppointmentStatus(editingAppointment.status || "scheduled");
-        
-        // Initialize travel fee if address exists
-        if (settings && settings.baseLatitude && settings.baseLongitude && editingAppointment.latitude) {
-          const distance = calculateDistance(
-            settings.baseLatitude, 
-            settings.baseLongitude, 
-            editingAppointment.latitude, 
-            editingAppointment.longitude
-          );
-          const feeData = calculateTravelFee(distance, settings.travelPricing, { 
-            lat: editingAppointment.latitude, 
-            lng: editingAppointment.longitude 
-          });
-          setTravelFeeData(feeData);
-        }
-
-        if (editingAppointment.scheduledAt) {
-          const date = editingAppointment.scheduledAt.toDate ? editingAppointment.scheduledAt.toDate() : new Date(editingAppointment.scheduledAt);
-          setScheduledAtValue(format(date, "yyyy-MM-dd'T'HH:mm"));
-        }
-        
-        setAppointment(prev => ({
-          ...prev,
-          vehicleInfo: editingAppointment.vehicleInfo || "",
-          vin: editingAppointment.vin || "",
-          vehicleSize: editingAppointment.vehicleSize || "medium"
-        }));
-      }
-    } else {
-      setEditingAppointment(null);
+        setEditingAppointment(null);
+      }, 300); // clear after close animation
     }
-  }, [showAddDialog, editingAppointment]);
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [showAddDialog, editingAppointment, settings]);
 
   const [calculatedDeposit, setCalculatedDeposit] = useState(0);
 
@@ -521,63 +517,7 @@ export default function Calendar() {
       zipCode: structured?.zipCode || "",
       placeId: structured?.placeId || ""
     });
-    
-    if (settings && settings.baseLatitude && settings.baseLongitude && finalLat !== 0) {
-      const distance = calculateDistance(settings.baseLatitude, settings.baseLongitude, finalLat, finalLng);
-      const feeData = calculateTravelFee(distance, settings.travelPricing, { lat: finalLat, lng: finalLng });
-      setTravelFeeData(feeData);
-    } else {
-      setTravelFeeData(null);
-    }
   };
-
-  const updateRecommendations = () => {
-    if (!appointmentAddress.lat || !settings || (selectedServices.length === 0 && selectedAddons.length === 0)) {
-      setRecommendations([]);
-      return;
-    }
-
-    setIsCalculatingSlots(true);
-    
-    try {
-      const totalDuration = selectedServices.reduce((acc, s) => {
-        const service = services.find(srv => srv.id === s.id);
-        return acc + (service?.estimatedDuration || 0) * s.qty;
-      }, 0) + selectedAddons.reduce((acc, a) => {
-        const addon = addons.find(ad => ad.id === a.id);
-        return acc + (addon?.estimatedDuration || 0) * a.qty;
-      }, 0);
-
-      const totalBuffer = selectedServices.reduce((acc, s) => {
-        const service = services.find(srv => srv.id === s.id);
-        return acc + (service?.bufferTimeMinutes || 0);
-      }, 0) + selectedAddons.reduce((acc, a) => {
-        const addon = addons.find(ad => ad.id === a.id);
-        return acc + (addon?.bufferTimeMinutes || 0);
-      }, 0);
-
-      const slots = getRecommendedSlots(
-        appointmentAddress.lat,
-        appointmentAddress.lng,
-        totalDuration + totalBuffer,
-        appointments,
-        settings
-      );
-
-      setRecommendations(slots);
-    } catch (error) {
-      console.error("Error in updateRecommendations:", error);
-      setRecommendations([]);
-    } finally {
-      setIsCalculatingSlots(false);
-    }
-  };
-
-  useEffect(() => {
-    if (showAddDialog) {
-      updateRecommendations();
-    }
-  }, [appointmentAddress.lat, selectedServices, selectedAddons, showAddDialog, appointments, settings]);
 
   const handleApplyCoupon = async () => {
     const amount = baseAmount;
@@ -639,8 +579,7 @@ export default function Calendar() {
           ...(app.addOnNames || []).map((name: string, idx: number) => ({
             serviceName: name,
             price: app.addOnSelections?.[idx]?.price || 0
-          })),
-          { serviceName: "Travel Fee", price: app.travelFee || 0 }
+          }))
         ].filter(item => item.price > 0),
         total: app.totalAmount || 0,
         status: "draft",
@@ -653,7 +592,11 @@ export default function Calendar() {
       const docRef = await addDoc(collection(db, "invoices"), invoiceData);
       toast.success("Deployment converted to Invoice successfully");
       setViewingAppointment(null);
-      navigate("/invoices");
+      
+      // Wait for Dialog unmount animation to complete before routing
+      setTimeout(() => {
+        navigate("/invoices");
+      }, 350);
     } catch (error) {
       console.error("Error converting to invoice:", error);
       toast.error("Failed to convert to invoice");
@@ -670,8 +613,7 @@ export default function Calendar() {
     
     // Use the calculated baseAmount state instead of reading from formData to ensure VIP overrides are preserved
     const totalAmount = baseAmount;
-    const travelFee = travelFeeData?.fee || 0;
-    const finalAmount = totalAmount + travelFee - discount - redeemedPoints;
+    const finalAmount = totalAmount - discount - redeemedPoints;
     
     const vehiclesToProcess = selectedVehicleIds.length > 0 ? selectedVehicleIds : [null];
     
@@ -820,14 +762,6 @@ export default function Calendar() {
       status: appointmentStatus,
       jobNum: finalJobNum,
       baseAmount: totalAmount,
-      travelFee: travelFee,
-      travelFeeBreakdown: travelFeeData ? {
-        miles: travelFeeData.miles,
-        rate: travelFeeData.rate,
-        zoneName: travelFeeData.zoneName,
-        adjustment: 0,
-        isRoundTrip: travelFeeData.isRoundTrip
-      } : null,
       discountAmount: discount + redeemedPoints,
       totalAmount: finalAmount,
       depositAmount: calculatedDeposit,
@@ -846,8 +780,6 @@ export default function Calendar() {
       technicianId: profile?.uid,
       technicianName: profile?.displayName,
       waiverAccepted,
-      estimatedTravelTime: travelFeeData ? estimateTravelTime(travelFeeData.miles) : 0,
-      estimatedTravelDistance: travelFeeData ? travelFeeData.miles : 0,
       estimatedDuration: totalDuration,
       overrideBufferTimeMinutes: totalBuffer,
       totalDurationMinutes: totalDuration,
@@ -1294,6 +1226,18 @@ export default function Calendar() {
               </Button>
               <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
               <Button 
+                variant={calendarView === "tactical" ? "secondary" : "ghost"} 
+                size="sm" 
+                onClick={() => setCalendarView("tactical")}
+                className={cn(
+                  "h-10 px-4 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all shrink-0", 
+                  calendarView === "tactical" ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-white/40 hover:text-white"
+                )}
+              >
+                <MapPin className="w-4 h-4 mr-2" />
+                Tactical Route
+              </Button>
+              <Button 
                 variant={calendarView === "list" ? "secondary" : "ghost"} 
                 size="sm" 
                 onClick={() => setCalendarView("list")}
@@ -1378,7 +1322,237 @@ export default function Calendar() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {calendarView === "list" ? (
+        {calendarView === "month" || calendarView === "week" || calendarView === "day" || calendarView === "agenda" ? (
+          <Card className="lg:col-span-12 border-none shadow-xl bg-card rounded-[2.5rem] overflow-hidden p-6 h-[850px] transition-all duration-500 animate-in fade-in zoom-in-95">
+            <BigCalendar
+              localizer={localizer}
+              events={events}
+              startAccessor="start"
+              endAccessor="end"
+              className="h-full font-sans"
+              onSelectEvent={(event: any) => {
+                if (event.type === 'appointment') {
+                  setViewingAppointment(event.resource);
+                } else if (event.type === 'block') {
+                  setEditingTimeBlock(event.resource);
+                  setTimeBlockForm({
+                    title: event.resource.title,
+                    type: event.resource.type || 'busy',
+                    start: format(event.start, "yyyy-MM-dd'T'HH:mm"),
+                    end: format(event.end, "yyyy-MM-dd'T'HH:mm"),
+                    notes: event.resource.notes || ""
+                  });
+                  setShowTimeBlockDialog(true);
+                }
+              }}
+              view={calendarView as any}
+              onView={(v) => setCalendarView(v as string)}
+              date={date || new Date()}
+              onNavigate={(d) => setDate(d)}
+              eventPropGetter={eventPropGetter}
+              components={{
+                event: CalendarEvent
+              }}
+            />
+          </Card>
+        ) : calendarView === "tactical" ? (
+          <>
+            {/* Tactical Route Column */}
+            <div className="lg:col-span-4 space-y-6 flex flex-col h-[850px]">
+              <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden flex-1 flex flex-col">
+                <CardHeader className="bg-black/40 border-b border-white/5 p-6 flex flex-row items-center justify-between shrink-0">
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <CardTitle className="text-lg font-black text-white tracking-tighter uppercase">Tactical Queue</CardTitle>
+                      <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-0.5">{optimizedStops.length} Deployment Targets</p>
+                    </div>
+                    <div className="flex items-center bg-black/40 rounded-xl border border-white/5 p-1 ml-4">
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="h-8 w-8 text-white/40 hover:text-white"
+                        onClick={() => {
+                          const newDate = subDays(date || new Date(), 1);
+                          setDate(newDate);
+                        }}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <div className="px-3 text-[10px] font-black text-white uppercase tracking-widest min-w-[100px] text-center">
+                        {format(date || new Date(), "MMM d, yyyy")}
+                      </div>
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="h-8 w-8 text-white/40 hover:text-white"
+                        onClick={() => {
+                          const newDate = addDays(date || new Date(), 1);
+                          setDate(newDate);
+                        }}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-10 w-10 text-white/40 hover:text-white"
+                    onClick={async () => {
+                      if (date) {
+                        const { stops, error } = await optimizeRoute(date);
+                        setOptimizedStops(stops);
+                        if (error) toast.error(error); else toast.success("Tactical sync complete");
+                      }
+                    }}
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </Button>
+                </CardHeader>
+                <CardContent className="p-4 flex-1 overflow-y-auto no-scrollbar space-y-4">
+                   {optimizedStops.length === 0 ? (
+                     <div className="flex flex-col items-center justify-center h-full text-center p-8 opacity-20">
+                       <MapPin className="w-12 h-12 mb-4" />
+                       <p className="text-xs font-black uppercase tracking-widest">No Active Deployments</p>
+                     </div>
+                   ) : (
+                     optimizedStops.map((stop, index) => (
+                       <div 
+                        key={stop.id} 
+                        className={cn(
+                          "p-4 rounded-2xl bg-white border border-border group cursor-pointer transition-all hover:border-primary/50",
+                          selectedStop?.id === stop.id && "border-primary bg-primary/5 shadow-lg"
+                        )}
+                        onClick={() => setSelectedStop(stop)}
+                       >
+                         <div className="flex items-center gap-3">
+                           <div className="w-8 h-8 rounded-xl bg-gray-900 flex items-center justify-center text-white text-[10px] font-black shrink-0">
+                             {index + 1}
+                           </div>
+                           <div className="min-w-0 flex-1">
+                             <div className="flex items-center justify-between gap-2">
+                               <p className="text-xs font-black text-gray-900 uppercase truncate">{stop.customerName}</p>
+                               <span className="text-[9px] font-black text-primary uppercase">{stop.scheduledAt?.toDate ? format(stop.scheduledAt.toDate(), "h:mm a") : "TBD"}</span>
+                             </div>
+                             <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest truncate mt-0.5">{stop.address}</p>
+                           </div>
+                         </div>
+                       </div>
+                     ))
+                   )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Tactical Map Column */}
+            <div className="lg:col-span-8 h-[850px]">
+              <Card className="border-none shadow-xl bg-white rounded-[2.5rem] overflow-hidden h-full relative">
+                 <div className="absolute inset-0">
+                    {!isLoaded ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50">
+                        <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em]">Synchronizing Orbital Assets...</p>
+                      </div>
+                    ) : (
+                      <GoogleMap
+                        mapContainerStyle={{ width: '100%', height: '100%' }}
+                        center={
+                          optimizedStops.length > 0 
+                            ? { lat: optimizedStops[0].latitude, lng: optimizedStops[0].longitude }
+                            : (settings?.baseLatitude ? { lat: settings.baseLatitude, lng: settings.baseLongitude } : { lat: 37.7749, lng: -122.4194 })
+                        }
+                        zoom={12}
+                        options={{
+                          mapTypeId: 'roadmap',
+                          disableDefaultUI: false,
+                          zoomControl: true,
+                        }}
+                      >
+                        {settings?.baseLatitude && (
+                          <Marker
+                            position={{ lat: settings.baseLatitude, lng: settings.baseLongitude }}
+                            icon={{
+                              path: "M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z",
+                              fillColor: "#000000",
+                              fillOpacity: 1,
+                              strokeWeight: 2,
+                              strokeColor: "#ffffff",
+                              scale: 1.5,
+                            }}
+                            title="Base Operations"
+                          />
+                        )}
+
+                        <MarkerClusterer>
+                          {(clusterer) => (
+                            <>
+                              {optimizedStops.map((stop, idx) => (
+                                <Marker
+                                  key={stop.id}
+                                  position={{ lat: stop.latitude, lng: stop.longitude }}
+                                  label={{
+                                    text: (idx + 1).toString(),
+                                    color: "white",
+                                    fontWeight: "bold",
+                                  }}
+                                  onClick={() => setSelectedStop(stop)}
+                                  clusterer={clusterer}
+                                />
+                              ))}
+                            </>
+                          )}
+                        </MarkerClusterer>
+
+                      {optimizedStops.length > 1 && (
+                        <Polyline
+                          path={[
+                            ...(settings?.baseLatitude ? [{ lat: settings.baseLatitude, lng: settings.baseLongitude }] : []),
+                            ...optimizedStops.map(s => ({ lat: s.latitude, lng: s.longitude })),
+                            ...(settings?.baseLatitude && settings.travelPricing.roundTripToggle ? [{ lat: settings.baseLatitude, lng: settings.baseLongitude }] : [])
+                          ]}
+                          options={{
+                            strokeColor: "#ef4444",
+                            strokeOpacity: 0.8,
+                            strokeWeight: 4,
+                            geodesic: true,
+                          }}
+                        />
+                      )}
+
+                      {selectedStop && (
+                        <InfoWindow
+                          position={{ lat: selectedStop.latitude, lng: selectedStop.longitude }}
+                          onCloseClick={() => setSelectedStop(null)}
+                        >
+                          <div className="p-2 text-black min-w-[150px]">
+                            <p className="font-black text-xs uppercase tracking-tight">{selectedStop.customerName}</p>
+                            <p className="text-[10px] text-gray-500 mt-1">{selectedStop.address}</p>
+                            {selectedStop.travelTimeFromPrevious && (
+                              <p className="text-[10px] font-bold text-primary mt-1">
+                                Travel: {formatDuration(selectedStop.travelTimeFromPrevious)}
+                              </p>
+                            )}
+                            <Button 
+                              variant="ghost" 
+                              className="h-8 w-full mt-2 text-[9px] font-black uppercase tracking-widest bg-primary text-white hover:bg-primary/90"
+                              onClick={() => {
+                                const fullApp = appointments.find(a => a.id === selectedStop.id);
+                                setViewingAppointment(fullApp || selectedStop);
+                              }}
+                            >
+                              View Details
+                            </Button>
+                          </div>
+                        </InfoWindow>
+                      )}
+                      </GoogleMap>
+                    )}
+                 </div>
+              </Card>
+            </div>
+          </>
+        ) : (
+          /* List View (Original logic with minor cleanup) */
           <>
             {/* Calendar Sidebar */}
             <Card className="lg:col-span-4 border-none shadow-xl bg-card rounded-3xl overflow-hidden h-fit">
@@ -1576,60 +1750,7 @@ export default function Calendar() {
                               />
                             </div>
 
-                            {/* Smart Recommendations */}
-                            {(isCalculatingSlots || recommendations.length > 0) && (
-                              <div className="space-y-2 col-span-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                  <Star className={cn("w-3 h-3 fill-primary", isCalculatingSlots && "animate-pulse")} /> 
-                                  Smart Recommendations {isCalculatingSlots && "(Calculating...)"}
-                                </Label>
-                                
-                                {isCalculatingSlots ? (
-                                  <div className="p-8 bg-white/5 rounded-2xl border border-dashed border-white/10 flex flex-col items-center justify-center gap-3">
-                                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                                    <p className="text-xs text-white/60 font-medium">Finding the best slots for your route...</p>
-                                  </div>
-                                ) : (
-                                  <div className="grid grid-cols-1 gap-2">
-                                    {recommendations.map((slot, idx) => (
-                                      <div 
-                                        key={`${slot.start.getTime()}-${idx}`}
-                                        className={cn(
-                                          "p-3 rounded-xl border cursor-pointer transition-all hover:shadow-md flex items-center justify-between group",
-                                          slot.recommendationLevel === "best" ? "bg-green-500/10 border-green-500/20 hover:bg-green-500/20" : 
-                                          slot.recommendationLevel === "avoid" ? "bg-red-500/10 border-red-500/20 hover:bg-red-500/20" :
-                                          "bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20"
-                                        )}
-                                        onClick={() => {
-                                          setScheduledAtValue(format(slot.start, "yyyy-MM-dd'T'HH:mm"));
-                                          toast.success(`Selected ${format(slot.start, "MMM d @ h:mm a")}`);
-                                        }}
-                                      >
-                                        <div className="flex items-center gap-3">
-                                          <div className={cn(
-                                            "w-10 h-10 rounded-full flex items-center justify-center font-black text-[10px]",
-                                            slot.recommendationLevel === "best" ? "bg-green-500 text-white" : 
-                                            slot.recommendationLevel === "avoid" ? "bg-red-500 text-white" :
-                                            "bg-blue-500 text-white"
-                                          )}>
-                                            {slot.recommendationLevel.toUpperCase()}
-                                          </div>
-                                          <div>
-                                            <div className="text-sm font-bold text-white">
-                                              {format(slot.start, "EEEE, MMM d @ h:mm a")}
-                                            </div>
-                                            <div className="text-[10px] text-white/60 font-medium leading-tight">
-                                              {slot.explanation}
-                                            </div>
-                                          </div>
-                                        </div>
-                                        <Plus className="w-4 h-4 text-white/20 group-hover:text-primary transition-all" />
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
+                            {/* Removed Smart Booking */}
 
                             <div className="space-y-2">
                               <Label htmlFor="scheduledAt">Date & Time</Label>
@@ -1643,6 +1764,7 @@ export default function Calendar() {
                                 onChange={(e) => setScheduledAtValue(e.target.value)}
                               />
                             </div>
+
                             <div className="space-y-2">
                               <Label htmlFor="status">Status</Label>
                               <Select value={appointmentStatus} onValueChange={setAppointmentStatus}>
@@ -2101,12 +2223,6 @@ export default function Calendar() {
                                 <span className="text-white/60">Subtotal</span>
                                 <span className="font-bold text-white">${baseAmount.toFixed(2)}</span>
                               </div>
-                              {travelFeeData && appointmentAddress.lat !== 0 && (
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-white/60">Travel Fee</span>
-                                  <span className="font-bold text-primary">+${travelFeeData.fee.toFixed(2)}</span>
-                                </div>
-                              )}
                               {discount > 0 && (
                                 <div className="flex justify-between text-sm">
                                   <span className="text-white/60">Discount</span>
@@ -2122,7 +2238,7 @@ export default function Calendar() {
                               <div className="pt-2 border-t border-white/10 flex justify-between items-center">
                                 <span className="font-black text-white uppercase tracking-tighter">Final Total</span>
                                 <span className="text-xl font-black text-white">
-                                  ${(baseAmount + (appointmentAddress.lat !== 0 ? (travelFeeData?.fee || 0) : 0) - discount - redeemedPoints).toFixed(2)}
+                                  ${(baseAmount - discount - redeemedPoints).toFixed(2)}
                                 </span>
                               </div>
                               {calculatedDeposit > 0 && (
@@ -2136,7 +2252,7 @@ export default function Calendar() {
                                   <div className="flex justify-between items-center">
                                     <span className="font-black text-white/60 uppercase tracking-tighter text-xs">Remaining Balance</span>
                                     <span className="text-sm font-black text-white/60">
-                                      ${((baseAmount + (appointmentAddress.lat !== 0 ? (travelFeeData?.fee || 0) : 0) - discount - redeemedPoints) - calculatedDeposit).toFixed(2)}
+                                      ${((baseAmount - discount - redeemedPoints) - calculatedDeposit).toFixed(2)}
                                     </span>
                                   </div>
                                 </>
@@ -2305,7 +2421,7 @@ export default function Calendar() {
                                 <div className="flex items-center gap-3">
                                   <Car className="w-4 h-4 text-primary shrink-0" />
                                   <div className="min-w-0">
-                                    <p className="text-sm font-black text-gray-900 uppercase tracking-tight truncate max-w-[200px]">
+                                    <p className="text-sm font-black text-gray-900 tracking-tight truncate max-w-[200px]">
                                       {app.vehicleInfo || "Vehicle N/A"}
                                     </p>
                                     <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest truncate max-w-[200px]">
@@ -2456,7 +2572,7 @@ export default function Calendar() {
                             </Badge>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-                            <div className="flex items-center gap-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                            <div className="flex items-center gap-3 text-[10px] font-black text-gray-400 tracking-widest">
                               <Car className="w-3.5 h-3.5 text-primary" />
                               {app.vehicleInfo || "Asset N/A"}
                             </div>
@@ -2616,56 +2732,15 @@ export default function Calendar() {
 
               <Button 
                 className="bg-primary text-white hover:bg-red-700 font-black uppercase tracking-[0.2em] text-[10px] w-full h-14 rounded-2xl shadow-xl shadow-primary/20 transition-all"
-                onClick={() => setShowMapOverlay(true)}
+                onClick={() => setCalendarView("tactical")}
               >
-                View Tactical Map Overlay
+                View Tactical Route View
               </Button>
             </CardContent>
           </Card>
         </div>
       </>
-    ) : (
-      <Card className="lg:col-span-12 border-none shadow-xl bg-card rounded-[2.5rem] overflow-hidden p-6 h-[850px] transition-all duration-500 animate-in fade-in zoom-in-95">
-        <BigCalendar
-          localizer={localizer}
-          events={events}
-          startAccessor="start"
-          endAccessor="end"
-          className="h-full font-sans"
-          onSelectEvent={(event: any) => {
-            if (event.type === 'appointment') {
-              setViewingAppointment(event.resource);
-            } else if (event.type === 'block') {
-              setEditingTimeBlock(event.resource);
-              setTimeBlockForm({
-                title: event.resource.title,
-                type: event.resource.type || 'busy',
-                start: format(event.start, "yyyy-MM-dd'T'HH:mm"),
-                end: format(event.end, "yyyy-MM-dd'T'HH:mm"),
-                notes: event.resource.notes || ""
-              });
-              setShowTimeBlockDialog(true);
-            }
-          }}
-          onSelectSlot={(slotInfo) => {
-            setScheduledAtValue(format(slotInfo.start, "yyyy-MM-dd'T'HH:mm"));
-            setEditingAppointment(null);
-            setShowAddDialog(true);
-          }}
-          selectable
-          view={calendarView === 'list' ? 'month' : calendarView as any}
-          onView={(v) => setCalendarView(v as any)}
-          date={calendarDate}
-          onNavigate={(d) => setCalendarDate(d)}
-          components={{
-            event: CalendarEvent
-          }}
-          eventPropGetter={eventPropGetter}
-          tooltipAccessor={(event: any) => event.title}
-        />
-      </Card>
     )}
-  </div>
 
       {/* Appointment Detail Dialog */}
       <Dialog open={!!viewingAppointment} onOpenChange={(open) => !open && setViewingAppointment(null)}>
@@ -2728,13 +2803,15 @@ export default function Calendar() {
                         <MapPin className="w-5 h-5 text-primary shrink-0 mt-0.5" />
                         <div>
                           <p className="text-sm font-black text-white uppercase tracking-tight leading-tight">{viewingAppointment.address}</p>
-                          <Button 
-                            variant="link" 
-                            className="p-0 h-auto text-[10px] text-primary font-black uppercase tracking-widest mt-2 hover:no-underline"
-                            onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(viewingAppointment.address)}`, '_blank')}
-                          >
-                            Launch Navigation <ExternalLink className="w-3 h-3 ml-1" />
-                          </Button>
+                          {viewingAppointment.address && (
+                            <Button 
+                              variant="link" 
+                              className="p-0 h-auto text-[10px] text-primary font-black uppercase tracking-widest mt-2 hover:no-underline"
+                              onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(viewingAppointment.address)}`, '_blank')}
+                            >
+                              Launch Navigation <ExternalLink className="w-3 h-3 ml-1" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2747,11 +2824,13 @@ export default function Calendar() {
                         <Clock className="w-5 h-5 text-primary shrink-0" />
                         <div>
                           <p className="text-sm font-black text-white uppercase tracking-tight">
-                            {format(viewingAppointment.scheduledAt.toDate(), "EEEE, MMMM do")}
+                            {viewingAppointment.scheduledAt?.toDate ? format(viewingAppointment.scheduledAt.toDate(), "EEEE, MMMM do") : "TBD"}
                           </p>
-                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                            Commencing at {format(viewingAppointment.scheduledAt.toDate(), "h:mm a")}
-                          </p>
+                          {viewingAppointment.scheduledAt && (
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                              Commencing at {viewingAppointment.scheduledAt.toDate ? format(viewingAppointment.scheduledAt.toDate(), "h:mm a") : format(new Date(viewingAppointment.scheduledAt), "h:mm a")}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2824,32 +2903,55 @@ export default function Calendar() {
                     </Badge>
                   </div>
                   <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">Base Protocol Fee</span>
-                      <span className="text-white font-black">${viewingAppointment.baseAmount.toFixed(2)}</span>
-                    </div>
-                    {viewingAppointment.travelFee > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">Logistics / Travel</span>
-                        <span className="text-white font-black">${viewingAppointment.travelFee.toFixed(2)}</span>
+                    {/* 1. Itemize Core Services */}
+                    {(viewingAppointment.serviceSelections || []).map((service: any, idx: number) => (
+                      <div key={`view-service-${service.id || idx}`} className="flex justify-between text-sm">
+                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">{service.vehicleName ? `[${service.vehicleName}] ` : ""}{service.name}</span>
+                        <span className="text-white font-black">${(service.price || 0).toFixed(2)}</span>
                       </div>
-                    )}
+                    ))}
+
+                    {/* 2. Itemize Add-ons & Enhancements */}
+                    {(viewingAppointment.addOnSelections || []).map((addon: any, idx: number) => (
+                      <div key={`view-addon-${addon.id || idx}`} className="flex justify-between text-sm">
+                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px] italic">{addon.name} {addon.qty > 1 ? `(x${addon.qty})` : ""}</span>
+                        <span className="text-white font-black">${((addon.price || 0) * (addon.qty || 1)).toFixed(2)}</span>
+                      </div>
+                    ))}
+
+                    {/* 3. Backward Compatibility: Unlisted Manual Additions */}
+                    {(() => {
+                      const mappedServicesTotal = (viewingAppointment.serviceSelections || []).reduce((sum: number, s: any) => sum + (s.price || 0), 0);
+                      const mappedAddonsTotal = (viewingAppointment.addOnSelections || []).reduce((sum: number, a: any) => sum + ((a.price || 0) * (a.qty || 1)), 0);
+                      const unlistedTotal = (viewingAppointment.baseAmount || 0) - (mappedServicesTotal + mappedAddonsTotal);
+                      
+                      if (unlistedTotal > 0.01) {
+                        return (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">Additional Line Items</span>
+                            <span className="text-white font-black">${unlistedTotal.toFixed(2)}</span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                    
                     {viewingAppointment.discountAmount > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-red-400 font-bold uppercase tracking-widest text-[10px]">Tactical Discount</span>
-                        <span className="text-red-400 font-black">-${viewingAppointment.discountAmount.toFixed(2)}</span>
+                        <span className="text-red-400 font-black">-${(viewingAppointment.discountAmount || 0).toFixed(2)}</span>
                       </div>
                     )}
                     <div className="pt-4 border-t border-white/5 flex justify-between items-end">
                       <div>
-                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Total Mission Value</p>
-                        <p className="text-3xl font-black text-white tracking-tighter">${viewingAppointment.totalAmount.toFixed(2)}</p>
+                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Total</p>
+                        <p className="text-3xl font-black text-white tracking-tighter">${(viewingAppointment.totalAmount || 0).toFixed(2)}</p>
                       </div>
                       {viewingAppointment.depositAmount > 0 && (
                         <div className="text-right">
                           <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Deposit Status</p>
                           <p className={cn("text-sm font-black uppercase tracking-tight", viewingAppointment.depositPaid ? "text-green-400" : "text-red-400")}>
-                            {viewingAppointment.depositPaid ? "Secured" : "Pending"} (${viewingAppointment.depositAmount.toFixed(2)})
+                            {viewingAppointment.depositPaid ? "Secured" : "Pending"} (${(viewingAppointment.depositAmount || 0).toFixed(2)})
                           </p>
                         </div>
                       )}
@@ -3082,136 +3184,7 @@ export default function Calendar() {
           </div>
         </div>
       )}
-      {/* Map Overlay Dialog */}
-      <Dialog open={showMapOverlay} onOpenChange={setShowMapOverlay}>
-        <DialogContent className="max-w-5xl h-[80vh] bg-gray-900 border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black flex flex-col">
-          <DialogHeader className="p-6 border-b border-white/5 bg-black/40 shrink-0 flex flex-row items-center justify-between">
-            <div>
-              <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase flex items-center gap-3">
-                <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-                  <MapPin className="w-5 h-5 text-white" />
-                </div>
-                Tactical Deployment Map
-              </DialogTitle>
-              <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-1">Real-time Route Visualization</p>
-            </div>
-          </DialogHeader>
-          
-          <div className="flex-1 relative min-h-[400px]">
-            {!isLoaded ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/50 backdrop-blur-sm">
-                <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
-                <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em]">Initializing Tactical Satellite Link...</p>
-              </div>
-            ) : (
-              <GoogleMap
-                mapContainerStyle={{ width: '100%', height: '100%' }}
-                center={
-                  optimizedStops.length > 0 
-                    ? { lat: optimizedStops[0].latitude, lng: optimizedStops[0].longitude }
-                    : (settings?.baseLatitude ? { lat: settings.baseLatitude, lng: settings.baseLongitude } : { lat: 37.7749, lng: -122.4194 })
-                }
-                zoom={12}
-                options={{
-                  styles: [
-                    { elementType: "geometry", stylers: [{ color: "#212121" }] },
-                    { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-                    { elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
-                    { elementType: "labels.text.stroke", stylers: [{ color: "#212121" }] },
-                    { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#757575" }] },
-                    { featureType: "administrative.country", elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] },
-                    { featureType: "administrative.land_parcel", stylers: [{ visibility: "off" }] },
-                    { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#bdbdbd" }] },
-                    { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
-                    { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#181818" }] },
-                    { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
-                    { featureType: "poi.park", elementType: "labels.text.stroke", stylers: [{ color: "#1b1b1b" }] },
-                    { featureType: "road", elementType: "geometry.fill", stylers: [{ color: "#2c2c2c" }] },
-                    { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8a8a8a" }] },
-                    { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#373737" }] },
-                    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3c3c3c" }] },
-                    { featureType: "road.highway.controlled_access", elementType: "geometry", stylers: [{ color: "#4e4e4e" }] },
-                    { featureType: "road.local", elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
-                    { featureType: "transit", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
-                    { featureType: "water", elementType: "geometry", stylers: [{ color: "#000000" }] },
-                    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3d3d3d" }] },
-                  ],
-                  disableDefaultUI: true,
-                  zoomControl: true,
-                }}
-              >
-                {settings?.baseLatitude && (
-                  <Marker
-                    position={{ lat: settings.baseLatitude, lng: settings.baseLongitude }}
-                    icon={{
-                      path: "M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z",
-                      fillColor: "#ef4444",
-                      fillOpacity: 1,
-                      strokeWeight: 2,
-                      strokeColor: "#ffffff",
-                      scale: 1.5,
-                    }}
-                    title="Base Operations"
-                  />
-                )}
-
-                <MarkerClusterer>
-                  {(clusterer) => (
-                    <>
-                      {optimizedStops.map((stop, idx) => (
-                        <Marker
-                          key={stop.id}
-                          position={{ lat: stop.latitude, lng: stop.longitude }}
-                          label={{
-                            text: (idx + 1).toString(),
-                            color: "white",
-                            fontWeight: "bold",
-                          }}
-                          onClick={() => setSelectedStop(stop)}
-                          clusterer={clusterer}
-                        />
-                      ))}
-                    </>
-                  )}
-                </MarkerClusterer>
-
-              {optimizedStops.length > 1 && (
-                <Polyline
-                  path={[
-                    ...(settings?.baseLatitude ? [{ lat: settings.baseLatitude, lng: settings.baseLongitude }] : []),
-                    ...optimizedStops.map(s => ({ lat: s.latitude, lng: s.longitude })),
-                    ...(settings?.baseLatitude && settings.travelPricing.roundTripToggle ? [{ lat: settings.baseLatitude, lng: settings.baseLongitude }] : [])
-                  ]}
-                  options={{
-                    strokeColor: "#ef4444",
-                    strokeOpacity: 0.8,
-                    strokeWeight: 4,
-                    geodesic: true,
-                  }}
-                />
-              )}
-
-              {selectedStop && (
-                <InfoWindow
-                  position={{ lat: selectedStop.latitude, lng: selectedStop.longitude }}
-                  onCloseClick={() => setSelectedStop(null)}
-                >
-                  <div className="p-2 text-black">
-                    <p className="font-black text-xs uppercase tracking-tight">{selectedStop.customerName}</p>
-                    <p className="text-[10px] text-gray-500 mt-1">{selectedStop.address}</p>
-                    {selectedStop.travelTimeFromPrevious && (
-                      <p className="text-[10px] font-bold text-primary mt-1">
-                        Travel: {formatDuration(selectedStop.travelTimeFromPrevious)}
-                      </p>
-                    )}
-                  </div>
-                </InfoWindow>
-              )}
-            </GoogleMap>
-          )}
-        </div>
-        </DialogContent>
-      </Dialog>
     </div>
-  );
+  </div>
+);
 }

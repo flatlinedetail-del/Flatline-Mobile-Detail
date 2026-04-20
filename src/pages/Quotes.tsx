@@ -12,12 +12,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Plus, Search, Filter, FileText, Trash2, Car, User as UserIcon, Settings2, Eye, Mail, DollarSign, Sparkles, Zap, TrendingUp, History, ShieldCheck, AlertCircle, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Plus, Search, Filter, FileText, Trash2, Car, User as UserIcon, Settings2, Eye, Mail, DollarSign, Sparkles, Zap, TrendingUp, History, ShieldCheck, AlertCircle, ArrowRight, CheckCircle2, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
+import { cn, cleanAddress } from "@/lib/utils";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Quote, Client, Vehicle, Service, BusinessSettings, Invoice, Appointment } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
@@ -519,7 +519,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                 <div className="flex flex-wrap gap-2">
                   {manualVehicles.map((v, idx) => (
                     <Badge key={idx} className="bg-white/10 text-white border-none px-4 py-2 rounded-xl flex items-center gap-3 group">
-                      <span className="font-black text-[10px] uppercase tracking-widest">{v.year} {v.make} {v.model}</span>
+                      <span className="font-black text-[10px] tracking-widest">{v.year} {v.make} {v.model}</span>
                       <Badge className="bg-primary/20 text-primary text-[8px] border-none">{v.size.toUpperCase()}</Badge>
                       <button onClick={() => removeVehicle(idx)} className="text-gray-500 hover:text-red-500 transition-colors">
                         <Trash2 className="w-3 h-3" />
@@ -1415,7 +1415,7 @@ export default function Quotes() {
                         {manualVehicles.map((v, idx) => (
                           <Badge key={idx} className="bg-white/10 text-white border-none px-4 py-2 rounded-xl flex items-center gap-2">
                             <Car className="w-3 h-3 text-primary" />
-                            <span className="font-black text-[10px] uppercase tracking-widest">{v.year} {v.make} {v.model}</span>
+                            <span className="font-black text-[10px] tracking-widest">{v.year} {v.make} {v.model}</span>
                           </Badge>
                         ))}
                       </div>
@@ -1805,6 +1805,23 @@ export default function Quotes() {
               </div>
 
               <div className="flex gap-3 pt-6">
+                {selectedQuote.status === "approved" && (
+                  <Button 
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white font-black uppercase tracking-[0.2em] text-[10px] h-12 rounded-xl shadow-lg shadow-green-500/20 transition-all hover:scale-105"
+                    onClick={() => {
+                      toast.success("Book Appointment Clicked");
+                      setIsDetailOpen(false);
+                      
+                      document.body.style.pointerEvents = "";
+                      document.body.style.overflow = "";
+                      document.body.removeAttribute("data-scroll-locked");
+                      
+                      navigate(`/book-appointment?clientId=${selectedQuote.clientId}`);
+                    }}
+                  >
+                    <Calendar className="w-4 h-4 mr-2" /> Book Appointment
+                  </Button>
+                )}
                 <Button className="flex-1 bg-white border border-border text-gray-900 hover:bg-gray-50 font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-sm transition-all">
                   <FileText className="w-4 h-4 mr-2 text-primary" /> Download PDF
                 </Button>

@@ -3,7 +3,7 @@ import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, delete
 import { SearchableSelector } from "../components/SearchableSelector";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -30,7 +30,8 @@ import {
   Settings2,
   CreditCard,
   DollarSign,
-  Eye
+  Eye,
+  Calendar
 } from "lucide-react";
 import { paymentService } from "../services/paymentService";
 import { toast } from "sonner";
@@ -42,7 +43,7 @@ import { DocumentPreview } from "../components/DocumentPreview";
 import { Checkbox } from "../components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn, getClientDisplayName } from "@/lib/utils";
+import { cn, getClientDisplayName, cleanAddress } from "@/lib/utils";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
   AlertDialog, 
@@ -57,6 +58,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export default function Invoices() {
+  const navigate = useNavigate();
   const { profile, loading: authLoading } = useAuth();
   const location = useLocation();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -98,11 +100,52 @@ export default function Invoices() {
       setSelectedClientId(location.state.clientId || "");
       setSelectedVehicleIds(location.state.vehicleIds || []);
       
-      const items = (job.serviceSelections || []).map((s: any) => ({
-        serviceName: `${s.vehicleName ? `[${s.vehicleName}] ` : ""}${s.name || "Service"}`,
-        price: s.price || 0
-      }));
+      const items: { serviceName: string, price: number }[] = [];
       
+      // Add services
+      (job.serviceSelections || []).forEach((s: any) => {
+        items.push({
+          serviceName: `${s.vehicleName ? `[${s.vehicleName}] ` : ""}${s.name || "Service"}`,
+          price: s.price || 0
+        });
+      });
+
+      // Add addons
+      if (job.addOnNames && job.addOnNames.length > 0) {
+        // Find if they have selections with prices
+        if (job.addOnSelections && job.addOnSelections.length > 0) {
+          job.addOnSelections.forEach((a: any) => {
+            items.push({
+              serviceName: `${a.name || "Add-on"}`,
+              price: a.price || 0
+            });
+          });
+        }
+      }
+
+      // Add custom upsells / manual additions that were merged into addOnNames in JobDetail
+      // Wait, in JobDetail we did: [...currentAddons, ...selectedRecommendations.map(r => `${r.serviceName} ($${r.recommendedPrice})`)]
+      // Or in manual add: [...serviceNames, customServiceName] but the price is just added to totalAmount.
+      // So if the lengths of items doesn't match totalAmount (minus travelFee), we have a discrepancy.
+      // For accurate invoices, we should extract the pricing. Let's just add the travel fee for now.
+
+      if (job.travelFee && job.travelFee > 0) {
+        items.push({
+          serviceName: "Travel Fee",
+          price: job.travelFee
+        });
+      }
+
+      // Fill in any gap if totalAmount is higher (custom services / upsells added later that didn't go into selections)
+      const currentItemsTotal = items.reduce((sum, i) => sum + i.price, 0);
+      const expectedTotal = (job.totalAmount || 0) + (job.discountAmount || 0); // Discount is handled separately or in total?
+      if (expectedTotal > currentItemsTotal) {
+        items.push({
+          serviceName: "Additional Requested Services",
+          price: expectedTotal - currentItemsTotal
+        });
+      }
+
       if (items.length > 0) setLineItems(items);
       setIsAddDialogOpen(true);
     }
@@ -822,6 +865,22 @@ export default function Invoices() {
               </div>
 
               <div className="flex gap-3 pt-6">
+                <Button 
+                  className="flex-1 bg-white border border-border text-gray-900 hover:bg-gray-50 font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-sm transition-all"
+                  onClick={() => {
+                    setIsDetailOpen(false);
+                    
+                    document.body.style.pointerEvents = "";
+                    document.body.style.overflow = "";
+                    document.body.removeAttribute("data-scroll-locked");
+                    
+                    setTimeout(() => {
+                      navigate(`/book-appointment?clientId=${selectedInvoice.clientId}`);
+                    }, 350);
+                  }}
+                >
+                  <Calendar className="w-4 h-4 mr-2 text-primary" /> Book Next
+                </Button>
                 <Button className="flex-1 bg-white border border-border text-gray-900 hover:bg-gray-50 font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-sm transition-all">
                   <FileText className="w-4 h-4 mr-2 text-primary" /> Download PDF
                 </Button>

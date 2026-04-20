@@ -5,7 +5,7 @@ import usePlacesAutocomplete, {
 import { useState, useEffect, useRef } from "react";
 import { MapPin, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 import { useGoogleMaps } from "./GoogleMapsProvider";
-import { cn } from "@/lib/utils";
+import { cn, cleanAddress } from "@/lib/utils";
 import { StructuredAddress } from "../types";
 
 interface AddressInputProps {
@@ -70,7 +70,7 @@ export default function AddressInput({
   const lastDefaultValue = useRef(defaultValue);
   useEffect(() => {
     if (defaultValue !== lastDefaultValue.current && !isFocused.current) {
-      setValue(defaultValue, false);
+      setValue(cleanAddress(defaultValue), false);
       lastDefaultValue.current = defaultValue;
     }
   }, [defaultValue, setValue]);
@@ -93,7 +93,7 @@ export default function AddressInput({
     const { lat, lng } = results.geometry.location;
 
     return {
-      formattedAddress: results.formatted_address,
+      formattedAddress: cleanAddress(results.formatted_address),
       streetNumber: getComponent(["street_number"]),
       route: getComponent(["route"]),
       city: getComponent(["locality"]) || getComponent(["sublocality"]),
@@ -108,7 +108,7 @@ export default function AddressInput({
 
   const handleSelect = async (address: string) => {
     selectionMadeRef.current = true;
-    setValue(address, false);
+    setValue(cleanAddress(address), false);
     clearSuggestions();
     setShowSuggestions(false);
     setIsGeocoding(true);
@@ -118,12 +118,12 @@ export default function AddressInput({
       const results = await getGeocode({ address });
       if (results && results.length > 0) {
         const structured = extractAddressComponents(results[0]);
-        onAddressSelect(structured.formattedAddress, structured.latitude, structured.longitude, structured);
+        onAddressSelect(cleanAddress(structured.formattedAddress), structured.latitude, structured.longitude, structured);
         setGeocodingSuccess(true);
       }
     } catch (error: any) {
       console.error("Geocoding error: ", error);
-      onAddressSelect(address, 0, 0);
+      onAddressSelect(cleanAddress(address), 0, 0);
     } finally {
       setIsGeocoding(false);
       setTimeout(() => {
@@ -232,10 +232,10 @@ export default function AddressInput({
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="text-sm font-bold text-gray-900 truncate">
-                    {structured_formatting?.main_text || description}
+                    {structured_formatting?.main_text || cleanAddress(description)}
                   </span>
                   <span className="text-[10px] text-gray-500 truncate">
-                    {structured_formatting?.secondary_text || ""}
+                    {cleanAddress(structured_formatting?.secondary_text || "")}
                   </span>
                 </div>
               </button>

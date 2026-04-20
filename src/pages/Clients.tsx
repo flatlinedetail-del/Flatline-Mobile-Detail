@@ -74,7 +74,8 @@ import VehicleSelector from "../components/VehicleSelector";
 import { 
   cn, 
   formatPhoneNumber, 
-  getClientDisplayName 
+  getClientDisplayName,
+  cleanAddress 
 } from "../lib/utils";
 import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote } from "../types";
 import AddressInput from "../components/AddressInput";
@@ -743,7 +744,7 @@ export default function Clients() {
                                 );
                               })()}
                             </div>
-                            <span className="text-[10px] text-white/60 font-medium truncate max-w-[220px] uppercase tracking-wide">{client.address || "No address assigned"}</span>
+                            <span className="text-[10px] text-white/60 font-medium truncate max-w-[220px] uppercase tracking-wide">{cleanAddress(client.address) || "No address assigned"}</span>
                           </div>
                         </div>
                       </TableCell>
@@ -788,6 +789,24 @@ export default function Clients() {
                       </TableCell>
                       <TableCell className="px-8 text-right">
                         <div className="flex items-center justify-end gap-3">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-10 w-10 text-white/70 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-300"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toast.success("Book Appointment Clicked");
+                              
+                              document.body.style.pointerEvents = "";
+                              document.body.style.overflow = "";
+                              document.body.removeAttribute("data-scroll-locked");
+                              
+                              navigate(`/book-appointment?clientId=${client.id}`);
+                            }}
+                            title="Book Appointment"
+                          >
+                            <Calendar className="w-4 h-4" />
+                          </Button>
                           <Button 
                             variant="ghost" 
                             size="icon" 
@@ -872,13 +891,15 @@ export default function Clients() {
                         size="lg" 
                         className="bg-white text-primary hover:bg-red-50 font-black shadow-xl rounded-2xl h-12 px-8 uppercase tracking-widest text-xs"
                         onClick={() => {
-                          navigate("/calendar", { 
-                            state: { 
-                              openAddDialog: true, 
-                              clientId: selectedClient.id,
-                              customerType: "client"
-                            } 
-                          });
+                          toast.success("Book Appointment Clicked");
+                          setIsDetailOpen(false);
+                          
+                          // Force absolute DOM reset immediately
+                          document.body.style.pointerEvents = "";
+                          document.body.style.overflow = "";
+                          document.body.removeAttribute("data-scroll-locked");
+                          
+                          navigate(`/book-appointment?clientId=${selectedClient.id}`);
                         }}
                       >
                         <Calendar className="w-4 h-4 mr-2" />
@@ -1314,7 +1335,16 @@ export default function Clients() {
                     <Button 
                       size="sm" 
                       className="bg-primary hover:bg-red-700 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
-                      onClick={() => navigate("/calendar", { state: { clientId: selectedClient.id, openAddDialog: true, customerType: "client" } })}
+                      onClick={() => {
+                        toast.success("Book Appointment Clicked");
+                        setIsDetailOpen(false);
+                        
+                        document.body.style.pointerEvents = "";
+                        document.body.style.overflow = "";
+                        document.body.removeAttribute("data-scroll-locked");
+                        
+                        navigate(`/book-appointment?clientId=${selectedClient.id}`);
+                      }}
                     >
                       <Plus className="w-4 h-4 mr-2" /> Book Appointment
                     </Button>

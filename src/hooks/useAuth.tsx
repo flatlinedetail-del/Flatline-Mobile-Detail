@@ -67,7 +67,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
         }, (error: any) => {
-          console.error("Error watching profile:", error);
+          if (error?.message?.includes('Missing or insufficient permissions')) {
+            // Silently swallow missing permissions on first load or when rules are strict/unpropagated
+          } else {
+            console.error("Error watching profile:", error);
+          }
           if (error?.message?.includes('Quota limit exceeded')) {
             toast.error("Firestore quota exceeded. Real-time updates paused.");
           }

@@ -54,6 +54,8 @@ export interface Coupon {
   createdAt: Timestamp;
 }
 
+export type WeatherSensitivity = "low" | "medium" | "high" | "very_high";
+
 export interface Service {
   id: string;
   name: string;
@@ -74,6 +76,7 @@ export interface Service {
   depositRequired?: boolean;
   depositType?: "fixed" | "percentage";
   depositAmount?: number;
+  weatherSensitivity?: WeatherSensitivity;
 }
 
 export interface AddOn {
@@ -358,6 +361,14 @@ export interface Appointment {
   cancellationStatus?: "none" | "applied" | "waived"; // New
   cancellationFeeApplied?: number; // New
   cancellationTimestamp?: Timestamp; // New
+  weatherInfo?: {
+    temp?: number;
+    condition?: string;
+    rainProbability?: number;
+    checkedAt?: Timestamp;
+    alertStatus?: "pending" | "notified" | "handled";
+    userAction?: "proceed" | "switch_to_interior" | "reschedule" | "none";
+  };
 }
 
 export interface LineItem {
@@ -459,6 +470,11 @@ export interface BusinessSettings {
   timezone: string;
   commissionRate: number;
   commissionType: "percentage" | "flat";
+  logoSettings?: {
+    scale: number;
+    x: number;
+    y: number;
+  };
   // Internal address for distance calculations
   baseAddress: string;
   baseLatitude: number;
@@ -499,6 +515,12 @@ export interface BusinessSettings {
     emailSubject?: string;
     emailBody?: string;
     smsBody?: string;
+  };
+  weatherAutomation?: {
+    enabled: boolean;
+    checkTimingHours: number;
+    rainProbabilityThreshold: number;
+    autoNotifyClient: boolean;
   };
   workingHours?: {
     start: string; // "HH:mm"
@@ -616,6 +638,7 @@ export interface WeatherInfo {
     temp: { min: number; max: number };
     condition: string;
     description: string;
+    rainProbability: number;
   }[];
   businessGuidance: string;
 }

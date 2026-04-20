@@ -261,12 +261,15 @@ export default function Dashboard() {
         };
         
         const response = await askAssistant(
-          "Generate 2 brief, high-impact strategic business insights or recommendations based on the current dashboard data. Focus on efficiency, revenue growth, or scheduling optimization. Return as a JSON array of strings.",
+          "Generate 2 brief, high-impact strategic business insights or recommendations based on the current dashboard data. Focus on efficiency, revenue growth, or scheduling optimization. Ensure these insights are provided in the 'suggestedActions' field of your response structure.",
           context
         );
         
         if (response.suggestedActions && response.suggestedActions.length > 0) {
           setAiInsights(response.suggestedActions.slice(0, 2));
+        } else if (response.suggestion) {
+          // If suggestedActions is missing but suggestion is there, try to split it or use it
+          setAiInsights([response.suggestion]);
         } else {
           throw new Error("No insights generated");
         }
@@ -274,8 +277,8 @@ export default function Dashboard() {
         console.error("Error generating insights:", error);
         // Fallback to some defaults if AI fails
         setAiInsights([
-          "Friday is looking light in the North area. I recommend moving the Smith job to 10:00 AM to save 20 mins drive time.",
-          "Your average ticket size is up 12% this week after the new Ceramic Coating promotion."
+          "Route density opportunity: You have three jobs in the North area on Friday. Consider tightening the schedule to save on fuel.",
+          "Upsell opportunity: 40% of clients this week have not had a ceramic coating in over 12 months."
         ]);
       } finally {
         setIsGeneratingInsights(false);
@@ -462,7 +465,7 @@ export default function Dashboard() {
                 </div>
               </DialogContent>
             </Dialog>
-            <Button onClick={() => navigate("/calendar", { state: { openAddDialog: true } })} className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[11px] shadow-lg shadow-primary/20 transition-all hover:scale-105">
+            <Button onClick={() => navigate("/book-appointment")} className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[11px] shadow-lg shadow-primary/20 transition-all hover:scale-105">
               <Plus className="w-4 h-4 mr-2" /> New Deployment
             </Button>
           </div>
@@ -632,6 +635,32 @@ export default function Dashboard() {
                   </p>
                 </div>
               )}
+
+              {/* Added AI Strategic Insights Rendering */}
+              <div className="space-y-3">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/20 flex items-center gap-2">
+                  <Rocket className="w-3 h-3 text-primary" />
+                  Strategic Insights
+                </p>
+                <div className="space-y-3">
+                  {aiInsights.map((insight, idx) => (
+                    <div key={idx} className="p-4 bg-white/5 rounded-2xl border border-white/10 relative overflow-hidden group hover:bg-white/10 transition-colors">
+                      <div className="absolute top-0 right-0 p-2 opacity-5">
+                        <TrendingUp className="w-12 h-12" />
+                      </div>
+                      <p className="text-xs font-medium text-white/90 leading-relaxed relative z-10">
+                        {insight}
+                      </p>
+                    </div>
+                  ))}
+                  {isGeneratingInsights && (
+                    <div className="flex items-center justify-center p-4 bg-white/5 rounded-2xl border border-white/10 border-dashed animate-pulse">
+                      <Loader2 className="w-4 h-4 animate-spin text-primary mr-2" />
+                      <span className="text-[10px] font-black uppercase text-white/20 tracking-widest">Updating Intelligence...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between">

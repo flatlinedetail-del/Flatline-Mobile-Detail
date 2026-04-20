@@ -11,10 +11,9 @@ import { Star, Clock, MapPin, Calendar, CheckCircle2, Loader2, ArrowRight, Truck
 import { toast } from "sonner";
 import { format } from "date-fns";
 import AddressInput from "../components/AddressInput";
-import { getRecommendedSlots, RecommendedSlot } from "../services/schedulingService";
-import { BusinessSettings, Service, AddOn, Appointment } from "../types";
+import { BusinessSettings, Service, AddOn } from "../types";
 import { createNotification } from "../services/notificationService";
-import { cn } from "@/lib/utils";
+import { cn, cleanAddress } from "@/lib/utils";
 import VehicleSelector from "../components/VehicleSelector";
 
 export default function PublicBooking() {
@@ -24,7 +23,6 @@ export default function PublicBooking() {
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [addons, setAddons] = useState<AddOn[]>([]);
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
   
   const [clientInfo, setClientInfo] = useState({
     name: "",
@@ -39,7 +37,6 @@ export default function PublicBooking() {
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
   const [scheduledAt, setScheduledAt] = useState("");
-  const [recommendations, setRecommendations] = useState<RecommendedSlot[]>([]);
   const [bookingStatus, setBookingStatus] = useState<"idle" | "success">("idle");
 
   useEffect(() => {
@@ -53,9 +50,6 @@ export default function PublicBooking() {
 
         const addonsSnap = await getDocs(query(collection(db, "addons")));
         setAddons(addonsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AddOn)).filter(a => a.isActive));
-
-        const appointmentsSnap = await getDocs(query(collection(db, "appointments")));
-        setAppointments(appointmentsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Appointment)));
       } catch (error) {
         console.error("Error fetching data for booking:", error);
         toast.error("Failed to load booking information.");
@@ -66,27 +60,6 @@ export default function PublicBooking() {
     fetchData();
   }, []);
 
-  useEffect(() => {
-    if (clientInfo.lat && settings && (selectedServices.length > 0 || selectedAddons.length > 0)) {
-      const totalDuration = selectedServices.reduce((acc, id) => {
-        const s = services.find(srv => srv.id === id);
-        return acc + (s?.estimatedDuration || 0) + (s?.bufferTimeMinutes || 0);
-      }, 0) + selectedAddons.reduce((acc, id) => {
-        const a = addons.find(ad => ad.id === id);
-        return acc + (a?.estimatedDuration || 0) + (a?.bufferTimeMinutes || 0);
-      }, 0);
-
-      const slots = getRecommendedSlots(
-        clientInfo.lat,
-        clientInfo.lng,
-        totalDuration,
-        appointments,
-        settings
-      );
-      setRecommendations(slots);
-    }
-  }, [clientInfo.lat, selectedServices, selectedAddons, appointments, settings]);
-
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!scheduledAt) {
@@ -96,8 +69,6 @@ export default function PublicBooking() {
 
     setIsSubmitting(true);
     try {
-      const isRecommendation = recommendations.some(r => format(r.start, "yyyy-MM-dd'T'HH:mm") === scheduledAt);
-      
       const appointmentData: any = {
         customerName: clientInfo.name,
         customerEmail: clientInfo.email,
@@ -111,7 +82,7 @@ export default function PublicBooking() {
         addOnIds: selectedAddons,
         addOnNames: addons.filter(a => selectedAddons.includes(a.id)).map(a => a.name),
         scheduledAt: new Date(scheduledAt),
-        status: isRecommendation ? "pending_approval" : "requested",
+        status: "requested",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         customerType: "retail",
@@ -142,7 +113,7 @@ export default function PublicBooking() {
       await Promise.all(notifyPromises);
 
       setBookingStatus("success");
-      toast.success(isRecommendation ? "Booking request submitted!" : "Special time request submitted for approval.");
+      toast.success("Booking request submitted!");
     } catch (error) {
       console.error("Booking error:", error);
       toast.error("Failed to submit booking request.");
@@ -340,57 +311,7 @@ export default function PublicBooking() {
               {step === 3 && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                        <Star className="w-3 h-3 fill-primary" /> Recommended Slots
-                      </Label>
-                      <Badge className="bg-green-100 text-green-700 border-none">Fastest Route</Badge>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 gap-3">
-                      {recommendations.map((slot, idx) => (
-                        <div 
-                          key={`${slot.start.getTime()}-${idx}`}
-                          className={cn(
-                            "p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-center justify-between group",
-                            scheduledAt === format(slot.start, "yyyy-MM-dd'T'HH:mm") 
-                              ? "border-primary bg-red-50 shadow-md" 
-                              : "border-gray-100 hover:border-gray-200 bg-white"
-                          )}
-                          onClick={() => setScheduledAt(format(slot.start, "yyyy-MM-dd'T'HH:mm"))}
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className={cn(
-                              "w-12 h-12 rounded-2xl flex items-center justify-center font-black text-[10px] shadow-sm",
-                              slot.recommendationLevel === "best" ? "bg-green-500 text-white" : "bg-blue-500 text-white"
-                            )}>
-                              {slot.recommendationLevel === "best" ? "BEST" : "GOOD"}
-                            </div>
-                            <div>
-                              <p className="font-bold text-gray-900">{format(slot.start, "EEEE, MMM d")}</p>
-                              <p className="text-lg font-black text-primary tracking-tighter">{format(slot.start, "h:mm a")}</p>
-                              <p className="text-[10px] text-gray-500 font-medium">{slot.explanation}</p>
-                            </div>
-                          </div>
-                          <div className={cn(
-                            "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
-                            scheduledAt === format(slot.start, "yyyy-MM-dd'T'HH:mm") ? "border-primary bg-primary" : "border-gray-200"
-                          )}>
-                            {scheduledAt === format(slot.start, "yyyy-MM-dd'T'HH:mm") && <CheckCircle2 className="w-4 h-4 text-white" />}
-                          </div>
-                        </div>
-                      ))}
-
-                      {recommendations.length === 0 && (
-                        <div className="p-8 text-center bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
-                          <p className="text-sm text-gray-500 italic">No automatic recommendations available. Please request a custom time below.</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 pt-4 border-t border-gray-100">
-                    <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Or Request a Specific Time</Label>
+                    <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Request a Specific Time</Label>
                     <div className="space-y-2">
                       <Input 
                         type="datetime-local" 

@@ -17,6 +17,7 @@ interface DeleteConfirmationDialogProps {
   description?: string;
   onConfirm: () => void;
   itemName?: string;
+  isNativeButton?: boolean;
 }
 
 export function DeleteConfirmationDialog({
@@ -25,10 +26,11 @@ export function DeleteConfirmationDialog({
   description,
   onConfirm,
   itemName,
+  isNativeButton = true,
 }: DeleteConfirmationDialogProps) {
   return (
     <AlertDialog>
-      <AlertDialogTrigger render={trigger} />
+      <AlertDialogTrigger render={trigger} nativeButton={isNativeButton} />
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="font-black text-red-600">{title}</AlertDialogTitle>

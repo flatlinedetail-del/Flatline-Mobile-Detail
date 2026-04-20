@@ -57,6 +57,13 @@ export interface ReceiptData {
   confidence: number;
 }
 
+export interface UpsellRecommendation {
+  serviceName: string;
+  reason: string;
+  priceRange: string;
+  recommendedPrice: number;
+}
+
 async function withRetry<T>(fn: () => Promise<T>, retries = 10, delay = 7000, attempt = 1): Promise<T> {
   try {
     return await fn();
@@ -339,7 +346,7 @@ export async function askAssistant(input: string, context?: any): Promise<AIResp
               }
             }
           },
-          required: ["intent", "entities", "suggestion"]
+          required: ["intent", "entities", "suggestion", "suggestedActions"]
         }
       }
     });
@@ -387,6 +394,69 @@ export async function analyzeReceipt(base64Data: string): Promise<ReceiptData> {
             confidence: { type: Type.NUMBER }
           },
           required: ["vendor", "date", "totalAmount", "categorySuggestion", "confidence"]
+        }
+      }
+    });
+
+    return JSON.parse(response.text);
+  });
+}
+
+/**
+ * AI Upsell Recommendation Logic
+ */
+export async function getUpsellRecommendations(description: string, jobInfo: any): Promise<UpsellRecommendation[]> {
+  return withRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [{ 
+        role: "user", 
+        parts: [{ text: `A technician is at a job site and has provided the following assessment: "${description}"
+
+        Job Context:
+        Vehicle: ${jobInfo.vehicleInfo}
+        Current Services: ${jobInfo.serviceNames?.join(", ")}
+        Client Type: ${jobInfo.clientType || "Retail"}
+        Address: ${jobInfo.address}
+
+        Based on the technician's description of the vehicle condition, recommend specific upsell services from the following list (or suggest specialized services):
+        - Odor Treatment
+        - Excessive Pet Hair Removal
+        - Mold Remediation
+        - Biohazard Cleanup
+        - Headliner Cleaning
+        - Carpet Extraction/Shampoo
+        - Seat Extraction/Shampoo
+        - Leather Restoration/Conditioning
+        - Paint Correction
+        - Ceramic Coating
+        - Engine Bay Detail
+        - Water Spot Removal
+        - Headlight Restoration
+
+        For each recommendation, provide:
+        - serviceName: The name of the service
+        - reason: Why it's recommended based on the technician's report
+        - priceRange: A string describing the typical price range (e.g. "$50 - $120")
+        - recommendedPrice: A single numeric price to add to the job if accepted
+
+        Return exactly a JSON array of recommendation objects.` }] 
+      }],
+      config: {
+        systemInstruction: `You are a savvy Upsell Advisor for Flatline Mobile Detail. Your goal is to help technicians maximize revenue by identifying necessary high-value services that match the vehicle's observed condition. Be specific and tactical.`,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              serviceName: { type: Type.STRING },
+              reason: { type: Type.STRING },
+              priceRange: { type: Type.STRING },
+              recommendedPrice: { type: Type.NUMBER }
+            },
+            required: ["serviceName", "reason", "priceRange", "recommendedPrice"]
+          }
         }
       }
     });

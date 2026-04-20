@@ -96,7 +96,9 @@ export function calculateTravelFee(
       billableMiles *= 2;
     }
     fee = billableMiles * pricePerMile;
-    fee = Math.max(minTravelFee, Math.min(maxTravelFee, fee));
+    const minFee = minTravelFee || 0;
+    const maxFee = maxTravelFee > 0 ? maxTravelFee : Infinity;
+    fee = Math.max(minFee, Math.min(maxFee, fee));
   }
 
   return {

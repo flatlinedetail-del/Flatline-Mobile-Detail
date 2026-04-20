@@ -65,24 +65,15 @@ class PaymentService {
   }
 
   private async processStripe(invoice: Invoice, config: any): Promise<PaymentResult> {
-    // TODO: Implement Stripe SDK integration
-    // Requires: @stripe/stripe-js
-    console.log("Stripe integration requires API Key:", config.publishableKey);
-    return { success: true, transactionId: `stripe_${Math.random().toString(36).substr(2, 9)}` };
+    return { success: false, error: "Payment system not configured" };
   }
 
   private async processSquare(invoice: Invoice, config: any): Promise<PaymentResult> {
-    // TODO: Implement Square SDK integration
-    // Requires: square-web-sdk
-    console.log("Square integration requires Application ID:", config.applicationId);
-    return { success: true, transactionId: `square_${Math.random().toString(36).substr(2, 9)}` };
+    return { success: false, error: "Payment system not configured" };
   }
 
   private async processPayPal(invoice: Invoice, config: any): Promise<PaymentResult> {
-    // TODO: Implement PayPal SDK integration
-    // Requires: @paypal/checkout-server-sdk
-    console.log("PayPal integration requires Client ID:", config.clientId);
-    return { success: true, transactionId: `paypal_${Math.random().toString(36).substr(2, 9)}` };
+    return { success: false, error: "Payment system not configured" };
   }
 
   private async processClover(invoice: Invoice, config: any): Promise<PaymentResult> {

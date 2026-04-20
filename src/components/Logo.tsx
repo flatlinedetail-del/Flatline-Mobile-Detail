@@ -6,9 +6,19 @@ interface LogoProps {
   className?: string;
   variant?: "full" | "icon";
   color?: "default" | "white";
+  scaleOverride?: number;
+  xOverride?: number;
+  yOverride?: number;
 }
 
-export default function Logo({ className, variant = "full", color = "default" }: LogoProps) {
+export default function Logo({ 
+  className, 
+  variant = "full", 
+  color = "default",
+  scaleOverride,
+  xOverride,
+  yOverride
+}: LogoProps) {
   const { settings } = useSettings();
   const primaryColor = color === "white" ? "white" : "black";
   const accentColor = "#E11D48"; // Heartbeat Red
@@ -17,15 +27,24 @@ export default function Logo({ className, variant = "full", color = "default" }:
   const firstWord = businessName.split(" ")[0];
   const restOfName = businessName.split(" ").slice(1).join(" ") || "Mobile Detail";
 
-  if (settings?.logoUrl && settings?.showLogoOnDocuments) {
+  const scale = scaleOverride ?? settings?.logoSettings?.scale ?? 1;
+  const x = xOverride ?? settings?.logoSettings?.x ?? 0;
+  const y = yOverride ?? settings?.logoSettings?.y ?? 0;
+
+  if (settings?.logoUrl) {
     return (
       <div className={cn("flex items-center gap-3", className)}>
-        <img 
-          src={settings.logoUrl} 
-          alt={settings.businessName || "Logo"} 
-          className={cn(variant === "full" ? "h-12" : "h-10", "w-auto object-contain")}
-          referrerPolicy="no-referrer"
-        />
+        <div className={cn(variant === "full" ? "h-12 w-12" : "h-10 w-10", "flex-shrink-0 relative overflow-hidden")}>
+           <img 
+            src={settings.logoUrl} 
+            alt={settings.businessName || "Logo"} 
+            className="w-full h-full object-contain transition-transform duration-75"
+            style={{ 
+              transform: `scale(${scale}) translate(${x}px, ${y}px)`
+            }}
+            referrerPolicy="no-referrer"
+          />
+        </div>
         {variant === "full" && (
           <div className="flex flex-col leading-none">
             <span className={cn("font-black tracking-tighter text-2xl font-heading", color === "white" ? "text-white" : "text-black")}>

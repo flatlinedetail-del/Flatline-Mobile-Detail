@@ -13,7 +13,7 @@ import {
   User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map as MapIcon, Globe, 
   DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, 
   Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, 
-  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, ShieldCheck, Upload, ChevronRight, Menu, Plug, Calendar, Link
+  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, ShieldCheck, Upload, ChevronRight, Menu, Plug, Calendar, Link, Building2, Zap, Save
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -848,7 +848,77 @@ export default function Settings() {
         </Button>
       </div>
 
-      <Tabs value={activeTab} onValueChange={handleTabChange} orientation="vertical" className="flex flex-col md:flex-row gap-8">
+      <Tabs value={activeTab} onValueChange={handleTabChange} orientation="vertical" className="flex flex-col md:flex-row gap-10">
+        <div className="w-full md:w-72 shrink-0 space-y-8 h-fit sticky top-28">
+          <TabsList className="flex flex-col h-auto bg-transparent border-none p-0 gap-1.5">
+            <h3 className="px-4 text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Identity & Profile</h3>
+            <TabsTrigger 
+              value="profile" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <User className="w-4 h-4" /> Personal Protocol
+            </TabsTrigger>
+            <TabsTrigger 
+              value="business" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Building2 className="w-4 h-4" /> Business Core
+            </TabsTrigger>
+            <TabsTrigger 
+              value="branding" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Palette className="w-4 h-4" /> Visual Identity
+            </TabsTrigger>
+
+            <h3 className="px-4 text-[10px] font-black text-white/40 uppercase tracking-widest mt-6 mb-2">Fleet & Service</h3>
+            <TabsTrigger 
+              value="staff" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Users className="w-4 h-4" /> Staff Management
+            </TabsTrigger>
+            <TabsTrigger 
+              value="client-types" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <DatabaseZap className="w-4 h-4" /> Client Archetypes
+            </TabsTrigger>
+            <TabsTrigger 
+              value="services" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <ClipboardList className="w-4 h-4" /> Service Protocols
+            </TabsTrigger>
+
+            <h3 className="px-4 text-[10px] font-black text-white/40 uppercase tracking-widest mt-6 mb-2">Revenue & Growth</h3>
+            <TabsTrigger 
+              value="coupons" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Ticket className="w-4 h-4" /> Growth Incentives
+            </TabsTrigger>
+            <TabsTrigger 
+              value="automation" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Zap className="w-4 h-4" /> Operational Automations
+            </TabsTrigger>
+            <TabsTrigger 
+              value="integrations" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Plug className="w-4 h-4" /> Neural Links
+            </TabsTrigger>
+            <TabsTrigger 
+              value="security" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Shield className="w-4 h-4" /> Security Layers
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
         <div className="flex-1 min-w-0">
 
         <TabsContent value="profile" className="mt-0">
@@ -1494,14 +1564,23 @@ export default function Settings() {
               <div className="space-y-6">
                 <Label className="text-white font-black uppercase tracking-widest text-[10px]">Business Logo Asset</Label>
                 <div className="flex gap-8 items-center">
-                  <div className="w-40 h-40 bg-black/40 rounded-[2.5rem] border border-white/10 flex items-center justify-center overflow-hidden shrink-0 shadow-2xl group relative transition-all duration-500 hover:border-primary/50">
+                  <div className="w-48 h-48 bg-black/40 rounded-[2.5rem] border border-white/10 flex items-center justify-center overflow-hidden shrink-0 shadow-2xl group relative transition-all duration-500 hover:border-primary/50 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]">
                     {logoPreview || settings?.logoUrl ? (
-                      <img src={logoPreview || settings?.logoUrl || ""} alt="Logo" className="w-full h-full object-contain p-6 transition-transform duration-500 group-hover:scale-110" />
+                      <div className="relative w-full h-full flex items-center justify-center p-6">
+                        <img 
+                          src={logoPreview || settings?.logoUrl || ""} 
+                          alt="Logo" 
+                          className="w-full h-full object-contain transition-all duration-300" 
+                          style={{
+                            transform: `scale(${settings?.logoSettings?.scale || 1}) translate(${settings?.logoSettings?.x || 0}px, ${settings?.logoSettings?.y || 0}px)`
+                          }}
+                        />
+                      </div>
                     ) : (
                       <ImageIcon className="w-12 h-12 text-white/10" />
                     )}
                     <div 
-                      className="absolute inset-0 bg-black/60 flex items-center justify-center cursor-pointer backdrop-blur-sm" 
+                      className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer backdrop-blur-sm" 
                       onClick={() => !isUploading && fileInputRef.current?.click()}
                     >
                       <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/20">
@@ -1509,14 +1588,80 @@ export default function Settings() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex-1 space-y-6">
+                  <div className="flex-1 space-y-8">
                     <div className="space-y-2">
                       <h4 className="text-lg font-black text-white uppercase tracking-tight">Business Logo <span className="text-primary italic">Asset</span></h4>
                       <p className="text-xs text-white/40 font-medium leading-relaxed max-w-md">
                         This asset will be used across all official documents, invoices, and the public booking interface. 
-                        High-resolution PNG or JPEG files are recommended for maximum clarity.
+                        Adjust the scale and positioning to ensure it fits perfectly in all contexts.
                       </p>
                     </div>
+                    
+                    {settings?.logoUrl && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-left-4 duration-500">
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 italic">Scale Factor</Label>
+                            <span className="text-[10px] font-black text-primary">{(settings?.logoSettings?.scale || 1).toFixed(2)}x</span>
+                          </div>
+                          <Slider 
+                            value={[settings?.logoSettings?.scale || 1]} 
+                            min={0.1} 
+                            max={3} 
+                            step={0.01} 
+                            onValueChange={(vals) => {
+                              const val = vals[0];
+                              setSettings(prev => prev ? { 
+                                ...prev, 
+                                logoSettings: { ...(prev.logoSettings || { scale: 1, x: 0, y: 0 }), scale: val } 
+                              } : null);
+                            }}
+                            className="[&_[role=slider]]:bg-primary"
+                          />
+                        </div>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 italic">X-Position</Label>
+                            <span className="text-[10px] font-black text-primary">{settings?.logoSettings?.x || 0}px</span>
+                          </div>
+                          <Slider 
+                            value={[settings?.logoSettings?.x || 0]} 
+                            min={-100} 
+                            max={100} 
+                            step={1} 
+                            onValueChange={(vals) => {
+                              const val = vals[0];
+                              setSettings(prev => prev ? { 
+                                ...prev, 
+                                logoSettings: { ...(prev.logoSettings || { scale: 1, x: 0, y: 0 }), x: val } 
+                              } : null);
+                            }}
+                            className="[&_[role=slider]]:bg-primary"
+                          />
+                        </div>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 italic">Y-Position</Label>
+                            <span className="text-[10px] font-black text-primary">{settings?.logoSettings?.y || 0}px</span>
+                          </div>
+                          <Slider 
+                            value={[settings?.logoSettings?.y || 0]} 
+                            min={-100} 
+                            max={100} 
+                            step={1} 
+                            onValueChange={(vals) => {
+                              const val = vals[0];
+                              setSettings(prev => prev ? { 
+                                ...prev, 
+                                logoSettings: { ...(prev.logoSettings || { scale: 1, x: 0, y: 0 }), y: val } 
+                              } : null);
+                            }}
+                            className="[&_[role=slider]]:bg-primary"
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex gap-3">
                       <input
                         type="file"
@@ -1551,6 +1696,17 @@ export default function Settings() {
                           className="border-white/10 bg-white/5 text-white hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/20 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px] transition-all"
                         >
                           Remove
+                        </Button>
+                      )}
+                      {settings?.logoUrl && (
+                        <Button 
+                          type="button" 
+                          onClick={() => handleSaveSettings(settings)}
+                          disabled={isSaving}
+                          className="bg-white text-black hover:bg-gray-200 font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg transition-all hover:scale-[1.02]"
+                        >
+                          {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                          Save Branding
                         </Button>
                       )}
                     </div>
@@ -3042,6 +3198,98 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
+
+              {/* Weather Intelligence Section */}
+              <div className="pt-10 border-t border-white/5 space-y-10">
+                <div className="flex items-center justify-between p-6 bg-primary/5 rounded-2xl border border-primary/10">
+                  <div className="space-y-1">
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading flex items-center gap-3">
+                      <Globe className="w-6 h-6 text-primary" />
+                      Weather Intelligence System
+                    </h3>
+                    <p className="text-xs text-white/60 font-medium leading-relaxed">Autonomous weather monitoring and risk mitigation protocols.</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Status Toggle</Label>
+                    <Switch 
+                      checked={settings?.weatherAutomation?.enabled ?? false} 
+                      onCheckedChange={(val) => setSettings(prev => prev ? { 
+                        ...prev,
+                        weatherAutomation: { ...(prev.weatherAutomation || { enabled: false, checkTimingHours: 24, rainProbabilityThreshold: 40, autoNotifyClient: false }), enabled: val } 
+                      } : null)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+                </div>
+
+                {settings?.weatherAutomation?.enabled && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-12 animate-in fade-in slide-in-from-top-4 duration-500">
+                    <div className="space-y-8">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Surveillance Lead Time</Label>
+                          <span className="font-black text-primary text-xs tracking-widest">{settings?.weatherAutomation?.checkTimingHours} HOURS</span>
+                        </div>
+                        <Slider 
+                          value={[settings?.weatherAutomation?.checkTimingHours || 24]} 
+                          min={6} 
+                          max={72} 
+                          step={6}
+                          onValueChange={(val: any) => setSettings(prev => prev ? { 
+                            ...prev,
+                            weatherAutomation: { ...prev.weatherAutomation!, checkTimingHours: Array.isArray(val) ? val[0] : val } 
+                          } : null)}
+                          className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                        />
+                        <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest italic">Hours before deployment to initiate final weather telemetry check.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Precipitation Threshold</Label>
+                          <span className="font-black text-primary text-xs tracking-widest">{settings?.weatherAutomation?.rainProbabilityThreshold}% RISK</span>
+                        </div>
+                        <Slider 
+                          value={[settings?.weatherAutomation?.rainProbabilityThreshold || 40]} 
+                          min={10} 
+                          max={90} 
+                          step={5}
+                          onValueChange={(val: any) => setSettings(prev => prev ? { 
+                            ...prev,
+                            weatherAutomation: { ...prev.weatherAutomation!, rainProbabilityThreshold: Array.isArray(val) ? val[0] : val } 
+                          } : null)}
+                          className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                        />
+                        <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest italic">Minimum rain probability percentage to trigger an operational warning.</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-8">
+                      <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
+                        <div className="space-y-1">
+                          <Label className="font-black text-white uppercase tracking-tight text-sm">Autonomous Client Alerts</Label>
+                          <p className="text-[10px] text-white/40 font-medium">Auto-dispatch weather warnings to clients when high-risk conditions are detected.</p>
+                        </div>
+                        <Switch 
+                          checked={settings?.weatherAutomation?.autoNotifyClient ?? false}
+                          onCheckedChange={(val) => setSettings(prev => prev ? { 
+                            ...prev,
+                            weatherAutomation: { ...prev.weatherAutomation!, autoNotifyClient: val } 
+                          } : null)}
+                          className="data-[state=checked]:bg-primary"
+                        />
+                      </div>
+                      
+                      <div className="p-6 bg-black/20 rounded-2xl border border-white/5 italic">
+                        <p className="text-[10px] text-white/40 font-medium leading-relaxed">
+                          Note: Weather Intelligence relies on real-time meteorological telemetry. Alerts will be generated based on the latest available forecast at the configured surveillance lead time.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex flex-col sm:flex-row gap-4 pt-6">
                 <Button 
                   onClick={() => handleSaveSettings(settings || {})} 

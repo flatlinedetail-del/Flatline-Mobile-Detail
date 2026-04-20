@@ -45,8 +45,23 @@ export default function MapZoneEditor({ baseLat, baseLng, zones: initialZones, o
 
   const handleMapLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
-    // Ensure drawing manager works on satellite as well but user requested roadmap
-  }, []);
+    
+    // Auto-fit zones on load if they exist
+    if (initialZones && initialZones.length > 0) {
+      const bounds = new window.google.maps.LatLngBounds();
+      initialZones.forEach(zone => {
+        if (zone.type === 'circle' && zone.center) {
+          const circle = new window.google.maps.Circle({ center: zone.center, radius: zone.radius });
+          bounds.union(circle.getBounds()!);
+        } else if (zone.paths && zone.paths.length > 0) {
+          zone.paths.forEach(p => bounds.extend(p));
+        }
+      });
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { top: 50, right: 50, bottom: 50, left: 50 });
+      }
+    }
+  }, [initialZones]);
 
   const handlePolygonEdit = useCallback((id: string) => {
     const polygon = polygonRefs.current[id];
@@ -254,21 +269,66 @@ export default function MapZoneEditor({ baseLat, baseLng, zones: initialZones, o
           center={{ lat: baseLat, lng: baseLng }}
           zoom={10}
           onLoad={handleMapLoad}
+          onClick={() => {
+            if (drawingMode === null) {
+              setSelectedZoneId(null);
+            }
+          }}
           options={{
             disableDefaultUI: true,
             zoomControl: true,
             mapTypeId: 'roadmap',
-            styles: [
-              { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-              { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-              { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-              { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
-              { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
-              { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
-              { featureType: "water", elementType: "labels.text.stroke", stylers: [{ color: "#17263c" }] },
-            ]
+            // Disable map dragging entirely when a zone is selected or we're drawing
+            // This ensures vertex dragging always wins
+            draggable: selectedZoneId === null && drawingMode === null,
+            // Use cooperative mode when selected to allow two-finger pan on mobile 
+            // but prevent accidental one-finger pan while editing points
+            gestureHandling: (selectedZoneId !== null || drawingMode !== null) ? 'cooperative' : 'greedy',
           }}
         >
+          <div className="absolute top-6 left-6 z-10 flex items-center gap-2 p-1.5 bg-black/80 backdrop-blur-md rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] pointer-events-auto">
+              <Button 
+                variant="ghost"
+                className={cn(
+                  "font-black h-11 px-6 rounded-xl text-[10px] uppercase tracking-widest transition-all active:scale-95",
+                  window.google && drawingMode === window.google.maps.drawing.OverlayType.POLYGON 
+                    ? "bg-primary text-white" 
+                    : "text-white/60 hover:text-white hover:bg-white/5"
+                )}
+                onClick={() => {
+                  if (!window.google) return;
+                  setDrawingMode(
+                      drawingMode === window.google.maps.drawing.OverlayType.POLYGON 
+                          ? null 
+                          : window.google.maps.drawing.OverlayType.POLYGON
+                  );
+                  setSelectedZoneId(null);
+                }}
+              >
+                <Plus className="w-4 h-4 mr-2" /> Draw Polygon
+              </Button>
+              <div className="w-px h-6 bg-white/10" />
+              <Button 
+                variant="ghost"
+                className={cn(
+                  "font-black h-11 px-6 rounded-xl text-[10px] uppercase tracking-widest transition-all active:scale-95",
+                  window.google && drawingMode === window.google.maps.drawing.OverlayType.CIRCLE 
+                    ? "bg-primary text-white" 
+                    : "text-white/60 hover:text-white hover:bg-white/5"
+                )}
+                onClick={() => {
+                  if (!window.google) return;
+                  setDrawingMode(
+                      drawingMode === window.google.maps.drawing.OverlayType.CIRCLE 
+                          ? null 
+                          : window.google.maps.drawing.OverlayType.CIRCLE
+                  );
+                  setSelectedZoneId(null);
+                }}
+              >
+                <Plus className="w-4 h-4 mr-2" /> Draw Circle
+              </Button>
+          </div>
           {drawingMode !== null && (
             <DrawingManager
               onPolygonComplete={onPolygonComplete}
@@ -278,17 +338,17 @@ export default function MapZoneEditor({ baseLat, baseLng, zones: initialZones, o
                 drawingControl: false,
                 polygonOptions: {
                   fillColor: "#ef4444",
-                  fillOpacity: 0.3,
+                  fillOpacity: 0.15,
                   strokeColor: "#ef4444",
-                  strokeWeight: 3,
+                  strokeWeight: 2,
                   clickable: false,
                   zIndex: 99
                 },
                 circleOptions: {
                   fillColor: "#ef4444",
-                  fillOpacity: 0.3,
+                  fillOpacity: 0.15,
                   strokeColor: "#ef4444",
-                  strokeWeight: 3,
+                  strokeWeight: 2,
                   clickable: false,
                   zIndex: 99
                 }
@@ -305,7 +365,7 @@ export default function MapZoneEditor({ baseLat, baseLng, zones: initialZones, o
                 onClick={() => setSelectedZoneId(zone.id)}
                 options={{
                   fillColor: zone.color,
-                  fillOpacity: 0.35,
+                  fillOpacity: 0.2,
                   strokeColor: zone.color,
                   strokeWeight: 2,
                   clickable: true,
@@ -333,7 +393,7 @@ export default function MapZoneEditor({ baseLat, baseLng, zones: initialZones, o
                 onClick={() => setSelectedZoneId(zone.id)}
                 options={{
                   fillColor: zone.color,
-                  fillOpacity: 0.35,
+                  fillOpacity: 0.2,
                   strokeColor: zone.color,
                   strokeWeight: 2,
                   clickable: true,
@@ -371,56 +431,6 @@ export default function MapZoneEditor({ baseLat, baseLng, zones: initialZones, o
           </Button>
         </div>
 
-        <div className="absolute top-4 left-4 space-y-2 pointer-events-none">
-            <div className="flex gap-2 pointer-events-auto">
-              <Button 
-                className={cn(
-                  "font-black h-12 px-6 rounded-xl text-[10px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 border",
-                  window.google && drawingMode === window.google.maps.drawing.OverlayType.POLYGON 
-                    ? "bg-red-600 border-red-500 text-white" 
-                    : "bg-black/80 hover:bg-primary text-white border-white/10"
-                )}
-                onClick={() => {
-                  if (!window.google) return;
-                  setDrawingMode(
-                      drawingMode === window.google.maps.drawing.OverlayType.POLYGON 
-                          ? null 
-                          : window.google.maps.drawing.OverlayType.POLYGON
-                  );
-                  setSelectedZoneId(null);
-                }}
-              >
-                <Plus className="w-4 h-4 mr-2" /> Draw Polygon
-              </Button>
-              <Button 
-                className={cn(
-                  "font-black h-12 px-6 rounded-xl text-[10px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 border",
-                  window.google && drawingMode === window.google.maps.drawing.OverlayType.CIRCLE 
-                    ? "bg-red-600 border-red-500 text-white" 
-                    : "bg-white hover:bg-gray-50 text-black border-gray-100"
-                )}
-                onClick={() => {
-                  if (!window.google) return;
-                  setDrawingMode(
-                      drawingMode === window.google.maps.drawing.OverlayType.CIRCLE 
-                          ? null 
-                          : window.google.maps.drawing.OverlayType.CIRCLE
-                  );
-                  setSelectedZoneId(null);
-                }}
-              >
-                <CircleIcon className="w-4 h-4 mr-2" /> Draw Circle
-              </Button>
-            </div>
-            
-            {drawingMode !== null && (
-                 <div className="pointer-events-auto bg-black/90 backdrop-blur-xl border border-primary p-4 rounded-2xl space-y-3 animate-in fade-in slide-in-from-left-4 duration-300 w-72 shadow-2xl mt-4">
-                     <p className="text-[10px] text-white/70 font-medium leading-relaxed">
-                         Draw on the map to define the zone. The shape will automatically close when you connect back to the start or finish drawing.
-                     </p>
-                 </div>
-            )}
-        </div>
       </div>
     </div>
   );

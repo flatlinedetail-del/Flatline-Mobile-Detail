@@ -53,7 +53,7 @@ export function SearchableSelector({
             disabled={disabled}
           >
             {selectedOption ? (
-              <span className="truncate text-black">{selectedOption.label}</span>
+              <span className="truncate">{selectedOption.label}</span>
             ) : (
               <span className="text-muted-foreground">{placeholder}</span>
             )}
