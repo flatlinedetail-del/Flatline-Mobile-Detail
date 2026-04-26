@@ -13,6 +13,8 @@ import {
 import { db } from "../firebase";
 import { Appointment, Client, BusinessSettings, Service } from "../types";
 
+import { messagingService } from "./messagingService";
+
 export async function processFollowUps() {
   try {
     // 1. Get Automation Settings
@@ -62,6 +64,26 @@ export async function processFollowUps() {
         // Add review link if applicable
         if (automation.includeReviewLink && (client.isOneTime || !client.legacyId)) {
           emailBody += `\n\nWe'd love to hear your feedback! Please leave us a review here: ${automation.googleReviewUrl}`;
+        }
+
+        // 4.5 Actually send
+        if (automation.channels === 'email' || automation.channels === 'both') {
+          if (client.email) {
+            await messagingService.sendEmail({
+              to: client.email,
+              subject: `${settings.businessName} - Following Up`,
+              text: emailBody, // using text to preserve newlines naturally since it's just a raw template
+            }).catch(e => console.error("Follow-up email failed", e));
+          }
+        }
+
+        if (automation.channels === 'sms' || automation.channels === 'both') {
+          if (client.phone) {
+            await messagingService.sendSms({
+              to: client.phone,
+              body: emailBody
+            }).catch(e => console.error("Follow-up SMS failed", e));
+          }
         }
 
         // 5. "Send" follow-up (log it)

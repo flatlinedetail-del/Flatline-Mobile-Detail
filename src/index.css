@@ -124,90 +124,134 @@
 }
 
 .rbc-header {
-  @apply border-white/5 py-4 font-black uppercase tracking-widest text-[10px] text-gray-400 bg-black/40;
+  @apply border-white/5 py-5 font-black uppercase tracking-[0.2em] text-[9px] text-gray-500 bg-black/60 backdrop-blur-md;
 }
 
 .rbc-month-view, .rbc-time-view, .rbc-agenda-view {
-  @apply border-white/5 rounded-3xl overflow-hidden bg-card shadow-2xl;
+  @apply border-white/10 rounded-3xl overflow-hidden bg-card shadow-2xl;
 }
 
 .rbc-day-bg {
-  @apply border-white/5;
+  @apply border-white/[0.03];
 }
 
 .rbc-today {
-  @apply !bg-primary/5;
+  @apply !bg-primary/[0.03];
 }
 
 .rbc-off-range-bg {
-  @apply !bg-transparent !opacity-30;
+  @apply !bg-zinc-950/50 !opacity-40;
 }
 
 .rbc-event {
-  @apply !p-0 !border-none !bg-transparent;
+  @apply !p-0 !border-none !bg-transparent cursor-pointer transition-all duration-300;
+}
+
+.rbc-event:hover {
+  @apply z-50;
 }
 
 .rbc-event:focus {
-  @apply !outline-none !ring-2 !ring-primary;
+  @apply !outline-none;
+}
+
+.rbc-time-content .rbc-event {
+  @apply shadow-2xl;
 }
 
 .rbc-all-day-cell {
-  @apply border-white/5;
+  @apply border-white/[0.05];
 }
 
 .rbc-time-header {
-  @apply border-white/5;
+  @apply border-white/10;
 }
 
 .rbc-time-header-content {
-  @apply border-white/5;
+  @apply border-white/10;
 }
 
 .rbc-time-content {
-  @apply border-white/5;
+  @apply border-white/10;
 }
 
 .rbc-timeslot-group {
-  @apply border-white/5 min-h-[60px];
+  @apply border-white/[0.05] min-h-[70px];
 }
 
 .rbc-time-slot {
-  @apply border-white/5;
-}
-
-.rbc-time-gutter .rbc-timeslot-group {
-  @apply border-none text-[10px] font-black text-gray-500 uppercase pr-2;
+  @apply border-white/[0.03];
 }
 
 .rbc-current-time-indicator {
-  @apply bg-primary h-[2px];
+  @apply bg-primary h-[1.5px] z-20 shadow-[0_0_15px_rgba(229,57,53,0.5)];
+}
+
+.rbc-current-time-indicator::after {
+  content: 'NOW';
+  @apply absolute left-0 -top-4 bg-primary text-white text-[7px] font-black px-1.5 py-0.5 rounded-sm tracking-widest shadow-lg;
+}
+
+.rbc-time-gutter .rbc-label {
+  @apply text-[9px] font-black text-gray-500 uppercase pr-3 tracking-tighter;
+}
+
+.rbc-agenda-view {
+  @apply border-white/5 rounded-3xl overflow-hidden bg-card shadow-2xl;
 }
 
 .rbc-agenda-view table.rbc-agenda-table {
-  @apply border-collapse border-none;
+  @apply border-collapse border-none w-full;
 }
 
-.rbc-agenda-view table.rbc-agenda-table .rbc-agenda-date-cell,
-.rbc-agenda-view table.rbc-agenda-table .rbc-agenda-time-cell {
-  @apply border-white/5 text-gray-400 font-bold text-xs p-4 bg-black/20;
+.rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  @apply border-b border-white/10 bg-black/60 text-white font-black uppercase tracking-widest text-[10px] p-6 text-left;
 }
 
-.rbc-agenda-view table.rbc-agenda-table .rbc-agenda-event-cell {
-  @apply border-white/5 p-2;
+.rbc-agenda-view table.rbc-agenda-table tbody > tr {
+  @apply border-b border-white/10 transition-all hover:bg-white/5;
+}
+
+.rbc-agenda-view table.rbc-agenda-table tbody > tr:nth-child(even) {
+  @apply bg-white/[0.02];
+}
+
+.rbc-agenda-view table.rbc-agenda-table tbody > tr.rbc-today {
+  @apply !bg-primary/[0.05];
+}
+
+.rbc-agenda-view table.rbc-agenda-table tbody > tr.rbc-selected {
+  @apply !bg-white/[0.08];
+}
+
+.rbc-agenda-date-cell {
+  @apply font-black text-white uppercase tracking-tight p-6 !bg-transparent shrink-0;
+}
+
+.rbc-agenda-time-cell {
+  @apply text-white/50 font-bold p-6 !bg-transparent shrink-0;
+}
+
+.rbc-agenda-event-cell {
+  @apply text-white font-black uppercase tracking-tight p-6 !bg-transparent flex-1;
+}
+
+.rbc-agenda-view .rbc-agenda-empty {
+  @apply p-20 text-center text-gray-500 font-bold uppercase tracking-widest text-xs;
 }
 
 .rbc-btn-group button {
-  @apply bg-white/5 border-white/10 text-white font-black uppercase tracking-widest text-[9px] hover:bg-white/10 transition-all;
+  @apply bg-zinc-900 border-white/5 text-white/70 font-black uppercase tracking-[0.2em] text-[8px] sm:text-[9px] px-4 py-2 hover:bg-white/10 transition-all border-y border-x first:border-l first:rounded-l-xl last:border-r last:rounded-r-xl;
 }
 
 .rbc-toolbar button:active, .rbc-toolbar button.rbc-active {
-  @apply !bg-primary !text-white !border-primary !shadow-lg !shadow-primary/20;
+  @apply !bg-primary !text-white !border-primary !shadow-[0_0_20px_rgba(229,57,53,0.3)];
 }
 
 .rbc-toolbar {
-  @apply mb-4 flex-wrap gap-4;
+  @apply mb-8 flex-wrap gap-6 items-center;
 }
 
 .rbc-toolbar-label {
-  @apply text-xl font-black uppercase tracking-tighter text-white;
+  @apply text-lg sm:text-2xl font-black uppercase tracking-tighter text-white flex-1 text-center md:text-left;
 }

@@ -5,6 +5,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import Dashboard from "./pages/Dashboard";
 import Leads from "./pages/Leads";
 import Clients from "./pages/Clients";
+import Communications from "./pages/Communications";
 import Calendar from "./pages/Calendar";
 import JobDetail from "./pages/JobDetail";
 import Invoices from "./pages/Invoices";
@@ -47,6 +48,7 @@ function AppContent() {
           <Route path="leads" element={<Leads />} />
           <Route path="leads/engine" element={<AILeadEngine />} />
           <Route path="clients" element={<Clients />} />
+          <Route path="communications" element={<Communications />} />
           <Route path="book-appointment" element={<BookAppointment />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="calendar/:id" element={<JobDetail />} />

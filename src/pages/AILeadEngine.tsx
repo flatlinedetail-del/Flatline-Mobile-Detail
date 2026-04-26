@@ -167,6 +167,17 @@ export default function AILeadEngine() {
   }, []);
 
   const handleGenerateExternal = async () => {
+    if (!location || isGenerating) return;
+
+    // Debounce
+    const now = Date.now();
+    const lastAIAction = Number(localStorage.getItem('last_lead_engine_ai_action') || 0);
+    if (now - lastAIAction < 3000) {
+      toast.info("Please wait a moment between action requests.");
+      return;
+    }
+    localStorage.setItem('last_lead_engine_ai_action', now.toString());
+
     if (!location) {
       toast.error("Location required", {
         description: "Please enter a city, ZIP, or address to search for leads."
@@ -192,23 +203,21 @@ export default function AILeadEngine() {
       if (data.results && data.results.length > 0) {
         toast.info(`Found ${data.results.length} businesses. Qualifying with AI...`);
         
-        // Process in small batches to be faster but safe
+        // Process one by one for maximum safety and quota compliance
         const qualified = [];
-        const batchSize = 3;
-        for (let i = 0; i < data.results.length; i += batchSize) {
-          const batch = data.results.slice(i, i + batchSize);
-          const qualifiedBatch = await Promise.all(
-            batch.map(async (lead) => {
-              try {
-                return await aiLeadService.qualifyLead(lead);
-              } catch (err) {
-                console.error(`Failed to qualify lead:`, err);
-                return lead;
-              }
-            })
-          );
-          qualified.push(...qualifiedBatch);
-          setGenerationProgress(Math.round((Math.min(i + batchSize, data.results.length) / data.results.length) * 100));
+        for (let i = 0; i < data.results.length; i++) {
+          const lead = data.results[i];
+          try {
+            console.log(`[AI Engine] Qualifying external lead ${i + 1}/${data.results.length}: ${lead.name}`);
+            const qualifiedLead = await aiLeadService.qualifyLead(lead);
+            qualified.push(qualifiedLead);
+          } catch (err) {
+            console.error(`Failed to qualify lead:`, err);
+            qualified.push(lead);
+          }
+          setGenerationProgress(Math.round(((i + 1) / data.results.length) * 100));
+          // Small delay between calls to be safe if quota is very tight
+          await new Promise(r => setTimeout(r, 1000));
         }
         
         setGeneratedLeads(qualified);
@@ -227,7 +236,16 @@ export default function AILeadEngine() {
 
   const handleCSVImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || isGenerating) return;
+
+    // Debounce
+    const now = Date.now();
+    const lastAIAction = Number(localStorage.getItem('last_lead_engine_ai_action') || 0);
+    if (now - lastAIAction < 3000) {
+      toast.info("Please wait a moment between AI requests.");
+      return;
+    }
+    localStorage.setItem('last_lead_engine_ai_action', now.toString());
 
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -250,9 +268,15 @@ export default function AILeadEngine() {
 
       setIsGenerating(true);
       try {
-        const qualified = await Promise.all(leads.map(l => aiLeadService.qualifyLead(l)));
+        const qualified = [];
+        for (let i = 0; i < leads.length; i++) {
+          console.log(`[AI Engine] Qualifying CSV lead ${i + 1}/${leads.length}`);
+          const q = await aiLeadService.qualifyLead(leads[i]);
+          qualified.push(q);
+          setGenerationProgress(Math.round(((i + 1) / leads.length) * 100));
+        }
         setGeneratedLeads(qualified);
-        toast.success(`Imported ${qualified.length} leads for qualification`);
+        toast.success(`Imported and qualified ${qualified.length} leads.`);
       } catch (error) {
         toast.error("Failed to qualify imported leads");
       } finally {
@@ -263,6 +287,17 @@ export default function AILeadEngine() {
   };
 
   const handleGenerateInternal = async () => {
+    if (isGenerating) return;
+
+    // Debounce
+    const now = Date.now();
+    const lastAIAction = Number(localStorage.getItem('last_lead_engine_ai_action') || 0);
+    if (now - lastAIAction < 3000) {
+      toast.info("Please wait a moment between action requests.");
+      return;
+    }
+    localStorage.setItem('last_lead_engine_ai_action', now.toString());
+
     setIsGenerating(true);
     setGenerationProgress(0);
     try {
@@ -271,19 +306,18 @@ export default function AILeadEngine() {
       if (internalLeads.length === 0) {
         toast.info("No new internal opportunities found at this time.");
       } else {
-        // Qualify each internal lead in batches
+        // Qualify each internal lead sequentially
         const qualifiedLeads = [];
-        const batchSize = 5;
-        for (let i = 0; i < internalLeads.length; i += batchSize) {
-          const batch = internalLeads.slice(i, i + batchSize);
-          const qualifiedBatch = await Promise.all(
-            batch.map(lead => aiLeadService.qualifyLead(lead))
-          );
-          qualifiedLeads.push(...qualifiedBatch);
-          setGenerationProgress(Math.round((Math.min(i + batchSize, internalLeads.length) / internalLeads.length) * 100));
+        for (let i = 0; i < internalLeads.length; i++) {
+          const lead = internalLeads[i];
+          console.log(`[AI Engine] Qualifying internal lead ${i + 1}/${internalLeads.length}: ${lead.name}`);
+          const qualified = await aiLeadService.qualifyLead(lead);
+          qualifiedLeads.push(qualified);
+          setGenerationProgress(Math.round(((i + 1) / internalLeads.length) * 100));
+          await new Promise(r => setTimeout(r, 800));
         }
         setGeneratedLeads(qualifiedLeads);
-        toast.success(`Found ${qualifiedLeads.length} internal opportunities!`);
+        toast.success(`Retention Engine: Found and qualified ${qualifiedLeads.length} strategic opportunities.`);
       }
     } catch (error) {
       console.error("Internal generation error:", error);

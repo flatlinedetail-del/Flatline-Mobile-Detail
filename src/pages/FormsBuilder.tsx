@@ -274,7 +274,7 @@ export default function FormsBuilder() {
               </Button>
               <DeleteConfirmationDialog
                 trigger={
-                  <Button variant="ghost" size="icon" className="h-9 w-9 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl">
+                  <Button variant="ghost" size="icon" className="h-9 w-9 p-0 text-white hover:text-white bg-red-500/10 hover:bg-red-500 rounded-xl">
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 }
@@ -419,7 +419,7 @@ export default function FormsBuilder() {
                 {formData.acknowledgments.map((ack, index) => (
                   <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-100">
                     <span className="text-sm">{ack}</span>
-                    <Button variant="ghost" size="sm" onClick={() => removeAcknowledgment(index)} className="text-red-500">
+                    <Button variant="ghost" size="sm" onClick={() => removeAcknowledgment(index)} className="text-white hover:text-white bg-red-500/20 hover:bg-red-500 h-8 w-8 p-0">
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>

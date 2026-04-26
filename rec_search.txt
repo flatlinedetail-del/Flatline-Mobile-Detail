@@ -1,0 +1,55 @@
+65:  UpsellRecommendation,
+167:    recommendations: UpsellRecommendation[];
+174:  const recommendations = activeVehicleId ? (vehicleStates[activeVehicleId]?.recommendations || []) : [];
+184:        recommendations: []
+205:  const setRecommendations = (val: any[] | ((prev: any[]) => any[])) => {
+206:    updateVehicleState(curr => ({ ...curr, recommendations: typeof val === 'function' ? val(curr.recommendations) : val }));
+210:  const [selectedRecommendations, setSelectedRecommendations] = useState<UpsellRecommendation[]>([]);
+340:      internalExp = adj.reasoning || "AI pricing engine recommended this adjustment based on field assessment and profitability parameters.";
+359:  const handleApplyOneTapUpsell = async (rec: UpsellRecommendation) => {
+368:        price: rec.recommendedPrice,
+370:        total: rec.recommendedPrice,
+373:        recommendedProduct: rec.recommendedProduct || "",
+387:        totalAmount: currentTotal + rec.recommendedPrice,
+388:        baseAmount: currentBase + rec.recommendedPrice,
+389:        internalNotes: (job.internalNotes || "") + `\n\n[REVENUE PROTOCOL] Added ${rec.serviceName} for $${rec.recommendedPrice} at ${new Date().toLocaleString()}.`
+394:      // Remove it from the recommendations list so it's not suggested twice
+395:      setRecommendations(recommendations.filter(r => r.serviceName !== rec.serviceName));
+404:  const handleApplyPriceTier = async (tier: 'floor' | 'recommended' | 'premium') => {
+626:      // Map unseen recommendations to recommended properties
+627:      const recommendedItems = recommendations.map(rec => ({
+629:        description: rec.reason || "Recommended based on vehicle condition",
+631:        price: rec.recommendedPrice || 0,
+632:        total: rec.recommendedPrice || 0,
+633:        source: "recommendation",
+637:      if (job.unacceptedRecommendations?.length > 0) {
+638:        job.unacceptedRecommendations.forEach((ur: any) => {
+639:          if (!recommendedItems.find(r => r.serviceName === ur.name)) {
+640:            recommendedItems.push({
+646:              source: "recommendation",
+684:        recommendedItems,
+2248:                            setRecommendations(response.recommendedUpsells);
+2280:                            toast.error("Failed to generate strategic recommendations");
+2315:                  {recommendations.length > 0 && (
+2317:                      {recommendations.map((rec, idx) => {
+2340:                            {rec.recommendedProduct && (
+2345:                                <p className="text-xs font-black text-white mb-1">{rec.recommendedProduct}</p>
+2378:                                    setRecommendations(recommendations.filter(r => r.serviceName !== rec.serviceName));
+2387:                                  value={rec.recommendedPrice}
+2391:                                    const updatedRec = { ...rec, recommendedPrice: newPrice };
+2392:                                    setRecommendations(recommendations.map(r => r.serviceName === rec.serviceName ? updatedRec : r));
+2444:                          {/* Recommended Tier */}
+2446:                            <span className="text-[10px] font-black text-primary uppercase tracking-widest block mb-2">Recommended</span>
+2447:                            <div className="text-3xl font-black text-white mb-4">{formatCurrency(pricingAnalysis.recommendedPrice)}</div>
+2449:                              onClick={() => handleApplyPriceTier('recommended')}
+2453:                              Apply Recommended
+2479:                            <p className="text-sm font-black text-green-500">{formatCurrency(pricingAnalysis.recommendedPrice)}</p>
+2804:                          setRecommendations([]);
+2805:                          setSelectedRecommendations([]); // Keep for cleanliness
+2840:                const liveRecommendations = recommendations.map(r => ({
+2845:                  recommendedProduct: r.recommendedProduct,
+2853:                  recommendedProduct: null,
+2856:                const activeDirectives = [...liveRecommendations, ...liveInsights];
+2893:                              {item.recommendedProduct && (
+2895:                                  <Label className="text-[9px] font-black uppercase tracking-widest text-blue-400 mb-2 block">Tooling / Product Recommendation</Label>
+2896:                                  <p className="text-sm font-black text-white">{item.recommendedProduct}</p>

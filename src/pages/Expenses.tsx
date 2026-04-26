@@ -12,10 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Receipt, Plus, Search, Filter, Trash2, Calendar, DollarSign, Tag, Link as LinkIcon, ExternalLink, Loader2, Camera, FileText, Sparkles, Upload, Edit2 } from "lucide-react";
+import { Receipt, Plus, Search, Filter, Trash2, Calendar, DollarSign, Tag, Link as LinkIcon, ExternalLink, Loader2, Camera, FileText, Sparkles, Upload, Edit2, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { Category } from "../types";
 import { StableInput } from "../components/StableInput";
 import { SearchableSelector } from "../components/SearchableSelector";
@@ -55,41 +55,34 @@ export default function Expenses() {
     receiptUrl: ""
   });
 
+  const fetchExpenses = async (showToast = false) => {
+    if (showToast) toast.loading("Syncing Ledger...", { id: "sync-expenses" });
+    setLoading(true);
+    try {
+      const expensesQuery = query(collection(db, "expenses"), orderBy("date", "desc"), limit(200));
+      const snapshot = await getDocs(expensesQuery);
+      setExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      
+      const [appointmentsSnap, categoriesSnap] = await Promise.all([
+        getDocs(query(collection(db, "appointments"), orderBy("scheduledAt", "desc"), limit(50))),
+        getDocs(query(collection(db, "categories"), where("isActive", "==", true)))
+      ]);
+
+      setAppointments(appointmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setCategories(categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category)));
+      
+      if (showToast) toast.success("Ledger Synchronized", { id: "sync-expenses" });
+    } catch (error) {
+      console.error("Error fetching expense data:", error);
+      if (showToast) toast.error("Sync Failed", { id: "sync-expenses" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (authLoading || !profile) return;
-
-    setLoading(true);
-    
-    // Set up real-time listener for expenses
-    const expensesQuery = query(collection(db, "expenses"), orderBy("date", "desc"));
-    const unsubscribeExpenses = onSnapshot(expensesQuery, (snapshot) => {
-      setExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    }, (error) => {
-      console.error("Error listening to expenses:", error);
-      setLoading(false);
-    });
-
-    // Fetch other data once
-    const fetchSupportData = async () => {
-      try {
-        const [appointmentsSnap, categoriesSnap] = await Promise.all([
-          getDocs(query(collection(db, "appointments"), orderBy("scheduledAt", "desc"), limit(50))),
-          getDocs(query(collection(db, "categories"), where("isActive", "==", true)))
-        ]);
-
-        setAppointments(appointmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setCategories(categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category)));
-      } catch (error) {
-        console.error("Error fetching support data:", error);
-      }
-    };
-
-    fetchSupportData();
-
-    return () => {
-      unsubscribeExpenses();
-    };
+    fetchExpenses();
   }, [profile, authLoading]);
 
   useEffect(() => {
@@ -109,8 +102,18 @@ export default function Expenses() {
     
     // Auto-analyze if it's an image or PDF
     if (file.type.startsWith("image/") || file.type === "application/pdf") {
+      // Add debounce check
+      const now = Date.now();
+      const lastAIAction = Number(localStorage.getItem('last_receipt_ai_action') || 0);
+      if (now - lastAIAction < 3000) {
+        toast.info("Please wait a moment between receipt analyses.");
+        return;
+      }
+      localStorage.setItem('last_receipt_ai_action', now.toString());
+
       setIsAnalyzing(true);
       try {
+        console.log("[Expenses] Receipt Analysis Triggered");
         const reader = new FileReader();
         reader.onload = async (event) => {
           try {
@@ -251,7 +254,17 @@ export default function Expenses() {
         accentWord="REGISTRY" 
         subtitle="Operational Overhead & Capital Expenditure Tracking"
         actions={
-          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <div className="flex items-center gap-3">
+            <Button 
+              variant="outline" 
+              className={cn("border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]", loading && "animate-spin")}
+              onClick={() => fetchExpenses(true)}
+              disabled={loading}
+            >
+              <RefreshCcw className="w-4 h-4 mr-2 text-primary" />
+              Sync Ledger
+            </Button>
+            <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogTrigger render={
               <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105">
                 <Plus className="w-4 h-4 mr-2" />
@@ -309,7 +322,7 @@ export default function Expenses() {
                     <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
                       <FileText className="w-4 h-4 text-primary" />
                       <span className="text-[10px] font-bold text-white/70 uppercase tracking-widest truncate flex-1">{receiptFile.name}</span>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-500 hover:text-red-500 hover:bg-red-500/10" onClick={() => setReceiptFile(null)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-white bg-red-500/10 hover:bg-red-500 hover:text-white" onClick={() => setReceiptFile(null)}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
@@ -419,17 +432,18 @@ export default function Expenses() {
               </form>
             </DialogContent>
           </Dialog>
+          </div>
         }
       />
 
-      <Card className="border-none shadow-sm bg-white overflow-hidden">
-        <CardHeader className="border-b border-gray-50 bg-gray-50/50">
+      <Card className="border-white/5 bg-card shadow-xl overflow-hidden mt-8">
+        <CardHeader className="border-b border-white/5 bg-black/40 p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
               <Input 
-                placeholder="Search expenses..." 
-                className="pl-10 bg-white border-gray-200"
+                placeholder="Search ledger..." 
+                className="pl-10 bg-black/40 border-white/10 text-white rounded-full h-10"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -438,64 +452,64 @@ export default function Expenses() {
         </CardHeader>
         <CardContent className="p-0">
           <Table>
-            <TableHeader className="bg-gray-50/50">
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Receipt</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+            <TableHeader className="bg-black/20 border-b border-white/5">
+              <TableRow className="hover:bg-transparent border-white/5">
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Date</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Description</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Category</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Amount</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Receipt</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-10 text-gray-500">Loading expenses...</TableCell>
+                  <TableCell colSpan={6} className="text-center py-20 text-white/20 font-black uppercase tracking-[0.2em] text-[10px]">Synchronizing Financial Data...</TableCell>
                 </TableRow>
               ) : filteredExpenses.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-10 text-gray-500">No expenses recorded.</TableCell>
+                  <TableCell colSpan={6} className="text-center py-20 text-white/20 font-black uppercase tracking-[0.2em] text-[10px]">No Strategic Expenditures Recorded</TableCell>
                 </TableRow>
               ) : (
                 filteredExpenses.map((exp) => (
-                  <TableRow key={exp.id} className="hover:bg-gray-50/50 transition-colors group">
-                    <TableCell className="text-sm font-medium text-gray-600">
+                  <TableRow key={exp.id} className="hover:bg-white/[0.02] transition-colors border-white/5 group">
+                    <TableCell className="text-xs font-bold text-white/60">
                       {exp.date?.toDate ? format(exp.date.toDate(), "MMM d, yyyy") : "---"}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
-                        <span className="font-bold text-gray-900">{exp.description}</span>
+                        <span className="font-bold text-white tracking-tight">{exp.description}</span>
                         {exp.linkedAppointmentId && (
-                          <span className="text-[10px] text-primary font-black uppercase tracking-widest flex items-center gap-1 mt-1">
-                            <LinkIcon className="w-3 h-3" /> Linked to Job
+                          <span className="text-[9px] text-primary font-black uppercase tracking-widest flex items-center gap-1 mt-1">
+                            <Zap className="w-2.5 h-2.5" /> Mission Attached
                           </span>
                         )}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-gray-50">
+                      <Badge variant="outline" className="text-[9px] font-black uppercase tracking-wider bg-white/5 border-white/10 text-white/80">
                         {exp.category}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <span className="font-black text-gray-900">${exp.amount?.toFixed(2)}</span>
+                      <span className="font-black text-white text-sm">{formatCurrency(exp.amount)}</span>
                     </TableCell>
                     <TableCell>
                       {exp.receiptUrl ? (
-                        <a href={exp.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-red-700">
-                          <ExternalLink className="w-4 h-4" />
+                        <a href={exp.receiptUrl} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-primary hover:bg-primary hover:text-white transition-all border border-white/10">
+                          <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       ) : (
-                        <span className="text-gray-300">---</span>
+                        <span className="text-white/20 font-black text-xs">---</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1">
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-gray-400 hover:text-primary"
+                          className="h-9 w-9 text-white/40 hover:text-white hover:bg-white/10 rounded-xl"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingExpense(exp);
@@ -517,13 +531,13 @@ export default function Expenses() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-8 w-8 text-gray-400 hover:text-red-600"
+                              className="h-9 w-9 text-white/40 hover:text-primary hover:bg-primary/10 rounded-xl"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           }
-                          title="Delete Expense?"
+                          title="Purge Expenditure?"
                           itemName={exp.description}
                           onConfirm={() => handleDeleteExpense(exp.id)}
                         />

@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { messagingService } from "../services/messagingService";
 
 interface ClientCommunicationProps {
   client: Client;
@@ -58,14 +59,33 @@ export function ClientCommunication({ client }: ClientCommunicationProps) {
 
     setIsSending(true);
     try {
-      const logData: Omit<CommunicationLog, "id"> = {
+      let deliveryStatus = "sent";
+
+      if (type === "email") {
+        if (!client.email) throw new Error("Client has no email address configured.");
+        await messagingService.sendEmail({
+          to: client.email,
+          subject: subject || "Message from our team",
+          text: content
+        });
+        deliveryStatus = "delivered";
+      } else if (type === "sms") {
+        if (!client.phone) throw new Error("Client has no phone number configured.");
+        const res = await messagingService.sendSms({
+          to: client.phone,
+          body: content
+        });
+        deliveryStatus = res.status || "delivered";
+      }
+
+      const logData = {
         clientId: client.id,
         type,
         content,
         subject: type === "email" ? subject : undefined,
-        senderId: profile?.id,
-        senderName: profile?.displayName,
-        status: "sent",
+        senderId: profile?.id || null,
+        senderName: profile?.displayName || null,
+        status: deliveryStatus,
         createdAt: serverTimestamp()
       };
 
@@ -76,9 +96,25 @@ export function ClientCommunication({ client }: ClientCommunicationProps) {
       setSubject("");
       setActiveTab("history");
       toast.success(`${type.toUpperCase()} sent and logged successfully`);
-    } catch (error) {
+    } catch (error: any) {
        console.error("Error logging communication:", error);
-       toast.error("Failed to log communication");
+       
+       // Log failure if it was a message attempt
+       if (type !== "note") {
+        await addDoc(collection(db, "communication_logs"), {
+          clientId: client.id,
+          type,
+          content,
+          subject: type === "email" ? subject : undefined,
+          senderId: profile?.id || null,
+          senderName: profile?.displayName || null,
+          status: "failed",
+          errorDetail: error.message || "Sending failed",
+          createdAt: serverTimestamp()
+        });
+       }
+       
+       toast.error(error.message || `Failed to send ${type === 'note' ? 'note' : type.toUpperCase()}`);
     } finally {
       setIsSending(false);
     }
@@ -144,9 +180,14 @@ export function ClientCommunication({ client }: ClientCommunicationProps) {
                                    via {log.senderName || "System"}
                                  </span>
                                </div>
-                               <span className="text-[9px] text-zinc-600 font-bold whitespace-nowrap">
-                                 {log.createdAt && format((log.createdAt as any).toDate(), "MMM d, h:mm a")}
-                               </span>
+                               <div className="flex items-center gap-2">
+                                 <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-white/5 bg-black text-zinc-400">
+                                   {log.status || 'unknown'}
+                                 </span>
+                                 <span className="text-[9px] text-zinc-600 font-bold whitespace-nowrap">
+                                   {log.createdAt ? format((log.createdAt as any).toDate(), "MMM d, h:mm a") : 'Pending...'}
+                                 </span>
+                               </div>
                              </div>
                              {log.subject && (
                                <p className="text-xs font-black text-white uppercase tracking-tight mb-1">{log.subject}</p>

@@ -3,16 +3,98 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import "dotenv/config";
+import sgMail from "@sendgrid/mail";
+import twilio from "twilio";
+import { startScheduler } from "./scheduler.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Initialize providers if available
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
+
+let twilioClient: twilio.Twilio | null = null;
+if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+  try {
+    twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+  } catch(e) {
+    console.error("Failed to initialize Twilio client", e);
+  }
+}
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Start background jobs
+  startScheduler();
+
   app.use(express.json());
 
   // API routes
+  
+  // Messaging API Routes
+  app.post("/api/messages/email", async (req, res) => {
+    if (!process.env.SENDGRID_API_KEY) {
+      return res.status(400).json({ error: "SendGrid not configured" });
+    }
+    
+    const { to, subject, html, text, fromName } = req.body;
+    
+    if (!to || !subject || (!html && !text)) {
+      return res.status(400).json({ error: "Missing required fields (to, subject, html/text)" });
+    }
+
+    try {
+      const msg = {
+        to,
+        from: {
+          email: process.env.SENDGRID_FROM_EMAIL || "no-reply@yourbusiness.com",
+          name: fromName || process.env.SENDGRID_FROM_NAME || "Booking Team"
+        },
+        subject,
+        text: text || html.replace(/<[^>]+>/g, ''),
+        html: html || text
+      };
+      
+      await sgMail.send(msg);
+      res.json({ success: true, message: "Email sent successfully" });
+    } catch (error: any) {
+      console.error("SendGrid error:", error.response?.body || error);
+      res.status(500).json({ error: "Failed to send email", details: error.message });
+    }
+  });
+
+  app.post("/api/messages/sms", async (req, res) => {
+    if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
+      return res.status(400).json({ error: "Twilio not configured" });
+    }
+
+    const { to, body } = req.body;
+    
+    if (!to || !body) {
+      return res.status(400).json({ error: "Missing required fields (to, body)" });
+    }
+
+    try {
+      const message = await twilioClient.messages.create({
+        body,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to
+      });
+      res.json({ success: true, messageId: message.sid, status: message.status });
+    } catch (error: any) {
+      console.error("Twilio error:", error);
+      let errMsg = error.message;
+      if (error.code === 30034) {
+        errMsg = "Twilio blocked this message because A2P 10DLC registration is incomplete. (" + error.message + ")";
+      }
+      // Return 200 with failed status to avoid unhandled rejection issues in frontend
+      res.json({ success: false, status: "failed", error: errMsg, code: error.code });
+    }
+  });
+
   app.get("/api/weather", async (req, res) => {
     const { lat, lon } = req.query;
     const apiKey = process.env.VITE_OPENWEATHER_API_KEY;

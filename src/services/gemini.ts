@@ -1,6 +1,33 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { generateRecommendationExplanation } from "../lib/recommendationSystem";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const DEFAULT_MODEL = "gemini-3-flash-preview";
+
+// Cache for AI results
+const aiCache = new Map<string, { result: any; timestamp: number }>();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+// Guard against multiple simultaneous requests
+let activeRequestCount = 0;
+const MAX_CONCURRENT_REQUESTS = 1; // Strictly enforce one at a time for quota safety
+
+function getCacheKey(fnName: string, args: any[]): string {
+  return `${fnName}:${JSON.stringify(args)}`;
+}
+
+function getFromCache(key: string) {
+  const cached = aiCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log(`[AI Cache] Hit for ${key}`);
+    return cached.result;
+  }
+  return null;
+}
+
+function setToCache(key: string, result: any) {
+  aiCache.set(key, { result, timestamp: Date.now() });
+}
 
 export interface AIResponse {
   intent: "schedule" | "quote" | "search" | "report" | "marketing" | "scaling" | "other";
@@ -64,9 +91,24 @@ export interface UpsellRecommendation {
   recommendedPrice: number;
 }
 
-async function withRetry<T>(fn: () => Promise<T>, retries = 10, delay = 7000, attempt = 1): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, attempt = 1, fnName = "unknown", args: any[] = []): Promise<T> {
+  const cacheKey = getCacheKey(fnName, args);
+  const cachedResult = getFromCache(cacheKey);
+  if (cachedResult) return cachedResult;
+
+  if (activeRequestCount >= MAX_CONCURRENT_REQUESTS) {
+    console.warn(`[AI Guard] Request blocked: ${fnName} (${activeRequestCount} active). Retrying in 1s...`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return withRetry(fn, retries, delay, attempt, fnName, args);
+  }
+
+  activeRequestCount++;
+  console.log(`[AI Request] ${fnName} | Attempt ${attempt} | Model: ${DEFAULT_MODEL}`);
+
   try {
-    return await fn();
+    const result = await fn();
+    setToCache(cacheKey, result);
+    return result;
   } catch (error: any) {
     // Handle both string status and numeric code, including nested structures
     const errObj = error.error || error;
@@ -92,19 +134,22 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 10, delay = 7000, at
                             message.includes("quota exceeded");
 
     if (isQuotaExceeded) {
+      console.error(`[AI Quota] Resource Exhausted on ${fnName}`);
       throw new Error("QUOTA_EXCEEDED: Your Gemini API spending cap has been reached. Please visit https://ai.studio/spend to manage your project limits.");
     }
     
     if (retries > 0 && isUnavailable) {
-      const nextDelay = delay + Math.random() * 7000; // Add more jitter
-      console.warn(`Gemini API busy (${code || status || name}), retrying in ${Math.round(nextDelay)}ms... (Attempt ${attempt}, ${retries} retries left)`);
+      const nextDelay = delay + Math.random() * 2000; 
+      console.warn(`[AI Retry] Busy (${code || status || name}), retrying in ${Math.round(nextDelay)}ms... (${retries} left)`);
       await new Promise(resolve => setTimeout(resolve, nextDelay));
-      return withRetry(fn, retries - 1, delay * 1.5, attempt + 1);
+      return withRetry(fn, retries - 1, delay * 2, attempt + 1, fnName, args);
     }
 
     // Only log as error on the final failure
-    console.error(`Gemini API Final Failure (Attempt ${attempt}):`, JSON.stringify(error));
+    console.error(`[AI Failure] ${fnName} Final Failure (Attempt ${attempt}):`, JSON.stringify(error));
     throw error;
+  } finally {
+    activeRequestCount--;
   }
 }
 
@@ -124,7 +169,7 @@ export async function qualifyLeadAI(lead: any): Promise<{
                              (lead.name && lead.name.toLowerCase().includes("body shop"));
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: DEFAULT_MODEL,
       contents: [{ 
         role: "user", 
         parts: [{ text: `Qualify this lead for a mobile detailing business:
@@ -223,7 +268,7 @@ export async function qualifyLeadAI(lead: any): Promise<{
     });
 
     return JSON.parse(response.text);
-  });
+  }, 2, 3000, 1, "qualifyLeadAI", [(lead.id || lead.name)]);
 }
 
 /**
@@ -233,7 +278,7 @@ export async function qualifyLeadAI(lead: any): Promise<{
 export async function askAssistant(input: string, context?: any): Promise<AIResponse> {
   return withRetry(async () => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: DEFAULT_MODEL,
       contents: [{ role: "user", parts: [{ text: `Context: ${JSON.stringify(context)}\n\nUser Request: ${input}` }] }],
       config: {
         systemInstruction: `You are a world-class business consultant, marketing director, and AI assistant for Flatline Mobile Detail.
@@ -352,7 +397,7 @@ export async function askAssistant(input: string, context?: any): Promise<AIResp
     });
 
     return JSON.parse(response.text);
-  });
+  }, 2, 3000, 1, "askAssistant", [input, context]);
 }
 
 /**
@@ -365,7 +410,7 @@ export async function analyzeReceipt(base64Data: string): Promise<ReceiptData> {
 
   return withRetry(async () => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: DEFAULT_MODEL,
       contents: [
         {
           role: "user",
@@ -399,68 +444,286 @@ export async function analyzeReceipt(base64Data: string): Promise<ReceiptData> {
     });
 
     return JSON.parse(response.text);
-  });
+  }, 2, 3000, 1, "analyzeReceipt", [base64.slice(0, 50)]);
+}
+
+export interface UpsellRecommendation {
+  serviceName: string;
+  reason: string;
+  recommendationType?: "observed" | "maintenance_due" | "preventative";
+  conditionLevel?: "light" | "moderate" | "heavy";
+  priceRange: string;
+  recommendedPrice: number;
+  originalPrice?: number;
+  bundlePrice?: number;
+  requiresProductCost: boolean;
+  recommendedProduct?: string;
+  productReason?: string;
+}
+
+export interface PricingAnalysis {
+  laborTarget: number;
+  overhead: number;
+  travelFee: number;
+  totalProductCost: number;
+  floorPrice: number;
+  recommendedPrice: number;
+  premiumPrice: number;
+  estimatedMarginDollars: number;
+  estimatedMarginPercent: number;
+  netAfterProductCost: number;
+}
+
+export interface RevenueOptimizationResponse {
+  recommendedUpsells: UpsellRecommendation[];
+  pricingAdjustments?: {
+    targetServiceName: string;
+    reason: string;
+    suggestedRange: string;
+    suggestedPrice: number;
+    impact: string;
+  }[];
+  bundlingOpportunities?: {
+    bundleName: string;
+    items: string[];
+    discountedPrice: number;
+    savings: number;
+  }[];
+  customerSpecificSuggestions?: {
+    suggestion: string;
+    logic: string;
+  }[];
+  pricingAnalysis?: PricingAnalysis;
 }
 
 /**
- * AI Upsell Recommendation Logic
+ * Revenue Generation Protocol Logic
+ * Optimizes job revenue based on technician assessment and job data
  */
-export async function getUpsellRecommendations(description: string, jobInfo: any): Promise<UpsellRecommendation[]> {
+export async function getRevenueOptimization(
+  assessment: string, 
+  jobData: {
+    services: string[];
+    addOns: string[];
+    totalPrice: number;
+    vehicle: { year?: string; make?: string; model?: string; size?: string };
+    customerType: string;
+    travelFee?: number;
+  },
+  productCosts: any[] = [],
+  settings: any = {},
+  images: string[] = []
+): Promise<RevenueOptimizationResponse> {
+  console.log("[AI Protocol] Request Payload:", JSON.stringify({ jobData, productCosts }, null, 2));
+
   return withRetry(async () => {
+    const totalProductCost = productCosts.reduce((sum, p) => sum + (p.totalCost || 0), 0);
+    const travelFee = jobData.travelFee || 0;
+    const marginTargets = settings.marginTargets || { floor: 20, recommended: 35, premium: 50 };
+
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: DEFAULT_MODEL,
       contents: [{ 
         role: "user", 
-        parts: [{ text: `A technician is at a job site and has provided the following assessment: "${description}"
+        parts: [
+          { text: `Act as a Detailing Revenue Strategist. Analyze this vehicle assessment and job data to identify revenue gains and protected pricing.
+        
+        Assessed Condition: "${assessment}"
+        Current Job Specs: ${JSON.stringify(jobData, null, 2)}
+        
+        INTERNAL COST DATA:
+        - Total Product Cost: $${totalProductCost}
+        - Travel Fee: $${travelFee}
+        - Margin Targets: Floor ${marginTargets.floor}%, Recommended ${marginTargets.recommended}%, Premium ${marginTargets.premium}%
+        
+        Required Analysis:
+        1. Recommended Upsells: Specific high-margin Smart Add-Ons based on the vehicle condition and job context. Do not invent generic filler. Use logic reflecting real-world enhancement add-ons.
+           - CRITICAL: Provide 'recommendationType' (observed, maintenance_due, or preventative). 
+           - Provide 'conditionLevel' (light, moderate, or heavy) if it is observed.
+           - Provide 'originalPrice' (standard retail price) and 'bundlePrice' (discounted price for today) instead of a generic price. The 'recommendedPrice' should equal the 'bundlePrice'.
+           - CRITICAL: For each recommended upsell, if a specific detailing product or tool is applicable, provide the 'recommendedProduct' and a short 'productReason' explaining why it fits the task. If no specific product is needed, omit these fields.
+        2. Pricing Adjustments: Identify specific items in the 'services' or 'addOns' list that should have their price adjusted due to complexity, time, OR high product usage.
+        3. Bundling Opportunities: Combinations to increase ticket size.
+        4. Profit-Protected Pricing Tiers: Calculate 3 pricing tiers (floor, recommended, premium) for the ENTIRE job base amount using this formula: (Labor + Overhead + Travel + Product Cost) / (1 - Target Margin %). 
+           - For this calculation, assume Labor + Overhead is roughly 45% of the current service base price if not specified.
+           - Ensure the Recommended Price is balanced and the Premium Price reflects absolute maximum quality/protection.
+        5. Detailed display metrics: total product cost, estimated gross revenue (using recommended price), estimated margin dollars, estimated margin percentage, net after product cost.
 
-        Job Context:
-        Vehicle: ${jobInfo.vehicleInfo}
-        Current Services: ${jobInfo.serviceNames?.join(", ")}
-        Client Type: ${jobInfo.clientType || "Retail"}
-        Address: ${jobInfo.address}
-
-        Based on the technician's description of the vehicle condition, recommend specific upsell services from the following list (or suggest specialized services):
-        - Odor Treatment
-        - Excessive Pet Hair Removal
-        - Mold Remediation
-        - Biohazard Cleanup
-        - Headliner Cleaning
-        - Carpet Extraction/Shampoo
-        - Seat Extraction/Shampoo
-        - Leather Restoration/Conditioning
-        - Paint Correction
-        - Ceramic Coating
-        - Engine Bay Detail
-        - Water Spot Removal
-        - Headlight Restoration
-
-        For each recommendation, provide:
-        - serviceName: The name of the service
-        - reason: Why it's recommended based on the technician's report
-        - priceRange: A string describing the typical price range (e.g. "$50 - $120")
-        - recommendedPrice: A single numeric price to add to the job if accepted
-
-        Return exactly a JSON array of recommendation objects.` }] 
+        Return a JSON object matching the requested schema.` },
+          ...images.map(img => {
+            const isBase64 = img.includes('base64,');
+            const mimeType = isBase64 ? img.split(';')[0].split(':')[1] : 'image/jpeg';
+            const data = isBase64 ? img.split('base64,')[1] : img;
+            return {
+              inlineData: {
+                data,
+                mimeType
+              }
+            };
+          })
+        ] 
       }],
       config: {
-        systemInstruction: `You are a savvy Upsell Advisor for Flatline Mobile Detail. Your goal is to help technicians maximize revenue by identifying necessary high-value services that match the vehicle's observed condition. Be specific and tactical.`,
+        systemInstruction: `You are a Revenue Growth Expert. Your goal is to maximize the Average Order Value (AOV) while protecting profit margins. Always account for real job costs (Product Costs, Travel, etc.) before recommending a final price. If product costs are high, push for higher recommended/premium tiers.`,
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              serviceName: { type: Type.STRING },
-              reason: { type: Type.STRING },
-              priceRange: { type: Type.STRING },
-              recommendedPrice: { type: Type.NUMBER }
+          type: Type.OBJECT,
+          properties: {
+            recommendedUpsells: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  serviceName: { type: Type.STRING },
+                  reason: { type: Type.STRING },
+                  recommendationType: { type: Type.STRING, description: "One of: observed, maintenance_due, preventative" },
+                  conditionLevel: { type: Type.STRING, description: "One of: light, moderate, heavy (only if observed)" },
+                  originalPrice: { type: Type.NUMBER },
+                  bundlePrice: { type: Type.NUMBER },
+                  priceRange: { type: Type.STRING },
+                  recommendedPrice: { type: Type.NUMBER },
+                  requiresProductCost: { type: Type.BOOLEAN },
+                  recommendedProduct: { type: Type.STRING },
+                  productReason: { type: Type.STRING }
+                },
+                required: ["serviceName", "reason", "recommendationType", "originalPrice", "bundlePrice", "priceRange", "recommendedPrice", "requiresProductCost"]
+              }
             },
-            required: ["serviceName", "reason", "priceRange", "recommendedPrice"]
-          }
+            pricingAdjustments: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  targetServiceName: { type: Type.STRING },
+                  reason: { type: Type.STRING },
+                  suggestedRange: { type: Type.STRING },
+                  suggestedPrice: { type: Type.NUMBER },
+                  impact: { type: Type.STRING }
+                },
+                required: ["targetServiceName", "reason", "suggestedPrice"]
+              }
+            },
+            bundlingOpportunities: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  bundleName: { type: Type.STRING },
+                  items: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  discountedPrice: { type: Type.NUMBER },
+                  savings: { type: Type.NUMBER }
+                }
+              }
+            },
+            customerSpecificSuggestions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  suggestion: { type: Type.STRING },
+                  logic: { type: Type.STRING }
+                }
+              }
+            },
+            pricingAnalysis: {
+              type: Type.OBJECT,
+              properties: {
+                laborTarget: { type: Type.NUMBER },
+                overhead: { type: Type.NUMBER },
+                travelFee: { type: Type.NUMBER },
+                totalProductCost: { type: Type.NUMBER },
+                floorPrice: { type: Type.NUMBER },
+                recommendedPrice: { type: Type.NUMBER },
+                premiumPrice: { type: Type.NUMBER },
+                estimatedMarginDollars: { type: Type.NUMBER },
+                estimatedMarginPercent: { type: Type.NUMBER },
+                netAfterProductCost: { type: Type.NUMBER }
+              },
+              required: ["floorPrice", "recommendedPrice", "premiumPrice", "totalProductCost"]
+            }
+          },
+          required: ["recommendedUpsells", "pricingAnalysis"]
+        }
+      }
+    });
+
+    const result = JSON.parse(response.text);
+    if (result.recommendedUpsells) {
+       result.recommendedUpsells = result.recommendedUpsells.map((u: any) => {
+         const langOpt = generateRecommendationExplanation({
+           serviceName: u.serviceName,
+           recommendationType: u.recommendationType || 'preventative',
+           conditionLevel: u.conditionLevel,
+           originalPrice: u.originalPrice || u.recommendedPrice,
+           bundlePrice: u.bundlePrice || u.recommendedPrice
+         });
+         u.reason = langOpt.explanation;
+         return u;
+       });
+    }
+    console.log("[AI Protocol] Response Received:", JSON.stringify(result, null, 2));
+    return result;
+  }, 2, 3000, 1, "getRevenueOptimization", [assessment, jobData.totalPrice]);
+}
+
+export interface DeploymentInsight {
+  name: string;
+  description: string;
+  price: number;
+  reason: string;
+}
+
+export interface DeploymentStrategyResponse {
+  insights: DeploymentInsight[];
+  summary: string;
+}
+
+/**
+ * Deployment Intelligence Logic
+ * Analyzes operational context for mission-specific billable items
+ */
+export async function analyzeDeployment(jobData: any): Promise<DeploymentStrategyResponse> {
+  return withRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: DEFAULT_MODEL,
+      contents: [{ 
+        role: "user", 
+        parts: [{ text: `Analyze this mobile detailing deployment for operational billable items:
+        ${JSON.stringify(jobData, null, 2)}
+        
+        Identify:
+        1. Operational surcharges (Travel, Bio, Pet, Large Vehicle, Rush).
+        2. Necessary tactical upgrades based on notes or RO/VIN data.
+        3. Compliance/Disposal fees if applicable.
+
+        Return JSON with 'insights' (array of {name, description, price, reason}) and 'summary'.` }] 
+      }],
+      config: {
+        systemInstruction: `You are a Tactical Operations AI. Your goal is to ensure every deployment-specific cost is accounted for. If a job requires extra time or supplies due to vehicle size, condition, or location, pinpoint it.`,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            insights: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  price: { type: Type.NUMBER },
+                  reason: { type: Type.STRING }
+                },
+                required: ["name", "description", "price", "reason"]
+              }
+            },
+            summary: { type: Type.STRING }
+          },
+          required: ["insights", "summary"]
         }
       }
     });
 
     return JSON.parse(response.text);
-  });
+  }, 2, 3000, 1, "analyzeDeployment", [jobData.id]);
 }

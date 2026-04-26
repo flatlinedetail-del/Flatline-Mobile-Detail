@@ -13,26 +13,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, AlertTriangle, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe } from "lucide-react";
+import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, AlertTriangle, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe, Navigation2, Play, Check, X, Map } from "lucide-react";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { format, startOfDay, endOfDay, isSameDay, addDays, subDays, addHours, addWeeks, addMonths, subMonths, startOfMonth, endOfMonth, isBefore, parseISO, parse, startOfWeek, getDay, addMinutes } from "date-fns";
+import { calculateDistance, calculateTravelFee } from "../services/travelService";
+import { messagingService } from "../services/messagingService";
 import { enUS } from "date-fns/locale";
 import { Calendar as BigCalendar, dateFnsLocalizer, Views } from "react-big-calendar";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { motion, AnimatePresence } from "motion/react";
-import { cn, formatDuration, getClientDisplayName } from "@/lib/utils";
+import { cn, formatDuration, getClientDisplayName, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useGoogleMaps } from "../components/GoogleMapsProvider";
-import { GoogleMap, Marker, Polyline, InfoWindow, MarkerClusterer } from "@react-google-maps/api";
+import { GoogleMap, Marker, Polyline, InfoWindow, MarkerClusterer, DirectionsRenderer } from "@react-google-maps/api";
 import { optimizeRoute, RouteStop } from "../lib/scheduling";
 import { Switch } from "@/components/ui/switch";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
 import { StableInput } from "../components/StableInput";
 import { BusinessSettings } from "../types";
-import { getGeocode, getLatLng } from "use-places-autocomplete";
 import { SearchableSelector } from "../components/SearchableSelector";
 import { 
   AlertDialog, 
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchGoogleEvents, createGoogleEvent, updateGoogleEvent, deleteGoogleEvent } from "../services/googleCalendarService";
+import { geocodeAddress } from "../services/geocodingService";
 import { createNotification } from "../services/notificationService";
 
 const localizer = dateFnsLocalizer({
@@ -74,6 +76,7 @@ export default function Calendar() {
   const [googleEvents, setGoogleEvents] = useState<any[]>([]);
   const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
   const [selectedStop, setSelectedStop] = useState<any>(null);
+  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   
   const [timeBlocks, setTimeBlocks] = useState<any[]>([]);
@@ -88,7 +91,7 @@ export default function Calendar() {
       const end = addMinutes(start, duration + (app.overrideBufferTimeMinutes || 0));
       return {
         id: app.id,
-        title: `${getClientDisplayName(clients.find(c => c.id === (app.clientId || app.customerId)))}`,
+        title: `${getClientDisplayName(clients.find(c => c.id === (app.clientId || app.customerId)) || app)}`,
         start,
         end,
         resource: app,
@@ -98,8 +101,20 @@ export default function Calendar() {
     });
 
     const blockEvents = timeBlocks.map((block: any) => {
-      const start = block.start?.toDate ? block.start.toDate() : new Date(block.start);
-      const end = block.end?.toDate ? block.end.toDate() : new Date(block.end);
+      let start, end;
+      if (block.type === 'full_day') {
+        // Handle timezone by parsing parts directly from YYYY-MM-DD
+        const [sy, sm, sd] = block.date.split("-").map(Number);
+        start = new Date(sy, sm - 1, sd, 0, 0, 0);
+        
+        const endD = block.endDate || block.date;
+        const [ey, em, ed] = endD.split("-").map(Number);
+        end = new Date(ey, em - 1, ed, 23, 59, 59);
+      } else {
+        start = new Date(`${block.date}T${block.startTime || "00:00"}`);
+        end = new Date(`${block.date}T${block.endTime || "23:59"}`);
+      }
+
       return {
         id: block.id,
         title: `BLOCK: ${block.title}`,
@@ -132,14 +147,15 @@ export default function Calendar() {
   const [editingTimeBlock, setEditingTimeBlock] = useState<any>(null);
   const [timeBlockForm, setTimeBlockForm] = useState({
     title: "",
-    type: "time_off" as "time_off" | "busy" | "unavailable",
-    start: "",
-    end: "",
+    type: "full_day" as "full_day" | "partial",
+    date: "",
+    endDate: "",
+    startTime: "",
+    endTime: "",
     notes: ""
   });
   const [isCreating, setIsCreating] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<any>(null);
-  const [viewingAppointment, setViewingAppointment] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [services, setServices] = useState<any[]>([]);
   const [addons, setAddons] = useState<any[]>([]);
@@ -172,6 +188,7 @@ export default function Calendar() {
     placeId: ""
   });
   const [baseAmount, setBaseAmount] = useState<number>(0);
+  const [travelFee, setTravelFee] = useState<number>(0);
   const [isAddressManual, setIsAddressManual] = useState(false);
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringFrequency, setRecurringFrequency] = useState<"daily" | "weekly" | "biweekly" | "monthly">("weekly");
@@ -180,6 +197,8 @@ export default function Calendar() {
   const [recurringOccurrences, setRecurringOccurrences] = useState<number | "">("");
   const [scheduledAtValue, setScheduledAtValue] = useState("");
   const [appointmentStatus, setAppointmentStatus] = useState<string>("scheduled");
+  const [afterHoursFeeDisplay, setAfterHoursFeeDisplay] = useState(0);
+  const [isAfterHoursDisplay, setIsAfterHoursDisplay] = useState(false);
   const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
   const [appointment, setAppointment] = useState({ 
     vehicleSize: "medium",
@@ -187,6 +206,73 @@ export default function Calendar() {
     vin: "",
     jobNum: "",
   });
+
+  useEffect(() => {
+    const validStops = optimizedStops.filter(s => s.latitude !== 0 && s.longitude !== 0);
+
+    if (validStops.length === 0) {
+      setDirections(null);
+      return;
+    }
+
+    const directionsService = new window.google.maps.DirectionsService();
+
+    const origin = settings?.baseLatitude 
+      ? { lat: settings.baseLatitude, lng: settings.baseLongitude } 
+      : { lat: validStops[0].latitude, lng: validStops[0].longitude };
+
+    const destination = (settings?.baseLatitude && settings.travelPricing?.roundTripToggle)
+      ? { lat: settings.baseLatitude, lng: settings.baseLongitude }
+      : { lat: validStops[validStops.length - 1].latitude, lng: validStops[validStops.length - 1].longitude };
+
+    const waypoints = validStops.map(stop => ({
+      location: { lat: stop.latitude, lng: stop.longitude },
+      stopover: true
+    }));
+
+    // Logic to avoid duplicating origin/destination in waypoints
+    let finalWaypoints = [...waypoints];
+    if (!settings?.baseLatitude) {
+      // If no base, the first stop is our origin
+      if (finalWaypoints.length > 0) finalWaypoints.shift();
+      // And the last stop is our destination
+      if (finalWaypoints.length > 0) finalWaypoints.pop();
+    } else {
+      // If we have a base and roundTrip is false, the last stop is our destination
+      if (!settings.travelPricing?.roundTripToggle) {
+        if (finalWaypoints.length > 0) finalWaypoints.pop();
+      }
+    }
+
+    if (!origin || !destination) {
+      setDirections(null);
+      return;
+    }
+
+    directionsService.route(
+      {
+        origin,
+        destination,
+        waypoints: finalWaypoints,
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      },
+      (result, status) => {
+        if (status === window.google.maps.DirectionsStatus.OK) {
+          setDirections(result);
+        } else {
+          console.error(`Directions request failed due to ${status}`);
+          setDirections(null); // Ensure fallback to Polyline
+          
+          if (status === window.google.maps.DirectionsStatus.REQUEST_DENIED) {
+            toast.error("Map Routing Error", {
+              description: "The 'Directions API' is not enabled for your Google Maps project. Please enable it in the Google Cloud Console to see road-mapped routes. Falling back to straight lines.",
+              duration: 10000,
+            });
+          }
+        }
+      }
+    );
+  }, [isLoaded, optimizedStops, settings, date]);
 
   useEffect(() => {
     if (authLoading || !profile) return;
@@ -204,7 +290,7 @@ export default function Calendar() {
             where("scheduledAt", "<=", Timestamp.fromDate(endOfRange)),
             orderBy("scheduledAt", "asc")
           )),
-          getDocs(query(collection(db, "time_blocks"), orderBy("start", "asc"))),
+          getDocs(query(collection(db, "blocked_dates"))),
           getDocs(query(collection(db, "clients"), limit(200))),
           getDocs(collection(db, "services")),
           getDocs(collection(db, "addons")),
@@ -233,7 +319,39 @@ export default function Calendar() {
     return () => {};
   }, [profile, authLoading]);
 
-  // Handle automatic route optimization when date or appointments change
+  // Auto-calculate travel fee when address changes
+  useEffect(() => {
+    if (!settings?.travelPricing.enabled || !appointmentAddress.address || appointmentAddress.lat === 0) {
+      setTravelFee(0);
+      return;
+    }
+
+    const dist = calculateDistance(
+      settings.baseLatitude,
+      settings.baseLongitude,
+      appointmentAddress.lat,
+      appointmentAddress.lng
+    );
+
+    const { fee } = calculateTravelFee(
+      dist,
+      settings.travelPricing,
+      { lat: appointmentAddress.lat, lng: appointmentAddress.lng }
+    );
+
+    // Apply VIP waiver if applicable
+    const client = clients.find(c => c.id === selectedCustomerId);
+    if (client?.isVIP && client?.vipSettings?.waiveTravelFee) {
+      setTravelFee(0);
+    } else if (client?.isVIP && client?.vipSettings?.travelFeeDiscount) {
+      const discount = typeof client.vipSettings.travelFeeDiscount === 'number' 
+        ? client.vipSettings.travelFeeDiscount 
+        : 0;
+      setTravelFee(Math.max(0, fee - discount));
+    } else {
+      setTravelFee(fee);
+    }
+  }, [appointmentAddress, settings, selectedCustomerId, clients]);
   useEffect(() => {
     if (!profile || !date || appointments.length === 0) {
         setOptimizedStops([]);
@@ -307,27 +425,29 @@ export default function Calendar() {
     }
   }, [location.state, clients, appointments, navigate, location.pathname, loading]);
 
-  // Auto-fill address when client is selected
   useEffect(() => {
-    if (selectedCustomerId && showAddDialog) {
-      const c = clients.find(item => item.id === selectedCustomerId);
+    let unsubscribeVehicles: (() => void) | undefined;
+    const targetCustomerId = selectedCustomerId;
+
+    if (targetCustomerId && showAddDialog) {
+      const c = clients.find(item => item.id === targetCustomerId);
       
-      // Only auto-fill if the current address is empty
-      if (c && c.address && !appointmentAddress.address) {
+      // Only auto-fill if the current address is empty (only for new/editing dialog)
+      if (showAddDialog && c && c.address && !appointmentAddress.address) {
         handleAddressSelect(c.address, c.latitude || c.lat || 0, c.longitude || c.lng || 0, true);
       }
 
-      // Fetch vehicles
+      // Fetch vehicles continuously so modal logic stays updated
       const q = query(
         collection(db, "vehicles"),
-        where("clientId", "==", selectedCustomerId)
+        where("clientId", "==", targetCustomerId)
       );
-      getDocs(q).then(snap => {
+      unsubscribeVehicles = onSnapshot(q, snap => {
         const vehicles = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setAvailableVehicles(vehicles);
         
-        // If there's only one vehicle, pre-fill it and select it
-        if (vehicles.length === 1) {
+        // If there's only one vehicle, pre-fill it and select it (only for new/editing dialog)
+        if (showAddDialog && vehicles.length === 1 && selectedVehicleIds.length === 0) {
           const v = vehicles[0] as any;
           setAppointment(prev => ({ 
             ...prev, 
@@ -343,6 +463,10 @@ export default function Calendar() {
       setSelectedVehicleIds([]);
       setAppointment(prev => ({ ...prev, vehicleInfo: "", vin: "" }));
     }
+
+    return () => {
+      if (unsubscribeVehicles) unsubscribeVehicles();
+    };
   }, [selectedCustomerId, clients, showAddDialog]);
 
   const isMounted = useRef(false);
@@ -368,6 +492,7 @@ export default function Calendar() {
           placeId: editingAppointment.placeId || ""
         });
         setBaseAmount(editingAppointment.baseAmount || 0);
+        setTravelFee(editingAppointment.travelFee || 0);
         setSelectedServices(editingAppointment.serviceSelections || []);
         setSelectedAddons(editingAppointment.addOnSelections || []);
         setWaiverAccepted(editingAppointment.waiverAccepted || false);
@@ -414,6 +539,7 @@ export default function Calendar() {
           vehicleSize: "medium" 
         }));
         setBaseAmount(0);
+        setTravelFee(0);
         setScheduledAtValue("");
         setAppointmentStatus("scheduled");
         setActiveLeadId(null);
@@ -491,20 +617,61 @@ export default function Calendar() {
     setCalculatedDeposit(depositTotal);
   }, [selectedServices, selectedAddons, appointment.vehicleSize, services, addons, selectedCustomerId, clients, selectedVehicleIds, availableVehicles]);
 
+  // After Hours Fee Calculation Display
+  useEffect(() => {
+    if (!scheduledAtValue || !settings?.businessHours) {
+      setIsAfterHoursDisplay(false);
+      setAfterHoursFeeDisplay(0);
+      return;
+    }
+
+    const startAt = new Date(scheduledAtValue);
+    const totalDuration = selectedServices.reduce((acc, s) => {
+      const service = services.find(srv => srv.id === s.id);
+      return acc + (service?.estimatedDuration || 120) * s.qty;
+    }, 0);
+
+    let isAfterHours = false;
+    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayName = daysOfWeek[startAt.getDay()];
+    const daySettings = (settings.businessHours as any)[dayName];
+    const allowAfterHours = settings.businessHours.allowAfterHours || false;
+    
+    if (daySettings) {
+      if (!daySettings.isOpen) {
+        isAfterHours = true;
+      } else {
+        const apptStartStr = format(startAt, "HH:mm");
+        const apptEndAt = new Date(startAt.getTime() + totalDuration * 60000);
+        const apptEndStr = format(apptEndAt, "HH:mm");
+        
+        if (apptStartStr < daySettings.openTime || apptEndStr > daySettings.closeTime) {
+          isAfterHours = true;
+        }
+      }
+    }
+
+    setIsAfterHoursDisplay(isAfterHours);
+    if (isAfterHours && allowAfterHours) {
+      setAfterHoursFeeDisplay(settings.businessHours.afterHoursFeeAmount || 0);
+    } else {
+      setAfterHoursFeeDisplay(0);
+    }
+  }, [scheduledAtValue, selectedServices, services, settings?.businessHours]);
+
   const handleAddressSelect = async (address: string, lat: number, lng: number, structured?: any) => {
     let finalLat = lat;
     let finalLng = lng;
 
     if (lat === 0 && address) {
       try {
-        const results = await getGeocode({ address });
-        if (results && results.length > 0) {
-          const coords = await getLatLng(results[0]);
-          finalLat = coords.lat;
-          finalLng = coords.lng;
-        }
-      } catch (error) {
+        // Use geocodeAddress service for more robust geocoding and better error handling
+        const coords = await geocodeAddress(address);
+        finalLat = coords.lat;
+        finalLng = coords.lng;
+      } catch (error: any) {
         console.error("Geocoding failed in handleAddressSelect:", error);
+        toast.error(`Geocoding failed: ${error.message || "Please enter coordinates manually or try again."}`);
       }
     }
 
@@ -552,57 +719,6 @@ export default function Calendar() {
     }
   };
 
-  const handleConvertToInvoice = async (app: any) => {
-    try {
-      const invoiceData = {
-        clientId: app.clientId || app.customerId || "manual",
-        clientName: app.customerName || "Unknown Client",
-        clientEmail: app.customerNotes?.includes("Email:") ? app.customerNotes.split("Email:")[1].split("\n")[0].trim() : (app.customerEmail || ""), 
-        clientPhone: app.customerPhone || "",
-        clientAddress: app.address || "",
-        vehicles: app.vehicleIds?.map((id: string) => {
-          const v = availableVehicles.find(veh => veh.id === id);
-          return {
-            id: id,
-            year: v?.year || "",
-            make: v?.make || "",
-            model: v?.model || "",
-            roNumber: app.roNumber || ""
-          };
-        }) || [],
-        vehicleInfo: app.vehicleInfo || "",
-        lineItems: [
-          ...(app.serviceNames || []).map((name: string, idx: number) => ({
-            serviceName: name,
-            price: app.serviceSelections?.[idx]?.price || 0
-          })),
-          ...(app.addOnNames || []).map((name: string, idx: number) => ({
-            serviceName: name,
-            price: app.addOnSelections?.[idx]?.price || 0
-          }))
-        ].filter(item => item.price > 0),
-        total: app.totalAmount || 0,
-        status: "draft",
-        paymentStatus: app.paymentStatus || "pending",
-        amountPaid: app.depositPaid ? (app.depositAmount || 0) : 0,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-
-      const docRef = await addDoc(collection(db, "invoices"), invoiceData);
-      toast.success("Deployment converted to Invoice successfully");
-      setViewingAppointment(null);
-      
-      // Wait for Dialog unmount animation to complete before routing
-      setTimeout(() => {
-        navigate("/invoices");
-      }, 350);
-    } catch (error) {
-      console.error("Error converting to invoice:", error);
-      toast.error("Failed to convert to invoice");
-    }
-  };
-
   const handleCreateAppointment = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsCreating(true);
@@ -611,8 +727,68 @@ export default function Calendar() {
     const clientId = selectedCustomerId;
     const client = clients.find(c => c.id === clientId);
     
+    // After-Hours Logic
+    let isAfterHours = false;
+    let afterHoursFee = 0;
+    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const startAt = scheduledAtValue ? new Date(scheduledAtValue) : new Date(formData.get("scheduledAt") as string);
+    const dayName = daysOfWeek[startAt.getDay()];
+    const daySettings = (settings?.businessHours as any)?.[dayName];
+    const allowAfterHours = settings?.businessHours?.allowAfterHours || false;
+
+    const totalDuration = selectedServices.reduce((acc, s) => {
+      const service = services.find(srv => srv.id === s.id);
+      return acc + (service?.estimatedDuration || 0) * s.qty;
+    }, 0) + selectedAddons.reduce((acc, a) => {
+      const addon = addons.find(ad => ad.id === a.id);
+      return acc + (addon?.estimatedDuration || 0) * a.qty;
+    }, 0);
+    
+    // Conflict Check
+    const isConflict = appointments.some(appt => {
+      if (editingAppointment && appt.id === editingAppointment.id) return false;
+      const apptStart = appt.scheduledAt?.toDate ? appt.scheduledAt.toDate() : new Date(appt.scheduledAt);
+      const apptEnd = addMinutes(apptStart, appt.estimatedDuration || 120);
+      const newEnd = addMinutes(startAt, totalDuration);
+      return (startAt < apptEnd && newEnd > apptStart);
+    });
+
+    if (isConflict && profile?.id) {
+       createNotification({
+        userId: profile.id,
+        title: "Tactical Conflict Warning",
+        message: `Deployment for ${client?.firstName || "Customer"} overlaps with an existing mission.`,
+        type: "system",
+        relatedId: clientId,
+        relatedType: "client"
+      });
+    }
+
+    if (daySettings) {
+      if (!daySettings.isOpen) {
+        isAfterHours = true;
+      } else {
+        const apptStartStr = format(startAt, "HH:mm");
+        const apptEndAt = new Date(startAt.getTime() + totalDuration * 60000);
+        const apptEndStr = format(apptEndAt, "HH:mm");
+        
+        if (apptStartStr < daySettings.openTime || apptEndStr > daySettings.closeTime) {
+          isAfterHours = true;
+        }
+      }
+    }
+
+    if (isAfterHours && !allowAfterHours) {
+      setIsCreating(false);
+      return toast.error(`Booking outside business hours is currently disabled in your settings.`);
+    }
+
+    if (isAfterHours && allowAfterHours) {
+      afterHoursFee = settings?.businessHours?.afterHoursFeeAmount || 0;
+    }
+
     // Use the calculated baseAmount state instead of reading from formData to ensure VIP overrides are preserved
-    const totalAmount = baseAmount;
+    const totalAmount = baseAmount + travelFee + afterHoursFee;
     const finalAmount = totalAmount - discount - redeemedPoints;
     
     const vehiclesToProcess = selectedVehicleIds.length > 0 ? selectedVehicleIds : [null];
@@ -661,14 +837,6 @@ export default function Calendar() {
       };
     });
 
-    const totalDuration = selectedServices.reduce((acc, s) => {
-      const service = services.find(srv => srv.id === s.id);
-      return acc + (service?.estimatedDuration || 0) * s.qty;
-    }, 0) + selectedAddons.reduce((acc, a) => {
-      const addon = addons.find(ad => ad.id === a.id);
-      return acc + (addon?.estimatedDuration || 0) * a.qty;
-    }, 0);
-
     const totalBuffer = selectedServices.reduce((acc, s) => {
       const service = services.find(srv => srv.id === s.id);
       return acc + (service?.bufferTimeMinutes || 0);
@@ -682,10 +850,24 @@ export default function Calendar() {
     const appointmentEnd = addHours(appointmentStart, (totalDuration + totalBuffer) / 60);
 
     const hasTimeBlockConflict = timeBlocks.some(block => {
-      const blockStart = block.start.toDate();
-      const blockEnd = block.end.toDate();
-      return (appointmentStart < blockEnd && appointmentEnd > blockStart);
+      const apptDateIso = format(appointmentStart, "yyyy-MM-dd");
+      if (block.date !== apptDateIso && (!block.endDate || apptDateIso > block.endDate || apptDateIso < block.date)) {
+        return false;
+      }
+      if (block.type === 'full_day') return true;
+      if (block.startTime && block.endTime) {
+        const blockStart = new Date(`${apptDateIso}T${block.startTime}`);
+        const blockEnd = new Date(`${apptDateIso}T${block.endTime}`);
+        return (appointmentStart < blockEnd && appointmentEnd > blockStart);
+      }
+      return false;
     });
+
+    if (hasTimeBlockConflict) {
+      toast.error("This time is unavailable (blocked)");
+      setIsCreating(false);
+      return;
+    }
 
     const hasGoogleConflict = googleEvents.some(event => {
       const eventStart = new Date(event.start.dateTime || event.start.date);
@@ -695,9 +877,19 @@ export default function Calendar() {
 
     const hasAppointmentConflict = appointments.some(app => {
       if (editingAppointment && app.id === editingAppointment.id) return false;
-      const appStart = app.scheduledAt.toDate();
+      const appStart = app.scheduledAt?.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
       const appEnd = addHours(appStart, (app.estimatedDuration || 120) / 60);
       return (appointmentStart < appEnd && appointmentEnd > appStart);
+    });
+    
+    const minBufferMs = 30 * 60 * 1000;
+    const hasBufferConflict = appointments.some(app => {
+      if (editingAppointment && app.id === editingAppointment.id) return false;
+      const appStart = app.scheduledAt?.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
+      const appEnd = addHours(appStart, (app.estimatedDuration || 120) / 60);
+      const appointmentStartBuffered = new Date(appointmentStart.getTime() - minBufferMs);
+      const appointmentEndBuffered = new Date(appointmentEnd.getTime() + minBufferMs);
+      return (appointmentStartBuffered < appEnd && appointmentEndBuffered > appStart);
     });
 
     if (hasTimeBlockConflict || hasGoogleConflict || hasAppointmentConflict) {
@@ -708,6 +900,11 @@ export default function Calendar() {
       );
       setIsCreating(false);
       return;
+    }
+    
+    if (hasBufferConflict && !hasAppointmentConflict) {
+      toast.warning("Warning: Insufficient travel/setup time (under 30 minutes).", { duration: 5000 });
+      // Do not block, just warn.
     }
 
     const jobNum = formData.get("jobNum") as string || "";
@@ -733,7 +930,6 @@ export default function Calendar() {
     }
 
     const seriesId = editingAppointment?.recurringInfo?.seriesId || Math.random().toString(36).substring(7);
-    const startAt = scheduledAtValue ? new Date(scheduledAtValue) : new Date(formData.get("scheduledAt") as string);
 
     const appointmentData: any = {
       clientId,
@@ -745,6 +941,10 @@ export default function Calendar() {
       vendorId: null,
       vehicleIds: selectedVehicleIds,
       vehicleId: selectedVehicleIds[0] || null,
+      vehicleNames: selectedVehicleIds.map(id => {
+        const v = availableVehicles.find(v => v.id === id);
+        return v ? `${v.year} ${v.make} ${v.model}` : (appointment.vehicleInfo || "Unknown Asset");
+      }),
       vehicleInfo: selectedVehicleIds.length > 0 
         ? selectedVehicleIds.map(id => {
             const v = availableVehicles.find(v => v.id === id);
@@ -761,7 +961,8 @@ export default function Calendar() {
       scheduledAt: startAt,
       status: appointmentStatus,
       jobNum: finalJobNum,
-      baseAmount: totalAmount,
+      baseAmount: baseAmount,
+      travelFee: travelFee,
       discountAmount: discount + redeemedPoints,
       totalAmount: finalAmount,
       depositAmount: calculatedDeposit,
@@ -771,6 +972,11 @@ export default function Calendar() {
       cancellationFeeType,
       cancellationCutoffHours,
       cancellationStatus: "none",
+      reminders: {
+        ...(editingAppointment?.reminders || {}),
+        twentyFourHour: null,
+        twoHour: null
+      },
       serviceIds: selectedServices.map(s => s.id),
       serviceNames: services.filter(s => selectedServices.some(sel => sel.id === s.id)).map(s => s.name),
       serviceSelections,
@@ -792,7 +998,13 @@ export default function Calendar() {
         seriesId: seriesId
       } : null,
       updatedAt: serverTimestamp(),
-      leadId: activeLeadId || null
+      leadId: activeLeadId || null,
+      afterHoursRecord: isAfterHours ? {
+        isAfterHours: true,
+        afterHoursFee,
+        afterHoursReason: "Time selected falls outside standard operating hours.",
+        businessHoursSnapshot: settings?.businessHours || null
+      } : null
     };
 
     // Helper to sync with Google Calendar
@@ -834,9 +1046,38 @@ export default function Calendar() {
           await batch.commit();
           toast.success("Entire series updated!");
         } else {
+          const smsData = {
+            clientName: appointmentData.customerName || "Customer",
+            businessName: settings?.businessName || "Flatline Mobile Detail",
+            appointmentDate: format(startAt, "MMM do, yyyy"),
+            appointmentTime: format(startAt, "h:mm a"),
+            serviceName: appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service",
+            vehicle: appointmentData.vehicleNames?.length ? appointmentData.vehicleNames[0] : ""
+          };
+
           const gRes = await syncWithGoogle(appointmentData, editingAppointment.googleEventId);
           if (gRes?.id) appointmentData.googleEventId = gRes.id;
           await updateDoc(doc(db, "appointments", editingAppointment.id), appointmentData);
+          
+          await createNotification({
+            userId: profile!.id,
+            title: "Appointment Updated",
+            message: `Updated booking for ${appointmentData.customerName} on ${format(startAt, "MMM do")}`,
+            type: "booking",
+            relatedId: editingAppointment.id,
+            relatedType: "appointment"
+          });
+          
+          if (client?.phone) {
+            messagingService.sendTemplateSms(
+              client.phone,
+              "updated",
+              smsData,
+              editingAppointment.id,
+              client.id
+            ).catch(e => console.error("Update SMS failed:", e));
+          }
+
           toast.success("Appointment updated!");
         }
       } else {
@@ -899,10 +1140,55 @@ export default function Calendar() {
         } else {
           const gRes = await syncWithGoogle(appointmentData);
           if (gRes?.id) appointmentData.googleEventId = gRes.id;
-          await addDoc(collection(db, "appointments"), {
+          
+          appointmentData.reminders = {
+            ...appointmentData.reminders,
+            confirmation: "pending"
+          };
+
+          const docRef = await addDoc(collection(db, "appointments"), {
             ...appointmentData,
             createdAt: serverTimestamp(),
           });
+
+          await createNotification({
+            userId: profile!.id,
+            title: "New Appointment",
+            message: `New booking for ${appointmentData.customerName} on ${format(startAt, "MMM do")}`,
+            type: "booking",
+            relatedId: docRef.id,
+            relatedType: "appointment"
+          });
+
+          // Attempt to send confirmation SMS
+          if (client?.phone) {
+            const smsData = {
+              clientName: appointmentData.customerName || "Customer",
+              businessName: settings?.businessName || "Flatline Mobile Detail",
+              appointmentDate: format(startAt, "MMM do, yyyy"),
+              appointmentTime: format(startAt, "h:mm a"),
+              serviceName: appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service",
+              vehicle: appointmentData.vehicleNames?.length ? appointmentData.vehicleNames[0] : ""
+            };
+
+            messagingService.sendTemplateSms(
+              client.phone,
+              "booked",
+              smsData,
+              docRef.id,
+              client.id
+            ).then(async (res: any) => {
+              if (res.success) {
+                await updateDoc(docRef, { "reminders.confirmation": "sent" });
+              } else {
+                await updateDoc(docRef, { "reminders.confirmation": "failed" });
+              }
+            }).catch(async (e) => {
+              await updateDoc(docRef, { "reminders.confirmation": "failed" });
+            });
+          } else {
+             await updateDoc(docRef, { "reminders.confirmation": "skipped" });
+          }
 
           // Trigger Notification
           await createNotification({
@@ -956,6 +1242,10 @@ export default function Calendar() {
            vehicleInfo.includes(normalizedSearch) ||
            vin.includes(normalizedSearch) ||
            jobNum.includes(normalizedSearch);
+  }).sort((a, b) => {
+    const timeA = a.scheduledAt?.toMillis ? a.scheduledAt.toMillis() : (a.scheduledAt as unknown as number) || 0;
+    const timeB = b.scheduledAt?.toMillis ? b.scheduledAt.toMillis() : (b.scheduledAt as unknown as number) || 0;
+    return timeA - timeB;
   });
 
   useEffect(() => {
@@ -1000,9 +1290,14 @@ export default function Calendar() {
   });
 
   const dayTimeBlocks = timeBlocks.filter(block => {
-    if (!date || !block.start) return false;
-    const blockDate = block.start.toDate ? block.start.toDate() : new Date(block.start);
-    return isSameDay(blockDate, date);
+    if (!date || !block.date) return false;
+    const dateIso = format(date, "yyyy-MM-dd");
+    if (block.type === 'full_day') {
+      const startIso = block.date;
+      const endIso = block.endDate || block.date;
+      return dateIso >= startIso && dateIso <= endIso;
+    }
+    return block.date === dateIso;
   });
 
   const dayGoogleEvents = googleEvents.filter(event => {
@@ -1086,15 +1381,24 @@ export default function Calendar() {
     });
   };
 
-  const statusColors: any = {
-    scheduled: "bg-gray-100 text-gray-700 border-gray-200",
-    confirmed: "bg-black text-white border-black",
-    en_route: "bg-red-50 text-primary border-red-200",
-    in_progress: "bg-primary text-white border-primary",
-    completed: "bg-green-100 text-green-700 border-green-200",
-    paid: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    canceled: "bg-red-100 text-red-700 border-red-200",
-    no_show: "bg-gray-100 text-gray-700 border-gray-200",
+  const defaultStatusColors: Record<string, string> = {
+    scheduled: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+    confirmed: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
+    en_route: "bg-primary/20 text-primary border border-primary/30",
+    in_progress: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
+    arrived: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+    completed: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30",
+    paid: "bg-zinc-400/20 text-zinc-300 border border-zinc-400/30",
+    canceled: "bg-red-500/20 text-red-400 border border-red-500/30",
+    no_show: "bg-rose-500/20 text-rose-400 border border-rose-500/30",
+  };
+
+  const getStatusColor = (status: string, isVip?: boolean) => {
+    let baseColor = settings?.calendarColors?.[status] || defaultStatusColors[status] || "bg-white/5 text-white/40 border border-white/5";
+    if (isVip && settings?.calendarColors?.vip) {
+      baseColor += " " + settings.calendarColors.vip;
+    }
+    return baseColor;
   };
 
   const handleLongPress = (id: string) => {
@@ -1103,72 +1407,245 @@ export default function Calendar() {
   };
 
   const CalendarEvent = ({ event }: { event: any }) => {
+    const isDayView = calendarView === "day";
+    const isAgendaView = calendarView === "agenda";
+
+    if (isAgendaView) return null; // Handled by AgendaEvent
+
     if (event.type === 'block') {
       return (
-        <div className="text-[11px] font-bold p-1 overflow-hidden h-full flex items-center bg-amber-500/10 text-amber-500 rounded border border-amber-500/20">
-          <Lock className="w-3 h-3 inline mr-1" />
-          {event.title}
+        <div className="text-[10px] font-black uppercase tracking-widest p-2 overflow-hidden h-full flex items-center bg-zinc-900/80 text-zinc-400 rounded-xl border border-white/5 backdrop-blur-sm shadow-xl">
+          <Lock className="w-3 h-3 inline mr-2 shrink-0 text-zinc-500" />
+          <span className="truncate">{event.title}</span>
         </div>
       );
     }
     
     if (event.type === 'google') {
       return (
-        <div className="text-[11px] font-bold p-1 overflow-hidden text-blue-400 bg-blue-500/10 rounded h-full flex items-center border border-blue-500/20">
-          <CalendarIcon className="w-3 h-3 inline mr-1" />
-          {event.title}
+        <div className="text-[10px] font-black uppercase tracking-widest p-2 overflow-hidden text-blue-400 bg-blue-500/10 rounded-xl h-full flex items-center border border-blue-500/20 backdrop-blur-sm shadow-xl">
+          <CalendarIcon className="w-3 h-3 inline mr-2 shrink-0" />
+          <span className="truncate">{event.title}</span>
         </div>
       );
     }
 
     const app = event.resource;
+    const appStopIndex = optimizedStops.findIndex(s => s.id === app.id);
+    let travelWarning = false;
+    if (appStopIndex !== -1 && appStopIndex < optimizedStops.length - 1) {
+      if ((optimizedStops[appStopIndex + 1].travelTimeFromPrevious || 0) / 60 > 20) travelWarning = true;
+    }
+
     return (
-      <div className="h-full flex flex-col p-2 overflow-hidden gap-1 hover:brightness-110 transition-all">
-        <div className="flex items-center justify-between gap-1 overflow-hidden">
-          <span className="text-[11px] font-black uppercase truncate text-white tracking-widest leading-none">{event.title}</span>
-          <Badge className={cn("text-[9px] font-black px-1 py-0 h-4 border-none uppercase tracking-tighter", statusColors[app.status || 'scheduled'])}>
-            {app.status}
+      <div 
+        className={cn(
+          "h-full flex flex-col p-2.5 overflow-hidden transition-all duration-300 relative group rounded-xl border-l-[3px] border-l-primary bg-zinc-900/95 shadow-2xl backdrop-blur-md",
+          "hover:bg-zinc-800/95 hover:scale-[1.01] active:scale-[0.98]",
+          "border border-white/5",
+          isDayView ? "gap-2" : "gap-1"
+        )}
+      >
+        {/* Header: Name and Status */}
+        <div className={cn(
+          "flex items-start justify-between gap-2 overflow-hidden",
+          !isDayView && "flex-col"
+        )}>
+          <span className={cn(
+            "text-[10px] sm:text-[11px] font-black uppercase text-white tracking-tight leading-tight flex items-center gap-1.5",
+            !isDayView && "truncate w-full"
+          )}>
+            {travelWarning && <AlertTriangle className="w-3.5 h-3.5 text-primary shrink-0" />}
+            {event.title}
+          </span>
+          
+          <Badge className={cn(
+            "text-[7px] font-black px-1.5 py-0 border-none uppercase tracking-widest shrink-0 whitespace-nowrap", 
+            getStatusColor(app.status || 'scheduled', app.isVip)
+          )}>
+            {app.status?.replace("_", " ")}
           </Badge>
         </div>
-        <div className="flex items-center gap-1 text-[9px] text-white/50 font-bold uppercase tracking-wider">
-          <Clock className="w-3 h-3 shrink-0" />
-          {format(event.start, "h:mm a")}
+        
+        {/* Time and metadata */}
+        <div className="flex flex-col gap-1 mt-auto">
+           <div className="flex items-center gap-1.5 text-[9px] text-white/50 font-bold uppercase tracking-widest">
+             <Clock className="w-3 h-3 shrink-0 text-white/30" />
+             {format(event.start, "h:mm a")}
+           </div>
+           
+           {isDayView && (
+             <>
+               {app.address && (
+                 <div className="flex items-center gap-1.5 text-[8px] text-white/30 font-medium uppercase tracking-wider truncate">
+                   <MapPin className="w-3 h-3 shrink-0" />
+                   <span className="truncate">{app.address}</span>
+                 </div>
+               )}
+               <div className="mt-2 text-[7px] font-black uppercase tracking-[0.2em] text-primary/60 opacity-0 group-hover:opacity-100 transition-opacity">
+                 Tap to open intelligence hub
+               </div>
+             </>
+           )}
         </div>
-        {app.address && (
-          <div className="flex items-center gap-1 text-[8px] text-white/40 truncate">
-            <MapPin className="w-2.5 h-2.5 shrink-0" />
-            {app.address}
-          </div>
+      </div>
+    );
+  };
+
+  const AgendaEvent = ({ event }: { event: any }) => {
+    const app = event.resource;
+    return (
+      <div className="flex items-center justify-between gap-6 w-full py-2">
+        <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+          <span className="font-black text-white text-sm uppercase tracking-tight truncate">{event.title}</span>
+          {app?.address && (
+            <div className="flex items-center gap-1.5 text-[10px] text-white/40 truncate">
+              <MapPin className="w-3 h-3 shrink-0 text-primary/60" />
+              <span className="truncate">{app.address}</span>
+            </div>
+          )}
+        </div>
+        {event.type === 'appointment' && (
+          <Badge className={cn("text-[8px] font-black px-3 py-1 border-none uppercase tracking-[0.1em] shrink-0", getStatusColor(app.status || 'scheduled', app.isVip))}>
+            {app.status?.replace("_", " ")}
+          </Badge>
         )}
       </div>
     );
   };
 
+  const AgendaTime = ({ label }: { label: string }) => (
+    <div className="text-white/80 font-black uppercase tracking-widest text-[10px] whitespace-nowrap">
+      {label}
+    </div>
+  );
+
+  const AgendaDate = ({ label }: { label: string }) => (
+    <div className="text-white font-black uppercase tracking-tighter text-sm whitespace-nowrap">
+      {label}
+    </div>
+  );
+
   const eventPropGetter = (event: any) => {
-    let backgroundColor = "rgba(239, 68, 68, 0.1)"; // Default red
-    let borderColor = "rgba(239, 68, 68, 0.2)";
-    let borderLeft = "3px solid #ef4444";
+    let backgroundColor = "transparent";
+    let borderColor = "transparent";
+    let borderLeft = "none";
+    let className = "";
 
     if (event.type === 'block') {
-      backgroundColor = "rgba(245, 158, 11, 0.1)";
-      borderColor = "rgba(245, 158, 11, 0.2)";
-      borderLeft = "3px solid #f59e0b";
+      backgroundColor = "rgba(107, 114, 128, 0.1)";
+      borderColor = "rgba(107, 114, 128, 0.2)";
+      borderLeft = "3px solid #6b7280";
     } else if (event.type === 'google') {
       backgroundColor = "rgba(59, 130, 246, 0.1)";
       borderColor = "rgba(59, 130, 246, 0.2)";
       borderLeft = "3px solid #3b82f6";
+    } else {
+      className = getStatusColor(event.status || 'scheduled', event.resource?.isVip);
     }
 
     return {
+      className: className,
       style: {
-        backgroundColor,
-        borderColor,
-        borderLeft,
+        backgroundColor: event.type !== 'appointment' ? backgroundColor : undefined,
+        borderColor: event.type !== 'appointment' ? borderColor : undefined,
+        borderLeft: event.type !== 'appointment' ? borderLeft : undefined,
         borderRadius: "8px",
         padding: 0,
         margin: 0
       }
     };
+  };
+
+  const [selectedDetailedApp, setSelectedDetailedApp] = useState<any>(null);
+  const [navDialogApp, setNavDialogApp] = useState<any>(null);
+  const [detailedAppVehicles, setDetailedAppVehicles] = useState<any[]>([]);
+
+  // Lock scroll when navigation modal is open
+  useEffect(() => {
+    if (navDialogApp) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [navDialogApp]);
+
+  useEffect(() => {
+    if (selectedDetailedApp?.vehicleIds?.length > 0) {
+      const fetchVehicles = async () => {
+        try {
+          const q = query(collection(db, "vehicles"), where("__name__", "in", selectedDetailedApp.vehicleIds));
+          const snap = await getDocs(q);
+          setDetailedAppVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } catch (e) {
+          console.error("Failed to fetch detailed app vehicles", e);
+          setDetailedAppVehicles([]);
+        }
+      };
+      fetchVehicles();
+    } else {
+      setDetailedAppVehicles([]);
+    }
+  }, [selectedDetailedApp?.vehicleIds]);
+
+
+  const handleJobStatusUpdate = async (newStatus: string) => {
+    if (!selectedDetailedApp) return;
+    try {
+      if (newStatus === 'arrived') {
+        console.log(`Arrived clicked for appointmentId: ${selectedDetailedApp.id}`);
+      }
+      await updateDoc(doc(db, "appointments", selectedDetailedApp.id), { status: newStatus });
+      setSelectedDetailedApp({ ...selectedDetailedApp, status: newStatus });
+      setAppointments(prev => prev.map(a => a.id === selectedDetailedApp.id ? { ...a, status: newStatus } : a));
+      toast.success(`Job marked as ${newStatus.replace('_', ' ')}`);
+
+      // Trigger Notification
+      if (profile?.id) {
+        await createNotification({
+          userId: profile.id,
+          title: "Status Deployment Update",
+          message: `${selectedDetailedApp.customerName} marked as ${newStatus.toUpperCase()}`,
+          type: "booking",
+          relatedId: selectedDetailedApp.id,
+          relatedType: "appointment"
+        });
+      }
+
+      // Trigger SMS
+      const client = clients.find(c => c.id === (selectedDetailedApp.clientId || selectedDetailedApp.customerId));
+      if (client?.phone) {
+        const smsData = {
+          clientName: selectedDetailedApp.customerName || "Customer",
+          businessName: settings?.businessName || "Flatline Mobile Detail",
+          appointmentDate: selectedDetailedApp.scheduledAt?.toDate ? format(selectedDetailedApp.scheduledAt.toDate(), "MMM do, h:mm a") : "",
+          serviceName: selectedDetailedApp.serviceNames?.join(", ") || "service",
+          vehicle: selectedDetailedApp.vehicleNames?.[0] || ""
+        };
+        let templateType = newStatus;
+        if (newStatus === 'en_route') templateType = 'on_the_way';
+        if (newStatus === 'in_progress') templateType = 'started';
+
+        messagingService.sendTemplateSms(
+          client.phone,
+          templateType,
+          smsData,
+          selectedDetailedApp.id,
+          client.id
+        ).catch(e => console.error("SMS trigger failed on status update:", e));
+      }
+
+      if (newStatus === 'arrived') {
+        const appId = selectedDetailedApp.id;
+        console.log(`Opening Deployment Intelligence for appointmentId: ${appId}`);
+        setSelectedDetailedApp(null);
+        navigate(`/calendar/${appId}`);
+      }
+    } catch (err) {
+      console.error("Error updating status:", err);
+      toast.error("Failed to update status");
+    }
   };
 
   return (
@@ -1250,6 +1727,15 @@ export default function Calendar() {
                 List
               </Button>
             </div>
+            <Button 
+              variant="outline" 
+              className={cn("border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[11px]", loading && "animate-spin")}
+              onClick={() => fetchCalendarData(true)}
+              disabled={loading}
+            >
+              <RefreshCcw className="w-4 h-4 mr-2 text-primary" />
+              Sync Ops
+            </Button>
           </div>
         }
       />
@@ -1332,14 +1818,16 @@ export default function Calendar() {
               className="h-full font-sans"
               onSelectEvent={(event: any) => {
                 if (event.type === 'appointment') {
-                  setViewingAppointment(event.resource);
+                  setSelectedDetailedApp(event.resource);
                 } else if (event.type === 'block') {
                   setEditingTimeBlock(event.resource);
                   setTimeBlockForm({
-                    title: event.resource.title,
-                    type: event.resource.type || 'busy',
-                    start: format(event.start, "yyyy-MM-dd'T'HH:mm"),
-                    end: format(event.end, "yyyy-MM-dd'T'HH:mm"),
+                    title: event.resource.title || "",
+                    type: event.resource.type || "full_day",
+                    date: event.resource.date || "",
+                    endDate: event.resource.endDate || "",
+                    startTime: event.resource.startTime || "",
+                    endTime: event.resource.endTime || "",
                     notes: event.resource.notes || ""
                   });
                   setShowTimeBlockDialog(true);
@@ -1351,7 +1839,12 @@ export default function Calendar() {
               onNavigate={(d) => setDate(d)}
               eventPropGetter={eventPropGetter}
               components={{
-                event: CalendarEvent
+                event: CalendarEvent,
+                agenda: {
+                  event: AgendaEvent,
+                  date: AgendaDate,
+                  time: AgendaTime
+                }
               }}
             />
           </Card>
@@ -1503,7 +1996,21 @@ export default function Calendar() {
                           )}
                         </MarkerClusterer>
 
-                      {optimizedStops.length > 1 && (
+                      {directions && (
+                        <DirectionsRenderer
+                          directions={directions}
+                          options={{
+                            polylineOptions: {
+                              strokeColor: "#ef4444",
+                              strokeOpacity: 0.8,
+                              strokeWeight: 4,
+                            },
+                            suppressMarkers: true,
+                          }}
+                        />
+                      )}
+
+                      {!directions && optimizedStops.length > 1 && (
                         <Polyline
                           path={[
                             ...(settings?.baseLatitude ? [{ lat: settings.baseLatitude, lng: settings.baseLongitude }] : []),
@@ -1536,11 +2043,10 @@ export default function Calendar() {
                               variant="ghost" 
                               className="h-8 w-full mt-2 text-[9px] font-black uppercase tracking-widest bg-primary text-white hover:bg-primary/90"
                               onClick={() => {
-                                const fullApp = appointments.find(a => a.id === selectedStop.id);
-                                setViewingAppointment(fullApp || selectedStop);
+                                navigate(`/calendar/${selectedStop.id}`);
                               }}
                             >
-                              View Details
+                              Open Intelligence
                             </Button>
                           </div>
                         </InfoWindow>
@@ -1571,8 +2077,13 @@ export default function Calendar() {
                   return isSameDay(appDate, day);
                 }),
                 hasTimeBlock: (day) => timeBlocks.some(block => {
-                  const blockDate = block.start?.toDate ? block.start.toDate() : new Date(block.start);
-                  return isSameDay(blockDate, day);
+                  const dateIso = format(day, "yyyy-MM-dd");
+                  if (block.type === 'full_day') {
+                    const startIso = block.date;
+                    const endIso = block.endDate || block.date;
+                    return dateIso >= startIso && dateIso <= endIso;
+                  }
+                  return block.date === dateIso;
                 }),
                 hasGoogleEvent: (day) => googleEvents.some(event => {
                   const startObj = event.start;
@@ -1652,7 +2163,7 @@ export default function Calendar() {
                           {editingAppointment ? "Modify Deployment" : "New Tactical Deployment"}
                         </DialogTitle>
                       </DialogHeader>
-                      <form onSubmit={handleCreateAppointment} className="flex-1 flex flex-col overflow-hidden">
+                      <form key={editingAppointment?.id || "new"} onSubmit={handleCreateAppointment} className="flex-1 flex flex-col overflow-hidden">
                         <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
                           <div className="grid grid-cols-2 gap-6">
                             <div className="space-y-2 col-span-2">
@@ -1763,6 +2274,15 @@ export default function Calendar() {
                                 value={scheduledAtValue}
                                 onChange={(e) => setScheduledAtValue(e.target.value)}
                               />
+                              {isAfterHoursDisplay && (
+                                <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl flex items-start gap-2">
+                                  <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                                  <div>
+                                    <p className="text-xs font-black text-yellow-500 uppercase tracking-widest">After-Hours Appointment</p>
+                                    <p className="text-[10px] text-yellow-500/80 font-medium mt-0.5">This time slot falls outside normal business hours. An after-hours fee of {formatCurrency(afterHoursFeeDisplay)} will be applied.</p>
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             <div className="space-y-2">
@@ -1795,6 +2315,19 @@ export default function Calendar() {
                                 className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
                                 value={baseAmount?.toString() || ""}
                                 onValueChange={(val) => setBaseAmount(parseFloat(val) || 0)}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="travelFee">Travel Mileage Fee ($)</Label>
+                              <StableInput 
+                                id="travelFee" 
+                                name="travelFee" 
+                                type="text" 
+                                inputMode="decimal"
+                                placeholder="25.00" 
+                                className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
+                                value={travelFee?.toString() || ""}
+                                onValueChange={(val) => setTravelFee(parseFloat(val) || 0)}
                               />
                             </div>
 
@@ -2178,7 +2711,7 @@ export default function Calendar() {
                                           return (
                                             <div key={selection.id} className="flex justify-between text-[11px]">
                                               <span className="text-white/60">{service?.name} (x{selection.qty})</span>
-                                              <span className="font-bold text-white">${(price * selection.qty).toFixed(2)}</span>
+                                              <span className="font-bold text-white">{formatCurrency(price * selection.qty)}</span>
                                             </div>
                                           );
                                         })}
@@ -2202,7 +2735,7 @@ export default function Calendar() {
                                     return (
                                       <div key={`${selection.id}-${selection.vehicleId || 'none'}-${idx}`} className="flex justify-between text-[11px]">
                                         <span className="text-white/60">{service?.name} (x{selection.qty})</span>
-                                        <span className="font-bold text-white">${(price * selection.qty).toFixed(2)}</span>
+                                        <span className="font-bold text-white">{formatCurrency(price * selection.qty)}</span>
                                       </div>
                                     );
                                   })
@@ -2213,7 +2746,7 @@ export default function Calendar() {
                                   return (
                                     <div key={`${selection.id}-${idx}`} className="flex justify-between text-[11px]">
                                       <span className="text-white/60">{addon?.name} (x{selection.qty})</span>
-                                      <span className="font-bold text-white">${((addon?.price || 0) * selection.qty).toFixed(2)}</span>
+                                      <span className="font-bold text-white">{formatCurrency((addon?.price || 0) * selection.qty)}</span>
                                     </div>
                                   );
                                 })}
@@ -2221,24 +2754,30 @@ export default function Calendar() {
 
                               <div className="pt-2 border-t border-white/10 flex justify-between text-sm">
                                 <span className="text-white/60">Subtotal</span>
-                                <span className="font-bold text-white">${baseAmount.toFixed(2)}</span>
+                                <span className="font-bold text-white">{formatCurrency(baseAmount)}</span>
                               </div>
+                              {travelFee > 0 && (
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-white/60">Travel Mileage Fee</span>
+                                  <span className="font-bold text-white">{formatCurrency(travelFee)}</span>
+                                </div>
+                              )}
                               {discount > 0 && (
                                 <div className="flex justify-between text-sm">
                                   <span className="text-white/60">Discount</span>
-                                  <span className="font-bold text-green-400">-${discount.toFixed(2)}</span>
+                                  <span className="font-bold text-green-400">-{formatCurrency(discount)}</span>
                                 </div>
                               )}
                               {redeemedPoints > 0 && (
                                 <div className="flex justify-between text-sm">
                                   <span className="text-white/60">Loyalty Points</span>
-                                  <span className="font-bold text-primary">-${redeemedPoints.toFixed(2)}</span>
+                                  <span className="font-bold text-primary">-{formatCurrency(redeemedPoints)}</span>
                                 </div>
                               )}
                               <div className="pt-2 border-t border-white/10 flex justify-between items-center">
                                 <span className="font-black text-white uppercase tracking-tighter">Final Total</span>
                                 <span className="text-xl font-black text-white">
-                                  ${(baseAmount - discount - redeemedPoints).toFixed(2)}
+                                  {formatCurrency(baseAmount + travelFee - discount - redeemedPoints)}
                                 </span>
                               </div>
                               {calculatedDeposit > 0 && (
@@ -2246,13 +2785,13 @@ export default function Calendar() {
                                   <div className="pt-2 border-t border-white/10 flex justify-between items-center">
                                     <span className="font-black text-primary uppercase tracking-tighter">Deposit Due</span>
                                     <span className="text-lg font-black text-primary">
-                                      ${calculatedDeposit.toFixed(2)}
+                                      {formatCurrency(calculatedDeposit)}
                                     </span>
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="font-black text-white/60 uppercase tracking-tighter text-xs">Remaining Balance</span>
                                     <span className="text-sm font-black text-white/60">
-                                      ${((baseAmount - discount - redeemedPoints) - calculatedDeposit).toFixed(2)}
+                                      {formatCurrency((baseAmount - discount - redeemedPoints) - calculatedDeposit)}
                                     </span>
                                   </div>
                                 </>
@@ -2267,7 +2806,7 @@ export default function Calendar() {
                                 <Button 
                                   type="button" 
                                   variant="outline" 
-                                  className="h-14 w-14 rounded-2xl border-white/10 hover:bg-red-500/10 hover:text-red-500 text-gray-400 transition-all"
+                                  className="h-14 w-14 rounded-2xl border-none bg-red-500/10 text-white hover:bg-red-500 hover:text-white transition-all shadow-xl"
                                 >
                                   <Trash2 className="w-5 h-5" />
                                 </Button>
@@ -2314,7 +2853,7 @@ export default function Calendar() {
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <Input 
                         placeholder="Search deployments by client, vehicle, VIN, or job #..." 
-                        className="pl-12 h-14 bg-white border-gray-200 text-black font-bold rounded-2xl shadow-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                        className="pl-12 h-14 bg-zinc-900 border-white/10 text-white font-bold rounded-2xl shadow-xl focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-white/20"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
@@ -2322,7 +2861,7 @@ export default function Calendar() {
                     {selectedIds.length > 0 && (
                       <Button 
                         variant="destructive" 
-                        className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-red-600/20"
+                        className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
                         onClick={() => setShowBulkDeleteConfirm(true)}
                       >
                         <Trash2 className="w-4 h-4 mr-2" />
@@ -2331,36 +2870,36 @@ export default function Calendar() {
                     )}
                   </div>
 
-                  <div className="rounded-3xl border border-border overflow-hidden bg-white shadow-sm">
+                  <div className="rounded-3xl border border-white/5 overflow-hidden bg-zinc-900/50 shadow-2xl backdrop-blur-sm">
                     <Table>
-                      <TableHeader className="bg-gray-50/50">
-                        <TableRow className="border-border hover:bg-transparent">
+                      <TableHeader className="bg-white/5">
+                        <TableRow className="border-white/5 hover:bg-transparent">
                           <TableHead className="w-12 px-6">
                             <Checkbox 
                               checked={selectedIds.length === filteredAppointments.length && filteredAppointments.length > 0}
                               onCheckedChange={toggleSelectAll}
-                              className="border-gray-300"
+                              className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                             />
                           </TableHead>
-                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-gray-400 px-6 py-5">Deployment Date</TableHead>
-                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-gray-400 px-6 py-5">Target Client</TableHead>
-                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-gray-400 px-6 py-5">Asset Info</TableHead>
-                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-gray-400 px-6 py-5">Status</TableHead>
-                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-gray-400 px-6 py-5 text-right">Amount</TableHead>
-                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-gray-400 px-6 py-5 text-right">Actions</TableHead>
+                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5">Deployment Date</TableHead>
+                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5">Target Client</TableHead>
+                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5">Asset Info</TableHead>
+                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5">Status</TableHead>
+                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5 text-right">Amount</TableHead>
+                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5 text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredAppointments.length === 0 ? (
-                          <TableRow>
+                          <TableRow className="border-white/5">
                             <TableCell colSpan={7} className="h-60 text-center">
                               <div className="flex flex-col items-center justify-center gap-4">
-                                <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-300">
+                                <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center text-white/20">
                                   <Search className="w-8 h-8" />
                                 </div>
                                 <div>
-                                  <p className="text-lg font-black text-gray-900 uppercase tracking-tight">No Deployments Found</p>
-                                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-1">Adjust your search parameters and try again.</p>
+                                  <p className="text-lg font-black text-white uppercase tracking-tight">No Deployments Found</p>
+                                  <p className="text-[10px] text-white/30 font-black uppercase tracking-widest mt-1">Adjust your search parameters and try again.</p>
                                 </div>
                               </div>
                             </TableCell>
@@ -2370,33 +2909,33 @@ export default function Calendar() {
                             <TableRow 
                               key={app.id} 
                               className={cn(
-                                "border-border hover:bg-gray-50/50 transition-colors cursor-pointer group",
-                                selectedIds.includes(app.id) && "bg-primary/5 hover:bg-primary/10"
+                                "border-white/5 hover:bg-white/5 transition-colors cursor-pointer group",
+                                selectedIds.includes(app.id) && "bg-primary/10 hover:bg-primary/15"
                               )}
-                              onClick={() => setViewingAppointment(app)}
+                              onClick={() => navigate(`/calendar/${app.id}`)}
                             >
                               <TableCell className="px-6" onClick={(e) => e.stopPropagation()}>
                                 <Checkbox 
                                   checked={selectedIds.includes(app.id)}
                                   onCheckedChange={() => toggleSelect(app.id)}
-                                  className="border-gray-300"
+                                  className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                                 />
                               </TableCell>
                               <TableCell className="px-6 py-5">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 rounded-xl bg-gray-100 flex flex-col items-center justify-center shrink-0 border border-gray-200">
-                                    <span className="text-[10px] font-black text-gray-400 uppercase leading-none mb-0.5">
+                                  <div className="w-10 h-10 rounded-xl bg-white/5 flex flex-col items-center justify-center shrink-0 border border-white/5">
+                                    <span className="text-[10px] font-black text-white/30 uppercase leading-none mb-0.5">
                                       {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "MMM") : "---"}
                                     </span>
-                                    <span className="text-sm font-black text-gray-900 leading-none">
+                                    <span className="text-sm font-black text-white leading-none">
                                       {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "d") : "--"}
                                     </span>
                                   </div>
                                   <div>
-                                    <p className="text-sm font-black text-gray-900 uppercase tracking-tight">
+                                    <p className="text-sm font-black text-white uppercase tracking-tight">
                                       {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "h:mm a") : "TBD"}
                                     </p>
-                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                    <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest text-[9px]">
                                       {app.jobNum || "NO JOB #"}
                                     </p>
                                   </div>
@@ -2404,14 +2943,14 @@ export default function Calendar() {
                               </TableCell>
                               <TableCell className="px-6 py-5">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-black text-[10px]">
-                                    {(app.customerName || "C").charAt(0).toUpperCase()}
+                                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-black text-[10px] border border-primary/20">
+                                    {(getClientDisplayName(app)).charAt(0).toUpperCase()}
                                   </div>
                                   <div>
-                                    <p className="text-sm font-black text-gray-900 uppercase tracking-tight truncate max-w-[150px]">
-                                      {app.customerName || "Unknown Client"}
+                                    <p className="text-sm font-black text-white uppercase tracking-tight truncate max-w-[150px]">
+                                      {getClientDisplayName(app)}
                                     </p>
-                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                    <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest text-[9px]">
                                       {app.customerPhone || "NO PHONE"}
                                     </p>
                                   </div>
@@ -2419,12 +2958,12 @@ export default function Calendar() {
                               </TableCell>
                               <TableCell className="px-6 py-5">
                                 <div className="flex items-center gap-3">
-                                  <Car className="w-4 h-4 text-primary shrink-0" />
+                                  <Car className="w-4 h-4 text-primary shrink-0 opacity-60" />
                                   <div className="min-w-0">
-                                    <p className="text-sm font-black text-gray-900 tracking-tight truncate max-w-[200px]">
+                                    <p className="text-sm font-black text-white tracking-tight truncate max-w-[200px]">
                                       {app.vehicleInfo || "Vehicle N/A"}
                                     </p>
-                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest truncate max-w-[200px]">
+                                    <p className="text-[10px] text-[#A0A0A0] font-bold uppercase tracking-widest truncate max-w-[200px] text-[9px]">
                                       {app.address || "No Address"}
                                     </p>
                                   </div>
@@ -2432,15 +2971,15 @@ export default function Calendar() {
                               </TableCell>
                               <TableCell className="px-6 py-5">
                                 <Badge variant="outline" className={cn(
-                                  "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border-none", 
-                                  statusColors[app.status] || "bg-gray-100 text-gray-700"
+                                  "text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-full border-none shadow-sm", 
+                                  getStatusColor(app.status || 'scheduled', app.isVip)
                                 )}>
                                   {app.status?.replace("_", " ")}
                                 </Badge>
                               </TableCell>
                               <TableCell className="px-6 py-5 text-right">
-                                <p className="text-sm font-black text-gray-900 tracking-tighter">
-                                  ${(app.totalAmount || 0).toFixed(2)}
+                                <p className="text-sm font-black text-white tracking-tighter">
+                                  {formatCurrency(app.totalAmount || 0)}
                                 </p>
                               </TableCell>
                               <TableCell className="px-6 py-5 text-right" onClick={(e) => e.stopPropagation()}>
@@ -2448,7 +2987,7 @@ export default function Calendar() {
                                   <Button 
                                     variant="ghost" 
                                     size="icon" 
-                                    className="h-9 w-9 text-gray-500 hover:text-primary hover:bg-primary/5 rounded-xl"
+                                    className="h-9 w-9 text-white/40 hover:text-white hover:bg-white/5 rounded-xl border border-transparent hover:border-white/10 transition-all"
                                     onClick={() => {
                                       if (app.recurringInfo?.seriesId) {
                                         setRecurringAction({ type: "edit", appointment: app });
@@ -2465,7 +3004,7 @@ export default function Calendar() {
                                       <Button 
                                         variant="ghost" 
                                         size="icon" 
-                                        className="h-9 w-9 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl"
+                                        className="h-9 w-9 text-white bg-red-500/10 hover:text-white hover:bg-red-600 rounded-xl"
                                       >
                                         <Trash2 className="w-4 h-4" />
                                       </Button>
@@ -2529,7 +3068,7 @@ export default function Calendar() {
                           if (isSelectionMode) {
                             toggleSelect(app.id);
                           } else {
-                            setViewingAppointment(app);
+                            navigate(`/calendar/${app.id}`);
                           }
                         }}
                         onContextMenu={(e) => {
@@ -2563,10 +3102,10 @@ export default function Calendar() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-lg font-black text-gray-900 truncate uppercase tracking-tight">{app.customerName || "Client"}</h3>
+                            <h3 className="text-lg font-black text-gray-900 truncate uppercase tracking-tight">{getClientDisplayName(app)}</h3>
                             <Badge variant="outline" className={cn(
                               "text-[9px] font-black uppercase tracking-widest px-3 py-0.5 rounded-full border-none", 
-                              statusColors[app.status] || "bg-gray-100 text-gray-700"
+                              getStatusColor(app.status || 'scheduled', app.isVip)
                             )}>
                               {app.status?.replace("_", " ")}
                             </Badge>
@@ -2621,7 +3160,7 @@ export default function Calendar() {
                                     <Button 
                                       variant="ghost" 
                                       size="icon" 
-                                      className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                                      className="h-8 w-8 text-white bg-red-500/10 hover:text-white hover:bg-red-600 rounded-lg"
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       <Trash2 className="w-4 h-4" />
@@ -2692,16 +3231,16 @@ export default function Calendar() {
                           <div>
                             <p className="text-xs font-black text-white uppercase">{block.title}</p>
                             <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">
-                              {format(block.start.toDate(), "h:mm a")} - {format(block.end.toDate(), "h:mm a")}
+                              {block.type === 'full_day' ? 'Full Day Block' : `${format(new Date(`2000-01-01T${block.startTime}`), 'h:mm a')} - ${format(new Date(`2000-01-01T${block.endTime}`), 'h:mm a')}`}
                             </p>
                           </div>
                         </div>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-gray-500 hover:text-red-500 transition-all"
+                          className="h-8 w-8 text-white bg-red-500/20 hover:bg-red-500 transition-all shadow-md"
                           onClick={async () => {
-                            await deleteDoc(doc(db, "time_blocks", block.id));
+                            await deleteDoc(doc(db, "blocked_dates", block.id));
                             toast.success("Time block removed");
                           }}
                         >
@@ -2742,261 +3281,6 @@ export default function Calendar() {
       </>
     )}
 
-      {/* Appointment Detail Dialog */}
-      <Dialog open={!!viewingAppointment} onOpenChange={(open) => !open && setViewingAppointment(null)}>
-        <DialogContent className="max-w-3xl bg-card border-none p-0 overflow-hidden rounded-[2.5rem] shadow-2xl shadow-black flex flex-col max-h-[90vh]">
-          {viewingAppointment && (
-            <>
-              <DialogHeader className="p-10 bg-black/40 border-b border-white/5 shrink-0 relative">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-6">
-                    <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20 shadow-lg shadow-primary/10">
-                      <CalendarIcon className="w-8 h-8" />
-                    </div>
-                    <div>
-                      <DialogTitle className="text-3xl font-black text-white uppercase tracking-tighter">Deployment <span className="text-primary">Intelligence</span></DialogTitle>
-                      <div className="flex items-center gap-3 mt-2">
-                        <Badge className={cn("text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border-none", statusColors[viewingAppointment.status || 'scheduled'])}>
-                          {(viewingAppointment.status || 'scheduled').replace("_", " ")}
-                        </Badge>
-                        <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Job #{viewingAppointment.jobNum || "N/A"}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-12 w-12 text-gray-400 hover:text-primary hover:bg-primary/5 rounded-2xl border border-white/5"
-                      onClick={() => {
-                        setEditingAppointment(viewingAppointment);
-                        setViewingAppointment(null);
-                        setShowAddDialog(true);
-                      }}
-                    >
-                      <Settings2 className="w-5 h-5" />
-                    </Button>
-                  </div>
-                </div>
-              </DialogHeader>
-
-              <div className="flex-1 overflow-y-auto p-10 space-y-10 custom-scrollbar">
-                {/* Mission Critical Data */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Target Client</Label>
-                      <div className="p-5 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-black">
-                          {viewingAppointment.customerName?.charAt(0).toUpperCase() || "U"}
-                        </div>
-                        <div>
-                          <p className="text-sm font-black text-white uppercase tracking-tight">{viewingAppointment.customerName || "Unknown Client"}</p>
-                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{viewingAppointment.customerPhone || "No Phone Protocol"}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Deployment Zone</Label>
-                      <div className="p-5 bg-white/5 rounded-2xl border border-white/10 flex items-start gap-4">
-                        <MapPin className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-black text-white uppercase tracking-tight leading-tight">{viewingAppointment.address}</p>
-                          {viewingAppointment.address && (
-                            <Button 
-                              variant="link" 
-                              className="p-0 h-auto text-[10px] text-primary font-black uppercase tracking-widest mt-2 hover:no-underline"
-                              onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(viewingAppointment.address)}`, '_blank')}
-                            >
-                              Launch Navigation <ExternalLink className="w-3 h-3 ml-1" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Temporal Window</Label>
-                      <div className="p-5 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-4">
-                        <Clock className="w-5 h-5 text-primary shrink-0" />
-                        <div>
-                          <p className="text-sm font-black text-white uppercase tracking-tight">
-                            {viewingAppointment.scheduledAt?.toDate ? format(viewingAppointment.scheduledAt.toDate(), "EEEE, MMMM do") : "TBD"}
-                          </p>
-                          {viewingAppointment.scheduledAt && (
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                              Commencing at {viewingAppointment.scheduledAt.toDate ? format(viewingAppointment.scheduledAt.toDate(), "h:mm a") : format(new Date(viewingAppointment.scheduledAt), "h:mm a")}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Assigned Operative</Label>
-                      <div className="p-5 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-4">
-                        <User className="w-5 h-5 text-primary shrink-0" />
-                        <div>
-                          <p className="text-sm font-black text-white uppercase tracking-tight">{viewingAppointment.technicianName || "Unassigned"}</p>
-                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Field Technician</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Assets & Services */}
-                <div className="space-y-4">
-                  <Label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Tactical Assets & Services</Label>
-                  <div className="space-y-3">
-                    {viewingAppointment.vehicleIds?.map((vId: string) => {
-                      const vehicle = availableVehicles.find(v => v.id === vId);
-                      const vServices = viewingAppointment.serviceSelections?.filter((s: any) => s.vehicleId === vId) || [];
-                      
-                      return (
-                        <div key={vId} className="p-6 bg-white/5 rounded-3xl border border-white/10 space-y-4">
-                          <div className="flex items-center gap-3">
-                            <Car className="w-5 h-5 text-primary" />
-                            <p className="text-sm font-black text-white uppercase tracking-tight">
-                              {vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : "Unknown Asset"}
-                            </p>
-                            {vehicle?.size && (
-                              <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest border-white/10 text-gray-400">
-                                {vehicle.size.replace("_", " ")}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {vServices.map((s: any, idx: number) => (
-                              <Badge key={idx} className="bg-primary/10 text-primary border-none text-[9px] font-black uppercase tracking-widest px-3 py-1">
-                                {viewingAppointment.serviceNames?.find((name: string) => name.includes(s.id)) || "Service"} x{s.qty}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    
-                    {(!viewingAppointment.vehicleIds || viewingAppointment.vehicleIds.length === 0) && viewingAppointment.serviceNames?.map((name: string, idx: number) => (
-                      <div key={idx} className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
-                        <p className="text-sm font-black text-white uppercase tracking-tight">{name}</p>
-                        <Badge className="bg-primary/10 text-primary border-none text-[9px] font-black uppercase tracking-widest">
-                          Service Protocol
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Financial Summary */}
-                <div className="p-8 bg-black/40 rounded-[2rem] border border-white/5 space-y-6">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Financial Summary</p>
-                    <Badge className={cn(
-                      "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border-none",
-                      viewingAppointment.paymentStatus === "paid" ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
-                    )}>
-                      {viewingAppointment.paymentStatus}
-                    </Badge>
-                  </div>
-                  <div className="space-y-3">
-                    {/* 1. Itemize Core Services */}
-                    {(viewingAppointment.serviceSelections || []).map((service: any, idx: number) => (
-                      <div key={`view-service-${service.id || idx}`} className="flex justify-between text-sm">
-                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">{service.vehicleName ? `[${service.vehicleName}] ` : ""}{service.name}</span>
-                        <span className="text-white font-black">${(service.price || 0).toFixed(2)}</span>
-                      </div>
-                    ))}
-
-                    {/* 2. Itemize Add-ons & Enhancements */}
-                    {(viewingAppointment.addOnSelections || []).map((addon: any, idx: number) => (
-                      <div key={`view-addon-${addon.id || idx}`} className="flex justify-between text-sm">
-                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px] italic">{addon.name} {addon.qty > 1 ? `(x${addon.qty})` : ""}</span>
-                        <span className="text-white font-black">${((addon.price || 0) * (addon.qty || 1)).toFixed(2)}</span>
-                      </div>
-                    ))}
-
-                    {/* 3. Backward Compatibility: Unlisted Manual Additions */}
-                    {(() => {
-                      const mappedServicesTotal = (viewingAppointment.serviceSelections || []).reduce((sum: number, s: any) => sum + (s.price || 0), 0);
-                      const mappedAddonsTotal = (viewingAppointment.addOnSelections || []).reduce((sum: number, a: any) => sum + ((a.price || 0) * (a.qty || 1)), 0);
-                      const unlistedTotal = (viewingAppointment.baseAmount || 0) - (mappedServicesTotal + mappedAddonsTotal);
-                      
-                      if (unlistedTotal > 0.01) {
-                        return (
-                          <div className="flex justify-between text-sm">
-                            <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">Additional Line Items</span>
-                            <span className="text-white font-black">${unlistedTotal.toFixed(2)}</span>
-                          </div>
-                        );
-                      }
-                      return null;
-                    })()}
-                    
-                    {viewingAppointment.discountAmount > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-red-400 font-bold uppercase tracking-widest text-[10px]">Tactical Discount</span>
-                        <span className="text-red-400 font-black">-${(viewingAppointment.discountAmount || 0).toFixed(2)}</span>
-                      </div>
-                    )}
-                    <div className="pt-4 border-t border-white/5 flex justify-between items-end">
-                      <div>
-                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Total</p>
-                        <p className="text-3xl font-black text-white tracking-tighter">${(viewingAppointment.totalAmount || 0).toFixed(2)}</p>
-                      </div>
-                      {viewingAppointment.depositAmount > 0 && (
-                        <div className="text-right">
-                          <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Deposit Status</p>
-                          <p className={cn("text-sm font-black uppercase tracking-tight", viewingAppointment.depositPaid ? "text-green-400" : "text-red-400")}>
-                            {viewingAppointment.depositPaid ? "Secured" : "Pending"} (${(viewingAppointment.depositAmount || 0).toFixed(2)})
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-10 bg-black/40 border-t border-white/5 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-3">
-                  <Button 
-                    variant="ghost" 
-                    className="text-gray-400 hover:text-white font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl"
-                    onClick={() => setViewingAppointment(null)}
-                  >
-                    Close
-                  </Button>
-                </div>
-                <div className="flex items-center gap-4">
-                  <Button 
-                    variant="outline" 
-                    className="border-white/10 bg-white/5 text-white hover:bg-white/10 font-black uppercase tracking-widest text-[10px] h-12 px-8 rounded-xl"
-                    onClick={() => handleConvertToInvoice(viewingAppointment)}
-                  >
-                    <FileText className="w-4 h-4 mr-2" />
-                    Convert to Invoice
-                  </Button>
-                  <Button 
-                    className="bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-8 rounded-xl shadow-lg shadow-primary/20"
-                    onClick={() => {
-                      setEditingAppointment(viewingAppointment);
-                      setViewingAppointment(null);
-                      setShowAddDialog(true);
-                    }}
-                  >
-                    <Settings2 className="w-4 h-4 mr-2" />
-                    Modify Deployment
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
       {/* Time Block Dialog */}
       <Dialog open={showTimeBlockDialog} onOpenChange={setShowTimeBlockDialog}>
         <DialogContent className="max-w-xl bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black flex flex-col">
@@ -3007,49 +3291,74 @@ export default function Calendar() {
           </DialogHeader>
           <div className="p-8 space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="blockTitle">Title / Reason</Label>
+              <Label htmlFor="blockTitle">Reason (Title)</Label>
               <Input
                 id="blockTitle"
                 value={timeBlockForm.title}
                 onChange={(e) => setTimeBlockForm({ ...timeBlockForm, title: e.target.value })}
-                placeholder="e.g. Lunch, Doctor Appointment"
+                placeholder="e.g. Day Off, Doctor Appointment"
                 className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
               />
             </div>
             
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Start Time</Label>
-                <Input
-                  type="datetime-local"
-                  value={timeBlockForm.start}
-                  onChange={(e) => setTimeBlockForm({ ...timeBlockForm, start: e.target.value })}
-                  className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>End Time</Label>
-                <Input
-                  type="datetime-local"
-                  value={timeBlockForm.end}
-                  onChange={(e) => setTimeBlockForm({ ...timeBlockForm, end: e.target.value })}
-                  className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
-                />
-              </div>
-            </div>
-
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select value={timeBlockForm.type} onValueChange={(v: any) => setTimeBlockForm({ ...timeBlockForm, type: v })}>
+              <Select value={timeBlockForm.type} onValueChange={(v: "full_day" | "partial") => setTimeBlockForm({ ...timeBlockForm, type: v })}>
                 <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-white/10 text-white">
-                  <SelectItem value="time_off">Time Off</SelectItem>
-                  <SelectItem value="busy">Busy</SelectItem>
-                  <SelectItem value="unavailable">Unavailable (Block Booking)</SelectItem>
+                  <SelectItem value="full_day">Full Day(s)</SelectItem>
+                  <SelectItem value="partial">Partial Day</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{timeBlockForm.type === 'full_day' ? 'Start Date' : 'Date'}</Label>
+                <Input
+                  type="date"
+                  value={timeBlockForm.date}
+                  onChange={(e) => setTimeBlockForm({ ...timeBlockForm, date: e.target.value })}
+                  className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                  pattern="\d{4}-\d{2}-\d{2}"
+                />
+              </div>
+              {timeBlockForm.type === 'full_day' && (
+                <div className="space-y-2">
+                  <Label>End Date (Optional)</Label>
+                  <Input
+                    type="date"
+                    value={timeBlockForm.endDate}
+                    onChange={(e) => setTimeBlockForm({ ...timeBlockForm, endDate: e.target.value })}
+                    className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                    pattern="\d{4}-\d{2}-\d{2}"
+                  />
+                </div>
+              )}
+              {timeBlockForm.type === 'partial' && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Start Time</Label>
+                    <Input
+                      type="time"
+                      value={timeBlockForm.startTime}
+                      onChange={(e) => setTimeBlockForm({ ...timeBlockForm, startTime: e.target.value })}
+                      className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Time</Label>
+                    <Input
+                      type="time"
+                      value={timeBlockForm.endTime}
+                      onChange={(e) => setTimeBlockForm({ ...timeBlockForm, endTime: e.target.value })}
+                      className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -3072,35 +3381,46 @@ export default function Calendar() {
               <Button
                 onClick={async () => {
                   try {
-                    if (!timeBlockForm.title || !timeBlockForm.start || !timeBlockForm.end) {
-                      toast.error("Please fill required fields (Title, Start, End)");
+                    if (!timeBlockForm.date) {
+                      toast.error("Please fill required fields (Date)");
                       return;
                     }
-                    if (new Date(timeBlockForm.start) >= new Date(timeBlockForm.end)) {
+                    if (timeBlockForm.type === "partial" && (!timeBlockForm.startTime || !timeBlockForm.endTime)) {
+                      toast.error("Please provide start and end time for partial day.");
+                      return;
+                    }
+                    if (timeBlockForm.type === "partial" && timeBlockForm.startTime >= timeBlockForm.endTime) {
                       toast.error("End time must be after start time");
+                      return;
+                    }
+                    
+                    if (timeBlockForm.type === "full_day" && timeBlockForm.endDate && timeBlockForm.date > timeBlockForm.endDate) {
+                      toast.error("End date must be on or after start date");
                       return;
                     }
 
                     const data = {
-                      title: timeBlockForm.title,
+                      title: timeBlockForm.title || "Blocked",
                       type: timeBlockForm.type,
-                      start: Timestamp.fromDate(new Date(timeBlockForm.start)),
-                      end: Timestamp.fromDate(new Date(timeBlockForm.end)),
+                      date: timeBlockForm.date,
+                      endDate: timeBlockForm.endDate || timeBlockForm.date,
+                      startTime: timeBlockForm.startTime,
+                      endTime: timeBlockForm.endTime,
                       notes: timeBlockForm.notes,
-                      userId: profile?.id
+                      userId: profile?.id || "unknown"
                     };
 
                     if (editingTimeBlock) {
-                      await updateDoc(doc(db, "time_blocks", editingTimeBlock.id), data);
-                      toast.success("Time block updated");
+                      await updateDoc(doc(db, "blocked_dates", editingTimeBlock.id), data);
+                      toast.success("Blocked date updated");
                     } else {
-                      await addDoc(collection(db, "time_blocks"), data);
-                      toast.success("Time block created");
+                      await addDoc(collection(db, "blocked_dates"), data);
+                      toast.success("Blocked date created");
                     }
                     setShowTimeBlockDialog(false);
                   } catch (e: any) {
                     console.error("Error saving time block:", e);
-                    toast.error("Failed to save time block");
+                    toast.error("Failed to save blocked date");
                   }
                 }}
                 className="bg-primary hover:bg-primary/90 text-white font-bold rounded-xl h-12 px-8 shadow-lg shadow-primary/20"
@@ -3109,6 +3429,277 @@ export default function Calendar() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Navigation App Selection Modal */}
+      <AnimatePresence>
+        {navDialogApp && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setNavDialogApp(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="relative w-full max-w-xs bg-card border border-white/10 p-6 rounded-[2.5rem] shadow-2xl shadow-black z-[101]"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black text-white tracking-tight">Navigate To</h3>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setNavDialogApp(null)}
+                  className="h-8 w-8 rounded-full bg-white/5 text-white/50 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                <Button
+                  className="w-full h-14 bg-[#4285F4]/10 text-[#4285F4] hover:bg-[#4285F4]/20 border border-[#4285F4]/20 rounded-2xl font-bold uppercase tracking-widest text-[11px] justify-start px-5"
+                  onClick={() => {
+                    const encoded = encodeURIComponent(navDialogApp?.address || "");
+                    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`, '_blank');
+                    setNavDialogApp(null);
+                  }}
+                >
+                  <Map className="w-4 h-4 mr-3" />
+                  Google Maps
+                </Button>
+                <Button
+                  className="w-full h-14 bg-[#33CCFF]/10 text-[#33CCFF] hover:bg-[#33CCFF]/20 border border-[#33CCFF]/20 rounded-2xl font-bold uppercase tracking-widest text-[11px] justify-start px-5"
+                  onClick={() => {
+                    const encoded = encodeURIComponent(navDialogApp?.address || "");
+                    window.open(`https://waze.com/ul?q=${encoded}&navigate=yes`, '_blank');
+                    setNavDialogApp(null);
+                  }}
+                >
+                  <MapPin className="w-4 h-4 mr-3" />
+                  Waze
+                </Button>
+                <Button
+                  className="w-full h-14 bg-white/10 text-white hover:bg-white/20 border border-white/20 rounded-2xl font-bold uppercase tracking-widest text-[11px] justify-start px-5"
+                  onClick={() => {
+                    const encoded = encodeURIComponent(navDialogApp?.address || "");
+                    window.open(`https://maps.apple.com/?daddr=${encoded}`, '_blank');
+                    setNavDialogApp(null);
+                  }}
+                >
+                  <Navigation2 className="w-4 h-4 mr-3" />
+                  Apple Maps
+                </Button>
+                
+                <div className="pt-4 mt-2">
+                  <Button
+                    variant="ghost"
+                    className="w-full h-12 text-white/40 hover:text-white uppercase tracking-[0.2em] font-black text-[9px] rounded-xl"
+                    onClick={() => setNavDialogApp(null)}
+                  >
+                    Close Portal
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Detailed App / Command Center View */}
+      <Dialog open={!!selectedDetailedApp} onOpenChange={(val) => !val && setSelectedDetailedApp(null)}>
+        <DialogContent className="max-w-xl bg-card border-none p-0 overflow-hidden rounded-[2.5rem] shadow-2xl shadow-black flex flex-col">
+          {selectedDetailedApp && (() => {
+            const app = selectedDetailedApp;
+            const appStopIndex = optimizedStops.findIndex(s => s.id === app.id);
+            let travelTimeMins = 0;
+            let travelWarning = false;
+            let nextStop = null;
+            if (appStopIndex !== -1 && appStopIndex < optimizedStops.length - 1) {
+              nextStop = optimizedStops[appStopIndex + 1];
+              travelTimeMins = Math.round((nextStop.travelTimeFromPrevious || 0) / 60);
+              if (travelTimeMins > 20) {
+                travelWarning = true;
+              }
+            }
+
+            const isCompleted = app.status === 'completed' || app.status === 'paid';
+            const isStarted = isCompleted || app.status === 'in_progress';
+            const isOnWay = isStarted || app.status === 'en_route';
+
+            return (
+              <>
+                <DialogHeader className="p-8 border-b border-white/5 bg-black/40 shrink-0 relative">
+                  <div className="absolute top-4 right-4">
+                    <Button variant="ghost" size="icon" onClick={() => setSelectedDetailedApp(null)} className="h-8 w-8 rounded-full bg-white/5 text-white/50 hover:text-white hover:bg-white/10 transition-all">
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-primary/10 rounded-2xl border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/20 shrink-0">
+                      <MapPin className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase pr-8">
+                        {getClientDisplayName(app)}
+                      </DialogTitle>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-2 mt-1">
+                        <Clock className="w-3 h-3" />
+                         {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "MMM do, yyyy • h:mm a") : ""}
+                      </p>
+                    </div>
+                  </div>
+                </DialogHeader>
+                
+                <div className="p-8 space-y-8 overflow-y-auto max-h-[60vh] custom-scrollbar">
+                  {/* Job Status Timeline */}
+                  <div className="space-y-4">
+                    <h3 className="text-[10px] font-black tracking-widest uppercase text-white/50">Mission Status Timeline</h3>
+                    <div className="relative flex justify-between">
+                      <div className="absolute top-1/2 left-4 right-4 h-0.5 bg-white/5 -translate-y-1/2" />
+                      <div className={`absolute top-1/2 left-4 h-0.5 bg-primary -translate-y-1/2 transition-all duration-500`} style={{ right: app.status === 'arrived' || isStarted || isCompleted ? '1rem' : isOnWay ? '50%' : 'calc(100% - 2rem)' }} />
+                      
+                      <div className="relative z-10 flex flex-col items-center gap-2">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 border-card transition-all ${true ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'bg-gray-800 text-gray-500'}`}>
+                          <CalendarIcon className="w-3 h-3" />
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-white">Scheduled</span>
+                      </div>
+                      
+                      <div className="relative z-10 flex flex-col items-center gap-2">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 border-card transition-all ${isOnWay ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'bg-gray-800 text-gray-500'}`}>
+                          <Navigation2 className="w-3 h-3" />
+                        </div>
+                        <span className={`text-[9px] font-black uppercase tracking-widest ${isOnWay ? 'text-white' : 'text-gray-500'}`}>On The Way</span>
+                      </div>
+                      
+                      <div className="relative z-10 flex flex-col items-center gap-2">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 border-card transition-all ${app.status === 'arrived' || isStarted || isCompleted ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'bg-gray-800 text-gray-500'}`}>
+                          <MapPin className="w-3 h-3" />
+                        </div>
+                        <span className={`text-[9px] font-black uppercase tracking-widest ${app.status === 'arrived' || isStarted || isCompleted ? 'text-white' : 'text-gray-500'}`}>Arrived</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Travel Awareness */}
+                  {nextStop && (
+                    <div className={`p-4 rounded-2xl border ${travelWarning ? 'bg-red-500/10 border-red-500/20' : 'bg-blue-500/10 border-blue-500/20'} flex flex-col gap-2`}>
+                      <div className="flex items-center gap-2">
+                        <Navigation2 className={`w-4 h-4 ${travelWarning ? 'text-red-400' : 'text-blue-400'}`} />
+                        <h4 className={`text-xs font-black uppercase tracking-widest ${travelWarning ? 'text-red-400' : 'text-blue-400'}`}>Travel to Next Job</h4>
+                      </div>
+                      <p className="text-white text-sm font-bold">
+                         {travelTimeMins} mins estimated distance.
+                      </p>
+                      {travelWarning && (
+                        <p className="text-[10px] text-red-400/80 font-bold uppercase tracking-widest bg-red-500/10 px-2 py-1 rounded inline-block w-fit">
+                          Warning: Travel time exceeds 20 minutes
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Details */}
+                   <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-1 mb-4">
+                     <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Location</p>
+                     <p className="text-sm font-bold text-white truncate">{app.address || "No address"}</p>
+                   </div>
+
+                   {/* Vehicles Section */}
+                   <div className="space-y-3 mb-4">
+                     <h3 className="text-[10px] text-gray-500 font-bold uppercase tracking-widest px-1">VEHICLE(S) BEING SERVICED</h3>
+                     {(app.vehicleIds?.length > 0) ? (
+                       <div className="space-y-3">
+                         {app.vehicleIds.map((vId: string) => {
+                           const vData = detailedAppVehicles.find(v => v.id === vId);
+                           // Filter services matching this vehicle
+                           const assignedServices = app.serviceSelections?.filter((s: any) => s.vehicleId === vId || !s.vehicleId) || [];
+                           const serviceNames = assignedServices.map((s: any) => services.find(srv => srv.id === s.id)?.name || s.name).filter(Boolean);
+                           
+                           if (!vData) {
+                             // Fallback if not loaded yet or missing
+                             return (
+                               <div key={vId} className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-1">
+                                 <p className="text-sm font-bold text-white">Loading vehicle data...</p>
+                                 <p className="text-[10px] text-gray-400 capitalize">{serviceNames.join(", ") || "No services assigned"}</p>
+                               </div>
+                             );
+                           }
+
+                           return (
+                             <div key={vId} className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-2 relative overflow-hidden">
+                               <div className="absolute top-0 right-0 p-3">
+                                 <div className="w-1.5 h-1.5 rounded-full bg-primary/50 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></div>
+                               </div>
+                               <div>
+                                 <p className="text-base font-black text-white">{vData.year} {vData.make} {vData.model}</p>
+                                 <p className="text-xs text-gray-400 font-medium">
+                                   {vData.type || vData.size || "Standard"} • {vData.color || "No color"}
+                                   {vData.licensePlate && ` • LXP: ${vData.licensePlate}`}
+                                 </p>
+                               </div>
+                               {serviceNames.length > 0 && (
+                                 <div className="mt-1">
+                                   <p className="text-[10px] text-primary/80 font-bold uppercase tracking-widest bg-primary/10 inline-block px-2 py-0.5 rounded">
+                                     {serviceNames.join(", ")}
+                                   </p>
+                                 </div>
+                               )}
+                             </div>
+                           )
+                         })}
+                       </div>
+                     ) : (
+                       <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-1 text-center items-center justify-center py-6">
+                         <p className="text-sm font-bold text-gray-400">No vehicle assigned</p>
+                       </div>
+                     )}
+                   </div>
+
+                  {/* Action Controls */}
+                  <div className="grid grid-cols-3 gap-3 pt-4 border-t border-white/5">
+                    <Button 
+                      className={`h-12 rounded-xl font-black uppercase tracking-widest text-[9px] shadow-lg transition-all ${app.status === 'en_route' ? 'bg-primary text-white ring-2 ring-primary ring-offset-2 ring-offset-card' : 'bg-white/5 text-white hover:bg-primary/20 hover:text-primary border border-white/10'}`}
+                      onClick={() => handleJobStatusUpdate('en_route')}
+                    >
+                      <Navigation2 className="w-3 h-3 mr-1.5" /> En Route
+                    </Button>
+                    <Button 
+                      className="h-12 rounded-xl font-black uppercase tracking-widest text-[9px] shadow-lg transition-all bg-white/5 text-white hover:bg-white/20 border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => setNavDialogApp(app)}
+                      disabled={!app.address}
+                      title={!app.address ? "No address available" : "Open in Maps"}
+                    >
+                      <Map className="w-3 h-3 mr-1.5" /> Navigate
+                    </Button>
+                    <Button 
+                      className={`h-12 rounded-xl font-black uppercase tracking-widest text-[9px] shadow-lg transition-all ${app.status === 'arrived' ? 'bg-orange-500 text-white ring-2 ring-orange-500 ring-offset-2 ring-offset-card' : 'bg-white/5 text-white hover:bg-orange-500/20 hover:text-orange-500 border border-white/10'}`}
+                      onClick={() => handleJobStatusUpdate('arrived')}
+                    >
+                      <MapPin className="w-3 h-3 mr-1.5" /> Arrived
+                    </Button>
+                  </div>
+                  
+                  <div className="flex justify-center mt-4 pt-4 border-t border-white/5">
+                    <Button variant="ghost" className="text-xs text-white/50 hover:text-white transition-all uppercase tracking-widest font-bold" onClick={() => {
+                        setSelectedDetailedApp(null);
+                        navigate(`/calendar/${app.id}`);
+                    }}>
+                       Open Full Intelligence Dashboard
+                    </Button>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

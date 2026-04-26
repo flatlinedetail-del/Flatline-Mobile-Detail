@@ -41,7 +41,8 @@ import {
   Image as ImageIcon,
   X,
   Loader2,
-  Edit2
+  Edit2,
+  RefreshCcw
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -74,31 +75,29 @@ export default function Vendors() {
   const vehicleFileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingVehicleId, setUploadingVehicleId] = useState<string | null>(null);
 
+  const fetchVendorsData = async (showToast = false) => {
+    if (showToast) toast.loading("Syncing Partners...", { id: "sync-vendors" });
+    setLoading(true);
+    try {
+      const q = query(collection(db, "vendors"), orderBy("createdAt", "desc"), limit(100));
+      const vendorsSnap = await getDocs(q);
+      setVendors(vendorsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor)));
+      
+      const servicesSnap = await getDocs(collection(db, "services"));
+      setServices(servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
+      
+      if (showToast) toast.success("Partners Synchronized", { id: "sync-vendors" });
+    } catch (error) {
+      console.error("Error fetching vendors:", error);
+      if (showToast) toast.error("Sync Failed", { id: "sync-vendors" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (authLoading || !profile) return;
-
-    const q = query(collection(db, "vendors"), orderBy("createdAt", "desc"), limit(100));
-    const unsubscribeVendors = onSnapshot(q, (snapshot) => {
-      setVendors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor)));
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching vendors:", error);
-      setLoading(false);
-    });
-
-    const loadServices = async () => {
-      try {
-        const servicesSnap = await getDocs(collection(db, "services"));
-        setServices(servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
-      } catch (error) {
-        console.error("Error fetching services in vendors:", error);
-      }
-    };
-    loadServices();
-
-    return () => {
-      unsubscribeVendors();
-    };
+    fetchVendorsData();
   }, [profile, authLoading]);
 
   useEffect(() => {
@@ -111,14 +110,12 @@ export default function Vendors() {
 
     const fetchVendorDetails = async () => {
       try {
-        const [historySnap, vehiclesSnap, formsSnap] = await Promise.all([
+        const [historySnap, formsSnap] = await Promise.all([
           getDocs(query(collection(db, "appointments"), where("vendorId", "==", selectedVendor.id), orderBy("scheduledAt", "desc"), limit(50))),
-          getDocs(query(collection(db, "vehicles"), where("ownerId", "==", selectedVendor.id), where("ownerType", "==", "vendor"))),
           getDocs(query(collection(db, "signed_forms"), where("vendorId", "==", selectedVendor.id)))
         ]);
 
         setVendorHistory(historySnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-        setVendorVehicles(vehiclesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
         setSignedForms(formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       } catch (error) {
         console.error("Error fetching vendor details:", error);
@@ -126,8 +123,14 @@ export default function Vendors() {
     };
 
     fetchVendorDetails();
+    
+    const unsubVehicles = onSnapshot(query(collection(db, "vehicles"), where("ownerId", "==", selectedVendor.id), where("ownerType", "==", "vendor")), snap => {
+      setVendorVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+    });
 
-    return () => {};
+    return () => {
+      unsubVehicles();
+    };
   }, [selectedVendor]);
 
   const handleAddVendor = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -427,6 +430,16 @@ export default function Vendors() {
               />
             </div>
             <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className={cn("border-white/10 text-white hover:bg-white/5", loading && "animate-spin")}
+                onClick={() => fetchVendorsData(true)}
+                disabled={loading}
+              >
+                <RefreshCcw className="w-4 h-4 mr-2 text-primary" />
+                Sync
+              </Button>
               <Button variant="outline" size="sm" className="border-white/10 text-white hover:bg-white/5">
                 <Filter className="w-4 h-4 mr-2" />
                 Filter
@@ -582,7 +595,7 @@ export default function Vendors() {
               </div>
             </div>
 
-            <Tabs defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
+            <Tabs key={selectedVendor.id} defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
               <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-12 shrink-0">
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Profile</TabsTrigger>
                 <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Vehicles ({vendorVehicles.length})</TabsTrigger>
@@ -797,7 +810,7 @@ export default function Vendors() {
                             <div className="flex items-center gap-2">
                               <AlertDialog>
                                 <AlertDialogTrigger render={
-                                  <Button variant="ghost" size="icon" className="text-gray-500 hover:text-red-600">
+                                  <Button variant="ghost" size="icon" className="h-9 w-9 text-white bg-red-500/10 hover:text-white hover:bg-red-500 rounded-xl">
                                     <Trash2 className="w-4 h-4" />
                                   </Button>
                                 } />

@@ -13,7 +13,7 @@ import { format } from "date-fns";
 import AddressInput from "../components/AddressInput";
 import { BusinessSettings, Service, AddOn } from "../types";
 import { createNotification } from "../services/notificationService";
-import { cn, cleanAddress } from "@/lib/utils";
+import { cn, cleanAddress, formatCurrency } from "@/lib/utils";
 import VehicleSelector from "../components/VehicleSelector";
 
 export default function PublicBooking() {
@@ -38,6 +38,49 @@ export default function PublicBooking() {
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
   const [scheduledAt, setScheduledAt] = useState("");
   const [bookingStatus, setBookingStatus] = useState<"idle" | "success">("idle");
+  const [isAfterHours, setIsAfterHours] = useState(false);
+  const [afterHoursFee, setAfterHoursFee] = useState(0);
+
+  useEffect(() => {
+    if (!scheduledAt || !settings?.businessHours) {
+      setIsAfterHours(false);
+      setAfterHoursFee(0);
+      return;
+    }
+
+    const startAt = new Date(scheduledAt);
+    const totalDuration = selectedServices.reduce((acc, id) => {
+      const service = services.find(srv => srv.id === id);
+      return acc + (service?.estimatedDuration || 120);
+    }, 0);
+
+    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayName = daysOfWeek[startAt.getDay()];
+    const daySettings = (settings.businessHours as any)[dayName];
+    const allowAfterHours = settings.businessHours.allowAfterHours || false;
+    
+    let afterHours = false;
+    if (daySettings) {
+      if (!daySettings.isOpen) {
+        afterHours = true;
+      } else {
+        const apptStartStr = format(startAt, "HH:mm");
+        const apptEndAt = new Date(startAt.getTime() + totalDuration * 60000);
+        const apptEndStr = format(apptEndAt, "HH:mm");
+        
+        if (apptStartStr < daySettings.openTime || apptEndStr > daySettings.closeTime) {
+          afterHours = true;
+        }
+      }
+    }
+
+    setIsAfterHours(afterHours);
+    if (afterHours && allowAfterHours) {
+      setAfterHoursFee(settings.businessHours.afterHoursFeeAmount || 0);
+    } else {
+      setAfterHoursFee(0);
+    }
+  }, [scheduledAt, selectedServices, services, settings?.businessHours]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -87,6 +130,12 @@ export default function PublicBooking() {
         updatedAt: serverTimestamp(),
         customerType: "retail",
         totalAmount: 0, // Admin will finalize
+        afterHoursRecord: isAfterHours ? {
+          isAfterHours: true,
+          afterHoursFee,
+          afterHoursReason: "Time selected falls outside standard operating hours.",
+          businessHoursSnapshot: settings?.businessHours || null
+        } : null,
         paymentStatus: "unpaid",
         technicianId: "",
         technicianName: "TBD",
@@ -319,6 +368,17 @@ export default function PublicBooking() {
                         onChange={e => setScheduledAt(e.target.value)}
                         className="h-12 bg-white border-2 border-gray-100 rounded-xl focus:border-primary transition-all"
                       />
+                      {isAfterHours && (
+                        <div className="mt-2 p-4 bg-yellow-50 border border-yellow-200 rounded-2xl flex items-start gap-3">
+                          <Clock className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-xs font-black text-yellow-700 uppercase tracking-widest">After-Hours Request</p>
+                            <p className="text-[11px] text-yellow-600 font-medium mt-1 leading-relaxed">
+                              This time slot falls outside our standard operating hours. {afterHoursFee > 0 ? `An after-hours premium of ${formatCurrency(afterHoursFee)} will be applied to your final invoice.` : "Please note that after-hours requests may take longer to approve."}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                       <p className="text-[10px] text-gray-400 font-medium italic">
                         * Custom time requests require manual approval from our team.
                       </p>

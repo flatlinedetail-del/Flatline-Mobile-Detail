@@ -55,17 +55,25 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (
-          (request.auth.token.email.lower() == "flatlinedetail@gmail.com" && request.auth.token.email_verified == true) ||
-          hasRole('admin')
+          request.auth.token.email.lower() == "flatlinedetail@gmail.com" ||
+          hasRole('admin') ||
+          hasRole('manager')
         );
     }
 
     function isTechnician() {
-      return isAuthenticated() && (hasRole('technician') || isAdmin());
+      return isAuthenticated() && 
+        (
+          request.auth.token.email.lower() == "flatlinedetail@gmail.com" ||
+          hasRole('technician') || 
+          hasRole('admin') ||
+          hasRole('manager') ||
+          hasRole('worker')
+        );
     }
 
     function isPublic() {
-      return true; // For now, allowing public read on specific collections
+      return true;
     }
 
     function isValidUser(data) {
@@ -93,6 +101,10 @@ service cloud.firestore {
     // ===============================================================
     // Rules
     // ===============================================================
+
+    match /bundle_offers/{bundleId} {
+      allow read, write: if isPublic();
+    }
 
     match /users/{userId} {
       allow read: if isAuthenticated();
@@ -148,7 +160,14 @@ service cloud.firestore {
     match /appointments/{appointmentId} {
       allow read: if isPublic(); // Needed for checking availability in public booking
       allow create: if isPublic(); // Allow public booking
-      allow update: if isTechnician();
+      allow update: if isTechnician() || (isPublic() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reminders']));
+      allow delete: if isAdmin();
+    }
+
+    match /communication_logs/{logId} {
+      allow read: if isPublic();
+      allow create: if isPublic();
+      allow update: if isPublic();
       allow delete: if isAdmin();
     }
 
@@ -256,11 +275,23 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /blocked_dates/{blockId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
     match /time_blocks/{blockId} {
       allow read: if isTechnician();
       allow create: if isTechnician();
       allow update: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /ai_recommendations/{recId} {
+      allow read: if isTechnician();
+      allow write: if isAdmin();
     }
 
     match /notifications/{notificationId} {

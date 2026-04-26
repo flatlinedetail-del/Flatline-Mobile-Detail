@@ -29,23 +29,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (authUser) {
         const userDocRef = doc(db, "users", authUser.uid);
         
-        // Use onSnapshot for real-time profile updates
-        if (unsubscribeProfile) unsubscribeProfile();
-        
-        unsubscribeProfile = onSnapshot(userDocRef, async (docSnap) => {
-          if (docSnap.exists()) {
-            let data = docSnap.data();
-            // Ensure owner email always has admin role (maintain logic from before)
-            if (authUser.email?.toLowerCase() === "flatlinedetail@gmail.com" && data.role !== "admin") {
-              await updateDoc(userDocRef, { role: "admin" });
-            }
-            setProfile({ ...data, uid: authUser.uid, id: authUser.uid });
-            setLoading(false);
-          } else {
-            // Create profile if it doesn't exist
-            let initialRole = authUser.email?.toLowerCase() === "flatlinedetail@gmail.com" ? "admin" : "technician";
-            
-            try {
+        // Use getDoc for one-time profile fetch on auth change
+        const fetchProfile = async () => {
+          try {
+            const docSnap = await getDoc(userDocRef);
+            if (docSnap.exists()) {
+              let data = docSnap.data();
+              // Ensure owner email always has admin role (maintain logic from before)
+              if (authUser.email?.toLowerCase() === "flatlinedetail@gmail.com" && data.role !== "admin") {
+                await updateDoc(userDocRef, { role: "admin" });
+                data.role = "admin";
+              }
+              setProfile({ ...data, uid: authUser.uid, id: authUser.uid });
+              setLoading(false);
+            } else {
+              // Create profile if it doesn't exist
+              let initialRole = authUser.email?.toLowerCase() === "flatlinedetail@gmail.com" ? "admin" : "technician";
+              
               const authDocs = await getDocs(query(collection(db, "staff_authorizations"), where("email", "==", authUser.email?.toLowerCase())));
               if (!authDocs.empty) {
                 initialRole = authDocs.docs[0].data().role || initialRole;
@@ -61,22 +61,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 createdAt: serverTimestamp(),
               };
               await setDoc(userDocRef, newProfile);
-            } catch (err) {
-              console.error("Error creating new profile:", err);
+              setProfile(newProfile);
               setLoading(false);
             }
+          } catch (error: any) {
+            if (error?.message?.includes('Missing or insufficient permissions')) {
+              // Silently swallow missing permissions on first load
+            } else {
+              console.error("Error fetching profile:", error);
+            }
+            if (error?.message?.includes('Quota limit exceeded')) {
+              toast.error("Firestore quota exceeded.");
+            }
+            setLoading(false);
           }
-        }, (error: any) => {
-          if (error?.message?.includes('Missing or insufficient permissions')) {
-            // Silently swallow missing permissions on first load or when rules are strict/unpropagated
-          } else {
-            console.error("Error watching profile:", error);
-          }
-          if (error?.message?.includes('Quota limit exceeded')) {
-            toast.error("Firestore quota exceeded. Real-time updates paused.");
-          }
-          setLoading(false);
-        });
+        };
+
+        fetchProfile();
       } else {
         setProfile(null);
         setLoading(false);

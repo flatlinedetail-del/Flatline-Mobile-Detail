@@ -69,15 +69,20 @@ export default function ServiceChecklist({ jobId, services }: ServiceChecklistPr
   if (loading) return <div className="flex items-center justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
   return (
-    <div className="space-y-6">
-      {services.map((service) => {
-        const tasks = defaultChecklist[service] || ["General Cleaning", "Quality Check"];
+    <div className="space-y-8">
+      {services
+        .filter(service => {
+          const lower = service.toLowerCase();
+          return !lower.includes("travel") && !lower.includes("fee") && !lower.includes("surcharge");
+        })
+        .map((service) => {
+          const tasks = defaultChecklist[service] || ["General Cleaning", "Quality Check"];
         const completed = completedTasks[service] || [];
         const progress = Math.round((completed.length / tasks.length) * 100);
 
         return (
           <Card key={service} className="border-none shadow-sm bg-gray-50/50 overflow-hidden">
-            <div className="bg-white p-4 border-b border-gray-100 flex items-center justify-between">
+            <div className="bg-white p-6 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className={cn(
                   "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
@@ -89,7 +94,7 @@ export default function ServiceChecklist({ jobId, services }: ServiceChecklistPr
               </div>
               <span className="text-xs font-bold text-gray-400">{progress}% Complete</span>
             </div>
-            <CardContent className="p-4 space-y-3">
+            <CardContent className="p-6 space-y-4">
               {tasks.map((task) => (
                 <div key={task} className="flex items-center space-x-3">
                   <Checkbox 

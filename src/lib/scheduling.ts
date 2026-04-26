@@ -20,6 +20,7 @@ export interface RouteStop {
   travelTimeFromPrevious?: number; // in minutes
   distanceFromPrevious?: number; // in miles
   optimizationNote?: string;
+  isVip?: boolean;
 }
 
 /**
@@ -98,41 +99,43 @@ export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], e
 
     if (rawStops.length === 0) return { stops: [], error: errors.length > 0 ? errors.join("\n") : undefined };
 
-    // 2. Optimization Algorithm (Nearest Neighbor)
-    // We start from the business base location
+    // 2. Optimization Algorithm (Strict Chronological Order)
+    // We prioritize scheduled time over geographic optimization
+    const sortedStops = rawStops.sort((a, b) => {
+      const timeA = a.scheduledAt?.toMillis ? a.scheduledAt.toMillis() : (a.scheduledAt as unknown as number) || 0;
+      const timeB = b.scheduledAt?.toMillis ? b.scheduledAt.toMillis() : (b.scheduledAt as unknown as number) || 0;
+      return timeA - timeB;
+    });
+
     let currentLat = settings?.baseLatitude || 0;
     let currentLng = settings?.baseLongitude || 0;
     
-    const unvisited = [...rawStops];
     const optimized: RouteStop[] = [];
 
-    while (unvisited.length > 0) {
-      let closestIndex = 0;
-      let minDistance = Infinity;
+    for (let i = 0; i < sortedStops.length; i++) {
+        const stop = sortedStops[i];
+        let distance = 0;
 
-      for (let i = 0; i < unvisited.length; i++) {
-        const stop = unvisited[i];
         if (stop.latitude && stop.longitude) {
-          const dist = calculateDistance(currentLat, currentLng, stop.latitude, stop.longitude);
-          if (dist < minDistance) {
-            minDistance = dist;
-            closestIndex = i;
-          }
+            // Calculate distance from previous stop (or base for the first stop)
+            if (i > 0 || (currentLat !== 0 && currentLng !== 0)) {
+                distance = calculateDistance(currentLat, currentLng, stop.latitude, stop.longitude);
+            }
         }
-      }
 
-      const nextStop = unvisited.splice(closestIndex, 1)[0];
-      const travelTime = estimateTravelTime(minDistance === Infinity ? 0 : minDistance);
+        const travelTime = estimateTravelTime(distance);
 
-      optimized.push({
-        ...nextStop,
-        distanceFromPrevious: minDistance === Infinity ? 0 : Math.round(minDistance * 10) / 10,
-        travelTimeFromPrevious: travelTime,
-        optimizationNote: optimized.length === 0 ? "Starting from Base" : undefined
-      });
+        optimized.push({
+            ...stop,
+            distanceFromPrevious: Math.round(distance * 10) / 10,
+            travelTimeFromPrevious: travelTime,
+            optimizationNote: i === 0 && currentLat !== 0 && currentLng !== 0 ? "Starting from Base" : undefined
+        });
 
-      currentLat = nextStop.latitude;
-      currentLng = nextStop.longitude;
+        if (stop.latitude && stop.longitude) {
+            currentLat = stop.latitude;
+            currentLng = stop.longitude;
+        }
     }
 
     return { 

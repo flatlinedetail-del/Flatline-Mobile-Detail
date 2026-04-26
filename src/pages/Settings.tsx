@@ -13,12 +13,12 @@ import {
   User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map as MapIcon, Globe, 
   DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, 
   Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, 
-  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, ShieldCheck, Upload, ChevronRight, Menu, Plug, Calendar, Link, Building2, Zap, Save
+  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, ShieldCheck, Upload, ChevronRight, Menu, Plug, Calendar, Link, Building2, Zap, Save, Clock
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
-import { seedDemoData } from "../services/seedData";
+import { seedDemoData, seedServiceTimingDemo } from "../services/seedData";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
@@ -159,12 +159,17 @@ export default function Settings() {
             taxRate: 8.25,
             currency: "USD",
             timezone: "America/Chicago",
+            marginTargets: {
+              floor: 20,
+              recommended: 40,
+              premium: 60
+            },
             commissionRate: 30,
             commissionType: "percentage",
-            baseAddress: "",
-            baseLatitude: 0,
-            baseLongitude: 0,
-            invoiceAddress: "",
+            baseAddress: "1 AMB Dr NW, Atlanta, GA 30313",
+            baseLatitude: 33.7554,
+            baseLongitude: -84.4011,
+            invoiceAddress: "1 AMB Dr NW, Atlanta, GA 30313",
             travelPricing: {
               enabled: true,
               mode: "mileage",
@@ -905,6 +910,12 @@ export default function Settings() {
               <Zap className="w-4 h-4" /> Operational Automations
             </TabsTrigger>
             <TabsTrigger 
+              value="calendar" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Calendar className="w-4 h-4" /> Calendar Settings
+            </TabsTrigger>
+            <TabsTrigger 
               value="integrations" 
               className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
             >
@@ -985,12 +996,23 @@ export default function Settings() {
                   </div>
                   <div className="space-y-2">
                     <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">System Email</Label>
-                    <Input id="email" name="email" defaultValue={profile?.email} placeholder="email@example.com" className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold" />
+                    <Input 
+                      key={profile?.uid ? 'loaded' : 'loading'}
+                      id="email" 
+                      name="email" 
+                      defaultValue={profile?.email || ""} 
+                      placeholder="email@example.com" 
+                      className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold" 
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Access Level</Label>
                     {profile?.role === "admin" ? (
-                      <Select name="role" defaultValue={profile?.role}>
+                      <Select 
+                        key={profile?.uid ? 'loaded' : 'loading'}
+                        name="role" 
+                        defaultValue={profile?.role || "technician"}
+                      >
                         <SelectTrigger className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-black uppercase tracking-widest text-[10px]">
                           <SelectValue />
                         </SelectTrigger>
@@ -1114,6 +1136,7 @@ export default function Settings() {
                     </div>
                     <div className="flex items-center gap-4">
                       <Select 
+                        key={member.id}
                         defaultValue={member.role} 
                         onValueChange={(val) => handleUpdateStaffRole(member.id, val)}
                         disabled={member.email === "flatlinedetail@gmail.com"}
@@ -1135,7 +1158,7 @@ export default function Settings() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-10 w-10 text-white/70 hover:text-primary hover:bg-primary/10 rounded-xl transition-all duration-300"
+                              className="h-10 w-10 text-white hover:text-white hover:bg-red-500 bg-red-500/10 rounded-xl transition-all duration-300"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -1247,6 +1270,124 @@ export default function Settings() {
             </CardContent>
           </Card>
 
+          {/* Business Hours */}
+          <div className="mt-8"></div>
+          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Business <span className="text-primary italic">Hours</span></CardTitle>
+              <CardDescription className="text-white/40 font-black uppercase tracking-widest text-[10px] mt-1">Configure normal operating hours and after-hours protocol</CardDescription>
+            </CardHeader>
+            <CardContent className="p-8">
+              <div className="space-y-6">
+                {["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((dayName) => {
+                  const dayData = settings?.businessHours ? (settings.businessHours as any)[dayName] : { isOpen: true, openTime: "08:00", closeTime: "18:00" };
+                  return (
+                    <div key={dayName} className="flex items-center gap-6 p-4 rounded-xl border border-white/5 bg-black/20">
+                      <div className="w-32 flex items-center gap-3">
+                        <Switch 
+                          checked={dayData?.isOpen ?? true}
+                          onCheckedChange={(v) => {
+                            setSettings(prev => prev ? {
+                              ...prev,
+                              businessHours: {
+                                ...(prev.businessHours as any),
+                                [dayName]: { ...(prev.businessHours as any)?.[dayName], isOpen: v }
+                              }
+                            } : null)
+                          }}
+                          className="data-[state=checked]:bg-primary"
+                        />
+                        <Label className="font-bold uppercase tracking-widest text-white/80">{dayName}</Label>
+                      </div>
+                      
+                      <div className={`flex flex-1 items-center gap-4 transition-opacity ${!dayData?.isOpen ? 'opacity-20 pointer-events-none' : ''}`}>
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-[10px] uppercase font-black tracking-widest text-white/40">Open</Label>
+                          <Input 
+                            type="time" 
+                            className="bg-black/60 border-white/10 rounded-lg text-white font-bold h-11 focus:ring-2 focus:ring-primary/50"
+                            value={dayData?.openTime || "08:00"}
+                            onChange={(e) => {
+                              setSettings(prev => prev ? {
+                                ...prev,
+                                businessHours: {
+                                  ...(prev.businessHours as any),
+                                  [dayName]: { ...(prev.businessHours as any)?.[dayName], openTime: e.target.value }
+                                }
+                              } : null)
+                            }}
+                          />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-[10px] uppercase font-black tracking-widest text-white/40">Close</Label>
+                          <Input 
+                            type="time" 
+                            className="bg-black/60 border-white/10 rounded-lg text-white font-bold h-11 focus:ring-2 focus:ring-primary/50"
+                            value={dayData?.closeTime || "18:00"}
+                            onChange={(e) => {
+                              setSettings(prev => prev ? {
+                                ...prev,
+                                businessHours: {
+                                  ...(prev.businessHours as any),
+                                  [dayName]: { ...(prev.businessHours as any)?.[dayName], closeTime: e.target.value }
+                                }
+                              } : null)
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="pt-6 mt-6 border-t border-white/10">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="space-y-1">
+                      <Label className="text-white font-black uppercase tracking-widest">After-Hours Protocol</Label>
+                      <p className="text-xs text-white/60 font-medium tracking-tight">Allow booking outside normal business hours with a conditional fee.</p>
+                    </div>
+                    <Switch 
+                      checked={settings?.businessHours?.allowAfterHours || false}
+                      onCheckedChange={(val) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        businessHours: { ...(prev.businessHours as any), allowAfterHours: val } 
+                      } : null)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+                  
+                  {settings?.businessHours?.allowAfterHours && (
+                    <div className="pt-4 grid grid-cols-1 gap-6 animate-in fade-in slide-in-from-top-2">
+                      <div className="space-y-2">
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">After-Hours Fee Amount ($)</Label>
+                        <StableInput 
+                          id="afterHoursFeeAmount" 
+                          type="number"
+                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                          value={settings?.businessHours?.afterHoursFeeAmount?.toString() || "0"} 
+                          onValueChange={(val) => setSettings(prev => prev ? { 
+                            ...prev, 
+                            businessHours: { ...(prev.businessHours as any), afterHoursFeeAmount: parseFloat(val) || 0 } 
+                          } : null)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-4 pt-8 border-t border-white/5 mt-8">
+                <Button 
+                  onClick={() => handleSaveSettings(settings || {})} 
+                  className="bg-primary hover:bg-red-700 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] w-full"
+                  disabled={isSaving}
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Authorize Business Update
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Travel Pricing Merged */}
           <div className="mt-8"></div>
           <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
@@ -1266,10 +1407,16 @@ export default function Settings() {
                 <div className="flex items-center gap-3">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Status Toggle</Label>
                   <Switch 
-                    checked={settings?.travelPricing.enabled ?? true} 
-                    onCheckedChange={(checked) => handleSaveSettings({ 
-                      travelPricing: { ...settings!.travelPricing, enabled: checked } 
-                    })}
+                    checked={settings?.travelPricing?.enabled ?? true} 
+                    onCheckedChange={(checked) => {
+                      if (!settings) return;
+                      handleSaveSettings({ 
+                        travelPricing: { 
+                          ...settings.travelPricing,
+                          enabled: checked 
+                        } 
+                      });
+                    }}
                     className="data-[state=checked]:bg-primary"
                   />
                 </div>
@@ -1284,10 +1431,16 @@ export default function Settings() {
                         <p className="text-xs text-white/60 font-medium">Select the protocol for determining travel premiums.</p>
                       </div>
                       <Select 
-                        value={settings?.travelPricing.mode || "mileage"} 
-                        onValueChange={(val: any) => handleSaveSettings({ 
-                          travelPricing: { ...settings!.travelPricing, mode: val } 
-                        })}
+                        value={settings?.travelPricing?.mode || "mileage"} 
+                        onValueChange={(val: "mileage" | "zones" | "map_zones") => {
+                          if (!settings) return;
+                          handleSaveSettings({ 
+                            travelPricing: { 
+                              ...settings.travelPricing,
+                              mode: val 
+                            } 
+                          });
+                        }}
                       >
                         <SelectTrigger className="w-[200px] bg-black/40 border-white/10 text-white font-bold h-12 rounded-xl">
                           <SelectValue placeholder="Select Mode" />
@@ -1453,7 +1606,7 @@ export default function Settings() {
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="h-12 w-12 text-gray-400 hover:text-red-500 rounded-xl transition-all"
+                                className="h-12 w-12 text-white bg-red-500/10 hover:text-white hover:bg-red-500 rounded-xl transition-all"
                                 onClick={() => handleRemoveTravelZone(idx)}
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -1821,7 +1974,7 @@ export default function Settings() {
                         </Button>
                         <DeleteConfirmationDialog
                           trigger={
-                            <Button variant="ghost" size="icon" className="h-9 w-9 text-gray-500 hover:text-red-600 hover:bg-red-600/10 rounded-xl">
+                            <Button variant="ghost" size="icon" className="h-9 w-9 text-white hover:text-white hover:bg-red-600 bg-red-600/10 rounded-xl">
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           }
@@ -2141,7 +2294,7 @@ export default function Settings() {
                         </Button>
                         <DeleteConfirmationDialog
                           trigger={
-                            <Button variant="ghost" size="icon" className="h-9 w-9 text-white/20 hover:text-red-600 hover:bg-red-600/10 rounded-xl">
+                            <Button variant="ghost" size="icon" className="h-9 w-9 text-white bg-red-600/10 hover:text-white hover:bg-red-600 rounded-xl">
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           }
@@ -2373,7 +2526,7 @@ export default function Settings() {
                                     <Button 
                                       variant="ghost" 
                                       size="icon" 
-                                      className="h-9 w-9 text-white/20 hover:text-red-600 hover:bg-red-600/10 rounded-xl"
+                                      className="h-9 w-9 bg-red-600/10 text-white hover:text-white hover:bg-red-600 rounded-xl"
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </Button>
@@ -2908,7 +3061,7 @@ export default function Settings() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-9 w-9 text-white/20 hover:text-red-600 hover:bg-red-600/10 rounded-xl"
+                              className="h-9 w-9 text-white hover:text-white bg-red-600/10 hover:bg-red-600 rounded-xl"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -3421,6 +3574,50 @@ export default function Settings() {
               </div>
 
               <div className="pt-8 border-t border-white/5">
+                <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-6">Discovery & Performance Demo</h3>
+                <div className="p-6 bg-purple-500/5 rounded-2xl border border-purple-500/10 mb-8 flex items-center justify-between">
+                  <div className="flex gap-4">
+                    <div className="p-3 bg-purple-500/10 rounded-2xl text-purple-500 shrink-0">
+                      <Clock className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-black text-white uppercase tracking-tight">Service Timing Intelligence Demo</p>
+                      <p className="text-[10px] text-white/40 leading-relaxed font-medium">
+                        Initialize high-fidelity historical data to verify predictive timing logic and maintenance return status.
+                      </p>
+                    </div>
+                  </div>
+                  <Button 
+                    size="sm"
+                    onClick={async () => {
+                      if (isSaving) return;
+                      
+                      setIsSaving(true);
+                      
+                      toast.promise(seedServiceTimingDemo(), {
+                        loading: 'Initializing high-fidelity service intelligence architecture...',
+                        success: (data) => {
+                          setIsSaving(false);
+                          if (data) return 'Service Intelligence Demo Ready. Open "Timothy Timing (Demo)" profile to verify.';
+                          return 'Data synthesis finished with anomalies.';
+                        },
+                        error: (err) => {
+                          setIsSaving(false);
+                          console.error("Seeding failure:", err);
+                          return 'Protocol failure. Check system logs.';
+                        },
+                      });
+                    }}
+                    className="bg-purple-600 hover:bg-purple-700 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-purple-500/20 transition-all hover:scale-[1.02]"
+                    disabled={isSaving}
+                  >
+                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Zap className="w-4 h-4 mr-2" />}
+                    Initialize
+                  </Button>
+                </div>
+              </div>
+
+              <div className="pt-8 border-t border-white/5">
                 <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-6">Privacy & Data Governance</h3>
                 <div className="p-6 bg-black/40 rounded-2xl border border-white/5 border-l-4 border-l-primary">
                   <p className="text-xs text-white/40 leading-relaxed font-medium">
@@ -3497,7 +3694,7 @@ export default function Settings() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-9 w-9 text-white/70 hover:text-red-600 hover:bg-red-600/10 rounded-xl" 
+                              className="h-9 w-9 bg-red-600/10 text-white hover:text-white hover:bg-red-600 rounded-xl" 
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -3600,7 +3797,7 @@ export default function Settings() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-9 w-9 text-white/70 hover:text-red-600 hover:bg-red-600/10 rounded-xl"
+                              className="h-9 w-9 bg-red-600/10 text-white hover:text-white hover:bg-red-600 rounded-xl"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -3617,6 +3814,51 @@ export default function Settings() {
                     <p className="text-[10px] text-white/20 font-black uppercase tracking-widest italic text-center py-4">No categories defined.</p>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="calendar" className="mt-0">
+          <div className="space-y-6 max-w-4xl">
+            <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Calendar Matrix Protocol</h2>
+            <p className="text-white/60 mb-8">Configure your visual status indicators and system deployment colors.</p>
+
+            <Card className="border-none bg-black/40 shadow-2xl overflow-hidden rounded-3xl">
+              <CardHeader className="bg-primary/5 border-b border-primary/20 p-8">
+                <CardTitle className="font-black text-xl text-primary tracking-tighter uppercase flex items-center gap-3">
+                  <Palette className="w-5 h-5" /> Color Mapping Protocol
+                </CardTitle>
+                <CardDescription className="text-white/60">Define the visual status indicators for deployment tracking.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-8 space-y-6">
+                {[
+                  { key: 'scheduled', label: 'Scheduled', default: 'bg-gray-100 text-gray-700 border-gray-200' },
+                  { key: 'confirmed', label: 'Confirmed', default: 'bg-black text-white border-black' },
+                  { key: 'en_route', label: 'En Route', default: 'bg-red-50 text-primary border-red-200' },
+                  { key: 'in_progress', label: 'In Progress / Arrived', default: 'bg-primary text-white border-primary' },
+                  { key: 'completed', label: 'Completed', default: 'bg-green-100 text-green-700 border-green-200' },
+                  { key: 'canceled', label: 'Canceled / No Show', default: 'bg-red-100 text-red-700 border-red-200' },
+                  { key: 'vip', label: 'VIP Status Highlight', default: 'ring-2 ring-yellow-500 shadow-yellow-500/50' }
+                ].map(({ key, label, default: def }) => (
+                  <div key={key} className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
+                    <div>
+                      <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
+                      <p className="text-xs text-white/50 font-mono mt-1">{settings?.calendarColors?.[key] || def}</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border ${settings?.calendarColors?.[key] || def}`}>
+                        Preview
+                      </div>
+                      <Input 
+                        value={settings?.calendarColors?.[key] || def}
+                        onChange={(e) => handleSaveSettings({ calendarColors: { ...(settings?.calendarColors || {}), [key]: e.target.value } })}
+                        placeholder="CSS Classes (e.g., bg-red-500 text-white)"
+                        className="w-[300px] bg-black/40 border-white/10 text-white font-mono text-xs rounded-xl"
+                      />
+                    </div>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           </div>

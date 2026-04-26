@@ -20,7 +20,7 @@ import { Client, Appointment, Invoice, Quote, Vehicle, Service } from "../types"
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { cn } from "../lib/utils";
+import { cn, formatCurrency } from "../lib/utils";
 import { toast } from "sonner";
 
 interface ClientAIStrategyProps {
@@ -253,7 +253,7 @@ export function ClientAIStrategy({
               </Badge>
             </div>
             <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Lifetime Value</p>
-            <p className="text-2xl font-black text-white tracking-tighter">${analysis.totalSpend.toFixed(2)}</p>
+            <p className="text-2xl font-black text-white tracking-tighter">{formatCurrency(analysis.totalSpend)}</p>
           </CardContent>
         </Card>
 
@@ -279,7 +279,7 @@ export function ClientAIStrategy({
               </div>
             </div>
             <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Avg. Ticket</p>
-            <p className="text-2xl font-black text-white tracking-tighter">${analysis.avgSpend.toFixed(2)}</p>
+            <p className="text-2xl font-black text-white tracking-tighter">{formatCurrency(analysis.avgSpend)}</p>
           </CardContent>
         </Card>
 

@@ -20,6 +20,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { PageHeader } from "../components/PageHeader";
+import { ClientAddressesManager } from "../components/ClientAddressesManager";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -30,8 +31,8 @@ import { Badge } from "../components/ui/badge";
 import { Switch } from "../components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Textarea } from "../components/ui/textarea";
+import { geocodeAddress } from "../services/geocodingService";
 import { useNavigate } from "react-router-dom";
-import { getGeocode, getLatLng } from "use-places-autocomplete";
 import { 
   Users, 
   Search, 
@@ -65,7 +66,8 @@ import {
   Briefcase,
   CheckCircle2,
   Brain,
-  MessageSquare
+  MessageSquare,
+  RefreshCcw
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -75,7 +77,8 @@ import {
   cn, 
   formatPhoneNumber, 
   getClientDisplayName,
-  cleanAddress 
+  cleanAddress,
+  formatCurrency 
 } from "../lib/utils";
 import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote } from "../types";
 import AddressInput from "../components/AddressInput";
@@ -84,6 +87,7 @@ import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog
 import { getClientTypes, getClientCategories, migrateDataToClients, ensureClientTypes, ensureClientNameFields } from "../services/clientService";
 import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
+import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
 
 interface AddVehicleFormProps {
   clientId: string;
@@ -187,6 +191,11 @@ export default function Clients() {
   const [clientQuotes, setClientQuotes] = useState<Quote[]>([]);
   const [signedForms, setSignedForms] = useState<any[]>([]);
   
+  const serviceTiming = useMemo(() => {
+    if (!selectedClient || clientVehicles.length === 0 || clientHistory.length === 0 || services.length === 0) return [];
+    return generateServiceTimingIntelligence(clientVehicles, clientHistory, services);
+  }, [selectedClient, clientVehicles, clientHistory, services]);
+  
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
@@ -222,6 +231,22 @@ export default function Clients() {
     }
   }, [clients, selectedClient]);
 
+  const fetchClientsData = async (showToast = false) => {
+    if (showToast) toast.loading("Syncing Registry...", { id: "sync-clients" });
+    setLoading(true);
+    try {
+      const q = query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(200));
+      const snapshot = await getDocs(q);
+      setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client)));
+      setLoading(false);
+      if (showToast) toast.success("Registry Synchronized", { id: "sync-clients" });
+    } catch (error) {
+      console.error("Error fetching clients:", error);
+      setLoading(false);
+      if (showToast) toast.error("Sync Failed", { id: "sync-clients" });
+    }
+  };
+
   useEffect(() => {
     if (authLoading || !profile) return;
 
@@ -241,15 +266,7 @@ export default function Clients() {
       }
     };
     loadMetadata();
-
-    const q = query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(200));
-    const unsubscribeClients = onSnapshot(q, (snapshot) => {
-      setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client)));
-      setLoading(false);
-    }, (error) => {
-      console.error("Error listening to clients:", error);
-      setLoading(false);
-    });
+    fetchClientsData();
 
     const loadServices = async () => {
       try {
@@ -262,7 +279,7 @@ export default function Clients() {
     loadServices();
 
     return () => {
-      unsubscribeClients();
+      // Cleanup
     };
   }, [profile, authLoading]);
 
@@ -278,15 +295,13 @@ export default function Clients() {
 
     const fetchClientDetails = async () => {
       try {
-        const [vehiclesSnap, historySnap, formsSnap, invoicesSnap, quotesSnap] = await Promise.all([
-          getDocs(query(collection(db, "vehicles"), where("clientId", "==", selectedClient.id))),
+        const [historySnap, formsSnap, invoicesSnap, quotesSnap] = await Promise.all([
           getDocs(query(collection(db, "appointments"), where("clientId", "==", selectedClient.id), orderBy("scheduledAt", "desc"), limit(50))),
           getDocs(query(collection(db, "signed_forms"), where("clientId", "==", selectedClient.id))),
           getDocs(query(collection(db, "invoices"), where("clientId", "==", selectedClient.id), orderBy("createdAt", "desc"), limit(50))),
           getDocs(query(collection(db, "quotes"), where("clientId", "==", selectedClient.id), orderBy("createdAt", "desc"), limit(50)))
         ]);
 
-        setClientVehicles(vehiclesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
         setClientHistory(historySnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
         setSignedForms(formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         setClientInvoices(invoicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice)));
@@ -297,27 +312,30 @@ export default function Clients() {
     };
 
     fetchClientDetails();
+    
+    const unsubVehicles = onSnapshot(query(collection(db, "vehicles"), where("clientId", "==", selectedClient.id)), snap => {
+      setClientVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+    });
 
     // Auto-geocode if missing lat/lng
     if (selectedClient.address && (!selectedClient.latitude || !selectedClient.longitude)) {
-      const geocodeAddress = async () => {
+      const performGeocoding = async () => {
         try {
-          const results = await getGeocode({ address: selectedClient.address });
-          if (results && results.length > 0) {
-            const { lat, lng } = await getLatLng(results[0]);
-            await updateDoc(doc(db, "clients", selectedClient.id), {
-              latitude: lat,
-              longitude: lng
-            });
-          }
-        } catch (error) {
+          const coords = await geocodeAddress(selectedClient.address);
+          await updateDoc(doc(db, "clients", selectedClient.id), {
+            latitude: coords.lat,
+            longitude: coords.lng
+          });
+        } catch (error: any) {
           console.error("Auto-geocode error for client:", error);
         }
       };
-      geocodeAddress();
+      performGeocoding();
     }
 
-    return () => {};
+    return () => {
+      unsubVehicles();
+    };
   }, [selectedClient]);
 
   const handleAddClient = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -528,6 +546,15 @@ export default function Clients() {
         subtitle="Unified database for retail, business, and vehicle accounts."
         actions={
           <div className="flex items-center gap-3">
+            <Button 
+              variant="outline" 
+              className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]"
+              onClick={() => fetchClientsData(true)}
+              disabled={loading}
+            >
+              <RefreshCcw className={cn("w-4 h-4 mr-2 text-primary", loading && "animate-spin")} />
+              Sync Registry
+            </Button>
             <Button variant="outline" onClick={() => navigate("/settings?tab=client-management")} className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]">
               <Settings2 className="w-4 h-4 mr-2 text-primary" />
               Manage Types
@@ -551,7 +578,7 @@ export default function Clients() {
                 <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
                   <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase">{editingClient ? "Update Client Profile" : "New Client Profile"}</DialogTitle>
                 </DialogHeader>
-                <form onSubmit={handleAddClient} className="p-10 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                <form key={editingClient?.id || "new"} onSubmit={handleAddClient} className="p-10 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
                   <div className="space-y-6">
                     <div className="space-y-2">
                       <Label htmlFor="businessName" className="font-black uppercase tracking-widest text-[10px] text-white/60">Business Name (Optional)</Label>
@@ -832,7 +859,7 @@ export default function Clients() {
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="h-10 w-10 text-white/70 hover:text-red-500 hover:bg-red-500/5 transition-all duration-300 rounded-xl"
+                                className="h-10 w-10 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 transition-all duration-300 rounded-xl"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -921,6 +948,10 @@ export default function Clients() {
                 )}
                 <TabsTrigger value="billing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Billing ({clientInvoices.length + clientQuotes.length})</TabsTrigger>
                 <TabsTrigger value="photos" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Gallery</TabsTrigger>
+                <TabsTrigger value="timing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-purple-500">
+                  <Clock className="w-3.5 h-3.5 mr-2" />
+                  Service Timing
+                </TabsTrigger>
                 <TabsTrigger value="strategy" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-primary">
                   <Brain className="w-3.5 h-3.5 mr-2" />
                   AI Strategy
@@ -961,37 +992,10 @@ export default function Clients() {
                           />
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Service Address</Label>
-                          {selectedClient.address && (
-                            <a 
-                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedClient.address)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[9px] font-black text-primary flex items-center gap-1 hover:underline uppercase tracking-widest"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                              Open in Maps
-                            </a>
-                          )}
-                        </div>
-                        <AddressInput 
-                          defaultValue={selectedClient.address}
-                          onAddressSelect={(address, lat, lng, structured) => {
-                            updateClient({ 
-                              address, 
-                              latitude: lat, 
-                              longitude: lng,
-                              city: structured?.city || "",
-                              state: structured?.state || "",
-                              zipCode: structured?.zipCode || "",
-                              placeId: structured?.placeId || ""
-                            });
-                          }}
-                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 focus:ring-primary/50"
-                        />
-                      </div>
+                      <ClientAddressesManager 
+                        client={selectedClient}
+                        onUpdate={(updates) => updateClient(updates)}
+                      />
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Client Classification</Label>
@@ -1198,7 +1202,7 @@ export default function Clients() {
                               </div>
                               <AlertDialog>
                                 <AlertDialogTrigger render={
-                                  <Button variant="ghost" size="icon" className="h-10 w-10 text-white/70 hover:text-red-500 hover:bg-red-500/5 transition-all duration-300 rounded-xl" onClick={(e) => e.stopPropagation()}>
+                                  <Button variant="ghost" size="icon" className="h-10 w-10 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 transition-all duration-300 rounded-xl" onClick={(e) => e.stopPropagation()}>
                                     <Trash2 className="w-4 h-4" />
                                   </Button>
                                 } />
@@ -1381,7 +1385,7 @@ export default function Clients() {
                                 <span className="opacity-30">|</span>
                                 <span className="flex items-center gap-1.5"><Clock className="w-3 h-3" /> {format(app.scheduledAt.toDate(), "h:mm a")}</span>
                                 <span className="opacity-30">|</span>
-                                <span className="text-white font-black">${app.totalAmount?.toFixed(2)}</span>
+                                <span className="text-white font-black">{formatCurrency(app.totalAmount)}</span>
                               </div>
                               <p className="text-[10px] text-white/40 mt-2 font-medium uppercase tracking-wide truncate max-w-[300px]">
                                 {app.serviceNames?.join(", ")}
@@ -1402,7 +1406,7 @@ export default function Clients() {
                                 <Button 
                                   variant="ghost" 
                                   size="icon" 
-                                  className="h-10 w-10 text-white/70 hover:text-red-500 hover:bg-red-500/5 rounded-xl transition-all duration-300"
+                                  className="h-10 w-10 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 rounded-xl transition-all duration-300"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
@@ -1485,7 +1489,7 @@ export default function Clients() {
                                       <Button 
                                         variant="ghost" 
                                         size="icon" 
-                                        className="h-10 w-10 text-red-400 hover:text-red-500 hover:bg-red-500/5 rounded-xl mt-6"
+                                        className="h-10 w-10 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 rounded-xl mt-6 transition-all duration-300"
                                         onClick={() => {
                                           const next = (selectedClient.vipSettings?.customCollisionServices || []).filter((_, i) => i !== idx);
                                           updateClient({
@@ -1679,7 +1683,7 @@ export default function Clients() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="p-4 bg-white/5 rounded-3xl border border-white/5">
                         <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Lifetime Value</p>
-                        <p className="text-xl font-black text-white tracking-tighter">${(clientHistory.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0)).toFixed(2)}</p>
+                        <p className="text-xl font-black text-white tracking-tighter">{formatCurrency(clientHistory.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0))}</p>
                       </div>
                       <div className="p-4 bg-white/5 rounded-3xl border border-white/5">
                         <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Total Engagements</p>
@@ -1716,7 +1720,7 @@ export default function Clients() {
                               </div>
                               <div className="flex items-center gap-4">
                                 <div className="text-right">
-                                  <p className="font-black text-white tracking-tighter text-sm">${inv.total.toFixed(2)}</p>
+                                  <p className="font-black text-white tracking-tighter text-sm">{formatCurrency(inv.total)}</p>
                                   <Badge className={cn(
                                     "text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md mt-1",
                                     inv.status === "paid" ? "bg-green-500/10 text-green-500 border-green-500/20" :
@@ -1763,7 +1767,7 @@ export default function Clients() {
                               </div>
                               <div className="flex items-center gap-4">
                                 <div className="text-right">
-                                  <p className="font-black text-white tracking-tighter text-sm">${q.total.toFixed(2)}</p>
+                                  <p className="font-black text-white tracking-tighter text-sm">{formatCurrency(q.total)}</p>
                                   <Badge className={cn(
                                     "text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md mt-1",
                                     q.status === "approved" ? "bg-green-500/10 text-green-500 border-green-500/20" :
@@ -1829,17 +1833,17 @@ export default function Clients() {
                           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                           referrerPolicy="no-referrer"
                         />
-                        <div className="absolute inset-0 bg-black/40 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                        <div className="absolute inset-0 bg-transparent flex items-start justify-end p-2 pointer-events-none">
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="text-white hover:text-red-500 hover:bg-red-500/20"
+                            className="bg-black/60 text-white hover:text-red-500 hover:bg-black/80 rounded-xl backdrop-blur-md h-8 w-8 border border-white/10 pointer-events-auto transition-all duration-300 shadow-xl"
                             onClick={async () => {
                               const nextGallery = selectedClient.gallery?.filter((_, i) => i !== index);
                               await updateClient({ gallery: nextGallery });
                             }}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3 h-3" />
                           </Button>
                         </div>
                       </div>
@@ -1859,6 +1863,65 @@ export default function Clients() {
                         {isUploading ? "Uploading..." : "Add Media"}
                       </span>
                     </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="timing" className="mt-0 outline-none">
+                  <div className="space-y-6">
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">
+                      Service <span className="text-primary italic">Timing Engine</span>
+                    </h3>
+                    
+                    {serviceTiming.length === 0 ? (
+                      <div className="text-center py-20 bg-white/5 rounded-3xl border border-white/5">
+                        <Clock className="w-12 h-12 text-white/20 mx-auto mb-4" />
+                        <p className="text-white/40 font-black uppercase tracking-widest text-[10px]">No timing intel generated.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {serviceTiming.map((timing, idx) => (
+                          <div key={idx} className="p-6 rounded-3xl border border-white/5 bg-white/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 transition-all duration-300 hover:bg-white/[0.08]">
+                            <div className="flex flex-col">
+                              <span className="text-[10px] font-black tracking-widest uppercase text-white/40 mb-1">{timing.vehicleName}</span>
+                              <span className="text-sm font-black text-white uppercase tracking-tight">{timing.serviceName}</span>
+                              {timing.intervalUsed && (
+                                <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest mt-1">
+                                  Interval: {timing.intervalUsed}
+                                </span>
+                              )}
+                            </div>
+                            
+                            <div className="flex flex-col md:items-end gap-1">
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] tracking-widest uppercase text-white/40">Last Done:</span>
+                                <span className="text-xs font-bold text-white">
+                                  {timing.lastCompletedDate ? format(timing.lastCompletedDate, "MMM d, yyyy") : "Never"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] tracking-widest uppercase text-white/40">Next Due:</span>
+                                <span className="text-xs font-bold text-white">
+                                  {timing.nextDueDate ? format(timing.nextDueDate, "MMM d, yyyy") : "Unknown"}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            <div>
+                              <Badge className={cn(
+                                "text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-xl",
+                                timing.dueStatus === "Overdue" ? "bg-red-500/10 text-red-500 border border-red-500/20" :
+                                timing.dueStatus === "Due" ? "bg-orange-500/10 text-orange-500 border border-orange-500/20" :
+                                timing.dueStatus === "Due Soon" ? "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20" :
+                                timing.dueStatus === "Current" ? "bg-green-500/10 text-green-500 border border-green-500/20" :
+                                "bg-white/5 text-white/40 border border-white/10"
+                              )}>
+                                {timing.dueStatus}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
 

@@ -17,8 +17,9 @@ export async function generateSmartRecommendations(input: {
   addressLng: number;
   durationMinutes: number;
   rainThreshold: number;
+  businessHours?: any;
 }): Promise<SmartRecommendation[]> {
-  const { baseDate, addressLat, addressLng, durationMinutes, rainThreshold } = input;
+  const { baseDate, addressLat, addressLng, durationMinutes, rainThreshold, businessHours } = input;
   
   const start = startOfDay(baseDate);
   const end = endOfDay(baseDate);
@@ -31,7 +32,7 @@ export async function generateSmartRecommendations(input: {
     where("scheduledAt", "<=", Timestamp.fromDate(end))
   );
   
-  const blocksRef = collection(db, "time_blocks");
+  const blocksRef = collection(db, "blocked_dates");
   const qBlocks = query(
     blocksRef,
     where("start", ">=", Timestamp.fromDate(start)),
@@ -62,28 +63,60 @@ export async function generateSmartRecommendations(input: {
   // Sort events by start time
   existingEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
 
-  // 2. Generate potential slots (8 AM to 6 PM)
-  const workingStartHour = 8;
-  const workingEndHour = 18;
+  // 2. Determine operating hours
+  let workingStartHour = 8;
+  let workingEndHour = 18;
+  let workingStartMin = 0;
+  let workingEndMin = 0;
+  let isClosed = false;
+  let allowAfterHours = false;
+
+  if (businessHours) {
+    allowAfterHours = businessHours.allowAfterHours;
+    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayName = daysOfWeek[start.getDay()];
+    const daySettings = businessHours[dayName];
+    
+    if (daySettings) {
+      if (!daySettings.isOpen) {
+        isClosed = true;
+      } else {
+        const [openH, openM] = daySettings.openTime.split(":").map(Number);
+        const [closeH, closeM] = daySettings.closeTime.split(":").map(Number);
+        workingStartHour = openH;
+        workingStartMin = openM || 0;
+        workingEndHour = closeH;
+        workingEndMin = closeM || 0;
+      }
+    }
+  }
+
+  // If closed entirely, skip unless allowAfterHours is true (if true, we could theoretically still allow slots, but typically "closed implies no normal slots". For now, if closed and no after hours, return [])
+  if (isClosed && !allowAfterHours) return [];
+
+  // If after hours allowed or not closed, generate slots
+  // Generate slots from 6AM to 10PM to look for available spots
+  const scanStartHour = allowAfterHours ? 6 : workingStartHour;
+  const scanEndHour = allowAfterHours ? 22 : workingEndHour;
+
   const potentialSlots: { startTime: Date, endTime: Date }[] = [];
   
   let currentSlotTime = new Date(start);
-  currentSlotTime.setHours(workingStartHour, 0, 0, 0);
+  currentSlotTime.setHours(scanStartHour, allowAfterHours ? 0 : workingStartMin, 0, 0);
   
-  const closingTime = new Date(start);
-  closingTime.setHours(workingEndHour, 0, 0, 0);
+  const scanLimitTime = new Date(start);
+  scanLimitTime.setHours(scanEndHour, allowAfterHours ? 0 : workingEndMin, 0, 0);
 
   const now = new Date();
 
-  while (currentSlotTime < closingTime) {
+  while (currentSlotTime < scanLimitTime) {
     const slotStart = new Date(currentSlotTime);
     const slotEnd = addMinutes(slotStart, durationMinutes);
     
-    // Ensure the slot respects business hours and is in the future
-    if (slotEnd <= closingTime && isAfter(slotStart, now)) {
+    if (slotEnd <= scanLimitTime && isAfter(slotStart, now)) {
       potentialSlots.push({ startTime: slotStart, endTime: slotEnd });
     }
-    currentSlotTime = addMinutes(currentSlotTime, 60); // Check every 60 mins
+    currentSlotTime = addMinutes(currentSlotTime, 60);
   }
 
   // Filter overlapping slots
@@ -142,6 +175,16 @@ export async function generateSmartRecommendations(input: {
       }
     } else if (travelBonus) {
       rank = "Best";
+    }
+
+    // After hours check
+    const isSlotAfterHours = isClosed || 
+      (slot.startTime.getHours() * 60 + slot.startTime.getMinutes() < workingStartHour * 60 + workingStartMin) || 
+      (slot.endTime.getHours() * 60 + slot.endTime.getMinutes() > workingEndHour * 60 + workingEndMin);
+      
+    if (isSlotAfterHours) {
+      rank = "Avoid";
+      reasons.push(`After-hours fee applies ($${businessHours?.afterHoursFeeAmount || 0})`);
     }
 
     // Weather check per slot

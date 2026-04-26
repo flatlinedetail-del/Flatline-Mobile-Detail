@@ -100,7 +100,7 @@ export default function PhotoDocumentation({ jobId, type }: PhotoDocumentationPr
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-black uppercase tracking-widest text-gray-400">{type} Photos</h3>
         <label className="cursor-pointer">
@@ -127,7 +127,7 @@ export default function PhotoDocumentation({ jobId, type }: PhotoDocumentationPr
           <p className="text-xs font-medium">No {type} photos uploaded yet.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
           {photos.map((url, i) => (
             <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-gray-100 group">
               <img src={url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />

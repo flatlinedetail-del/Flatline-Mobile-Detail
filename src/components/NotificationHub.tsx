@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { collection, query, where, onSnapshot, orderBy, limit } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
+import { useNotifications } from "../hooks/useNotifications";
 import { AppNotification } from "../types";
 import { format } from "date-fns";
-import { Bell, Calendar, User, MessageCircle, Info, Check, Trash2, ExternalLink } from "lucide-react";
+import { Bell, Calendar, User, MessageCircle, Info, Check, Trash2, ExternalLink, AlertTriangle, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -14,31 +15,8 @@ import { useNavigate } from "react-router-dom";
 
 export function NotificationHub() {
   const { profile } = useAuth();
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { notifications, loading, error } = useNotifications(true);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!profile?.id) return;
-
-    const q = query(
-      collection(db, "notifications"),
-      where("userId", "==", profile.id),
-      orderBy("createdAt", "desc"),
-      limit(50)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as AppNotification[];
-      setNotifications(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error listening to notifications:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [profile?.id]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -51,7 +29,7 @@ export function NotificationHub() {
       if (n.relatedType === "appointment") navigate("/calendar");
       if (n.relatedType === "client") navigate("/clients", { state: { clientId: n.relatedId } });
       if (n.relatedType === "lead") navigate("/leads");
-      if (n.relatedType === "invoice") navigate("/billing");
+      if (n.relatedType === "invoice") navigate("/invoices");
     }
   };
 
@@ -60,6 +38,9 @@ export function NotificationHub() {
       case "booking": return <Calendar className="w-4 h-4 text-primary" />;
       case "client": return <User className="w-4 h-4 text-blue-500" />;
       case "message": return <MessageCircle className="w-4 h-4 text-emerald-500" />;
+      case "invoice": return <Receipt className="w-4 h-4 text-orange-500" />;
+      case "alert": return <AlertTriangle className="w-4 h-4 text-amber-500" />;
+      case "system": return <AlertTriangle className="w-4 h-4 text-red-500" />;
       default: return <Info className="w-4 h-4 text-gray-400" />;
     }
   };
@@ -96,10 +77,27 @@ export function NotificationHub() {
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
             <p className="text-[10px] font-black uppercase tracking-widest">Scanning Network...</p>
           </div>
+        ) : error ? (
+           <div className="p-8 text-center px-8">
+            <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center text-red-500 mx-auto mb-6">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+            <h3 className="text-white font-black uppercase tracking-tight mb-2">Sync Interrupted</h3>
+            <p className="text-[10px] text-red-500/60 font-black uppercase tracking-widest leading-relaxed">
+              Database connection failed. <br />
+              {error.includes("quota") ? "Quota Limits Exceeded" : error}
+            </p>
+          </div>
         ) : notifications.length === 0 ? (
-          <div className="p-12 text-center opacity-40">
-            <Bell className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
-            <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">All Secure. No active alerts.</p>
+          <div className="flex flex-col items-center justify-center py-20 text-center px-8">
+            <div className="w-16 h-16 bg-white/5 rounded-3xl flex items-center justify-center text-white/10 mb-6">
+              <Bell className="w-8 h-8" />
+            </div>
+            <h3 className="text-white font-black uppercase tracking-tight mb-2">No new notifications</h3>
+            <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.1em] leading-relaxed max-w-[240px]">
+              No notification records are currently being created. <br /><br />
+              Appointment requests are not yet writing to the notifications collection.
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-white/5">
@@ -149,6 +147,38 @@ export function NotificationHub() {
         )}
       </ScrollArea>
       
+      {/* Diagnostic HUD */}
+      <div className="p-6 bg-black/40 border-t border-white/5 space-y-4">
+        <h4 className="text-[9px] font-black uppercase tracking-[0.3em] text-white/20 flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+          Notification Debug
+        </h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <p className="text-[8px] font-black text-white/40 uppercase">Panel Open</p>
+            <p className="text-[10px] font-mono text-white">true</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-[8px] font-black text-white/40 uppercase">Loaded</p>
+            <p className="text-[10px] font-mono text-white">{notifications.length}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-[8px] font-black text-white/40 uppercase">Unread</p>
+            <p className="text-[10px] font-mono text-white">{unreadCount}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-[8px] font-black text-white/40 uppercase">Source</p>
+            <p className="text-[10px] font-mono text-white">notifications</p>
+          </div>
+        </div>
+        {error && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <p className="text-[8px] font-black text-red-500 uppercase mb-1 leading-none">Last Error</p>
+            <p className="text-[10px] font-mono text-red-400 break-all leading-tight">{error}</p>
+          </div>
+        )}
+      </div>
+
       <div className="p-4 border-t border-white/5 bg-black/20 text-center shrink-0">
         <p className="text-[8px] text-zinc-600 font-black uppercase tracking-[0.2em]">End of tactical stream</p>
       </div>

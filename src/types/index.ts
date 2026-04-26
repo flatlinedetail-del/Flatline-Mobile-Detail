@@ -123,8 +123,10 @@ export interface Client {
     id: string;
     label: string;
     address: string;
-    latitude: number;
-    longitude: number;
+    lat?: number;
+    lng?: number;
+    latitude?: number;
+    longitude?: number;
     isDefault?: boolean;
   }[];
   latitude?: number;
@@ -260,10 +262,16 @@ export interface Lead {
 
 export interface ServiceSelection {
   id: string;
+  name: string;
+  description: string;
   qty: number;
   price: number;
+  total?: number;
+  source: "manual" | "deployment_intelligence" | "ai_revenue_intelligence" | "standard" | "bundle";
+  protocolAccepted: boolean;
   vehicleId?: string;
   vehicleName?: string;
+  reason?: string;
 }
 
 export interface Appointment {
@@ -279,6 +287,8 @@ export interface Appointment {
   vin?: string;
   roNumber?: string;
   address: string;
+  customerAddressId?: string; // New: References the specific address ID chosen
+  addressLabel?: string; // New: "Home", "Work", etc.
   city?: string;
   state?: string;
   zipCode?: string;
@@ -341,6 +351,8 @@ export interface Appointment {
   followUpSent?: boolean;
   followUpSentAt?: Timestamp;
   leadId?: string;
+  unacceptedRecommendations?: any[];
+  unacceptedBundles?: any[];
   createdAt: Timestamp;
   updatedAt: Timestamp;
   overrideBufferTimeMinutes?: number;
@@ -369,20 +381,60 @@ export interface Appointment {
     alertStatus?: "pending" | "notified" | "handled";
     userAction?: "proceed" | "switch_to_interior" | "reschedule" | "none";
   };
+  productCosts?: JobProductCost[];
+  pricingAnalysis?: PricingAnalysis;
+  afterHoursRecord?: {
+    isAfterHours: boolean;
+    afterHoursFee: number;
+    afterHoursReason?: string;
+    businessHoursSnapshot?: any;
+  };
+  invoiceNumber?: string;
+}
+
+export interface JobProductCost {
+  id: string;
+  name: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+  category: "chemical" | "pad" | "towel" | "tool" | "disposable" | "misc";
+  costType: "inventory" | "must_buy" | "partial_use" | "pass_through";
+}
+
+export interface PricingAnalysis {
+  laborTarget: number;
+  overhead: number;
+  travelFee: number;
+  totalProductCost: number;
+  floorPrice: number;
+  recommendedPrice: number;
+  premiumPrice: number;
+  estimatedMarginDollars: number;
+  estimatedMarginPercent: number;
+  netAfterProductCost: number;
 }
 
 export interface LineItem {
   serviceName: string;
+  description: string;
+  quantity: number;
   price: number;
+  total: number;
+  source: string;
+  protocolAccepted: boolean;
 }
 
 export interface Invoice {
   id: string;
   clientId: string;
+  appointmentId?: string;
+  jobId?: string;
   clientName: string;
   clientEmail?: string;
   clientPhone?: string;
   clientAddress?: string;
+  serviceAddress?: string;
   businessName?: string;
   vehicles: {
     id: string;
@@ -395,12 +447,21 @@ export interface Invoice {
   dueDate?: Timestamp | FieldValue;
   lineItems: LineItem[];
   total: number;
-  status: "draft" | "sent" | "paid";
+  status: "draft" | "sent" | "paid" | "voided" | "pending";
   description?: string;
   attachedFormIds?: string[];
-  paymentStatus: "unpaid" | "partial" | "paid";
+  paymentStatus: "unpaid" | "partial" | "paid" | "voided" | "refunded";
   paymentProvider?: "stripe" | "square" | "paypal" | "clover" | "manual";
   transactionReference?: string;
+  paymentMethodDetails?: string;
+  paymentHistory?: {
+    action: "paid" | "voided" | "undone";
+    timestamp: any; // using any for Timestamp | FieldValue
+    method?: string;
+    amount?: number;
+    provider?: string;
+    notes?: string;
+  }[];
   amountPaid: number;
   paidAt?: Timestamp | FieldValue;
   lateFeeEnabled: boolean; // New
@@ -412,15 +473,24 @@ export interface Invoice {
   leadId?: string;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
+  invoiceNumber?: string;
+  recommendedItems?: LineItem[];
+  subtotal?: number;
+  discountAmount?: number;
+  travelFeeAmount?: number;
+  unacceptedBundles?: any[];
 }
 
 export interface Quote {
   id: string;
   clientId?: string;
   clientName: string;
+  clientFirstName?: string;
+  clientLastName?: string;
   clientEmail?: string;
   clientPhone?: string;
   clientAddress?: string;
+  serviceAddress?: string;
   businessName?: string;
   isPotentialClient?: boolean;
   vehicles: {
@@ -436,8 +506,15 @@ export interface Quote {
   description?: string;
   attachedFormIds?: string[];
   leadId?: string;
+  productCosts?: JobProductCost[];
+  pricingAnalysis?: PricingAnalysis;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
+
+  invoiceNumber?: string;
+  subtotal?: number;
+  discountAmount?: number;
+  travelFeeAmount?: number;
 }
 
 export interface MapZone {
@@ -470,6 +547,11 @@ export interface BusinessSettings {
   timezone: string;
   commissionRate: number;
   commissionType: "percentage" | "flat";
+  marginTargets: {
+    floor: number;
+    recommended: number;
+    premium: number;
+  };
   logoSettings?: {
     scale: number;
     x: number;
@@ -527,6 +609,17 @@ export interface BusinessSettings {
     end: string;   // "HH:mm"
     daysEnabled: number[]; // 0-6 (Sun-Sat)
   };
+  businessHours?: {
+    monday: { isOpen: boolean; openTime: string; closeTime: string; };
+    tuesday: { isOpen: boolean; openTime: string; closeTime: string; };
+    wednesday: { isOpen: boolean; openTime: string; closeTime: string; };
+    thursday: { isOpen: boolean; openTime: string; closeTime: string; };
+    friday: { isOpen: boolean; openTime: string; closeTime: string; };
+    saturday: { isOpen: boolean; openTime: string; closeTime: string; };
+    sunday: { isOpen: boolean; openTime: string; closeTime: string; };
+    allowAfterHours: boolean;
+    afterHoursFeeAmount: number;
+  };
   paymentIntegrations?: {
     stripe?: {
       enabled: boolean;
@@ -551,6 +644,8 @@ export interface BusinessSettings {
       accessToken: string;
     };
   };
+  smsTemplates?: Record<string, string>;
+  calendarColors?: Record<string, string>;
 }
 
 export interface Expense {
@@ -657,7 +752,7 @@ export interface AppNotification {
   userId: string;
   title: string;
   message: string;
-  type: "booking" | "client" | "system" | "message";
+  type: "booking" | "client" | "system" | "message" | "invoice" | "alert";
   relatedId?: string;
   relatedType?: "appointment" | "client" | "lead" | "invoice" | "quote";
   read: boolean;

@@ -17,17 +17,46 @@ export function formatPhoneNumber(value: string) {
 }
 
 export function getClientDisplayName(client: any) {
-  if (!client) return "Unknown Client";
+  if (!client) return "Unnamed Client";
   
-  const { businessName, firstName, lastName, name } = client;
+  const { 
+    businessName, 
+    firstName, 
+    lastName, 
+    name, 
+    contactPerson, 
+    fullName, 
+    clientName,
+    customerName,
+    phone,
+    customerPhone,
+    email,
+    customerEmail
+  } = client;
   
+  // 1. businessName (if exists)
   if (businessName) {
     const personName = [firstName, lastName].filter(Boolean).join(" ");
     return personName ? `${businessName} (${personName})` : businessName;
   }
   
+  // 2. firstName + lastName
   const personName = [firstName, lastName].filter(Boolean).join(" ");
-  return personName || name || "Unknown Client";
+  if (personName) return personName;
+
+  // contactPerson fallback for name
+  if (contactPerson) return contactPerson;
+  
+  // 3. fullName or clientName or customerName
+  const otherName = fullName || clientName || customerName || name;
+  if (otherName && otherName !== "Client" && otherName !== "CLIENT") return otherName;
+  
+  // 4. phone/email (fallback)
+  const contact = phone || customerPhone || email || customerEmail;
+  if (contact) return contact;
+
+  // 5. “Unnamed Client” (last resort)
+  return "Unnamed Client";
 }
 
 export function formatDuration(minutes: number) {
@@ -123,4 +152,14 @@ export function toTitleCase(str: string): string {
 export function cleanAddress(address: string | undefined | null): string {
   if (!address) return "";
   return address.replace(/,\s*(USA|United States)$/i, "").trim();
+}
+
+export function formatCurrency(value: number | undefined | null): string {
+  if (value === undefined || value === null) return "$0.00";
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
 }

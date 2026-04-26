@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, Timestamp, deleteDoc, limit } from "firebase/firestore";
+import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, Timestamp, deleteDoc, limit, getDocs } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { PageHeader } from "../components/PageHeader";
@@ -13,7 +13,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Badge } from "../components/ui/badge";
 import { Textarea } from "../components/ui/textarea";
 import { cn, formatPhoneNumber, cleanAddress } from "../lib/utils";
-import { getGeocode, getLatLng } from "use-places-autocomplete";
 import { 
   UserPlus, 
   Search, 
@@ -32,7 +31,8 @@ import {
   ExternalLink,
   Trash2,
   Settings2,
-  DatabaseZap
+  DatabaseZap,
+  RefreshCcw
 } from "lucide-react";
 import { toast } from "sonner";
 import { format, addDays } from "date-fns";
@@ -76,23 +76,28 @@ export default function Leads() {
     placeId: ""
   });
 
-  useEffect(() => {
-    if (authLoading || !profile) return;
-
-    // Fetch leads limited to most recent 100 to save quota
-    const q = query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(100));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+  const fetchLeads = async (showToast = false) => {
+    if (showToast) toast.loading("Scanning Pipeline...", { id: "sync-leads" });
+    try {
+      const q = query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(100));
+      const snapshot = await getDocs(q);
       const leadsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
       setLeads(leadsData);
       setLoading(false);
-    }, (error) => {
+      if (showToast) toast.success("Pipeline Synchronized", { id: "sync-leads" });
+    } catch (error: any) {
       console.error("Error fetching leads:", error);
+      setLoading(false);
       if (error.message?.includes('quota')) {
-        toast.error("Firestore quota exceeded. Try again later.");
+        toast.error("Firestore quota exceeded.");
       }
-    });
+      if (showToast) toast.error("Sync Failed", { id: "sync-leads" });
+    }
+  };
 
-    return () => unsubscribe();
+  useEffect(() => {
+    if (authLoading || !profile) return;
+    fetchLeads();
   }, [profile, authLoading]);
 
   const handleAddLead = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -381,6 +386,14 @@ export default function Leads() {
             />
           </div>
           <div className="flex items-center gap-3">
+            <Button 
+              variant="outline" 
+              className="rounded-xl border-border bg-white text-black hover:bg-gray-50 font-black uppercase tracking-widest text-[10px] h-12 px-6"
+              onClick={() => fetchLeads(true)}
+            >
+              <RefreshCcw className="w-4 h-4 mr-2 text-primary" />
+              Sync Pipeline
+            </Button>
             <Button variant="outline" className="border-border bg-white text-black hover:bg-gray-50 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
               <Filter className="w-4 h-4 mr-2 text-primary" />
               Filter Pipeline
@@ -506,7 +519,7 @@ export default function Leads() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-9 w-9 text-white/70 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+                              className="h-9 w-9 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 rounded-xl transition-all"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -555,7 +568,7 @@ export default function Leads() {
               </div>
             </div>
 
-            <div className="p-8 space-y-8 bg-white">
+            <div key={selectedLead.id} className="p-8 space-y-8 bg-white">
               <div className="grid grid-cols-2 gap-8">
                 <div className="space-y-2">
                   <p className="text-[10px] font-black text-black/40 uppercase tracking-widest">Target Asset</p>
@@ -614,7 +627,7 @@ export default function Leads() {
                   trigger={
                     <Button 
                       variant="ghost" 
-                      className="text-black/40 hover:text-primary hover:bg-primary/5 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs transition-all"
+                      className="bg-red-500/10 border-none text-red-500 hover:text-white hover:bg-red-500 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs transition-all w-full md:w-auto"
                     >
                       <Trash2 className="w-4 h-4 mr-2" /> Purge Opportunity
                     </Button>

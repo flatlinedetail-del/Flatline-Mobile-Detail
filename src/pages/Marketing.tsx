@@ -601,10 +601,22 @@ export default function Marketing() {
 
   const generateGrowthStrategy = async (customQuery?: string) => {
     const isDirectQuestion = !!customQuery;
+    if (isGeneratingGrowth || isAskingAI) return;
+
+    // Add debounce check
+    const now = Date.now();
+    const lastAIAction = Number(localStorage.getItem('last_marketing_ai_action') || 0);
+    if (now - lastAIAction < 3000) {
+      toast.info("Please wait a moment between AI requests.");
+      return;
+    }
+    localStorage.setItem('last_marketing_ai_action', now.toString());
+
     if (isDirectQuestion) setIsAskingAI(true);
     else setIsGeneratingGrowth(true);
 
     try {
+      console.log(`[Marketing AI] Triggered: ${isDirectQuestion ? "Direct Question" : "Strategy Generation"}`);
       const totalRevenue = invoices.filter(i => i.status === "paid").reduce((sum, i) => sum + i.total, 0);
       const pendingRevenue = invoices.filter(i => i.status !== "paid").reduce((sum, i) => sum + i.total, 0);
       const upcomingAppointments = appointments.filter(a => a.status === "scheduled" || a.status === "confirmed");
@@ -1074,7 +1086,7 @@ export default function Marketing() {
                       </div>
                       <CardTitle className="text-sm font-black uppercase tracking-tighter text-white">AI Analysis Response</CardTitle>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setAiChatResponse(null)} className="h-8 w-8 p-0 text-zinc-500 hover:text-red-500 transition-colors">
+                    <Button variant="ghost" size="sm" onClick={() => setAiChatResponse(null)} className="h-8 w-8 p-0 text-white hover:bg-red-500 bg-red-500/10 hover:text-white rounded-lg transition-colors">
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -1305,7 +1317,7 @@ export default function Marketing() {
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="text-gray-400 hover:text-red-600 hover:bg-white/5"
+                                className="h-9 w-9 text-white bg-red-500/10 hover:text-white hover:bg-red-600 rounded-xl"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -1397,7 +1409,7 @@ export default function Marketing() {
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="text-gray-400 hover:text-red-600 hover:bg-white/5"
+                                className="h-9 w-9 text-white bg-red-500/10 hover:text-white hover:bg-red-600 rounded-xl"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -1620,7 +1632,7 @@ export default function Marketing() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="text-gray-400 hover:text-red-600 hover:bg-white/5"
+                              className="h-9 w-9 text-white bg-red-500/10 hover:text-white hover:bg-red-600 rounded-xl"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Trash2 className="w-4 h-4" />

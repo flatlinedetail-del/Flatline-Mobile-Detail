@@ -49,6 +49,7 @@ import VehicleSelector from "../components/VehicleSelector";
 import AddCustomerDialog from "../components/AddCustomerDialog";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { ClientCommunication } from "../components/ClientCommunication";
 
 export default function Customers() {
   const { profile, loading: authLoading } = useAuth();
@@ -90,13 +91,14 @@ export default function Customers() {
   }, [profile, authLoading]);
 
   useEffect(() => {
+    let unsub: (() => void) | undefined;
     if (selectedCustomer) {
       const qVehicles = query(
         collection(db, "vehicles"), 
         where("ownerId", "==", selectedCustomer.id),
         where("ownerType", "==", "customer")
       );
-      getDocs(qVehicles).then(snap => {
+      unsub = onSnapshot(qVehicles, snap => {
         setCustomerVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
       });
 
@@ -108,6 +110,9 @@ export default function Customers() {
         setSignedForms(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
     }
+    return () => {
+      if (unsub) unsub();
+    };
   }, [selectedCustomer]);
 
   const updateCustomer = async (data: Partial<Customer>) => {
@@ -437,12 +442,13 @@ export default function Customers() {
               </div>
             </div>
 
-            <Tabs defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
+            <Tabs key={selectedCustomer.id} defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden">
               <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-12 shrink-0">
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Profile</TabsTrigger>
                 <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Vehicles ({customerVehicles.length})</TabsTrigger>
                 <TabsTrigger value="pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Special Pricing</TabsTrigger>
                 <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">History</TabsTrigger>
+                <TabsTrigger value="communication" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full font-bold">Communication</TabsTrigger>
               </TabsList>
 
               <div className="flex-1 overflow-y-auto p-8 bg-black/20">
@@ -791,6 +797,10 @@ export default function Customers() {
                       </div>
                     )}
                   </div>
+                </TabsContent>
+
+                <TabsContent value="communication" className="mt-0 space-y-6">
+                  <ClientCommunication client={selectedCustomer as any} />
                 </TabsContent>
               </div>
             </Tabs>

@@ -12,14 +12,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Plus, Search, Filter, FileText, Trash2, Car, User as UserIcon, Settings2, Eye, Mail, DollarSign, Sparkles, Zap, TrendingUp, History, ShieldCheck, AlertCircle, ArrowRight, CheckCircle2, Calendar } from "lucide-react";
+import { Plus, Search, Filter, FileText, Trash2, Car, User as UserIcon, Settings2, Eye, Mail, DollarSign, Sparkles, Zap, TrendingUp, History, ShieldCheck, AlertCircle, ArrowRight, CheckCircle2, Calendar, Loader2, MapPin, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
 import { format } from "date-fns";
-import { cn, cleanAddress } from "@/lib/utils";
+import { cn, cleanAddress, formatCurrency } from "@/lib/utils";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Quote, Client, Vehicle, Service, BusinessSettings, Invoice, Appointment } from "../types";
+import { Quote, Client, Vehicle, Service, BusinessSettings, Invoice, Appointment, LineItem } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { Checkbox } from "../components/ui/checkbox";
 import { Slider } from "../components/ui/slider";
@@ -40,6 +40,13 @@ import {
   AlertDialogTrigger 
 } from "@/components/ui/alert-dialog";
 
+import { 
+  getRevenueOptimization, 
+  RevenueOptimizationResponse, 
+  PricingAnalysis 
+} from "../services/gemini";
+import { generateRecommendationExplanation } from "../lib/recommendationSystem";
+
 interface SmartQuoteProps {
   clients: Client[];
   allVehicles: Vehicle[];
@@ -51,7 +58,7 @@ interface SmartQuoteProps {
     clientId: string;
     clientInfo: any;
     manualVehicles: { year: string; make: string; model: string; size: string }[];
-    lineItems: { serviceName: string; price: number }[];
+    lineItems: LineItem[];
     notes: string;
     description: string;
     businessName: string;
@@ -65,6 +72,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [serviceAddress, setServiceAddress] = useState("");
   const [businessName, setBusinessName] = useState("");
 
   // Vehicle Info
@@ -86,6 +94,81 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const [isPriceCustomized, setIsPriceCustomized] = useState(false);
   const [selectedTier, setSelectedTier] = useState<"low" | "safe" | "premium" | "recommended">("recommended");
   const [quoteType, setQuoteType] = useState<"retail" | "insurance">("retail");
+
+  // Product Cost State
+  const [productCosts, setProductCosts] = useState<any[]>([]);
+  const [pricingAnalysis, setPricingAnalysis] = useState<PricingAnalysis | null>(null);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const snap = await getDoc(doc(db, "settings", "business"));
+      if (snap.exists()) {
+        setSettings(snap.data() as BusinessSettings);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const handleAddProductCost = () => {
+    const newCost = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: "",
+      quantity: 1,
+      unitCost: 0,
+      totalCost: 0,
+      category: "misc",
+      costType: "inventory"
+    };
+    setProductCosts([...productCosts, newCost]);
+  };
+
+  const handleUpdateProductCost = (costId: string, updates: any) => {
+    setProductCosts(productCosts.map(p => {
+      if (p.id === costId) {
+        const newP = { ...p, ...updates };
+        newP.totalCost = newP.quantity * newP.unitCost;
+        return newP;
+      }
+      return p;
+    }));
+  };
+
+  const handleDeleteProductCost = (costId: string) => {
+    setProductCosts(productCosts.filter(p => p.id !== costId));
+  };
+
+  const generateAIEstimate = async () => {
+    if (manualVehicles.length === 0 || isGeneratingAI) return;
+
+    setIsGeneratingAI(true);
+    try {
+      // Calculate a rough market benchmark for the AI to consider
+      let marketBenchmark = 0;
+      selectedServices.forEach(s => { marketBenchmark += 150; }); // Simplified fallback
+      selectedAddOns.forEach(a => { marketBenchmark += (a.price || 50); });
+
+      const structuredPayload = {
+        services: selectedServices.map(s => s.name),
+        addOns: selectedAddOns.map(a => a.name),
+        totalPrice: marketBenchmark,
+        vehicle: manualVehicles[0],
+        customerType: quoteType
+      };
+
+      const response = await getRevenueOptimization(jobDescription || "Standard detailing request", structuredPayload, productCosts, settings);
+      if (response.pricingAnalysis) {
+        setPricingAnalysis(response.pricingAnalysis);
+        toast.success("AI Pricing Protection Active!");
+      }
+    } catch (err) {
+      console.error("AI Estimation Error:", err);
+      toast.error("AI pricing failed. Using market benchmarks instead.");
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
 
   const formatPhoneNumber = (value: string) => {
     if (!value) return value;
@@ -111,6 +194,66 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     const a = addOns.find(add => add.id === sel.addOnId);
     return { ...a, ...sel };
   }).filter(a => !!a.addOnId);
+
+  const totalMarketPriceValue = useMemo(() => {
+    if (manualVehicles.length === 0 || (selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0)) return 0;
+
+    let descriptionAdjustment = 1.0;
+    const desc = jobDescription.toLowerCase();
+    const isBiohazard = desc.includes("vomit") || desc.includes("biohazard") || desc.includes("blood") || desc.includes("urine") || desc.includes("feces");
+    let baseMarketHourlyRate = quoteType === "insurance" ? 145 : 95;
+    if (isBiohazard) baseMarketHourlyRate = 250;
+
+    const sizeMultipliers: Record<string, number> = {
+      small: 0.85,
+      medium: 1.0,
+      large: 1.25,
+      extra_large: 1.6
+    };
+
+    const effectiveSeverity = quoteType === "insurance" ? Math.max(severity, 4) : severity;
+    const effectiveIntensity = quoteType === "insurance" ? Math.max(intensity, 4) : intensity;
+    const effectiveComplexity = quoteType === "insurance" ? Math.max(complexity, 4) : complexity;
+
+    if (desc.includes("mold") || desc.includes("mildew")) descriptionAdjustment += 0.45;
+    if (desc.includes("smoke") || desc.includes("nicotine")) descriptionAdjustment += 0.35;
+    if (isBiohazard) descriptionAdjustment += 0.6;
+    if (desc.includes("pet hair") || desc.includes("dog hair") || desc.includes("shedding")) descriptionAdjustment += 0.2;
+    if (desc.includes("stain") || desc.includes("spill") || desc.includes("spot")) descriptionAdjustment += 0.15;
+    if (desc.includes("heavy") || desc.includes("extreme") || desc.includes("trashed")) descriptionAdjustment += 0.25;
+    if (desc.includes("clay") || desc.includes("iron") || desc.includes("fallout")) descriptionAdjustment += 0.1;
+    if (desc.includes("scratch") || desc.includes("swirl") || desc.includes("paint correction")) descriptionAdjustment += 0.3;
+
+    const severityMult = (1 + (effectiveSeverity - 3) * 0.25) * descriptionAdjustment;
+    const intensityMult = 1 + (effectiveIntensity - 3) * 0.15;
+    const complexityMult = 1 + (effectiveComplexity - 3) * 0.2;
+
+    let total = 0;
+    manualVehicles.forEach(vehicle => {
+      const vehicleId = `${vehicle.year}-${vehicle.make}-${vehicle.model}`;
+      const vehicleMult = sizeMultipliers[vehicle.size] || 1.0;
+      const vehicleServices = selectedServices.filter(s => s.vehicleId === vehicleId);
+      vehicleServices.forEach(service => {
+        const estimatedHours = (service.estimatedDuration || 120) / 60;
+        total += baseMarketHourlyRate * estimatedHours * vehicleMult * severityMult * intensityMult * complexityMult;
+      });
+      const vehicleAddOns = selectedAddOns.filter(a => a.vehicleId === vehicleId);
+      vehicleAddOns.forEach(addOn => {
+        total += addOn.price || 0;
+      });
+    });
+
+    selectedServices.filter(s => !s.vehicleId).forEach(service => {
+        const estimatedHours = (service.estimatedDuration || 120) / 60;
+        total += baseMarketHourlyRate * estimatedHours * severityMult * intensityMult * complexityMult;
+    });
+
+    selectedAddOns.filter(a => !a.vehicleId).forEach(addOn => {
+        total += addOn.price || 0;
+    });
+
+    return total;
+  }, [manualVehicles, selectedServiceSelections, selectedAddOnSelections, severity, intensity, complexity, jobDescription, quoteType, services, addOns]);
 
   const recommendations = useMemo(() => {
     if (manualVehicles.length === 0 || (selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0)) return null;
@@ -239,7 +382,12 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
           id: interiorAddon.id,
           name: interiorAddon.name, 
           price: interiorAddon.price, 
-          reason: "Complete the transformation with interior detailing.",
+          reason: generateRecommendationExplanation({
+            serviceName: interiorAddon.name,
+            recommendationType: "preventative",
+            originalPrice: interiorAddon.price,
+            bundlePrice: interiorAddon.price
+          }).explanation,
           type: "addon"
         });
       }
@@ -340,8 +488,16 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
           ? recommendations.premiumPrice
           : recommendations.recommendedPrice;
 
-    const lineItems = [
-      ...recommendations.items.map(i => ({ serviceName: i.name, price: i.price }))
+    const lineItems: LineItem[] = [
+      ...recommendations.items.map(i => ({ 
+        serviceName: i.name, 
+        price: i.price,
+        description: `Strategic service component: ${i.name}`,
+        quantity: 1,
+        total: i.price,
+        source: "standard",
+        protocolAccepted: true
+      }))
     ];
 
     // Adjust line items if a different tier or custom price was selected
@@ -349,7 +505,15 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     const adjustment = targetPrice - recommendations.recommendedPrice;
     
     if (Math.abs(adjustment) > 0.01) {
-      lineItems.push({ serviceName: "Custom Price Adjustment", price: adjustment });
+      lineItems.push({ 
+        serviceName: "Custom Price Adjustment", 
+        price: adjustment,
+        description: "Tactical pricing adjustment based on project complexity or strategic tier selection.",
+        quantity: 1,
+        total: adjustment,
+        source: "manual",
+        protocolAccepted: true
+      });
     }
 
     onApply({
@@ -360,7 +524,8 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
         lastName,
         email,
         phone,
-        address,
+        address: address || serviceAddress,
+        serviceAddress: serviceAddress || address,
         businessName
       },
       manualVehicles,
@@ -467,11 +632,15 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Service Address</Label>
+              <div className="space-y-4 pt-4 border-t border-white/5">
+                <div className="flex items-center gap-2 mb-2">
+                  <MapPin className="w-4 h-4 text-primary" />
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Customer Invoice Address</Label>
+                </div>
                 <AddressInput 
-                  defaultValue={address}
-                  onAddressSelect={(addr) => setAddress(addr)}
+                  defaultValue={serviceAddress || address}
+                  onAddressSelect={(addr) => setServiceAddress(addr)}
+                  placeholder="Search for invoice address..."
                   className="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white"
                 />
               </div>
@@ -521,7 +690,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                     <Badge key={idx} className="bg-white/10 text-white border-none px-4 py-2 rounded-xl flex items-center gap-3 group">
                       <span className="font-black text-[10px] tracking-widest">{v.year} {v.make} {v.model}</span>
                       <Badge className="bg-primary/20 text-primary text-[8px] border-none">{v.size.toUpperCase()}</Badge>
-                      <button onClick={() => removeVehicle(idx)} className="text-gray-500 hover:text-red-500 transition-colors">
+                      <button onClick={() => removeVehicle(idx)} className="text-white hover:text-red-500 transition-colors p-1 bg-white/10 rounded-md">
                         <Trash2 className="w-3 h-3" />
                       </button>
                     </Badge>
@@ -665,61 +834,132 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
 
             {/* Analysis Inputs */}
             <div className="space-y-8 pt-6 border-t border-white/5">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Job Severity</Label>
-                    <span className="text-[10px] font-black text-primary">{severity}/5</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:col-span-1">
+                  <div className="space-y-4">
+                    <div className="flex justify-between">
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Job Severity</Label>
+                      <span className="text-[10px] font-black text-primary">{severity}/5</span>
+                    </div>
+                    <Slider 
+                      value={[severity]} 
+                      onValueChange={(v) => setSeverity(Array.isArray(v) ? v[0] : v)} 
+                      max={5} 
+                      min={1} 
+                      step={1}
+                      className="py-4"
+                    />
                   </div>
-                  <Slider 
-                    value={[severity]} 
-                    onValueChange={(v) => setSeverity(Array.isArray(v) ? v[0] : v)} 
-                    max={5} 
-                    min={1} 
-                    step={1}
-                    className="py-4"
-                  />
+
+                  <div className="space-y-4">
+                    <div className="flex justify-between">
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Labor Intensity</Label>
+                      <span className="text-[10px] font-black text-primary">{intensity}/5</span>
+                    </div>
+                    <Slider 
+                      value={[intensity]} 
+                      onValueChange={(v) => setIntensity(Array.isArray(v) ? v[0] : v)} 
+                      max={5} 
+                      min={1} 
+                      step={1}
+                      className="py-4"
+                    />
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex justify-between">
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Service Complexity</Label>
+                      <span className="text-[10px] font-black text-primary">{complexity}/5</span>
+                    </div>
+                    <Slider 
+                      value={[complexity]} 
+                      onValueChange={(v) => setComplexity(Array.isArray(v) ? v[0] : v)} 
+                      max={5} 
+                      min={1} 
+                      step={1}
+                      className="py-4"
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Labor Intensity</Label>
-                    <span className="text-[10px] font-black text-primary">{intensity}/5</span>
+                {/* Product Cost Area */}
+                <div className="space-y-6 md:col-span-1">
+                  <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-primary" />
+                    Internal Job Costs (Products)
+                  </h3>
+                  
+                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-4">
+                    {productCosts.length > 0 ? (
+                      <div className="space-y-3">
+                        {productCosts.map((cost) => (
+                          <div key={cost.id} className="grid grid-cols-12 gap-2 items-center bg-black/40 p-2 rounded-xl border border-white/5">
+                            <div className="col-span-5">
+                              <Input 
+                                placeholder="Product Name" 
+                                value={cost.name}
+                                onChange={(e) => handleUpdateProductCost(cost.id, { name: e.target.value })}
+                                className="h-8 text-[10px] bg-transparent border-white/10 text-white"
+                              />
+                            </div>
+                            <div className="col-span-3">
+                              <Input 
+                                type="number"
+                                placeholder="Cost" 
+                                value={cost.unitCost}
+                                onChange={(e) => handleUpdateProductCost(cost.id, { unitCost: parseFloat(e.target.value) || 0 })}
+                                className="h-8 text-[10px] bg-transparent border-white/10 text-white"
+                              />
+                            </div>
+                            <div className="col-span-3">
+                              <span className="text-[10px] font-black text-primary">{formatCurrency(cost.totalCost)}</span>
+                            </div>
+                            <div className="col-span-1 flex justify-end">
+                              <button onClick={() => handleDeleteProductCost(cost.id)} className="text-white hover:text-red-500 bg-white/10 p-1.5 rounded-md transition-colors">
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        <div className="flex justify-between items-center py-2 border-t border-white/5">
+                          <span className="text-[9px] font-black uppercase text-white/40 tracking-widest">Total cost</span>
+                          <span className="text-xs font-black text-primary">{formatCurrency(productCosts.reduce((sum, p) => sum + (parseFloat((p.totalCost || 0).toFixed(2))), 0))}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 text-[9px] font-bold text-white/20 uppercase tracking-widest">
+                        No materials recorded
+                      </div>
+                    )}
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleAddProductCost}
+                      className="w-full h-8 text-[9px] font-black uppercase tracking-widest border-white/10 hover:bg-white/5 text-white"
+                    >
+                      <Plus className="w-3 h-3 mr-2" />
+                      Add Detail Product Cost
+                    </Button>
                   </div>
-                  <Slider 
-                    value={[intensity]} 
-                    onValueChange={(v) => setIntensity(Array.isArray(v) ? v[0] : v)} 
-                    max={5} 
-                    min={1} 
-                    step={1}
-                    className="py-4"
-                  />
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Service Complexity</Label>
-                    <span className="text-[10px] font-black text-primary">{complexity}/5</span>
-                  </div>
-                  <Slider 
-                    value={[complexity]} 
-                    onValueChange={(v) => setComplexity(Array.isArray(v) ? v[0] : v)} 
-                    max={5} 
-                    min={1} 
-                    step={1}
-                    className="py-4"
-                  />
                 </div>
               </div>
 
               <div className="space-y-3">
                 <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Job Description / Notes</Label>
                 <Textarea 
-                  placeholder="Describe the specific job details..."
+                  placeholder="Describe the specific job details for AI pricing diagnostics..."
                   value={jobDescription}
                   onChange={(e) => setJobDescription(e.target.value)}
                   className="bg-white/5 border-white/10 rounded-2xl min-h-[100px] text-white font-medium"
                 />
+                <Button 
+                  onClick={generateAIEstimate}
+                  disabled={isGeneratingAI || manualVehicles.length === 0}
+                  className="w-full h-12 bg-black border border-primary/40 text-primary hover:bg-primary/5 font-black rounded-xl uppercase tracking-widest text-[10px] mt-4"
+                >
+                  {isGeneratingAI ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                  Run Profit-Protected AI Diagnostics
+                </Button>
               </div>
             </div>
           </CardContent>
@@ -800,54 +1040,128 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   </Badge>
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-5xl font-black text-white tracking-tighter">${finalPrice.toFixed(2)}</span>
+                  <span className="text-5xl font-black text-white tracking-tighter">{formatCurrency(finalPrice)}</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setSelectedTier("low");
-                    setIsPriceCustomized(false);
-                  }}
-                  className={cn(
-                    "p-3 rounded-xl border transition-all text-center",
-                    selectedTier === "low" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
-                  )}
-                >
-                  <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Low</p>
-                  <p className="text-xs font-black text-white">${recommendations?.lowPrice.toFixed(0) || "0"}</p>
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setSelectedTier("safe");
-                    setIsPriceCustomized(false);
-                  }}
-                  className={cn(
-                    "p-3 rounded-xl border transition-all text-center",
-                    selectedTier === "safe" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
-                  )}
-                >
-                  <p className="text-[8px] font-black text-primary uppercase tracking-widest mb-1">Safe</p>
-                  <p className="text-xs font-black text-white">${recommendations?.safePrice.toFixed(0) || "0"}</p>
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setSelectedTier("premium");
-                    setIsPriceCustomized(false);
-                  }}
-                  className={cn(
-                    "p-3 rounded-xl border transition-all text-center",
-                    selectedTier === "premium" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
-                  )}
-                >
-                  <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Premium</p>
-                  <p className="text-xs font-black text-white">${recommendations?.premiumPrice.toFixed(0) || "0"}</p>
-                </button>
-              </div>
+              {pricingAnalysis ? (
+                <div className="space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="w-3 h-3 text-primary" />
+                    <span className="text-[10px] font-black uppercase text-primary tracking-widest">AI Profit-Protected tiers</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setCustomPrice(pricingAnalysis.floorPrice);
+                        setIsPriceCustomized(true);
+                        setSelectedTier("low");
+                      }}
+                      className={cn(
+                        "p-3 rounded-xl border transition-all text-center",
+                        customPrice === pricingAnalysis.floorPrice ? "bg-amber-500/20 border-amber-500/40 ring-1 ring-amber-500" : "bg-white/5 border-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      <p className="text-[8px] font-black text-amber-500 uppercase tracking-widest mb-1">Floor</p>
+                      <p className="text-xs font-black text-white">{formatCurrency(pricingAnalysis.floorPrice)}</p>
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setCustomPrice(pricingAnalysis.recommendedPrice);
+                        setIsPriceCustomized(true);
+                        setSelectedTier("recommended");
+                      }}
+                      className={cn(
+                        "p-3 rounded-xl border transition-all text-center",
+                        customPrice === pricingAnalysis.recommendedPrice ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      <p className="text-[8px] font-black text-primary uppercase tracking-widest mb-1">AI-Rec</p>
+                      <p className="text-xs font-black text-white">{formatCurrency(pricingAnalysis.recommendedPrice)}</p>
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setCustomPrice(pricingAnalysis.premiumPrice);
+                        setIsPriceCustomized(true);
+                        setSelectedTier("premium");
+                      }}
+                      className={cn(
+                        "p-3 rounded-xl border transition-all text-center",
+                        customPrice === pricingAnalysis.premiumPrice ? "bg-purple-500/20 border-purple-500/40 ring-1 ring-purple-500" : "bg-white/5 border-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      <p className="text-[8px] font-black text-purple-400 uppercase tracking-widest mb-1">Premium</p>
+                      <p className="text-xs font-black text-white">{formatCurrency(pricingAnalysis.premiumPrice)}</p>
+                    </button>
+                  </div>
+                  
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                      <span className="text-white/40">Total Job Cost</span>
+                      <span className="text-white">{formatCurrency(pricingAnalysis.totalProductCost)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                      <span className="text-white/40">Net Profit</span>
+                      <span className="text-primary">{formatCurrency(pricingAnalysis.estimatedMarginDollars)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                      <span className="text-white/40">Profit Margin</span>
+                      <span className="text-primary">{pricingAnalysis.estimatedMarginPercent.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setSelectedTier("low");
+                      setIsPriceCustomized(false);
+                      setCustomPrice(null);
+                    }}
+                    className={cn(
+                      "p-3 rounded-xl border transition-all text-center",
+                      selectedTier === "low" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
+                    )}
+                  >
+                    <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Low</p>
+                    <p className="text-xs font-black text-white">{formatCurrency(recommendations?.lowPrice || 0)}</p>
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setSelectedTier("safe");
+                      setIsPriceCustomized(false);
+                      setCustomPrice(null);
+                    }}
+                    className={cn(
+                      "p-3 rounded-xl border transition-all text-center",
+                      selectedTier === "safe" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
+                    )}
+                  >
+                    <p className="text-[8px] font-black text-primary uppercase tracking-widest mb-1">Safe</p>
+                    <p className="text-xs font-black text-white">{formatCurrency(recommendations?.safePrice || 0)}</p>
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setSelectedTier("premium");
+                      setIsPriceCustomized(false);
+                      setCustomPrice(null);
+                    }}
+                    className={cn(
+                      "p-3 rounded-xl border transition-all text-center",
+                      selectedTier === "premium" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
+                    )}
+                  >
+                    <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Premium</p>
+                    <p className="text-xs font-black text-white">{formatCurrency(recommendations?.premiumPrice || 0)}</p>
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -921,7 +1235,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                 {recommendations?.items.map((item, idx) => (
                   <div key={idx} className="flex justify-between items-center text-sm">
                     <span className="text-gray-400 font-bold truncate mr-4">{item.name}</span>
-                    <span className="text-white font-black">${item.price.toFixed(2)}</span>
+                    <span className="text-white font-black">{formatCurrency(item.price)}</span>
                   </div>
                 ))}
                 {(!recommendations || recommendations.items.length === 0) && (
@@ -982,16 +1296,27 @@ export default function Quotes() {
   const [clientSearchTerm, setClientSearchTerm] = useState("");
   const [manualClientInfo, setManualClientInfo] = useState({
     name: "",
+    firstName: "",
+    lastName: "",
     email: "",
     phone: "",
     address: "",
+    serviceAddress: "",
     businessName: ""
   });
   const [showClientSuggestions, setShowClientSuggestions] = useState(false);
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
   const [newVehicle, setNewVehicle] = useState({ year: "", make: "", model: "", vin: "", size: "medium" as any });
-  const [lineItems, setLineItems] = useState<{ serviceName: string; price: number }[]>([{ serviceName: "", price: 0 }]);
+  const [lineItems, setLineItems] = useState<LineItem[]>([{ 
+    serviceName: "", 
+    price: 0, 
+    description: "", 
+    quantity: 1, 
+    total: 0, 
+    source: "manual", 
+    protocolAccepted: true 
+  }]);
   const [attachedFormIds, setAttachedFormIds] = useState<string[]>([]);
   const [formTemplates, setFormTemplates] = useState<any[]>([]);
 
@@ -1009,57 +1334,62 @@ export default function Quotes() {
     setSelectedClientId(client.id);
     setClientSearchTerm(client.businessName || `${client.firstName} ${client.lastName}`);
     setManualClientInfo({
-      name: client.businessName || `${client.firstName} ${client.lastName}`,
+      name: client.businessName || `${client.firstName} ${client.lastName}`.trim(),
+      firstName: client.firstName || "",
+      lastName: client.lastName || "",
       email: client.email || "",
       phone: client.phone || "",
       address: client.address || "",
+      serviceAddress: client.address || "",
       businessName: client.businessName || ""
     });
     setShowClientSuggestions(false);
   };
 
+  const fetchQuotesData = async (showToast = false) => {
+    if (showToast) toast.loading("Syncing Estimates...", { id: "sync-quotes" });
+    setLoading(true);
+    try {
+      const [
+        quotesSnap,
+        clientsSnap,
+        servicesSnap,
+        addonsSnap,
+        formsSnap,
+        settingsSnap,
+        invoicesSnap,
+        appointmentsSnap
+      ] = await Promise.all([
+        getDocs(query(collection(db, "quotes"), orderBy("createdAt", "desc"), limit(100))),
+        getDocs(query(collection(db, "clients"), limit(200))),
+        getDocs(collection(db, "services")),
+        getDocs(collection(db, "addons")),
+        getDocs(query(collection(db, "form_templates"), orderBy("title", "asc"), limit(50))),
+        getDoc(doc(db, "settings", "business")),
+        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(50))),
+        getDocs(query(collection(db, "appointments"), orderBy("createdAt", "desc"), limit(50)))
+      ]);
+
+      setQuotes(quotesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quote)));
+      setClients(clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client)));
+      setServices(servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
+      setAddOns(addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+      setFormTemplates(formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setInvoices(invoicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice)));
+      setAppointments(appointmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+      if (settingsSnap.exists()) setSettings(settingsSnap.data() as BusinessSettings);
+      
+      if (showToast) toast.success("Estimates Synchronized", { id: "sync-quotes" });
+    } catch (error) {
+      console.error("Error fetching quotes data:", error);
+      if (showToast) toast.error("Sync Failed", { id: "sync-quotes" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (authLoading || !profile) return;
-
-    const fetchQuotesData = async () => {
-      try {
-        const [
-          quotesSnap,
-          clientsSnap,
-          servicesSnap,
-          addonsSnap,
-          formsSnap,
-          settingsSnap,
-          invoicesSnap,
-          appointmentsSnap
-        ] = await Promise.all([
-          getDocs(query(collection(db, "quotes"), orderBy("createdAt", "desc"), limit(100))),
-          getDocs(query(collection(db, "clients"), limit(200))),
-          getDocs(collection(db, "services")),
-          getDocs(collection(db, "addons")),
-          getDocs(query(collection(db, "form_templates"), orderBy("title", "asc"), limit(50))),
-          getDoc(doc(db, "settings", "business")),
-          getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(50))),
-          getDocs(query(collection(db, "appointments"), orderBy("createdAt", "desc"), limit(50)))
-        ]);
-
-        setQuotes(quotesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quote)));
-        setClients(clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client)));
-        // Vehicles are managed per context
-        setServices(servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
-        setAddOns(addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
-        setFormTemplates(formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setInvoices(invoicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice)));
-        setAppointments(appointmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-        if (settingsSnap.exists()) setSettings(settingsSnap.data() as BusinessSettings);
-        
-        setLoading(false);
-      } catch (error) {
-        console.error("Error fetching quotes data:", error);
-        setLoading(false);
-      }
-    };
-
     fetchQuotesData();
   }, [profile, authLoading]);
 
@@ -1069,15 +1399,13 @@ export default function Quotes() {
       setAllVehicles([]);
       return;
     }
-    const fetchVehicles = async () => {
-      try {
-        const vehiclesSnap = await getDocs(query(collection(db, "vehicles"), where("clientId", "==", selectedClientId)));
-        setAllVehicles(vehiclesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
-      } catch (error) {
-        console.error("Error fetching vehicles for selected client in quotes:", error);
-      }
-    };
-    fetchVehicles();
+    const q = query(collection(db, "vehicles"), where("clientId", "==", selectedClientId));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setAllVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+    }, (error) => {
+      console.error("Error fetching vehicles for selected client in quotes:", error);
+    });
+    return () => unsubscribe();
   }, [selectedClientId]);
 
   useEffect(() => {
@@ -1088,9 +1416,12 @@ export default function Quotes() {
       setIsAddDialogOpen(true);
       setManualClientInfo({
         name: lead.name,
+        firstName: lead.name.split(' ')[0] || "",
+        lastName: lead.name.split(' ').slice(1).join(' ') || "",
         email: lead.email || "",
         phone: lead.phone || "",
         address: lead.address || "",
+        serviceAddress: lead.address || "",
         businessName: ""
       });
       setSmartQuoteNotes(lead.notes || "");
@@ -1100,21 +1431,32 @@ export default function Quotes() {
   }, [location.state, navigate, location.pathname, loading]);
 
   const handleAddLineItem = () => {
-    setLineItems([...lineItems, { serviceName: "", price: 0 }]);
+    setLineItems([...lineItems, { 
+      serviceName: "", 
+      price: 0, 
+      description: "", 
+      quantity: 1, 
+      total: 0, 
+      source: "manual", 
+      protocolAccepted: true 
+    }]);
   };
 
   const handleRemoveLineItem = (index: number) => {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
-  const handleLineItemChange = (index: number, field: "serviceName" | "price", value: string | number) => {
+  const handleLineItemChange = (index: number, field: keyof LineItem, value: any) => {
     const newItems = [...lineItems];
     newItems[index] = { ...newItems[index], [field]: value };
+    if (field === "price" || field === "quantity") {
+      newItems[index].total = (Number(newItems[index].price) || 0) * (Number(newItems[index].quantity) || 1);
+    }
     setLineItems(newItems);
   };
 
   const calculateTotal = () => {
-    return lineItems.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+    return lineItems.reduce((sum, item) => sum + ((Number(item.price) || 0) * (item.quantity || 1)), 0);
   };
 
   const handleCreateQuote = async (e: React.FormEvent) => {
@@ -1163,10 +1505,13 @@ export default function Quotes() {
 
     const quoteData: any = {
       clientId: selectedClientId || undefined,
-      clientName: manualClientInfo.name,
+      clientName: manualClientInfo.name || `${manualClientInfo.firstName} ${manualClientInfo.lastName}`.trim() || manualClientInfo.businessName || "Valued Client",
+      clientFirstName: manualClientInfo.firstName,
+      clientLastName: manualClientInfo.lastName,
       clientEmail: manualClientInfo.email,
       clientPhone: manualClientInfo.phone,
       clientAddress: manualClientInfo.address,
+      serviceAddress: manualClientInfo.serviceAddress || manualClientInfo.address,
       businessName: manualClientInfo.businessName,
       description: quoteDescription,
       isPotentialClient: !selectedClientId,
@@ -1211,12 +1556,29 @@ export default function Quotes() {
   const resetForm = () => {
     setSelectedClientId("");
     setClientSearchTerm("");
-    setManualClientInfo({ name: "", email: "", phone: "", address: "", businessName: "" });
+    setManualClientInfo({ 
+      name: "", 
+      firstName: "",
+      lastName: "",
+      email: "", 
+      phone: "", 
+      address: "", 
+      serviceAddress: "",
+      businessName: "" 
+    });
     setSelectedVehicleIds([]);
     setManualVehicles([]);
     setSmartQuoteNotes("");
     setQuoteDescription("");
-    setLineItems([{ serviceName: "", price: 0 }]);
+    setLineItems([{ 
+      serviceName: "", 
+      price: 0, 
+      description: "", 
+      quantity: 1, 
+      total: 0, 
+      source: "manual", 
+      protocolAccepted: true 
+    }]);
     setAttachedFormIds([]);
     setIsAddingVehicle(false);
     setNewVehicle({ year: "", make: "", model: "", vin: "", size: "medium" });
@@ -1258,7 +1620,17 @@ export default function Quotes() {
         accentWord="Estimates" 
         subtitle="Quote Generation & Proposal Tracking"
         actions={
-          <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+          <div className="flex items-center gap-3">
+            <Button 
+              variant="outline" 
+              className={cn("border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]", loading && "animate-spin")}
+              onClick={() => fetchQuotesData(true)}
+              disabled={loading}
+            >
+              <RefreshCcw className="w-4 h-4 mr-2 text-primary" />
+              Sync Estimates
+            </Button>
+            <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
             setIsAddDialogOpen(open);
             if (!open) {
               setEditingQuote(null);
@@ -1282,7 +1654,7 @@ export default function Quotes() {
                   <FileText className="w-6 h-6" />
                 </div>
                 <div>
-                  <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">{editingQuote ? "Edit Proposal" : "Generate Tactical Quote"}</DialogTitle>
+                  <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">{editingQuote ? "Edit Proposal" : "Generate Professional Quote"}</DialogTitle>
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-1">Strategic Opportunity Engine</p>
                 </div>
               </div>
@@ -1307,7 +1679,38 @@ export default function Quotes() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Customer Invoice Address</Label>
+                  <AddressInput 
+                    defaultValue={manualClientInfo.serviceAddress || manualClientInfo.address}
+                    onAddressSelect={(address) => setManualClientInfo(prev => ({ ...prev, serviceAddress: address, address: address }))}
+                    placeholder="Search for invoice address..."
+                    className="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">First Name</Label>
+                    <Input 
+                      placeholder="John"
+                      value={manualClientInfo.firstName}
+                      onChange={(e) => setManualClientInfo(prev => ({ ...prev, firstName: e.target.value }))}
+                      className="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white"
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Last Name</Label>
+                    <Input 
+                      placeholder="Doe"
+                      value={manualClientInfo.lastName}
+                      onChange={(e) => setManualClientInfo(prev => ({ ...prev, lastName: e.target.value }))}
+                      className="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-3">
                       <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Business Name (Optional)</Label>
                       <Input 
@@ -1502,7 +1905,7 @@ export default function Quotes() {
                           type="button" 
                           variant="ghost" 
                           size="icon" 
-                          className="h-12 w-12 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"
+                          className="h-12 w-12 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/10 rounded-xl transition-all"
                           onClick={() => handleRemoveLineItem(index)}
                           disabled={lineItems.length === 1}
                         >
@@ -1521,7 +1924,7 @@ export default function Quotes() {
                   </div>
                   <div>
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Estimated Proposal Value</p>
-                    <p className="text-4xl font-black tracking-tighter text-white">${calculateTotal().toFixed(2)}</p>
+                    <p className="text-4xl font-black tracking-tighter text-white">{formatCurrency(calculateTotal())}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 w-full md:w-auto">
@@ -1545,6 +1948,7 @@ export default function Quotes() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       }
     />
 
@@ -1562,8 +1966,8 @@ export default function Quotes() {
 
       <TabsContent value="standard" className="space-y-8">
         <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-          <DialogContent className="max-w-5xl p-0 overflow-hidden bg-gray-100 border-none">
-            <div className="max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-5xl p-0 overflow-hidden bg-gray-100 border-none flex flex-col max-h-[90vh]">
+            <div className="flex-1 overflow-y-auto">
               <DocumentPreview 
                 type="quote"
                 settings={settings}
@@ -1572,6 +1976,7 @@ export default function Quotes() {
                   clientEmail: manualClientInfo.email,
                   clientPhone: manualClientInfo.phone,
                   clientAddress: manualClientInfo.address,
+                  serviceAddress: manualClientInfo.serviceAddress || manualClientInfo.address,
                   lineItems: lineItems.filter(item => item.serviceName),
                   total: calculateTotal(),
                   status: editingQuote?.status || "draft",
@@ -1581,9 +1986,12 @@ export default function Quotes() {
                   }).filter(Boolean) as any,
                   createdAt: editingQuote?.createdAt || undefined,
                 }}
+                onAddRecommendation={(item) => {
+                  setLineItems(current => [...current, { ...item, quantity: item.quantity || 1, total: item.price * (item.quantity || 1) }]);
+                }}
               />
             </div>
-            <DialogFooter className="p-4 bg-white border-t">
+            <DialogFooter className="p-4 bg-white border-t shrink-0">
               <Button variant="outline" onClick={() => setIsPreviewOpen(false)} className="font-bold">
                 Close Preview
               </Button>
@@ -1659,7 +2067,7 @@ export default function Quotes() {
                       {q.createdAt ? format((q.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}
                     </TableCell>
                     <TableCell className="px-8 py-6 font-black text-gray-900 text-lg tracking-tighter">
-                      ${q.total.toFixed(2)}
+                      {formatCurrency(q.total)}
                     </TableCell>
                     <TableCell className="px-8 py-6">
                       <Badge className={cn(
@@ -1695,9 +2103,12 @@ export default function Quotes() {
                             setSelectedClientId(q.clientId || "");
                             setManualClientInfo({
                               name: q.clientName,
+                              firstName: q.clientFirstName || "",
+                              lastName: q.clientLastName || "",
                               email: q.clientEmail || "",
                               phone: q.clientPhone || "",
                               address: q.clientAddress || "",
+                              serviceAddress: q.serviceAddress || q.clientAddress || "",
                               businessName: q.businessName || ""
                             });
                             setLineItems(q.lineItems);
@@ -1714,7 +2125,7 @@ export default function Quotes() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-9 w-9 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl"
+                              className="h-9 w-9 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1774,7 +2185,7 @@ export default function Quotes() {
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-red-200 font-bold uppercase">Estimated Value</p>
-                  <p className="text-3xl font-black">${selectedQuote.total.toFixed(2)}</p>
+                  <p className="text-3xl font-black">{formatCurrency(selectedQuote.total)}</p>
                 </div>
               </div>
             </div>
@@ -1798,16 +2209,16 @@ export default function Quotes() {
                   {selectedQuote.lineItems.map((item: any, idx: number) => (
                     <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100">
                       <span className="font-bold text-gray-900">{item.serviceName}</span>
-                      <span className="font-black text-primary">${item.price.toFixed(2)}</span>
+                      <span className="font-black text-primary">{formatCurrency(item.price)}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-6">
+              <div className="flex flex-wrap gap-3 pt-6">
                 {selectedQuote.status === "approved" && (
                   <Button 
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white font-black uppercase tracking-[0.2em] text-[10px] h-12 rounded-xl shadow-lg shadow-green-500/20 transition-all hover:scale-105"
+                    className="flex-1 min-w-[140px] bg-green-600 hover:bg-green-700 text-white font-black uppercase tracking-[0.2em] text-[10px] h-12 rounded-xl shadow-lg shadow-green-500/20 transition-all hover:scale-105"
                     onClick={() => {
                       toast.success("Book Appointment Clicked");
                       setIsDetailOpen(false);
@@ -1822,17 +2233,17 @@ export default function Quotes() {
                     <Calendar className="w-4 h-4 mr-2" /> Book Appointment
                   </Button>
                 )}
-                <Button className="flex-1 bg-white border border-border text-gray-900 hover:bg-gray-50 font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-sm transition-all">
+                <Button className="flex-1 min-w-[140px] bg-white border border-border text-gray-900 hover:bg-gray-50 font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-sm transition-all">
                   <FileText className="w-4 h-4 mr-2 text-primary" /> Download PDF
                 </Button>
-                <Button className="flex-1 bg-primary hover:bg-red-700 text-white font-black uppercase tracking-[0.2em] text-[10px] h-12 rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-105">
+                <Button className="flex-1 min-w-[140px] bg-primary hover:bg-red-700 text-white font-black uppercase tracking-[0.2em] text-[10px] h-12 rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-105">
                   <Mail className="w-4 h-4 mr-2" /> Email Proposal
                 </Button>
                 <DeleteConfirmationDialog
                   trigger={
                     <Button 
                       variant="ghost" 
-                      className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold"
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold shrink-0"
                     >
                       <Trash2 className="w-4 h-4 mr-2" /> Delete
                     </Button>

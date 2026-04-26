@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
+import { useState, useEffect, useCallback } from "react";
+import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { BusinessSettings } from "../types";
 
@@ -7,19 +7,23 @@ export function useSettings() {
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, "settings", "business"), (doc) => {
-      if (doc.exists()) {
-        setSettings(doc.data() as BusinessSettings);
+  const fetchSettings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const docSnap = await getDoc(doc(db, "settings", "business"));
+      if (docSnap.exists()) {
+        setSettings(docSnap.data() as BusinessSettings);
       }
-      setLoading(false);
-    }, (error) => {
+    } catch (error) {
       console.error("Error fetching settings:", error);
+    } finally {
       setLoading(false);
-    });
-
-    return () => unsubscribe();
+    }
   }, []);
 
-  return { settings, loading };
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  return { settings, loading, refresh: fetchSettings };
 }

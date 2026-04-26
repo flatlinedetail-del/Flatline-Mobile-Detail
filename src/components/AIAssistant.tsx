@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MessageSquare, Send, X, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -40,6 +41,15 @@ export default function AIAssistant({
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
+    // Add debounce check
+    const now = Date.now();
+    const lastAIAction = Number(localStorage.getItem('last_chat_ai_action') || 0);
+    if (now - lastAIAction < 2000) {
+      toast.info("Please wait a moment between messages.");
+      return;
+    }
+    localStorage.setItem('last_chat_ai_action', now.toString());
+
     const userMessage = { role: "user" as const, content: input };
     setMessages(prev => [...prev, userMessage]);
     setInput("");
@@ -47,6 +57,7 @@ export default function AIAssistant({
 
     const fullContext = { ...context, ...dynamicContext };
     try {
+      console.log("[Chat Assistant] Request Sent");
       const response = await askAssistant(input, fullContext);
       const content = response?.suggestion || "I'm not sure how to respond to that.";
       setMessages(prev => [...prev, { role: "assistant", content }]);

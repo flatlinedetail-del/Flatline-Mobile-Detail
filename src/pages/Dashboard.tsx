@@ -30,9 +30,21 @@ import {
   Zap,
   Rocket,
   Target,
-  Sparkles
+  Sparkles,
+  RefreshCcw,
+  ShieldCheck,
+  Navigation,
+  BrainCircuit,
+  X,
+  History,
+  UserCheck,
+  Shield,
+  CloudRain,
+  Search,
+  ExternalLink
 } from "lucide-react";
 import { format, startOfDay, endOfDay, isToday, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
+import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { cn, formatDuration, resizeImage } from "@/lib/utils";
 import { optimizeRoute, RouteStop } from "@/lib/scheduling";
@@ -49,6 +61,7 @@ import { toast } from "sonner";
 export default function Dashboard() {
   const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     projected: 0,
     completed: 0,
@@ -99,9 +112,11 @@ export default function Dashboard() {
     return { retentionRate, conversionRate, avgTicket };
   }, [allAppointments, clients, allLeads]);
 
-  useEffect(() => {
-    if (authLoading || !profile) return;
-
+  const fetchDashboardData = async (showToast = false) => {
+    if (!profile) return;
+    if (showToast) toast.loading("Syncing operations...", { id: "sync-dashboard" });
+    
+    setLoading(true);
     const today = new Date();
     const todayStart = startOfDay(today);
     const startDay = startOfDay(today);
@@ -111,105 +126,108 @@ export default function Dashboard() {
     const startMonth = startOfMonth(today);
     const endMonth = endOfMonth(today);
 
-    // 1. Fetch Stats & Aggregations (Fetch once to save quota)
-    const fetchDashboardData = async () => {
-      try {
-        const [statsSnap, jobsSnap, leadsSnap, aiLeadsSnap, aiClientsSnap, aiInvoicesSnap, settingsSnap] = await Promise.all([
-          getDocs(query(
-            collection(db, "appointments"),
-            where("scheduledAt", ">=", Timestamp.fromDate(startMonth)),
-            where("scheduledAt", "<=", Timestamp.fromDate(endMonth)),
-            limit(300)
-          )),
-          getDocs(query(
-            collection(db, "appointments"),
-            where("scheduledAt", ">=", Timestamp.fromDate(todayStart)),
-            orderBy("scheduledAt", "asc"),
-            limit(5)
-          )),
-          getDocs(query(
-            collection(db, "leads"),
-            where("status", "==", "new"),
-            orderBy("createdAt", "desc"),
-            limit(5)
-          )),
-          getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(20))),
-          getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(20))),
-          getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(20))),
-          getDoc(doc(db, "settings", "business"))
-        ]);
+    try {
+      const [statsSnap, jobsSnap, leadsSnap, aiLeadsSnap, aiClientsSnap, aiInvoicesSnap, settingsSnap] = await Promise.all([
+        getDocs(query(
+          collection(db, "appointments"),
+          where("scheduledAt", ">=", Timestamp.fromDate(startMonth)),
+          where("scheduledAt", "<=", Timestamp.fromDate(endMonth)),
+          limit(300)
+        )),
+        getDocs(query(
+          collection(db, "appointments"),
+          where("scheduledAt", ">=", Timestamp.fromDate(todayStart)),
+          orderBy("scheduledAt", "asc"),
+          limit(5)
+        )),
+        getDocs(query(
+          collection(db, "leads"),
+          where("status", "==", "new"),
+          orderBy("createdAt", "desc"),
+          limit(5)
+        )),
+        getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(20))),
+        getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(20))),
+        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(20))),
+        getDoc(doc(db, "settings", "business"))
+      ]);
 
-        // Stats Processing
-        let dayProj = 0, dayComp = 0, dayPend = 0, dayActive = 0;
-        let weekProj = 0, weekComp = 0;
-        let monthProj = 0, monthComp = 0;
-        
-        statsSnap.docs.forEach(doc => {
-          const data = doc.data() as Appointment;
-          const date = data.scheduledAt instanceof Timestamp ? data.scheduledAt.toDate() : new Date(data.scheduledAt as any);
-          const amount = data.totalAmount || 0;
+      // Stats Processing
+      let dayProj = 0, dayComp = 0, dayPend = 0, dayActive = 0;
+      let weekProj = 0, weekComp = 0;
+      let monthProj = 0, monthComp = 0;
+      
+      statsSnap.docs.forEach(doc => {
+        const data = doc.data() as Appointment;
+        const date = data.scheduledAt instanceof Timestamp ? data.scheduledAt.toDate() : new Date(data.scheduledAt as any);
+        const amount = data.totalAmount || 0;
 
-          monthProj += amount;
-          if (data.status === "completed" || data.status === "paid") monthComp += amount;
+        monthProj += amount;
+        if (data.status === "completed" || data.status === "paid") monthComp += amount;
 
-          if (date >= startWeek && date <= endWeek) {
-            weekProj += amount;
-            if (data.status === "completed" || data.status === "paid") weekComp += amount;
-          }
+        if (date >= startWeek && date <= endWeek) {
+          weekProj += amount;
+          if (data.status === "completed" || data.status === "paid") weekComp += amount;
+        }
 
-          if (date >= startDay && date <= endDay) {
-            dayProj += amount;
-            if (data.status === "completed" || data.status === "paid") {
-              dayComp += amount;
-            } else if (data.status !== "canceled") {
-              dayPend += amount;
-              if (data.status === "in_progress" || data.status === "en_route") {
-                dayActive++;
-              }
+        if (date >= startDay && date <= endDay) {
+          dayProj += amount;
+          if (data.status === "completed" || data.status === "paid") {
+            dayComp += amount;
+          } else if (data.status !== "canceled") {
+            dayPend += amount;
+            if (data.status === "in_progress" || data.status === "en_route") {
+              dayActive++;
             }
           }
-        });
-        
-        setStats(prev => ({
-          ...prev,
-          projected: dayProj,
-          completed: dayComp,
-          pending: dayPend,
-          activeJobs: dayActive,
-          weekProjected: weekProj,
-          weekCompleted: weekComp,
-          monthProjected: monthProj,
-          monthCompleted: monthComp,
-          leadsCount: leadsSnap.size
-        }));
-
-        setUpcomingJobs(jobsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-        setRecentLeads(leadsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead)));
-        
-        const allFetchedJobs = statsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
-        setAllAppointments(allFetchedJobs);
-        setAllLeads(aiLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
-        setClients(aiClientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-        setInvoices(aiInvoicesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice)));
-
-        if (settingsSnap.exists()) {
-          const businessSettings = settingsSnap.data() as BusinessSettings;
-          setSettings(businessSettings);
-          if (businessSettings.baseLatitude && businessSettings.baseLongitude) {
-            fetchWeather(businessSettings.baseLatitude, businessSettings.baseLongitude)
-              .then(setWeather);
-          }
         }
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+      });
+      
+      setStats(prev => ({
+        ...prev,
+        projected: dayProj,
+        completed: dayComp,
+        pending: dayPend,
+        activeJobs: dayActive,
+        weekProjected: weekProj,
+        weekCompleted: weekComp,
+        monthProjected: monthProj,
+        monthCompleted: monthComp,
+        leadsCount: leadsSnap.size
+      }));
 
+      setUpcomingJobs(jobsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+      setRecentLeads(leadsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead)));
+      
+      const allFetchedJobs = statsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
+      setAllAppointments(allFetchedJobs);
+      setAllLeads(aiLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
+      setClients(aiClientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+      setInvoices(aiInvoicesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice)));
+
+      if (settingsSnap.exists()) {
+        const businessSettings = settingsSnap.data() as BusinessSettings;
+        setSettings(businessSettings);
+        if (businessSettings.baseLatitude && businessSettings.baseLongitude) {
+          fetchWeather(businessSettings.baseLatitude, businessSettings.baseLongitude)
+            .then(setWeather);
+        }
+      }
+      if (showToast) toast.success("Command Center Ready", { id: "sync-dashboard" });
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+      if (showToast) toast.error("Sync Interrupted", { id: "sync-dashboard" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (authLoading || !profile) return;
     fetchDashboardData();
 
     // 5. Route Optimization
+    const today = new Date();
     optimizeRoute(today)
       .then(({ stops, error }) => {
         setOptimizedRoute(Array.isArray(stops) ? stops : []);
@@ -227,13 +245,20 @@ export default function Dashboard() {
 
   const performancePercent = stats.projected > 0 ? (stats.completed / stats.projected) * 100 : 0;
 
+  // ESC key to close focused card
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFocusedCardId(null);
+    };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, []);
+
   const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
   const [aiInsights, setAiInsights] = useState<string[]>([
-    "Analyzing business intelligence...",
-    "Scanning market trends..."
+    "Dashboard analysis ready. Click below to generate AI strategic insights based on your current performance data.",
   ]);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
-  const generationRef = useRef(false);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [newExpense, setNewExpense] = useState<Partial<Expense>>({
     category: "fuel",
@@ -242,54 +267,56 @@ export default function Dashboard() {
     date: Timestamp.now()
   });
 
-  useEffect(() => {
-    const generateInsights = async () => {
-      if (!profile || generationRef.current) return;
-      generationRef.current = true;
-      setIsGeneratingInsights(true);
-      try {
-        // Prepare context for AI
-        const context = {
-          appointments: upcomingJobs.slice(0, 10),
-          leads: recentLeads.slice(0, 10),
-          stats: stats,
-          profile: profile,
-          weather: weather ? {
-            current: weather.current,
-            guidance: weather.businessGuidance
-          } : null
-        };
-        
-        const response = await askAssistant(
-          "Generate 2 brief, high-impact strategic business insights or recommendations based on the current dashboard data. Focus on efficiency, revenue growth, or scheduling optimization. Ensure these insights are provided in the 'suggestedActions' field of your response structure.",
-          context
-        );
-        
-        if (response.suggestedActions && response.suggestedActions.length > 0) {
-          setAiInsights(response.suggestedActions.slice(0, 2));
-        } else if (response.suggestion) {
-          // If suggestedActions is missing but suggestion is there, try to split it or use it
-          setAiInsights([response.suggestion]);
-        } else {
-          throw new Error("No insights generated");
-        }
-      } catch (error) {
-        console.error("Error generating insights:", error);
-        // Fallback to some defaults if AI fails
-        setAiInsights([
-          "Route density opportunity: You have three jobs in the North area on Friday. Consider tightening the schedule to save on fuel.",
-          "Upsell opportunity: 40% of clients this week have not had a ceramic coating in over 12 months."
-        ]);
-      } finally {
-        setIsGeneratingInsights(false);
-        generationRef.current = false;
-      }
-    };
-
-    if (upcomingJobs.length > 0) {
-      generateInsights();
+  const generateInsights = async () => {
+    if (!profile || isGeneratingInsights) return;
+    
+    // Add debounce check
+    const now = Date.now();
+    const lastAIAction = Number(localStorage.getItem('last_dashboard_ai_action') || 0);
+    if (now - lastAIAction < 3000) {
+      toast.info("Please wait a moment between AI requests.");
+      return;
     }
-  }, [upcomingJobs.length, profile]);
+    localStorage.setItem('last_dashboard_ai_action', now.toString());
+
+    setIsGeneratingInsights(true);
+    try {
+      console.log("[Dashboard] Manual AI Insights Triggered");
+      // Prepare context for AI
+      const context = {
+        appointments: upcomingJobs.slice(0, 10),
+        leads: recentLeads.slice(0, 10),
+        stats: stats,
+        profile: profile,
+        weather: weather ? {
+          current: weather.current,
+          guidance: weather.businessGuidance
+        } : null
+      };
+      
+      const response = await askAssistant(
+        "Generate 2 brief, high-impact strategic business insights or recommendations based on the current dashboard data. Focus on efficiency, revenue growth, or scheduling optimization. Ensure these insights are provided in the 'suggestedActions' field of your response structure.",
+        context
+      );
+      
+      if (response.suggestedActions && response.suggestedActions.length > 0) {
+        setAiInsights(response.suggestedActions.slice(0, 2));
+      } else if (response.suggestion) {
+        setAiInsights([response.suggestion]);
+      } else {
+        throw new Error("No insights generated");
+      }
+      toast.success("Intelligence Updated!");
+    } catch (error) {
+      console.error("Error generating insights:", error);
+      setAiInsights([
+        "Route density opportunity: You have three jobs in the North area on Friday. Consider tightening the schedule to save on fuel.",
+        "Upsell opportunity: 40% of clients this week have not had a ceramic coating in over 12 months."
+      ]);
+    } finally {
+      setIsGeneratingInsights(false);
+    }
+  };
 
   const handleAddExpense = async () => {
     try {
@@ -334,8 +361,20 @@ export default function Dashboard() {
   };
 
   const generateGrowthStrategy = async () => {
+    if (isGeneratingGrowth) return;
+
+    // Add debounce check
+    const now = Date.now();
+    const lastAIAction = Number(localStorage.getItem('last_dashboard_growth_ai_action') || 0);
+    if (now - lastAIAction < 3000) {
+      toast.info("Please wait a moment between AI requests.");
+      return;
+    }
+    localStorage.setItem('last_dashboard_growth_ai_action', now.toString());
+
     setIsGeneratingGrowth(true);
     try {
+      console.log("[Dashboard] Growth Strategy AI Triggered");
       const paidInvoices = invoices.filter(i => i.status === "paid");
       const totalRevenue = paidInvoices.reduce((sum, i) => sum + i.total, 0);
       const pendingRevenue = invoices.filter(i => i.status !== "paid").reduce((sum, i) => sum + i.total, 0);
@@ -391,6 +430,15 @@ export default function Dashboard() {
         subtitle={`System Status: Optimal • ${format(new Date(), "EEEE, MMMM d, yyyy")}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
+            <Button 
+              variant="outline" 
+              className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[11px]"
+              onClick={() => fetchDashboardData(true)}
+              disabled={loading}
+            >
+              <RefreshCcw className={cn("w-4 h-4 mr-2 text-primary", loading && "animate-spin")} />
+              Sync Ops
+            </Button>
             <Dialog open={isExpenseDialogOpen} onOpenChange={setIsExpenseDialogOpen}>
               <DialogTrigger render={
                 <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[11px]">
@@ -473,255 +521,286 @@ export default function Dashboard() {
       />
 
       {/* Main Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard 
-          title="Daily Revenue" 
-          value={`$${stats.completed}`} 
-          subValue={`Target: $${stats.projected}`}
-          icon={<DollarSign className="w-6 h-6" />}
-          trend={performancePercent >= 100 ? "up" : "down"}
-          trendValue={`${Math.round(performancePercent)}%`}
-          color="red"
-        />
-        <StatCard 
-          title="Weekly Volume" 
-          value={`$${stats.weekCompleted}`} 
-          subValue={`Target: $${stats.weekProjected}`}
-          icon={<BarChart3 className="w-6 h-6" />}
-          trend={stats.weekProjected > 0 ? (stats.weekCompleted / stats.weekProjected >= 1 ? "up" : "down") : "up"}
-          trendValue={stats.weekProjected > 0 ? `${Math.round((stats.weekCompleted / stats.weekProjected) * 100)}%` : "0%"}
-          color="white"
-        />
-        <StatCard 
-          title="Monthly Performance" 
-          value={`$${stats.monthCompleted}`} 
-          subValue={`Target: $${stats.monthProjected}`}
-          icon={<TrendingUp className="w-6 h-6" />}
-          trend={stats.monthProjected > 0 ? (stats.monthCompleted / stats.monthProjected >= 1 ? "up" : "down") : "up"}
-          trendValue={stats.monthProjected > 0 ? `${Math.round((stats.monthCompleted / stats.monthProjected) * 100)}%` : "0%"}
-          color="red"
-        />
-        <StatCard 
-          title="Active Operations" 
-          value={stats.activeJobs.toString()} 
-          subValue={`${stats.pending} in pipeline`}
-          icon={<Clock className="w-6 h-6" />}
-          color="white"
-        />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
+        <FocusWrapper id="daily-revenue" title="Daily Revenue Strategy" focusedId={focusedCardId} onFocus={setFocusedCardId}>
+          <StatCard 
+            title="Daily Revenue" 
+            value={new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: "USD",
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(stats.completed)} 
+            subValue={`Target: ${new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: "USD",
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(stats.projected)}`}
+            icon={<DollarSign className="w-6 h-6" />}
+            trend={performancePercent >= 100 ? "up" : "down"}
+            trendValue={`${Math.round(performancePercent)}%`}
+            color="red"
+            standalone={focusedCardId === "daily-revenue"}
+          />
+        </FocusWrapper>
+
+        <FocusWrapper id="weekly-volume" title="Weekly Operational Scale" focusedId={focusedCardId} onFocus={setFocusedCardId}>
+          <StatCard 
+            title="Weekly Volume" 
+            value={new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: "USD",
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(stats.weekCompleted)} 
+            subValue={`Target: ${new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: "USD",
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(stats.weekProjected)}`}
+            icon={<BarChart3 className="w-6 h-6" />}
+            trend={stats.weekProjected > 0 ? (stats.weekCompleted / stats.weekProjected >= 1 ? "up" : "down") : "up"}
+            trendValue={stats.weekProjected > 0 ? `${Math.round((stats.weekCompleted / stats.weekProjected) * 100)}%` : "0%"}
+            color="white"
+            standalone={focusedCardId === "weekly-volume"}
+          />
+        </FocusWrapper>
+
+        <FocusWrapper id="monthly-perf" title="Monthly Performance Intelligence" focusedId={focusedCardId} onFocus={setFocusedCardId}>
+          <StatCard 
+            title="Monthly Performance" 
+            value={new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: "USD",
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(stats.monthCompleted)} 
+            subValue={`Target: ${new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: "USD",
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(stats.monthProjected)}`}
+            icon={<TrendingUp className="w-6 h-6" />}
+            trend={stats.monthProjected > 0 ? (stats.monthCompleted / stats.monthProjected >= 1 ? "up" : "down") : "up"}
+            trendValue={stats.monthProjected > 0 ? `${Math.round((stats.monthCompleted / stats.monthProjected) * 100)}%` : "0%"}
+            color="red"
+            standalone={focusedCardId === "monthly-perf"}
+          />
+        </FocusWrapper>
+
+        <FocusWrapper id="ops" title="Active Operations Command" focusedId={focusedCardId} onFocus={setFocusedCardId}>
+          <StatCard 
+            title="Active Operations" 
+            value={stats.activeJobs.toString()} 
+            subValue={`${new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: "USD",
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(stats.pending)} in pipeline`}
+            icon={<Clock className="w-6 h-6" />}
+            color="white"
+            standalone={focusedCardId === "ops"}
+          />
+        </FocusWrapper>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
         {/* Route Optimization View */}
-        <Card className="lg:col-span-2 border-none bg-card rounded-3xl overflow-hidden shadow-xl">
-          <CardHeader className="p-8 border-b border-white/5 flex flex-row items-center justify-between bg-black/40">
-            <div>
-              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Tactical Route</CardTitle>
-              <div className="flex items-center gap-3 mt-2">
-                <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Efficiency Protocol Active</p>
-                {optimizedRoute.length > 0 && (
-                  <>
-                    <div className="w-1 h-1 bg-primary rounded-full animate-pulse" />
-                    <p className="text-[10px] font-black text-primary uppercase tracking-widest">
-                      {formatDuration(optimizedRoute.reduce((acc, stop) => acc + (stop.travelTimeFromPrevious || 0), 0))} travel time
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-            <Button variant="outline" size="sm" className="border-border bg-white text-black hover:bg-gray-50 rounded-xl font-bold uppercase tracking-widest text-[10px]" onClick={() => optimizeRoute(new Date()).then(({ stops, error }) => {
-              setOptimizedRoute(Array.isArray(stops) ? stops : []);
-              if (error) toast.error(error);
-            }).catch(() => setOptimizedRoute([]))}>
-              Recalculate
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="p-8">
-              {(!optimizedRoute || optimizedRoute.length === 0) ? (
-                <div className="p-20 text-center flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
-                    <CalendarIcon className="w-8 h-8 text-white/40" />
-                  </div>
-                  <p className="text-white/40 font-medium uppercase tracking-widest text-xs">No operations scheduled for today.</p>
+        <FocusWrapper id="tactical-route" title="Tactical Field Logistics" focusedId={focusedCardId} onFocus={setFocusedCardId} className="lg:col-span-2">
+          <Card className={cn(
+            "border-none bg-card rounded-3xl overflow-hidden shadow-xl h-full flex flex-col group transition-all duration-500 hover:shadow-primary/5",
+            focusedCardId !== "tactical-route" && "max-h-[350px]"
+          )}>
+            <CardHeader className="p-8 border-b border-white/5 flex flex-row items-center justify-between bg-black/40 shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-primary/10 rounded-xl text-primary border border-primary/20 group-hover:scale-110 transition-transform">
+                  <Navigation className="w-5 h-5" />
                 </div>
-              ) : (
-                <div className="space-y-6 relative before:absolute before:left-[19px] before:top-4 before:bottom-4 before:w-[2px] before:bg-gradient-to-b before:from-primary before:to-primary/10">
-                  {optimizedRoute.map((stop, idx) => (
-                    <div key={`stop-${stop.id}-${idx}`} className="relative pl-12 flex items-start justify-between group">
-                      <div className="absolute left-0 top-1 w-10 h-10 rounded-xl bg-white border border-border flex items-center justify-center z-10 group-hover:border-primary/50 transition-all duration-300 shadow-sm">
-                        <span className="text-black font-black text-sm">{idx + 1}</span>
-                      </div>
-                      <div className="flex-1 bg-white/5 rounded-2xl p-5 border border-white/10 hover:border-primary/20 transition-all duration-300 group-hover:bg-white/10">
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className="font-black text-white tracking-tight uppercase text-sm">{stop.customerName || "Client"}</h4>
-                          <div className="flex items-center gap-2">
-                            {stop.travelTimeFromPrevious !== undefined && stop.travelTimeFromPrevious > 0 && (
-                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 rounded-lg border border-primary/20">
-                                <Truck className="w-3 h-3 text-primary" />
-                                <span className="text-[10px] font-black text-primary uppercase tracking-tight">{formatDuration(stop.travelTimeFromPrevious)}</span>
-                              </div>
-                            )}
-                            <Badge variant="outline" className={cn(
-                              "text-[9px] uppercase font-black tracking-widest px-2 py-0.5 rounded-md",
-                              stop.status === "completed" ? "bg-green-500/10 text-green-500 border-green-500/20" :
-                              stop.status === "in_progress" ? "bg-primary/10 text-primary border-primary/20" :
-                              "bg-white/10 text-white/60 border-white/10"
-                            )}>
-                              {stop.status.replace("_", " ")}
-                            </Badge>
-                          </div>
+                <div>
+                  <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Tactical Route</CardTitle>
+                  <div className="flex items-center gap-3 mt-1">
+                    <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Efficiency Protocol Active</p>
+                    {optimizedRoute.length > 0 && (
+                      <>
+                        <div className="w-1 h-1 bg-primary rounded-full animate-pulse" />
+                        <p className="text-[10px] font-black text-primary uppercase tracking-widest">
+                          {formatDuration(optimizedRoute.reduce((acc, stop) => acc + (stop.travelTimeFromPrevious || 0), 0))} travel time
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" className="border-white/10 bg-zinc-900 text-white hover:bg-white/5 rounded-xl font-black uppercase tracking-widest text-[9px] transition-all" onClick={(e) => {
+                e.stopPropagation();
+                optimizeRoute(new Date()).then(({ stops, error }) => {
+                  setOptimizedRoute(Array.isArray(stops) ? stops : []);
+                  if (error) toast.error(error);
+                }).catch(() => setOptimizedRoute([]));
+              }}>
+                Recalculate Protocol
+              </Button>
+            </CardHeader>
+            <CardContent className={cn("p-0 grow overflow-y-auto custom-scrollbar relative", focusedCardId !== "tactical-route" ? "pointer-events-none" : "")}>
+              <div className="p-8">
+                {(!optimizedRoute || optimizedRoute.length === 0) ? (
+                  <div className="p-12 text-center flex flex-col items-center gap-4">
+                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
+                      <CalendarIcon className="w-8 h-8 text-white/40" />
+                    </div>
+                    <p className="text-white/40 font-medium uppercase tracking-widest text-xs">No operations scheduled.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6 relative before:absolute before:left-[19px] before:top-4 before:bottom-4 before:w-[2px] before:bg-gradient-to-b before:from-primary before:to-primary/10">
+                    {optimizedRoute.slice(0, focusedCardId === "tactical-route" ? undefined : 3).map((stop, idx) => (
+                      <div key={`stop-${stop.id}-${idx}`} className="relative pl-12 flex items-start justify-between group">
+                        <div className="absolute left-0 top-1 w-10 h-10 rounded-xl bg-zinc-900 border border-white/10 flex items-center justify-center z-10 group-hover:border-primary/50 transition-all duration-300 shadow-xl text-white font-black text-sm">
+                          {idx + 1}
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="flex items-center gap-2 text-white/60">
-                            <MapPin className="w-3.5 h-3.5 text-primary" />
-                            <span className="text-xs font-medium truncate">{stop.address}</span>
+                        <div className="flex-1 bg-white/[0.03] rounded-2xl p-5 border border-white/5 hover:border-white/10 transition-all duration-300 group-hover:bg-white/[0.05] text-left">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-black text-white tracking-tight uppercase text-sm">{stop.customerName || "Client"}</h4>
+                            <div className="flex items-center gap-2">
+                              {stop.travelTimeFromPrevious !== undefined && stop.travelTimeFromPrevious > 0 && (
+                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 rounded-lg border border-primary/20">
+                                  <Truck className="w-3 h-3 text-primary" />
+                                  <span className="text-[10px] font-black text-primary uppercase tracking-tight">{formatDuration(stop.travelTimeFromPrevious)}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="flex items-center gap-2 text-white/60">
+                              <MapPin className="w-3.5 h-3.5 text-primary/60" />
+                              <span className="text-xs font-bold truncate tracking-tight">{stop.address}</span>
+                            </div>
                             <div className="flex items-center gap-2 text-primary">
                               <Clock className="w-3.5 h-3.5" />
-                              <span className="text-xs font-black uppercase">
+                              <span className="text-xs font-black uppercase tracking-widest">
                                 {stop.scheduledAt instanceof Timestamp ? format(stop.scheduledAt.toDate(), "h:mm a") : "TBD"}
                               </span>
                             </div>
-                            <div className="flex items-center gap-2 text-white/40">
-                              <Truck className="w-3.5 h-3.5" />
-                              <span className="text-xs font-medium truncate">{stop.vehicleInfo}</span>
-                            </div>
                           </div>
                         </div>
                       </div>
-                      <Button variant="ghost" size="icon" className="ml-4 text-white/20 hover:text-primary hover:bg-primary/5 rounded-xl" onClick={() => navigate(`/calendar/${stop.id}`)}>
-                        <ChevronRight className="w-6 h-6" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Business Intelligence & Growth */}
-        <div className="space-y-6">
-          <Card className="border-none shadow-2xl bg-sidebar rounded-3xl overflow-hidden relative group">
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-50"></div>
-            <CardHeader className="relative z-10 p-8 pb-4">
-              <CardTitle className="text-xl font-black flex items-center gap-3 text-white uppercase tracking-tighter font-heading">
-                <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
-                  <BarChart3 className="w-6 h-6 text-white" />
-                </div>
-                Business Intelligence
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="relative z-10 p-8 pt-0 space-y-6">
-              {weather && (
-                <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <img 
-                        src={`https://openweathermap.org/img/wn/${weather.current.icon}.png`} 
-                        alt={weather.current.condition}
-                        className="w-8 h-8"
-                      />
-                      <span className="text-sm font-black text-white">{weather.current.temp}°F</span>
-                    </div>
-                    <Badge variant="outline" className="text-[8px] uppercase font-black border-white/20 text-white/40">
-                      {weather.current.condition}
-                    </Badge>
-                  </div>
-                  <p className="text-[10px] font-bold text-primary leading-relaxed italic">
-                    <Zap className="w-3 h-3 inline mr-1" />
-                    {weather.businessGuidance}
-                  </p>
-                </div>
-              )}
-
-              {/* Added AI Strategic Insights Rendering */}
-              <div className="space-y-3">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/20 flex items-center gap-2">
-                  <Rocket className="w-3 h-3 text-primary" />
-                  Strategic Insights
-                </p>
-                <div className="space-y-3">
-                  {aiInsights.map((insight, idx) => (
-                    <div key={idx} className="p-4 bg-white/5 rounded-2xl border border-white/10 relative overflow-hidden group hover:bg-white/10 transition-colors">
-                      <div className="absolute top-0 right-0 p-2 opacity-5">
-                        <TrendingUp className="w-12 h-12" />
+                    ))}
+                    {focusedCardId !== "tactical-route" && optimizedRoute.length > 3 && (
+                      <div className="p-4 text-center opacity-40">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em]">+ {optimizedRoute.length - 3} more destinations</p>
                       </div>
-                      <p className="text-xs font-medium text-white/90 leading-relaxed relative z-10">
+                    )}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </FocusWrapper>
+
+        {/* Intelligence Side Column */}
+        <div className="space-y-8">
+          <FocusWrapper id="intelligence" title="Operation Intelligence" focusedId={focusedCardId} onFocus={setFocusedCardId}>
+            <Card className={cn(
+              "border-none bg-card rounded-3xl overflow-hidden shadow-xl transition-all duration-500 hover:shadow-primary/5",
+              focusedCardId !== "intelligence" && "max-h-[350px]"
+            )}>
+              <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-primary/10 rounded-xl text-primary border border-primary/20 group-hover:scale-110 transition-transform">
+                    <BrainCircuit className="w-5 h-5" />
+                  </div>
+                  <CardTitle className="text-lg font-black text-white uppercase tracking-tighter font-heading">Intelligence</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className={cn("p-8 grow space-y-8", focusedCardId !== "intelligence" && "pointer-events-none")}>
+                {weather && (
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <img src={`https://openweathermap.org/img/wn/${weather.current.icon}.png`} alt={weather.current.condition} className="w-10 h-10" />
+                      <div>
+                        <p className="text-xl font-black text-white">{weather.current.temp}°F</p>
+                        <p className="text-[10px] text-white/40 font-black uppercase">{weather.current.condition}</p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="text-[8px] font-black uppercase border-white/10 text-white/40">Real-time Data</Badge>
+                  </div>
+                )}
+                <div className="space-y-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/20">Strategic Insights</p>
+                  <div className="space-y-3">
+                    {aiInsights.slice(0, focusedCardId === "intelligence" ? undefined : 1).map((insight, idx) => (
+                      <div key={idx} className="p-4 bg-white/5 rounded-2xl border border-white/10 text-xs font-medium text-white/80 leading-relaxed">
                         {insight}
-                      </p>
+                      </div>
+                    ))}
+                    {focusedCardId === "intelligence" && isGeneratingInsights && (
+                      <div className="flex items-center justify-center p-4 bg-white/5 rounded-2xl border border-white/10 border-dashed animate-pulse">
+                        <Loader2 className="w-4 h-4 animate-spin text-primary mr-2" />
+                        <span className="text-[10px] font-black uppercase text-white/20 tracking-widest">Updating Intelligence...</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {focusedCardId === "intelligence" && (
+                  <div className="space-y-4 pt-4 border-t border-white/10">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                        <p className="text-[10px] font-black uppercase text-white/20 mb-1">Total Clients</p>
+                        <p className="text-xl font-black text-white">{clients.length}</p>
+                      </div>
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                        <p className="text-[10px] font-black uppercase text-white/20 mb-1">Active Leads</p>
+                        <p className="text-xl font-black text-white">{allLeads.filter(l => l.status !== "converted" && l.status !== "lost").length}</p>
+                      </div>
                     </div>
-                  ))}
-                  {isGeneratingInsights && (
-                    <div className="flex items-center justify-center p-4 bg-white/5 rounded-2xl border border-white/10 border-dashed animate-pulse">
-                      <Loader2 className="w-4 h-4 animate-spin text-primary mr-2" />
-                      <span className="text-[10px] font-black uppercase text-white/20 tracking-widest">Updating Intelligence...</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </FocusWrapper>
+
+          <FocusWrapper id="growth-metrics" title="Growth Vector Analysis" focusedId={focusedCardId} onFocus={setFocusedCardId}>
+            <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden transition-all duration-500 hover:shadow-primary/5">
+              <CardHeader className="p-6 pb-2">
+                <CardTitle className="text-sm font-black uppercase tracking-widest text-white/40 font-heading">Growth Metrics</CardTitle>
+              </CardHeader>
+              <CardContent className="p-6 pt-0 space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-[10px] font-black uppercase">
+                    <span className="text-white/40">Retention</span>
+                    <span className="text-primary">{growthMetrics.retentionRate}%</span>
+                  </div>
+                  <Progress value={growthMetrics.retentionRate} className="h-1.5" />
+                </div>
+                {focusedCardId === "growth-metrics" && (
+                  <>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-[10px] font-black uppercase">
+                        <span className="text-white/40">Lead Conversion</span>
+                        <span className="text-primary">{growthMetrics.conversionRate}%</span>
+                      </div>
+                      <Progress value={growthMetrics.conversionRate} className="h-1.5" />
                     </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Total Clients</span>
-                  <span className="text-sm font-black text-white">{clients.length}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Active Leads</span>
-                  <span className="text-sm font-black text-white">{allLeads.filter(l => l.status !== "converted" && l.status !== "lost").length}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Paid Revenue</span>
-                  <span className="text-sm font-black text-green-400">${invoices.filter(i => i.status === "paid").reduce((sum, i) => sum + i.total, 0).toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Projected Sales</span>
-                  <span className="text-sm font-black text-blue-400">${allAppointments.filter(a => a.status === "scheduled" || a.status === "confirmed").reduce((sum, a) => sum + (a.totalAmount || 0), 0).toLocaleString()}</span>
-                </div>
-              </div>
-
-              <div className="pt-6 border-t border-white/10">
-                <Button 
-                  onClick={generateGrowthStrategy} 
-                  disabled={isGeneratingGrowth}
-                  className="w-full bg-primary text-white hover:bg-red-700 font-black h-12 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-xl"
-                >
-                  {isGeneratingGrowth ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <TrendingUp className="w-4 h-4 mr-2" />}
-                  Full Growth Audit
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle className="text-sm font-black uppercase tracking-widest text-white/40">Growth Metrics</CardTitle>
-            </CardHeader>
-            <CardContent className="p-6 pt-0 space-y-4">
-              <div className="space-y-2">
-                <div className="flex justify-between text-[10px] font-black uppercase">
-                  <span className="text-white/40">Retention Rate</span>
-                  <span className="text-primary">{growthMetrics.retentionRate}%</span>
-                </div>
-                <Progress value={growthMetrics.retentionRate} className="h-1.5" />
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-[10px] font-black uppercase">
-                  <span className="text-white/40">Lead Conversion</span>
-                  <span className="text-primary">{growthMetrics.conversionRate}%</span>
-                </div>
-                <Progress value={growthMetrics.conversionRate} className="h-1.5" />
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-[10px] font-black uppercase">
-                  <span className="text-white/40">Avg Ticket Size</span>
-                  <span className="text-primary">${growthMetrics.avgTicket}</span>
-                </div>
-                <Progress value={Math.min(100, (growthMetrics.avgTicket / 500) * 100)} className="h-1.5" />
-              </div>
-            </CardContent>
-          </Card>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-[10px] font-black uppercase">
+                        <span className="text-white/40">Avg Ticket Size</span>
+                        <span className="text-primary">{new Intl.NumberFormat("en-US", {
+                      style: "currency",
+                      currency: "USD",
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2
+                    }).format(growthMetrics.avgTicket)}</span>
+                      </div>
+                      <Progress value={Math.min(100, (growthMetrics.avgTicket / 500) * 100)} className="h-1.5" />
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </FocusWrapper>
         </div>
       </div>
 
@@ -757,52 +836,117 @@ export default function Dashboard() {
       )}
 
       {/* Recent Leads */}
-      <Card className="border-none bg-card rounded-3xl overflow-hidden shadow-xl">
-        <CardHeader className="p-8 border-b border-white/5 flex flex-row items-center justify-between bg-black/40">
-          <div>
-            <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">High-Priority Inquiries</CardTitle>
-            <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-1">Pending conversion opportunities</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={() => navigate("/leads")} className="font-black text-primary hover:bg-primary/5 uppercase tracking-widest text-[10px]">View Full Pipeline</Button>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="divide-y divide-border">
-            {recentLeads.length === 0 ? (
-              <div className="p-12 text-center text-white/40 uppercase tracking-widest text-[10px] font-black">No new inquiries detected.</div>
-            ) : (
-              recentLeads.map(lead => (
-                <div key={lead.id} className="p-6 flex items-center justify-between hover:bg-white/5 transition-all duration-300 group">
-                  <div className="flex items-center gap-6">
-                    <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary border border-primary/20 group-hover:scale-110 transition-transform duration-300">
-                      <UserPlus className="w-6 h-6" />
+      <FocusWrapper id="recent-leads" title="Tactical Acquisition Pipeline" focusedId={focusedCardId} onFocus={setFocusedCardId}>
+        <Card className={cn(
+          "border-none bg-card rounded-3xl overflow-hidden shadow-xl transition-all duration-500 hover:shadow-primary/5",
+          focusedCardId !== "recent-leads" && "max-h-[350px]"
+        )}>
+          <CardHeader className="p-8 border-b border-white/5 flex flex-row items-center justify-between bg-black/40">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-primary/10 rounded-xl text-primary border border-primary/20 group-hover:scale-110 transition-transform">
+                <UserCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">High-Priority Inquiries</CardTitle>
+                <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-1">Pending conversion opportunities</p>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/leads")} className="font-black text-primary hover:bg-primary/5 uppercase tracking-widest text-[10px]">View Full Pipeline</Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border min-h-[100px]">
+              {recentLeads.length === 0 ? (
+                <div className="p-12 text-center text-white/40 uppercase tracking-widest text-[10px] font-black">No new inquiries detected.</div>
+              ) : (
+                recentLeads.slice(0, focusedCardId === "recent-leads" ? undefined : 3).map(lead => (
+                  <div key={lead.id} className="p-6 flex items-center justify-between hover:bg-white/5 transition-all duration-300 group">
+                    <div className="flex items-center gap-6">
+                      <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary border border-primary/20 group-hover:scale-110 transition-transform duration-300">
+                        <UserPlus className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="font-black text-white uppercase tracking-tight text-sm">{lead.name}</p>
+                        <p className="text-xs text-white/60 font-medium mt-0.5">{lead.requestedService} • {lead.vehicleInfo}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-black text-white uppercase tracking-tight text-sm">{lead.name}</p>
-                      <p className="text-xs text-white/60 font-medium mt-0.5">{lead.requestedService} • {lead.vehicleInfo}</p>
+                    <div className="text-right flex flex-col items-end gap-2 text-left">
+                      <Badge className={cn(
+                        "text-[9px] uppercase font-black tracking-widest px-3 py-1 rounded-full",
+                        lead.priority === "hot" ? "bg-primary text-white" : "bg-orange-500 text-white"
+                      )}>
+                        {lead.priority}
+                      </Badge>
+                      <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">
+                        {lead.createdAt instanceof Timestamp ? format(lead.createdAt.toDate(), "MMM d, h:mm a") : "Just now"}
+                      </p>
                     </div>
                   </div>
-                  <div className="text-right flex flex-col items-end gap-2">
-                    <Badge className={cn(
-                      "text-[9px] uppercase font-black tracking-widest px-3 py-1 rounded-full",
-                      lead.priority === "hot" ? "bg-primary text-white" : "bg-orange-500 text-white"
-                    )}>
-                      {lead.priority}
-                    </Badge>
-                    <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">
-                      {lead.createdAt instanceof Timestamp ? format(lead.createdAt.toDate(), "MMM d, h:mm a") : "Just now"}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </CardContent>
-      </Card>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </FocusWrapper>
     </div>
   );
 }
 
-function StatCard({ title, value, subValue, icon, trend, trendValue, color }: any) {
+function FocusWrapper({ id, focusedId, onFocus, title, children, className }: any) {
+  const isFocused = focusedId === id;
+
+  return (
+    <>
+      <div 
+        onClick={() => !isFocused && onFocus(id)}
+        className={cn(
+          "cursor-pointer transition-all duration-300",
+          isFocused ? "opacity-0 invisible" : "hover:scale-[1.02]",
+          className
+        )}
+      >
+        {children}
+      </div>
+
+      <AnimatePresence>
+        {isFocused && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => onFocus(null)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              layoutId={id}
+              className="w-full max-w-2xl bg-card border border-white/10 rounded-3xl overflow-hidden shadow-2xl relative z-10"
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            >
+              <div className="flex items-center justify-between p-6 border-b border-white/10 bg-white/5">
+                <h3 className="text-sm font-black uppercase tracking-widest text-primary">{title}</h3>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => onFocus(null)}
+                  className="rounded-full hover:bg-white/10 text-white/40 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+              <div className="p-6 max-h-[80vh] overflow-y-auto">
+                {children}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+function StatCard({ title, value, subValue, icon, trend, trendValue, color, standalone }: any) {
   const colors: any = {
     red: "bg-primary/10 text-primary border-primary/20",
     white: "bg-secondary text-white border-border",
@@ -810,35 +954,48 @@ function StatCard({ title, value, subValue, icon, trend, trendValue, color }: an
     green: "bg-green-500/10 text-green-500 border-green-500/20",
   };
 
-  return (
-    <Card className="border-none bg-card rounded-3xl overflow-hidden group hover:shadow-2xl transition-all duration-500 shadow-xl relative">
+  const content = (
+    <>
       <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 pointer-events-none">
         {icon && React.cloneElement(icon as React.ReactElement<any>, { className: "w-32 h-32" })}
       </div>
-      <CardContent className="p-8 relative z-10">
-        <div className="flex items-center justify-between mb-6">
-          <div className={cn("p-4 rounded-2xl border transition-transform duration-500 group-hover:scale-110 shadow-sm", colors[color])}>
-            {icon}
-          </div>
-          {trend && (
-            <div className={cn(
-              "flex items-center gap-1.5 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest",
-              trend === "up" ? "bg-green-500/10 text-green-500 border border-green-500/20" : "bg-primary/10 text-primary border border-primary/20"
-            )}>
-              {trend === "up" ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-              {trendValue}
-            </div>
-          )}
-        </div>
+      <CardContent className="p-10 relative z-10 h-full flex flex-col justify-between">
         <div>
-          <p className="text-[11px] font-black text-white/30 uppercase tracking-[0.25em] mb-2">{title}</p>
-          <h3 className="text-4xl sm:text-5xl font-black text-white tracking-tighter font-heading">{value}</h3>
-          <p className="text-[11px] text-white/50 font-bold mt-3 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_6px_rgba(229,57,53,0.4)]"></span>
-            {subValue}
-          </p>
+          <div className="flex items-center justify-between mb-8">
+            <div className={cn("p-4 rounded-2xl border transition-transform duration-500 group-hover:scale-110 shadow-sm", colors[color])}>
+              {icon}
+            </div>
+            {trend && (
+              <div className={cn(
+                "flex items-center gap-1.5 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest",
+                trend === "up" ? "bg-green-500/10 text-green-500 border border-green-500/20" : "bg-primary/10 text-primary border border-primary/20"
+              )}>
+                {trend === "up" ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                {trendValue}
+              </div>
+            )}
+          </div>
+          
+          <div className="space-y-4">
+            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">{title}</p>
+            <h3 className="text-4xl sm:text-6xl font-black text-white tracking-tighter font-heading leading-none drop-shadow-sm">{value}</h3>
+            {subValue && (
+              <p className="text-xs font-bold text-[#A0A0A0] flex items-center gap-2 mt-4">
+                <span className="w-2 h-2 bg-primary rounded-full shadow-[0_0_8px_rgba(229,57,53,0.6)]"></span>
+                {subValue}
+              </p>
+            )}
+          </div>
         </div>
       </CardContent>
+    </>
+  );
+
+  if (standalone) return content;
+
+  return (
+    <Card className="border-none bg-card rounded-3xl overflow-hidden group hover:shadow-2xl transition-all duration-500 shadow-xl relative min-h-[300px]">
+      {content}
     </Card>
   );
 }
