@@ -129,6 +129,23 @@ export default function Settings() {
     if (authLoading || !profile) return;
 
     const fetchSettings = async () => {
+      // Check cache first (5 min)
+      const cached = sessionStorage.getItem('business_settings_cache');
+      const cacheTime = sessionStorage.getItem('business_settings_cache_time');
+      const now = Date.now();
+      if (cached && cacheTime && now - Number(cacheTime) < 5 * 60 * 1000) {
+        const parsed = JSON.parse(cached);
+        setSettings(parsed);
+        setTravelPricingInputs({
+          pricePerMile: (parsed.travelPricing?.pricePerMile || 0).toString(),
+          freeMilesThreshold: (parsed.travelPricing?.freeMilesThreshold || 0).toString(),
+          minTravelFee: (parsed.travelPricing?.minTravelFee || 0).toString(),
+          maxTravelFee: (parsed.travelPricing?.maxTravelFee || 0).toString()
+        });
+        setLoading(false);
+        return;
+      }
+
       try {
         const docRef = doc(db, "settings", "business");
         const docSnap = await getDoc(docRef);
@@ -144,6 +161,11 @@ export default function Settings() {
             data = { ...data, ...intSnap.data() };
           }
           setSettings(data);
+          
+          // Cache settings
+          sessionStorage.setItem('business_settings_cache', JSON.stringify(data));
+          sessionStorage.setItem('business_settings_cache_time', now.toString());
+
           if (data.travelPricing) {
             setTravelPricingInputs({
               pricePerMile: data.travelPricing.pricePerMile.toString(),
@@ -155,6 +177,7 @@ export default function Settings() {
         } else if (profile?.role === "admin") {
           // Initialize default settings ONLY if user is admin
           const defaultSettings: BusinessSettings = {
+            businessId: profile!.businessId,
             businessName: "Flatline Mobile Detail",
             taxRate: 8.25,
             currency: "USD",
@@ -218,6 +241,22 @@ export default function Settings() {
       fetchSettings();
       
       const fetchMetaData = async () => {
+        // Attempt metadata caching (10 min)
+        const cachedMeta = sessionStorage.getItem('settings_metadata_cache');
+        const cachedTime = sessionStorage.getItem('settings_metadata_cache_time');
+        const now = Date.now();
+        if (cachedMeta && cachedTime && now - Number(cachedTime) < 10 * 60 * 1000) {
+          const parsed = JSON.parse(cachedMeta);
+          setServices(parsed.services);
+          setAddons(parsed.addons);
+          setCategories(parsed.categories);
+          setCoupons(parsed.coupons);
+          setClientTypes(parsed.clientTypes);
+          setClientCategories(parsed.clientCategories);
+          setStaff(parsed.staff);
+          return;
+        }
+
         try {
           const [servicesSnap, addonsSnap, categoriesSnap, couponsSnap, clientTypesSnap, clientCategoriesSnap, staffSnap] = await Promise.all([
             getDocs(collection(db, "services")),
@@ -229,14 +268,22 @@ export default function Settings() {
             getDocs(query(collection(db, "users"), orderBy("displayName", "asc")))
           ]);
 
-          setServices(servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
-          setAddons(addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AddOn)));
-          
-          const cats = categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category));
-          setCategories(cats);
+          const servicesData = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service));
+          const addonsData = addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AddOn));
+          const categoriesData = categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category));
+          const couponsData = couponsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Coupon));
+          const ctRaw = clientTypesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+          const clientTypesData = Array.from(new Map(ctRaw.map(t => [t.slug, t])).values());
+          const ccRaw = clientCategoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+          const clientCategoriesData = Array.from(new Map(ccRaw.map(c => [c.name, c])).values());
+          const staffData = staffSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+          setServices(servicesData);
+          setAddons(addonsData);
+          setCategories(categoriesData);
           
           // Seed default categories if none exist
-          if (cats.length === 0 && profile?.role === "admin") {
+          if (categoriesData.length === 0 && profile?.role === "admin") {
             const defaultCategories: Partial<Category>[] = [
               { name: "Interior", type: "service", isActive: true, sortOrder: 0 },
               { name: "Exterior", type: "service", isActive: true, sortOrder: 1 },
@@ -252,17 +299,22 @@ export default function Settings() {
             Promise.all(defaultCategories.map(cat => addDoc(collection(db, "categories"), cat)));
           }
 
-          setCoupons(couponsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Coupon)));
-          
-          const types = clientTypesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-          const uniqueTypes = Array.from(new Map(types.map(t => [t.slug, t])).values());
-          setClientTypes(uniqueTypes);
+          setCoupons(couponsData);
+          setClientTypes(clientTypesData);
+          setClientCategories(clientCategoriesData);
+          setStaff(staffData);
 
-          const cCats = clientCategoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-          const uniqueCCats = Array.from(new Map(cCats.map(c => [c.name, c])).values());
-          setClientCategories(uniqueCCats);
+          sessionStorage.setItem('settings_metadata_cache', JSON.stringify({
+            services: servicesData,
+            addons: addonsData,
+            categories: categoriesData,
+            coupons: couponsData,
+            clientTypes: clientTypesData,
+            clientCategories: clientCategoriesData,
+            staff: staffData
+          }));
+          sessionStorage.setItem('settings_metadata_cache_time', now.toString());
 
-          setStaff(staffSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         } catch (error) {
           console.error("Error fetching settings metadata:", error);
         }
@@ -337,6 +389,10 @@ export default function Settings() {
         await setDoc(doc(db, "settings", "integrations"), removeUndefined({ paymentIntegrations }));
       }
       
+      // Invalidate cache
+      sessionStorage.removeItem('business_settings_cache');
+      sessionStorage.removeItem('business_settings_cache_time');
+
       setSettings(updatedSettings);
       toast.success("Settings updated successfully");
     } catch (error) {
@@ -471,6 +527,12 @@ export default function Settings() {
         }));
         toast.success("Service added");
       }
+
+      // Invalidate metadata cache
+      sessionStorage.removeItem('settings_metadata_cache');
+      sessionStorage.removeItem('settings_metadata_cache_time');
+      sessionStorage.removeItem('services_list_cache');
+
       setIsServiceDialogOpen(false);
       setEditingService(null);
     } catch (error) {
@@ -494,6 +556,12 @@ export default function Settings() {
         }));
         toast.success("Add-on added");
       }
+      
+      // Invalidate metadata cache
+      sessionStorage.removeItem('settings_metadata_cache');
+      sessionStorage.removeItem('settings_metadata_cache_time');
+      sessionStorage.removeItem('services_list_cache'); // Shared with Clients.tsx
+
       setIsAddonDialogOpen(false);
       setEditingAddon(null);
     } catch (error) {
@@ -591,6 +659,11 @@ export default function Settings() {
     try {
       await deleteDoc(doc(db, "services", id));
       toast.success("Service deleted");
+      
+      // Invalidate metadata cache
+      sessionStorage.removeItem('settings_metadata_cache');
+      sessionStorage.removeItem('settings_metadata_cache_time');
+      sessionStorage.removeItem('services_list_cache');
     } catch (error) {
       setServices(previous);
       console.error("Error deleting service:", error);
@@ -608,6 +681,11 @@ export default function Settings() {
     try {
       await deleteDoc(doc(db, "addons", id));
       toast.success("Add-on deleted");
+
+      // Invalidate metadata cache
+      sessionStorage.removeItem('settings_metadata_cache');
+      sessionStorage.removeItem('settings_metadata_cache_time');
+      sessionStorage.removeItem('services_list_cache');
     } catch (error) {
       setAddons(previous);
       console.error("Error deleting add-on:", error);

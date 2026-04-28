@@ -11,6 +11,108 @@ export interface SmartRecommendation {
   reasons: string[];
 }
 
+export async function checkAvailability(input: {
+  targetDate: Date;
+  durationMinutes: number;
+  ignoreAppointmentId?: string;
+  businessHours?: any;
+}): Promise<{ isAvailable: boolean; reason: string }> {
+  const { targetDate, durationMinutes, ignoreAppointmentId, businessHours } = input;
+  
+  const start = startOfDay(targetDate);
+  const end = endOfDay(targetDate);
+  const slotStart = targetDate;
+  const slotEnd = addMinutes(targetDate, durationMinutes);
+
+  const appointmentsRef = collection(db, "appointments");
+  const qApps = query(
+    appointmentsRef,
+    where("scheduledAt", ">=", Timestamp.fromDate(start)),
+    where("scheduledAt", "<=", Timestamp.fromDate(end))
+  );
+  
+  const blocksRef = collection(db, "blocked_dates");
+  const qBlocks = query(
+    blocksRef,
+    where("start", ">=", Timestamp.fromDate(start)),
+    where("start", "<=", Timestamp.fromDate(end))
+  );
+
+  const [appsSnap, blocksSnap] = await Promise.all([getDocs(qApps), getDocs(qBlocks)]);
+  
+  let conflictEvent = null;
+  let isBlock = false;
+
+  for (const d of appsSnap.docs) {
+    if (ignoreAppointmentId && d.id === ignoreAppointmentId) continue;
+    const app = d.data();
+    if (!app.scheduledAt) continue;
+    
+    // Ignore waitlisted and canceled appointments as conflicts
+    if (app.status === "canceled" || app.status === "waitlisted" || app.status === "pending_waitlist") continue;
+
+    const evtStart = app.scheduledAt.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
+    const evtDur = app.estimatedDuration || 120;
+    const evtEnd = addMinutes(evtStart, evtDur + (app.overrideBufferTimeMinutes || 30)); // 30 min buffer is standard
+
+    if (slotStart < evtEnd && slotEnd > evtStart) {
+      conflictEvent = app;
+      break;
+    }
+  }
+
+  if (!conflictEvent) {
+    for (const d of blocksSnap.docs) {
+      const block = d.data();
+      if (!block.start || !block.end) continue;
+      const blockStart = block.start.toDate ? block.start.toDate() : new Date(block.start);
+      const blockEnd = block.end.toDate ? block.end.toDate() : new Date(block.end);
+      
+      if (slotStart < blockEnd && slotEnd > blockStart) {
+        conflictEvent = block;
+        isBlock = true;
+        break;
+      }
+    }
+  }
+
+  if (conflictEvent) {
+    if (isBlock) {
+      return { isAvailable: false, reason: "Time slot is blocked off." };
+    } else {
+      return { isAvailable: false, reason: "Conflicts with an existing appointment and required buffer time." };
+    }
+  }
+
+  // Check business hours
+  if (businessHours) {
+    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayName = daysOfWeek[targetDate.getDay()];
+    const daySettings = businessHours[dayName];
+    
+    if (daySettings) {
+      if (!daySettings.isOpen) {
+        return { isAvailable: false, reason: "Business is closed on this day." };
+      }
+      
+      const [openH, openM] = daySettings.openTime.split(":").map(Number);
+      const [closeH, closeM] = daySettings.closeTime.split(":").map(Number);
+      
+      const workingStart = openH * 60 + (openM || 0);
+      const workingEnd = closeH * 60 + (closeM || 0);
+      
+      const slotStartMin = slotStart.getHours() * 60 + slotStart.getMinutes();
+      const slotEndMin = slotEnd.getHours() * 60 + slotEnd.getMinutes();
+
+      if ((slotStartMin < workingStart || slotEndMin > workingEnd) && !businessHours.allowAfterHours) {
+        return { isAvailable: false, reason: "Time slot is outside of normal business hours." };
+      }
+    }
+  }
+
+  return { isAvailable: true, reason: "Time slot is open and has enough service duration + buffer time." };
+}
+
 export async function generateSmartRecommendations(input: {
   baseDate: Date;
   addressLat: number;

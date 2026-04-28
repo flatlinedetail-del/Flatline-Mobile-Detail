@@ -5,7 +5,9 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import Dashboard from "./pages/Dashboard";
 import Leads from "./pages/Leads";
 import Clients from "./pages/Clients";
+import ProtectedClients from "./pages/ProtectedClients";
 import Communications from "./pages/Communications";
+import Waitlist from "./pages/Waitlist";
 import Calendar from "./pages/Calendar";
 import JobDetail from "./pages/JobDetail";
 import Invoices from "./pages/Invoices";
@@ -20,6 +22,7 @@ import FormsBuilder from "./pages/FormsBuilder";
 import BookAppointment from "./pages/BookAppointment";
 import AILeadEngine from "./pages/AILeadEngine";
 import Login from "./pages/Login";
+import PublicInvoicePayment from "./pages/PublicInvoicePayment";
 import Layout from "./components/Layout";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -36,6 +39,7 @@ function AppContent() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/book" element={<PublicBooking />} />
+        <Route path="/invoice/:invoiceId" element={<PublicInvoicePayment />} />
         <Route
           path="/"
           element={
@@ -48,7 +52,9 @@ function AppContent() {
           <Route path="leads" element={<Leads />} />
           <Route path="leads/engine" element={<AILeadEngine />} />
           <Route path="clients" element={<Clients />} />
+          <Route path="protected-clients" element={<ProtectedClients />} />
           <Route path="communications" element={<Communications />} />
+          <Route path="waitlist" element={<Waitlist />} />
           <Route path="book-appointment" element={<BookAppointment />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="calendar/:id" element={<JobDetail />} />

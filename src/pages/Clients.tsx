@@ -85,6 +85,7 @@ import AddressInput from "../components/AddressInput";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { getClientTypes, getClientCategories, migrateDataToClients, ensureClientTypes, ensureClientNameFields } from "../services/clientService";
+import { getClientAppointmentsRecent, updateClientAppointmentsName, softDeleteClientAppointmentsBatch, batchDeleteClientAppointments, batchUpdateClientAppointmentsName } from "../services/appointmentService";
 import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
@@ -232,18 +233,41 @@ export default function Clients() {
   }, [clients, selectedClient]);
 
   const fetchClientsData = async (showToast = false) => {
+    // Check cache first if not performing a manual sync
+    if (!showToast) {
+      const cached = sessionStorage.getItem('clients_registry_cache');
+      const cacheTime = sessionStorage.getItem('clients_registry_cache_time');
+      const now = Date.now();
+      
+      if (cached && cacheTime && now - Number(cacheTime) < 5 * 60 * 1000) { // 5 min cache
+        setClients(JSON.parse(cached));
+        setLoading(false);
+        return;
+      }
+    }
+
     if (showToast) toast.loading("Syncing Registry...", { id: "sync-clients" });
     setLoading(true);
     try {
       const q = query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(200));
       const snapshot = await getDocs(q);
-      setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client)));
+      const clientsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
+      setClients(clientsData);
+      
+      // Update cache
+      sessionStorage.setItem('clients_registry_cache', JSON.stringify(clientsData));
+      sessionStorage.setItem('clients_registry_cache_time', Date.now().toString());
+
       setLoading(false);
       if (showToast) toast.success("Registry Synchronized", { id: "sync-clients" });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching clients:", error);
       setLoading(false);
-      if (showToast) toast.error("Sync Failed", { id: "sync-clients" });
+      if (error?.message?.includes("Quota limit exceeded")) {
+        toast.error("Registry Sync Failed: Quota exceeded");
+      } else if (showToast) {
+        toast.error("Sync Failed", { id: "sync-clients" });
+      }
     }
   };
 
@@ -251,16 +275,27 @@ export default function Clients() {
     if (authLoading || !profile) return;
 
     const loadMetadata = async () => {
+      // Small metadata caching
+      const cachedTypes = sessionStorage.getItem('client_types_cache');
+      const cachedCats = sessionStorage.getItem('client_categories_cache');
+      if (cachedTypes && cachedCats) {
+        setClientTypes(JSON.parse(cachedTypes));
+        setCategories(JSON.parse(cachedCats));
+        return;
+      }
+
       try {
-        const [types, cats] = await Promise.all([
-          ensureClientTypes(), 
-          getClientCategories(),
-          ensureClientNameFields()
-        ]);
-        // Ensure unique types by ID just in case
-        const uniqueTypes = Array.from(new Map(types.map(t => [t.id, t])).values());
-        setClientTypes(uniqueTypes);
-        setCategories(cats);
+        const typesSnap = await getDocs(query(collection(db, "client_types"), orderBy("sortOrder", "asc")));
+        const catsSnap = await getDocs(query(collection(db, "client_categories"), orderBy("name", "asc")));
+        
+        const typesData = typesSnap.docs.map(t => ({ id: t.id, ...t.data() } as ClientType));
+        const catsData = catsSnap.docs.map(c => ({ id: c.id, ...c.data() } as ClientCategory));
+        
+        setClientTypes(typesData);
+        setCategories(catsData);
+        
+        sessionStorage.setItem('client_types_cache', JSON.stringify(typesData));
+        sessionStorage.setItem('client_categories_cache', JSON.stringify(catsData));
       } catch (error) {
         console.error("Error loading metadata:", error);
       }
@@ -269,9 +304,16 @@ export default function Clients() {
     fetchClientsData();
 
     const loadServices = async () => {
+      const cachedServices = sessionStorage.getItem('services_list_cache');
+      if (cachedServices) {
+        setServices(JSON.parse(cachedServices));
+        return;
+      }
       try {
         const servicesSnap = await getDocs(collection(db, "services"));
-        setServices(servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
+        const servicesData = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service));
+        setServices(servicesData);
+        sessionStorage.setItem('services_list_cache', JSON.stringify(servicesData));
       } catch (error) {
         console.error("Error fetching services in clients:", error);
       }
@@ -294,18 +336,45 @@ export default function Clients() {
     }
 
     const fetchClientDetails = async () => {
+      // Detail caching per client
+      const CACHE_KEY = `client_details_cache_${selectedClient.id}`;
+      const cachedDetails = sessionStorage.getItem(CACHE_KEY);
+      const cacheTime = sessionStorage.getItem(`${CACHE_KEY}_time`);
+      const now = Date.now();
+
+      if (cachedDetails && cacheTime && now - Number(cacheTime) < 2 * 60 * 1000) {
+        const parsed = JSON.parse(cachedDetails);
+        setClientHistory(parsed.history);
+        setSignedForms(parsed.forms);
+        setClientInvoices(parsed.invoices);
+        setClientQuotes(parsed.quotes);
+        return;
+      }
+
       try {
-        const [historySnap, formsSnap, invoicesSnap, quotesSnap] = await Promise.all([
-          getDocs(query(collection(db, "appointments"), where("clientId", "==", selectedClient.id), orderBy("scheduledAt", "desc"), limit(50))),
+        const [historyData, formsSnap, invoicesSnap, quotesSnap] = await Promise.all([
+          getClientAppointmentsRecent(profile!.businessId, selectedClient.id, 50),
           getDocs(query(collection(db, "signed_forms"), where("clientId", "==", selectedClient.id))),
           getDocs(query(collection(db, "invoices"), where("clientId", "==", selectedClient.id), orderBy("createdAt", "desc"), limit(50))),
           getDocs(query(collection(db, "quotes"), where("clientId", "==", selectedClient.id), orderBy("createdAt", "desc"), limit(50)))
         ]);
 
-        setClientHistory(historySnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-        setSignedForms(formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setClientInvoices(invoicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice)));
-        setClientQuotes(quotesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quote)));
+        const formsData = formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const invoicesData = invoicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
+        const quotesData = quotesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quote));
+
+        setClientHistory(historyData);
+        setSignedForms(formsData);
+        setClientInvoices(invoicesData);
+        setClientQuotes(quotesData);
+
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+          history: historyData,
+          forms: formsData,
+          invoices: invoicesData,
+          quotes: quotesData
+        }));
+        sessionStorage.setItem(`${CACHE_KEY}_time`, now.toString());
       } catch (error) {
         console.error("Error fetching client details:", error);
       }
@@ -315,6 +384,11 @@ export default function Clients() {
     
     const unsubVehicles = onSnapshot(query(collection(db, "vehicles"), where("clientId", "==", selectedClient.id)), snap => {
       setClientVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+    }, (error: any) => {
+      if (error?.code === 'cancelled' || error?.message?.includes('CANCELLED') || error?.message?.includes('idle stream')) {
+        return; // Ignore idle stream disconnects
+      }
+      console.error("Error listening to client vehicles:", error);
     });
 
     // Auto-geocode if missing lat/lng
@@ -387,8 +461,17 @@ export default function Clients() {
         });
         toast.success("Client added successfully");
       }
+      
+      // Invalidate cache
+      sessionStorage.removeItem('clients_registry_cache');
+      sessionStorage.removeItem('clients_registry_cache_time');
+      if (editingClient) {
+        sessionStorage.removeItem(`client_details_cache_${editingClient.id}`);
+      }
+
       setIsAddDialogOpen(false);
       setEditingClient(null);
+      fetchClientsData(); // Sync manually
     } catch (error) {
       console.error("Error saving client:", error);
       toast.error(editingClient ? "Failed to update client" : "Failed to add client");
@@ -408,21 +491,16 @@ export default function Clients() {
         data.name = newDisplayName;
         
         // Update related appointments
-        const appointmentsQuery = query(
-          collection(db, "appointments"), 
-          where("clientId", "==", selectedClient.id)
-        );
-        const appointmentsSnap = await getDocs(appointmentsQuery);
-        const batch = writeBatch(db);
-        
-        appointmentsSnap.docs.forEach(appDoc => {
-          batch.update(appDoc.ref, { customerName: newDisplayName });
-        });
-        
-        await batch.commit();
+        await updateClientAppointmentsName(profile!.businessId, selectedClient.id, newDisplayName);
       }
 
       await updateDoc(doc(db, "clients", selectedClient.id), data);
+      
+      // Invalidate cache
+      sessionStorage.removeItem('clients_registry_cache');
+      sessionStorage.removeItem('clients_registry_cache_time');
+      sessionStorage.removeItem(`client_details_cache_${selectedClient.id}`);
+      
       toast.success("Profile updated");
     } catch (error) {
       console.error("Error updating client:", error);
@@ -443,7 +521,6 @@ export default function Clients() {
       // 1. Find all linked records
       const [
         vehiclesSnap, 
-        appointmentsSnap, 
         invoicesSnap, 
         quotesSnap, 
         leadsSnap,
@@ -451,7 +528,6 @@ export default function Clients() {
         logsSnap
       ] = await Promise.all([
         getDocs(query(collection(db, "vehicles"), where("clientId", "==", id))),
-        getDocs(query(collection(db, "appointments"), where("clientId", "==", id))),
         getDocs(query(collection(db, "invoices"), where("clientId", "==", id))),
         getDocs(query(collection(db, "quotes"), where("clientId", "==", id))),
         getDocs(query(collection(db, "leads"), where("clientId", "==", id))),
@@ -459,9 +535,11 @@ export default function Clients() {
         getDocs(query(collection(db, "campaign_logs"), where("clientId", "==", id)))
       ]);
 
+      // Add appointment soft deletion to batch
+      await batchDeleteClientAppointments(batch, profile!.businessId, id);
+
       // 2. Add all linked records to batch delete
       vehiclesSnap.docs.forEach(d => batch.delete(d.ref));
-      appointmentsSnap.docs.forEach(d => batch.delete(d.ref));
       invoicesSnap.docs.forEach(d => batch.delete(d.ref));
       quotesSnap.docs.forEach(d => batch.delete(d.ref));
       leadsSnap.docs.forEach(d => batch.delete(d.ref));
@@ -474,9 +552,15 @@ export default function Clients() {
       // 4. Commit the batch
       await batch.commit();
       
+      // Invalidate cache
+      sessionStorage.removeItem('clients_registry_cache');
+      sessionStorage.removeItem('clients_registry_cache_time');
+      sessionStorage.removeItem(`client_details_cache_${id}`);
+      
       toast.success("Client and all linked records deleted successfully");
       setIsDetailOpen(false);
       setSelectedClient(null);
+      fetchClientsData(); // Sync manually
     } catch (error) {
       console.error("Error force-deleting client:", error);
       toast.error("Failed to force-delete client profile and linked data");
@@ -755,6 +839,11 @@ export default function Clients() {
                             <div className="flex items-center gap-2">
                               <span className="font-black text-white tracking-tight uppercase text-sm">{getClientDisplayName(client)}</span>
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
+                              <Badge className={cn("text-[8px] font-black uppercase tracking-widest", 
+                                 client.riskLevel === 'high' ? "bg-red-500/20 text-red-500" :
+                                 client.riskLevel === 'medium' ? "bg-yellow-500/20 text-yellow-500" :
+                                 "bg-green-500/20 text-green-500"
+                              )}>Risk: {client.riskLevel || 'low'}</Badge>
                               {(() => {
                                 if (!searchTerm) return null;
                                 const matchingVehicle = allVehicles.find(v => {

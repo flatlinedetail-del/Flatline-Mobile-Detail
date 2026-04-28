@@ -77,12 +77,31 @@ export default function Leads() {
   });
 
   const fetchLeads = async (showToast = false) => {
+    // Check cache first if not performing a manual sync
+    if (!showToast) {
+      const cached = sessionStorage.getItem('leads_cache');
+      const cacheTime = sessionStorage.getItem('leads_cache_time');
+      const now = Date.now();
+      
+      if (cached && cacheTime && now - Number(cacheTime) < 5 * 60 * 1000) { // 5 min cache
+        setLeads(JSON.parse(cached));
+        setLoading(false);
+        return;
+      }
+    }
+
     if (showToast) toast.loading("Scanning Pipeline...", { id: "sync-leads" });
     try {
       const q = query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(100));
       const snapshot = await getDocs(q);
       const leadsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
+      
       setLeads(leadsData);
+      
+      // Update cache
+      sessionStorage.setItem('leads_cache', JSON.stringify(leadsData));
+      sessionStorage.setItem('leads_cache_time', Date.now().toString());
+      
       setLoading(false);
       if (showToast) toast.success("Pipeline Synchronized", { id: "sync-leads" });
     } catch (error: any) {
@@ -142,12 +161,18 @@ export default function Leads() {
           type: "client",
           relatedId: docRef.id,
           relatedType: "lead"
-        });
+        }, profile!.businessId);
 
         toast.success("Lead added successfully");
       }
+      
+      // Invalidate cache
+      sessionStorage.removeItem('leads_cache');
+      sessionStorage.removeItem('leads_cache_time');
+      
       setIsAddDialogOpen(false);
       setEditingLead(null);
+      fetchLeads();
     } catch (error) {
       console.error("Error saving lead:", error);
       toast.error("Failed to save lead");
@@ -180,7 +205,7 @@ export default function Leads() {
         type: "client",
         relatedId: leadId,
         relatedType: "lead"
-      });
+      }, profile!.businessId);
 
       toast.success(`Status updated to ${status}`);
     } catch (error) {

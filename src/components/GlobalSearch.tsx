@@ -6,7 +6,10 @@ import { globalSearch, SearchResult } from "../services/search";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
+import { useAuth } from "../hooks/useAuth";
+
 export default function GlobalSearch() {
+  const { profile } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -26,10 +29,10 @@ export default function GlobalSearch() {
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
-      if (query.length >= 2) {
+      if (query.length >= 2 && profile?.businessId) {
         setLoading(true);
         try {
-          const res = await globalSearch(query);
+          const res = await globalSearch(profile.businessId, query);
           setResults(res);
         } catch (error) {
           console.error("Search error:", error);

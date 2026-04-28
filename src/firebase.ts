@@ -1,12 +1,21 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
+import { initializeFirestore, doc, getDocFromServer, setLogLevel } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import firebaseConfig from "../firebase-applet-config.json";
 
+// Suppress info-level logs from Firestore (e.g., idle stream cancellations)
+setLogLevel('error');
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Use initializeFirestore to configure experimental settings for reliability in this environment
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  useFetchStreams: false,
+} as any, firebaseConfig.firestoreDatabaseId);
+
 export const storage = getStorage(app);
 
 // Error Handling Utilities

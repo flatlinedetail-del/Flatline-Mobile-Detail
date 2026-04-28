@@ -15,6 +15,23 @@ export default defineConfig(({mode}) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
+    optimizeDeps: {
+      // Force Vite to re-bundle dependencies when cache is cleared.
+      // We keep this block clean to allow default optimization unless specific 
+      // incompatibility issues arise.
+      include: [
+        'react',
+        'react-dom',
+        'react-router-dom',
+        'firebase/app',
+        'firebase/auth',
+        'firebase/firestore',
+        'lucide-react',
+        'date-fns'
+      ],
+      // Only exclude packages that are strictly incompatible with Vite's optimizer
+      exclude: []
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.

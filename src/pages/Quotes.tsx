@@ -1347,6 +1347,31 @@ export default function Quotes() {
   };
 
   const fetchQuotesData = async (showToast = false) => {
+    // Check cache first if not performing a manual sync
+    if (!showToast) {
+      const cached = sessionStorage.getItem('quotes_cache_data');
+      const cacheTime = sessionStorage.getItem('quotes_cache_time');
+      const now = Date.now();
+      
+      if (cached && cacheTime && now - Number(cacheTime) < 5 * 60 * 1000) { // 5 min cache
+        try {
+          const parsed = JSON.parse(cached);
+          setQuotes(parsed.quotes);
+          setClients(parsed.clients);
+          setServices(parsed.services);
+          setAddOns(parsed.addOns);
+          setFormTemplates(parsed.formTemplates);
+          setInvoices(parsed.invoices);
+          setAppointments(parsed.appointments);
+          setSettings(parsed.settings);
+          setLoading(false);
+          return;
+        } catch (e) {
+          console.warn("[Quotes] Cache parse failed", e);
+        }
+      }
+    }
+
     if (showToast) toast.loading("Syncing Estimates...", { id: "sync-quotes" });
     setLoading(true);
     try {
@@ -1370,19 +1395,45 @@ export default function Quotes() {
         getDocs(query(collection(db, "appointments"), orderBy("createdAt", "desc"), limit(50)))
       ]);
 
-      setQuotes(quotesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quote)));
-      setClients(clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client)));
-      setServices(servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
-      setAddOns(addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
-      setFormTemplates(formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setInvoices(invoicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice)));
-      setAppointments(appointmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-      if (settingsSnap.exists()) setSettings(settingsSnap.data() as BusinessSettings);
+      const quotesData = quotesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quote));
+      const clientsData = clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
+      const servicesData = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service));
+      const addonsData = addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const formsData = formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const invoicesData = invoicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
+      const apptsData = appointmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
+      const businessSettings = settingsSnap.exists() ? (settingsSnap.data() as BusinessSettings) : null;
+
+      setQuotes(quotesData);
+      setClients(clientsData);
+      setServices(servicesData);
+      setAddOns(addonsData);
+      setFormTemplates(formsData);
+      setInvoices(invoicesData);
+      setAppointments(apptsData);
+      if (businessSettings) setSettings(businessSettings);
       
+      // Update cache
+      sessionStorage.setItem('quotes_cache_data', JSON.stringify({
+        quotes: quotesData,
+        clients: clientsData,
+        services: servicesData,
+        addOns: addonsData,
+        formTemplates: formsData,
+        invoices: invoicesData,
+        appointments: apptsData,
+        settings: businessSettings
+      }));
+      sessionStorage.setItem('quotes_cache_time', Date.now().toString());
+
       if (showToast) toast.success("Estimates Synchronized", { id: "sync-quotes" });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching quotes data:", error);
-      if (showToast) toast.error("Sync Failed", { id: "sync-quotes" });
+      if (error?.message?.includes("Quota limit exceeded")) {
+        toast.error("Quotes Sync Failed: Quota exceeded");
+      } else if (showToast) {
+        toast.error("Sync Failed", { id: "sync-quotes" });
+      }
     } finally {
       setLoading(false);
     }
@@ -1402,7 +1453,10 @@ export default function Quotes() {
     const q = query(collection(db, "vehicles"), where("clientId", "==", selectedClientId));
     const unsubscribe = onSnapshot(q, (snap) => {
       setAllVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
-    }, (error) => {
+    }, (error: any) => {
+      if (error?.code === 'cancelled' || error?.message?.includes('CANCELLED') || error?.message?.includes('idle stream')) {
+        return; // Ignore idle stream disconnects
+      }
       console.error("Error fetching vehicles for selected client in quotes:", error);
     });
     return () => unsubscribe();
@@ -1544,9 +1598,15 @@ export default function Quotes() {
 
         toast.success("Quote created!");
       }
+
+      // Invalidate cache
+      sessionStorage.removeItem('quotes_cache_data');
+      sessionStorage.removeItem('quotes_cache_time');
+
       setIsAddDialogOpen(false);
       setEditingQuote(null);
       resetForm();
+      fetchQuotesData(); // Refresh data manually
     } catch (error) {
       console.error("Error saving quote:", error);
       toast.error("Failed to save quote");
@@ -1597,7 +1657,13 @@ export default function Quotes() {
 
     try {
       await deleteDoc(doc(db, "quotes", id));
+      
+      // Invalidate cache
+      sessionStorage.removeItem('quotes_cache_data');
+      sessionStorage.removeItem('quotes_cache_time');
+      
       toast.success("Quote deleted successfully");
+      fetchQuotesData(); // Refresh data manually
     } catch (error) {
       console.error("Error deleting quote:", error);
       try {

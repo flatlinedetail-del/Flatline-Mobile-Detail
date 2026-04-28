@@ -1,10 +1,25 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, deleteDoc, getDocs, addDoc, arrayUnion, deleteField } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, getDocs, arrayUnion, addDoc, deleteDoc, deleteField, limit } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
-import { messagingService } from "../services/messagingService";
+import { 
+  getJobById,
+  updateJob,
+  softDeleteJob,
+  updateJobFields,
+  addJobProductCost,
+  onJobSnapshot
+} from "../services/jobService";
+import { getClient, updateClient } from "../services/clientService";
+import { 
+  createInvoice,
+  getInvoicesByAppointment,
+  updateInvoiceFields as updateInvoice,
+  softDeleteInvoice
+} from "../services/invoiceService";
 import { processMaintenanceAutomation } from "../services/automationService";
+import { messagingService } from "../services/messagingService";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -396,13 +411,18 @@ export default function JobDetail() {
       const currentTotal = job.totalAmount || 0;
       const currentBase = job.baseAmount || 0;
 
-      await updateDoc(docRef, {
+      await updateJobFields(id!, {
         serviceNames: newNames,
         serviceSelections: newSelections,
         totalAmount: currentTotal + priceToUse,
         baseAmount: currentBase + priceToUse,
         internalNotes: (job.internalNotes || "") + `\n\n[REVENUE PROTOCOL] Added ${rec.serviceName} for $${priceToUse.toFixed(2)} at ${new Date().toLocaleString()}.`
-      });
+      }, profile!.businessId);
+
+      const client = await getClient(job.clientId);
+      if (client) {
+        await updateClient(client.id, { notes: (client.notes || "") + `\n\n[REVENUE PROTOCOL] Recommended ${rec.serviceName} for Job #${id?.slice(-6).toUpperCase()}. Insight: ${rec.reason}` });
+      }
 
       toast.success(`Smart Add-On Applied: ${rec.serviceName}`);
       
@@ -434,12 +454,12 @@ export default function JobDetail() {
       const currentAdjustments = job.priceAdjustments || [];
       const newAdjustments = [...currentAdjustments, newAdj];
 
-      await updateDoc(docRef, {
+      await updateJobFields(id!, {
         priceAdjustments: newAdjustments,
         totalAmount: price,
         baseAmount: price,
-        updatedAt: serverTimestamp()
-      });
+        updatedAt: serverTimestamp() as any
+      }, profile!.businessId);
       toast.success(`Applied ${tier} price: $${price}`);
     } catch (error) {
       console.error("Error applying price tier:", error);
@@ -451,11 +471,9 @@ export default function JobDetail() {
 
   const saveProductCosts = async (costs: any[]) => {
     try {
-      const docRef = doc(db, "appointments", id!);
-      await updateDoc(docRef, {
-        productCosts: costs,
-        updatedAt: serverTimestamp()
-      });
+      await updateJob(id!, {
+        productCosts: costs
+      }, profile!.businessId);
       setProductCosts(costs);
     } catch (error) {
       console.error("Error saving product costs:", error);
@@ -497,9 +515,9 @@ export default function JobDetail() {
   const toggleSmsAutomation = async () => {
     if (!job || !id) return;
     try {
-      await updateDoc(doc(db, "appointments", id), {
+      await updateJob(id, {
         smsAutomationPaused: !job.smsAutomationPaused
-      });
+      }, profile!.businessId);
       toast.success(job.smsAutomationPaused ? "SMS Automation Enabled" : "SMS Automation Paused");
     } catch (err: any) {
       toast.error("Failed to toggle SMS automation: " + err.message);
@@ -548,9 +566,9 @@ export default function JobDetail() {
 
       // Update reminders state
       const reminderKey = type === 'confirmation' ? 'confirmation' : (type === 'reminder_24h' ? 'twentyFourHour' : 'twoHour');
-      await updateDoc(doc(db, "appointments", job.id), {
+      await updateJob(job.id, {
         [`reminders.${reminderKey}`]: "sent"
-      });
+      }, profile!.businessId);
 
     } catch (err: any) {
       console.error(`Failed to manually send ${type}:`, err);
@@ -568,9 +586,9 @@ export default function JobDetail() {
       });
       
       const reminderKey = type === 'confirmation' ? 'confirmation' : (type === 'reminder_24h' ? 'twentyFourHour' : 'twoHour');
-      await updateDoc(doc(db, "appointments", job.id), {
+      await updateJob(job.id, {
         [`reminders.${reminderKey}`]: "failed"
-      });
+      }, profile!.businessId);
     }
   };
 
@@ -597,13 +615,18 @@ export default function JobDetail() {
       const newTotalAmount = (job.totalAmount || 0) + addedAmount;
       const newBaseAmount = (job.baseAmount || 0) + addedAmount;
 
-      await updateDoc(doc(db, "appointments", job.id), {
+      await updateJob(job.id, {
         serviceSelections: newServiceSelections,
         serviceNames: [...(job.serviceNames || []), item.serviceName],
         totalAmount: newTotalAmount,
         baseAmount: newBaseAmount,
         internalNotes: (job.internalNotes || "") + `\n\n[USER ACTION] Added recommended service ${item.serviceName} for $${item.price.toFixed(2)}.`
-      });
+      }, profile!.businessId);
+
+      const client = await getClient(job.clientId);
+      if (client) {
+        await updateClient(client.id, { notes: (client.notes || "") + `\n\n[USER ACTION] Added recommended service ${item.serviceName} for Job #${job.id.slice(-6).toUpperCase()}.` });
+      }
 
       // Also update currently displayed invoice if open
       if (currentInvoice) {
@@ -625,7 +648,7 @@ export default function JobDetail() {
           total: invTotal
         };
         
-        await updateDoc(doc(db, "invoices", currentInvoice.id), invoiceUpdate);
+        await updateInvoice(currentInvoice.id, invoiceUpdate, profile.businessId);
         setCurrentInvoice({ ...currentInvoice, ...invoiceUpdate });
       }
 
@@ -644,11 +667,10 @@ export default function JobDetail() {
       setIsGeneratingInvoice(true);
       
       // Check if invoice already exists for this job to prevent duplicates
-      const q = query(collection(db, "invoices"), where("appointmentId", "==", id));
-      const querySnapshot = await getDocs(q);
+      const invoices = await getInvoicesByAppointment(id!, profile.businessId);
       
-      if (!querySnapshot.empty) {
-        const existingInvoice = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
+      if (invoices.length > 0) {
+        const existingInvoice = invoices[0];
         setCurrentInvoice(existingInvoice);
         if (showPaymentSelection) {
           setIsPaymentSelectionOpen(true);
@@ -783,8 +805,8 @@ export default function JobDetail() {
         lateFeeGracePeriodDays: 3
       };
 
-      const docRef = await addDoc(collection(db, "invoices"), invoiceData);
-      const newInvoice = { id: docRef.id, ...invoiceData };
+      const invoiceId = await createInvoice(invoiceData, profile.businessId);
+      const newInvoice = { id: invoiceId, ...invoiceData } as any;
       setCurrentInvoice(newInvoice);
 
       // Auto-send Invoice SMS
@@ -864,7 +886,7 @@ export default function JobDetail() {
           transactionReference: result.transactionId || "integrated-payment",
           paymentHistory: arrayUnion(paymentHistoryEntry)
         };
-        await updateDoc(invoiceRef, updateData);
+        await updateInvoice(invoice.id, updateData, profile.businessId);
         setCurrentInvoice((prev: any) => prev ? { 
           ...prev, 
           ...updateData,
@@ -873,8 +895,7 @@ export default function JobDetail() {
         toast.success("Payment successful!", { id: "payment" });
         setIsPaymentSelectionOpen(false);
         if (id) {
-          const docRef = doc(db, "appointments", id);
-          await updateDoc(docRef, { paymentStatus: "paid" });
+          await updateJobFields(id!, { paymentStatus: "paid" }, profile!.businessId);
           setJob(prev => ({ ...prev, paymentStatus: "paid" }));
           updateStatus("paid");
         }
@@ -915,8 +936,7 @@ export default function JobDetail() {
       toast.success(`${method} payment recorded!`, { id: "payment" });
       setIsPaymentSelectionOpen(false);
       if (id) {
-        const docRef = doc(db, "appointments", id);
-        await updateDoc(docRef, { paymentStatus: "paid" });
+        await updateJobFields(id!, { paymentStatus: "paid" }, profile!.businessId);
         setJob(prev => ({ ...prev, paymentStatus: "paid" }));
         updateStatus("paid");
       }
@@ -937,13 +957,13 @@ export default function JobDetail() {
         method: "Admin Override",
         provider: "manual"
       };
-      await updateDoc(invoiceRef, {
+      await updateInvoice(invoice.id, {
         status: "paid",
         paidAt: serverTimestamp(),
         paymentStatus: "paid",
         paymentProvider: "manual",
         paymentHistory: arrayUnion(paymentHistoryEntry)
-      });
+      }, profile.businessId);
       setCurrentInvoice((prev: any) => prev ? { 
         ...prev, 
         status: "paid", 
@@ -955,8 +975,7 @@ export default function JobDetail() {
       
       // Sync to appointment status
       if (id) {
-        const docRef = doc(db, "appointments", id);
-        await updateDoc(docRef, { paymentStatus: "paid" });
+        await updateJobFields(id!, { paymentStatus: "paid" }, profile!.businessId);
         setJob(prev => ({ ...prev, paymentStatus: "paid" }));
         updateStatus("paid");
       }
@@ -984,7 +1003,7 @@ export default function JobDetail() {
         paymentHistory: arrayUnion(paymentHistoryEntry)
       };
 
-      await updateDoc(invoiceRef, updateData);
+      await updateInvoice(invoice.id, updateData, profile.businessId);
       setCurrentInvoice((prev: any) => prev ? { 
         ...prev, 
         ...updateData,
@@ -994,8 +1013,7 @@ export default function JobDetail() {
       toast.success("Payment voided successfully", { id: "payment-void" });
       
       if (id) {
-        const docRef = doc(db, "appointments", id);
-        await updateDoc(docRef, { paymentStatus: "voided" });
+        await updateJobFields(id!, { paymentStatus: "voided" }, profile!.businessId);
         setJob(prev => ({ ...prev, paymentStatus: "voided" }));
         if (job.status === "paid") {
           updateStatus("completed"); 
@@ -1029,7 +1047,7 @@ export default function JobDetail() {
         paymentHistory: arrayUnion(paymentHistoryEntry)
       };
 
-      await updateDoc(invoiceRef, updateData);
+      await updateInvoice(invoice.id, updateData as any, profile.businessId);
       
       setCurrentInvoice((prev: any) => {
         if (!prev) return null;
@@ -1047,8 +1065,7 @@ export default function JobDetail() {
       toast.success("Payment reversed to unpaid", { id: "payment-undo" });
       
       if (id) {
-        const docRef = doc(db, "appointments", id);
-        await updateDoc(docRef, { paymentStatus: "unpaid" });
+        await updateJobFields(id!, { paymentStatus: "unpaid" }, profile!.businessId);
         setJob(prev => ({ ...prev, paymentStatus: "unpaid" }));
         if (job.status === "paid") {
           updateStatus("completed");
@@ -1065,7 +1082,7 @@ export default function JobDetail() {
     try {
       toast.loading("Deleting invoice...", { id: "delete-inv" });
       const invoiceRef = doc(db, "invoices", invoice.id);
-      await deleteDoc(invoiceRef);
+      await softDeleteInvoice(invoice.id, profile.businessId);
       setIsInvoiceModalOpen(false);
       setCurrentInvoice(null);
       toast.success("Invoice deleted successfully", { id: "delete-inv" });
@@ -1131,6 +1148,68 @@ export default function JobDetail() {
     setCancellationFee(fee);
   };
 
+  const handleWaitlistAction = async (action: "offerOriginal" | "offerSuggested" | "approveBackup" | "decline") => {
+    setIsUpdating(true);
+    try {
+      let newDate = job.scheduledAt;
+
+      if (action === "approveBackup" && job.waitlistInfo?.backupScheduledAt) {
+        newDate = job.waitlistInfo.backupScheduledAt;
+      }
+      
+      const newStatus = action === "decline" ? "declined" : "requested"; // moving to requested will trigger requested approval flow or accepted directly
+      
+      const updateData: any = { 
+        status: action === "decline" ? "declined" : "scheduled", // skip straight to scheduled, accepted it is 
+        updatedAt: serverTimestamp() 
+      };
+
+      if (action === "approveBackup") {
+        updateData.scheduledAt = newDate;
+        updateData["waitlistInfo.status"] = "accepted_backup";
+      } else if (action === "offerOriginal") {
+        updateData["waitlistInfo.status"] = "accepted_original";
+      } else if (action === "decline") {
+        updateData["waitlistInfo.status"] = "declined";
+      }
+
+      await updateJobFields(id!, updateData, profile!.businessId);
+
+      // Optionally send SMS here: Let's log it to communicationLogs or similar, 
+      // but actually we send SMS manually if possible
+      if (job.customerPhone) {
+         let message = "";
+         let dateStr = newDate ? new Date(newDate.toDate()).toLocaleString() : "";
+         if (action === "offerOriginal") {
+           message = `Good news! The time you requested is now available. Your appointment has been scheduled for ${dateStr}.`;
+         } else if (action === "approveBackup") {
+           message = `Your backup time has been accepted for ${dateStr}.`;
+         } else if (action === "offerSuggested") {
+           message = `We have an opening available. Please call or text us back to confirm.`;
+         } else if (action === "decline") {
+           message = `Unfortunately, we are unable to fulfill your booking at this time.`;
+         }
+
+         if (message) {
+           messagingService.sendSms({
+             to: job.customerPhone,
+             body: message
+           }).catch(console.error);
+         }
+      }
+
+      toast.success(action === "decline" ? "Waitlist request declined" : "Waitlist request processed");
+      if (action !== "offerSuggested") {
+         setJob(prev => ({ ...prev, status: updateData.status, scheduledAt: newDate }));
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to process action");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleCancelJob = async () => {
     setIsUpdating(true);
     try {
@@ -1157,6 +1236,46 @@ export default function JobDetail() {
           id,
           job.customerId
         ).catch(e => console.error("Cancel SMS failed:", e));
+      }
+
+      // Check Waitlist Opportunities
+      if (job.scheduledAt) {
+        try {
+          const waitlistQuery = query(collection(db, "appointments"), where("status", "==", "waitlisted"));
+          const waitlistSnap = await getDocs(waitlistQuery);
+          const canceledDateStr = job.scheduledAt.toDate().toLocaleDateString();
+
+          for (const wDoc of waitlistSnap.docs) {
+            const wData = wDoc.data();
+            let match = false;
+            
+            const reqDateStr = wData.scheduledAt?.toDate?.()?.toLocaleDateString() || new Date(wData.scheduledAt).toLocaleDateString();
+            if (reqDateStr === canceledDateStr) match = true;
+            else if (wData.waitlistInfo?.flexibleSameDay) {
+              const bkpDateStr = wData.waitlistInfo?.backupScheduledAt?.toDate?.()?.toLocaleDateString() || wData.waitlistInfo?.backupScheduledAt ? new Date(wData.waitlistInfo.backupScheduledAt).toLocaleDateString() : null;
+              if (bkpDateStr === canceledDateStr) match = true;
+            }
+
+            if (match) {
+              // Notify Admins
+              const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
+              const adminsSnap = await getDocs(adminsQuery);
+              const notifyPromises = adminsSnap.docs.map(admin => addDoc(collection(db, "notifications"), {
+                userId: admin.id,
+                title: "Waitlist Opportunity",
+                message: `Slot opened! Waitlisted client ${wData.customerName} may fit here for ${wData.serviceNames?.join(", ") || 'Service'} (Estimated ${wData.estimatedDuration || 120} mins).`,
+                type: "waitlist_opportunity",
+                relatedId: wDoc.id,
+                relatedType: "appointment",
+                createdAt: serverTimestamp(),
+                read: false
+              }));
+              await Promise.all(notifyPromises);
+            }
+          }
+        } catch (e) {
+          console.error("Error processing waitlist match:", e);
+        }
       }
 
       toast.success("Job canceled successfully");
@@ -1233,35 +1352,17 @@ export default function JobDetail() {
     fetchServices();
 
     // Real-time job listener
-    const docRef = doc(db, "appointments", id);
-    const unsubscribeJob = onSnapshot(docRef, async (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setJob({ id: docSnap.id, ...data });
-        console.log("Selected deployment job loaded:", docSnap.id);
-        setProductCosts(data.productCosts || []);
-        setPricingAnalysis(data.pricingAnalysis || null);
+    const unsubscribeJob = onJobSnapshot(id!, profile!.businessId, (jobData) => {
+      if (jobData) {
+        setJob(jobData);
+        console.log("Job loaded:", jobData.id);
+        setProductCosts(jobData.productCosts || []);
+        setPricingAnalysis(jobData.pricingAnalysis || null);
         
-        // Fetch settings if not already fetched
-        if (!businessSettings || !integrationSettings) {
-          const [settingsSnap, integrationsSnap] = await Promise.all([
-            getDoc(doc(db, "settings", "business")),
-            getDoc(doc(db, "settings", "integrations"))
-          ]);
-          
-          if (settingsSnap.exists()) {
-            setBusinessSettings(settingsSnap.data());
-          }
-          if (integrationsSnap.exists()) {
-            setIntegrationSettings(integrationsSnap.data());
-          }
-        }
-
-        if (data.vin) {
-          // Only decode if we haven't yet or if it changed
+        if (jobData.vin) {
           setDecodedVin(prev => {
-            if (prev?.vin === data.vin) return prev;
-            decodeVin(data.vin).then(setDecodedVin);
+            if (prev?.vin === jobData.vin) return prev;
+            decodeVin(jobData.vin!).then(setDecodedVin);
             return prev;
           });
         }
@@ -1270,19 +1371,20 @@ export default function JobDetail() {
         toast.error("Job not found");
         navigate("/calendar");
       }
-    }, (error) => {
-      console.error("Error listening to job:", error);
-      toast.error("Failed to load job details");
-      setLoading(false);
     });
 
-    const logsQuery = query(collection(db, "communication_logs"), where("appointmentId", "==", id));
+    const logsQuery = query(collection(db, "communication_logs"), where("appointmentId", "==", id), limit(50));
     const unsubscribeLogs = onSnapshot(logsQuery, (snap) => {
       setCommunicationLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a: any, b: any) => {
         const da = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
         const db = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
         return db - da; // Descending
       }));
+    }, (error: any) => {
+      if (error?.code === 'cancelled' || error?.message?.includes('CANCELLED') || error?.message?.includes('idle stream')) {
+        return; // Ignore idle stream disconnects
+      }
+      console.error("Error listening to logs:", error);
     });
 
     return () => {
@@ -1423,7 +1525,6 @@ export default function JobDetail() {
         description: originalItem.description || ""
       };
 
-      const docRef = doc(db, "appointments", id!);
       const currentTotal = Number(job.totalAmount || 0);
       const currentBase = Number(job.baseAmount || 0);
       
@@ -1443,7 +1544,7 @@ export default function JobDetail() {
         updateData.addOnIds = [...(job.addOnIds || []), serviceId];
       }
 
-      await updateDoc(docRef, updateData);
+      await updateJobFields(id!, updateData, profile!.businessId);
       toast.success(`${newItem.name} added to deployment`);
       setShowAddServiceDialog(false);
       setSelectedServiceToAdd("");
@@ -1465,7 +1566,6 @@ export default function JobDetail() {
 
     setIsUpdating(true);
     try {
-      const docRef = doc(db, "appointments", id!);
       const newAdj = {
         id: `adj-${Date.now()}`,
         source: adjSource,
@@ -1475,12 +1575,12 @@ export default function JobDetail() {
       const currentAdjustments = job.priceAdjustments || [];
       const newAdjustments = [...currentAdjustments, newAdj];
 
-      await updateDoc(docRef, {
+      await updateJobFields(id!, {
         priceAdjustments: newAdjustments,
         totalAmount: (job.totalAmount || 0) + amount,
         baseAmount: (job.baseAmount || 0) + amount,
         updatedAt: serverTimestamp()
-      });
+      }, profile!.businessId);
 
       toast.success("Pricing adjustment applied");
       setShowAdjustmentDialog(false);
@@ -1546,7 +1646,6 @@ export default function JobDetail() {
     setIsUpdating(true);
     try {
       const currentStatus = oldStatusOverride || job.status;
-      const docRef = doc(db, "appointments", id!);
       
       const statusLogEntry = {
           oldStatus: currentStatus,
@@ -1568,6 +1667,32 @@ export default function JobDetail() {
         businessName: businessSettings?.businessName || "Flatline Mobile Detail"
       };
 
+      if (newStatus === "canceled") {
+         try {
+           const { handleWaitlistRouting } = await import("../services/waitlistRouting");
+           const { createNotification } = await import("../services/notificationService");
+           const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
+           const adminsSnap = await getDocs(adminsQuery);
+           const promises = adminsSnap.docs.map(admin => 
+             createNotification({
+               userId: admin.id,
+               title: "Appointment Canceled",
+               message: `Appointment for ${job.customerName} was canceled.`,
+               type: "cancellation",
+               category: "Schedule Changes",
+               relatedId: id,
+               relatedType: "appointment",
+               appointmentId: id,
+               clientName: job.customerName
+             }, profile!.businessId)
+           );
+           await Promise.all(promises);
+           await handleWaitlistRouting(job, profile!.businessId);
+         } catch(e) {
+           console.error("Failed to notify about cancellation", e);
+         }
+      }
+
       if (newStatus === "completed") {
         await handleConvertJobToInvoice();
         
@@ -1584,6 +1709,7 @@ export default function JobDetail() {
             job.customerPhone,
             "completed",
             smsData,
+            profile!.businessId,
             id,
             job.customerId
           ).catch(e => console.error("Completed SMS template failed:", e));
@@ -1594,6 +1720,7 @@ export default function JobDetail() {
               job.customerPhone,
               "review_request",
               { ...smsData, reviewLink: "https://g.page/r/your-review-link" }, // Could pull from settings
+              profile!.businessId,
               id,
               job.customerId
             ).catch(e => console.error("Review request SMS failed: ", e));
@@ -1606,6 +1733,7 @@ export default function JobDetail() {
           job.customerPhone,
           "on_the_way",
           smsData,
+          profile!.businessId,
           id,
           job.customerId
         ).catch(e => console.error("En route SMS failed:", e));
@@ -1616,12 +1744,13 @@ export default function JobDetail() {
           job.customerPhone,
           "started",
           smsData,
+          profile!.businessId,
           id,
           job.customerId
         ).catch(e => console.error("Started SMS failed:", e));
       }
 
-      await updateDoc(docRef, updates);
+      await updateJobFields(id!, updates, profile!.businessId);
       toast.success(`Status updated to ${formatStatusText(newStatus)}`);
       setPendingStatusChange(null);
     } catch (error) {
@@ -1640,7 +1769,29 @@ export default function JobDetail() {
     }
     
     try {
-      await deleteDoc(doc(db, "appointments", id));
+      const { handleWaitlistRouting } = await import("../services/waitlistRouting");
+      const { createNotification } = await import("../services/notificationService");
+      const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
+      const adminsSnap = await getDocs(adminsQuery);
+      const promises = adminsSnap.docs.map(admin => 
+        createNotification({
+          userId: admin.id,
+          title: "Appointment Deleted",
+          message: `Appointment for ${job?.customerName} was deleted.`,
+          type: "cancellation",
+          category: "Schedule Changes",
+          relatedId: id,
+          relatedType: "appointment",
+          appointmentId: id,
+          clientName: job?.customerName
+        }, profile!.businessId)
+      );
+      await Promise.all(promises);
+
+      await softDeleteJob(id, profile!.businessId);
+      
+      if (job) await handleWaitlistRouting(job, profile!.businessId);
+      
       toast.success("Job deleted successfully");
       navigate("/calendar");
     } catch (error) {
@@ -1745,6 +1896,7 @@ export default function JobDetail() {
     canceled: "bg-red-600 text-white border-red-700",
     suggested: "bg-indigo-600 text-white border-indigo-700",
     requested: "bg-orange-600 text-white border-orange-700",
+    waitlisted: "bg-purple-600 text-white border-purple-700",
     pending_approval: "bg-orange-600 text-white border-orange-700",
     approved: "bg-green-600 text-white border-green-700",
     declined: "bg-red-600 text-white border-red-700",
@@ -1932,7 +2084,7 @@ export default function JobDetail() {
                         onClick={async () => {
                           const vin = (document.getElementById("vin-input-hub") as HTMLInputElement).value;
                           const roNumber = (document.getElementById("ro-input-hub") as HTMLInputElement).value;
-                          await updateDoc(doc(db, "appointments", id!), { vin, roNumber });
+                          await updateJob(id!, { vin, roNumber }, profile!.businessId);
                           setJob(prev => ({ ...prev, vin, roNumber }));
                           toast.success("Intelligence Updated!");
                         }}
@@ -2331,10 +2483,9 @@ export default function JobDetail() {
                             setRecommendations(response.recommendedUpsells);
                             if (response.pricingAnalysis) {
                               setPricingAnalysis(response.pricingAnalysis);
-                              await updateDoc(doc(db, "appointments", id!), {
+                              await updateJob(id!, {
                                 pricingAnalysis: response.pricingAnalysis,
-                                updatedAt: serverTimestamp()
-                              });
+                              }, profile!.businessId);
                             }
 
                             // Cache the generated bundles to memory!
@@ -3263,7 +3414,7 @@ export default function JobDetail() {
 
 
               <div>
-                <ServiceChecklist jobId={job.id} services={job.serviceNames || []} />
+                <ServiceChecklist jobId={job.id} services={job.serviceNames || []} businessId={profile!.businessId} />
               </div>
             </TabsContent>
 
@@ -3400,6 +3551,47 @@ export default function JobDetail() {
 
         {/* Right Column: Financials & Actions */}
         <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-32 h-fit">
+
+          {job.status === "waitlisted" && (
+            <Card className="border-none shadow-xl bg-orange-500/10 border border-orange-500/20 rounded-3xl overflow-hidden">
+              <CardHeader className="bg-orange-500/10 border-b border-orange-500/10 p-6 flex flex-row items-center justify-between">
+                <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-400">Waitlisted Booking</CardTitle>
+              </CardHeader>
+              <CardContent className="p-6 space-y-4">
+                <div className="space-y-2">
+                   <p className="text-xs text-white/70"><strong>Original:</strong> {job.scheduledAt ? job.scheduledAt.toDate().toLocaleString() : "--"}</p>
+                   {job.waitlistInfo?.backupScheduledAt && (
+                     <p className="text-xs text-white/70"><strong>Backup:</strong> {job.waitlistInfo.backupScheduledAt.toDate().toLocaleString()}</p>
+                   )}
+                   {job.waitlistInfo?.flexibleSameDay && (
+                     <p className="text-xs text-emerald-400 font-bold">Client is flexible on date</p>
+                   )}
+                   {job.waitlistInfo?.clientNote && (
+                     <div className="p-2 mt-2 bg-white/5 rounded-lg border border-white/5">
+                        <p className="text-[10px] uppercase font-black tracking-widest text-white/40 mb-1">Client Note</p>
+                        <p className="text-xs text-white">{job.waitlistInfo.clientNote}</p>
+                     </div>
+                   )}
+                </div>
+                <div className="grid grid-cols-1 gap-2 pt-2 border-t border-orange-500/10">
+                   <Button onClick={() => handleWaitlistAction("offerOriginal")} size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold h-10 w-full" disabled={isUpdating}>
+                     Offer Original Time
+                   </Button>
+                   {job.waitlistInfo?.backupScheduledAt && (
+                     <Button onClick={() => handleWaitlistAction("approveBackup")} size="sm" className="bg-blue-600 hover:bg-blue-500 text-white font-bold h-10 w-full" disabled={isUpdating}>
+                       Approve Backup Time
+                     </Button>
+                   )}
+                   <Button onClick={() => handleWaitlistAction("offerSuggested")} size="sm" variant="outline" className="border-white/10 text-white hover:bg-white/5 font-bold h-10 w-full bg-transparent" disabled={isUpdating}>
+                     Text Custom Offer
+                   </Button>
+                   <Button onClick={() => handleWaitlistAction("decline")} size="sm" variant="ghost" className="text-red-400 hover:bg-red-500/10 hover:text-red-300 font-bold h-10 w-full mt-2" disabled={isUpdating}>
+                     Decline Request
+                   </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Client Communication */}
           {job.status !== "requested" && job.status !== "canceled" && (

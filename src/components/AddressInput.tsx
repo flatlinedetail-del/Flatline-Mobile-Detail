@@ -171,7 +171,7 @@ export default function AddressInput({
   return (
     <div ref={containerRef} className={cn("relative w-full", className)}>
       <div className="relative">
-        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 z-10" />
+        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-700 z-10" />
         <input
           type="text"
           value={value}
@@ -183,7 +183,7 @@ export default function AddressInput({
           }}
           placeholder={!isLoaded ? "Loading maps..." : placeholder}
           className={cn(
-            "h-10 w-full rounded-xl border-none bg-gray-50 pl-10 pr-10 text-sm font-bold text-black transition-all outline-none focus:ring-2 focus:ring-primary/20",
+            "h-12 w-full rounded-xl border-2 border-gray-300 bg-white pl-10 pr-10 text-sm font-bold text-black transition-all outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-gray-500",
             !isLoaded && !loadError && "opacity-50 cursor-not-allowed",
             loadError && "border-amber-200 ring-amber-100"
           )}
@@ -227,14 +227,14 @@ export default function AddressInput({
                 onClick={() => handleSelect(description)}
                 className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50 last:border-none"
               >
-                <div className="w-8 h-8 bg-gray-50 rounded-lg flex items-center justify-center shrink-0">
-                  <MapPin className="w-4 h-4 text-gray-400" />
+                <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
+                  <MapPin className="w-4 h-4 text-gray-700" />
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="text-sm font-bold text-gray-900 truncate">
                     {structured_formatting?.main_text || cleanAddress(description)}
                   </span>
-                  <span className="text-[10px] text-gray-500 truncate">
+                  <span className="text-[10px] text-gray-700 truncate font-bold">
                     {cleanAddress(structured_formatting?.secondary_text || "")}
                   </span>
                 </div>

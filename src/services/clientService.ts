@@ -1,35 +1,128 @@
 import { 
   collection, 
   query, 
-  getDocs, 
-  addDoc, 
-  updateDoc, 
+  getDocs,
+  getDoc,
   doc, 
+  setDoc,
+  updateDoc,
   serverTimestamp, 
   writeBatch,
-  where,
   orderBy,
-  onSnapshot,
-  Timestamp
+  where
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { Client, ClientType, ClientCategory, Customer, Vendor } from "../types";
+import { createDocMetadata, updateDocMetadata, getBaseQuery } from "../lib/firestoreUtils";
 import { getClientDisplayName } from "../lib/utils";
+import { batchUpdateClientAppointmentsName } from "./appointmentService";
 
 const CLIENTS_COL = "clients";
 const CLIENT_TYPES_COL = "client_types";
 const CLIENT_CATEGORIES_COL = "client_categories";
 
-export const getClientTypes = async () => {
-  const q = query(collection(db, CLIENT_TYPES_COL), orderBy("sortOrder", "asc"));
+export const getClient = async (clientId: string): Promise<Client | null> => {
+  const clientRef = doc(db, CLIENTS_COL, clientId);
+  const snap = await getDoc(clientRef);
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() } as Client;
+};
+
+export const getClientTypes = async (): Promise<ClientType[]> => {
+  const q = query(collection(db, CLIENT_TYPES_COL));
   const snap = await getDocs(q);
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientType));
 };
 
-export const getClientCategories = async () => {
-  const q = query(collection(db, CLIENT_CATEGORIES_COL), orderBy("name", "asc"));
+export const getClientCategories = async (): Promise<ClientCategory[]> => {
+  const q = query(collection(db, CLIENT_CATEGORIES_COL));
   const snap = await getDocs(q);
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientCategory));
+};
+
+export const calculateRiskScore = (client: Client): { score: number; level: "low" | "medium" | "high" } => {
+  const score = (client.noShows * 40) + (client.latePayments * 30) + (client.cancellations * 10);
+  let level: "low" | "medium" | "high" = "low";
+  if (score > 70) level = "high";
+  else if (score > 30) level = "medium";
+  return { score, level };
+};
+
+export const updateClientRiskStats = async (clientId: string, type: "noShow" | "latePayment" | "cancellation") => {
+  const clientRef = doc(db, CLIENTS_COL, clientId);
+  const snap = await getDoc(clientRef);
+  if (!snap.exists()) return;
+  const client = { id: snap.id, ...snap.data() } as Client;
+
+  const updates: Partial<Client> = {};
+  if (type === "noShow") updates.noShows = (client.noShows || 0) + 1;
+  else if (type === "latePayment") updates.latePayments = (client.latePayments || 0) + 1;
+  else if (type === "cancellation") updates.cancellations = (client.cancellations || 0) + 1;
+
+  const { score, level } = calculateRiskScore({ ...client, ...updates } as Client);
+  
+  await updateDoc(clientRef, { ...updates, riskScore: score, riskLevel: level });
+};
+
+export const findMatchingClient = async (
+  businessId: string, 
+  details: { email?: string; phone?: string; name?: string; vehicle?: { vin?: string; licensePlate?: string } }
+): Promise<Client | null> => {
+  const allClients = await getClients(businessId);
+  
+  let bestMatch: Client | null = null;
+  let highestScore = 0;
+
+  for (const client of allClients) {
+    let score = 0;
+    
+    if (details.email && client.email && client.email.toLowerCase() === details.email.toLowerCase()) score += 50;
+    if (details.phone && client.phone && client.phone === details.phone) score += 40;
+    if (details.name && client.name && client.name.toLowerCase().includes(details.name.toLowerCase())) score += 20;
+
+    // TODO: Verify vehicles for this client?
+    
+    if (score > highestScore && score >= 40) {
+      highestScore = score;
+      bestMatch = client;
+    }
+  }
+  
+  return bestMatch;
+};
+
+export const getDepositRequirement = (client: Client | null): { amount: number; type: "fixed" | "percentage"; reason: string } => {
+  if (!client || client.riskLevel === 'low') {
+    return { amount: 0, type: "fixed", reason: "Standard deposit" };
+  }
+  
+  if (client.riskLevel === 'medium') {
+    return { amount: 25, type: "percentage", reason: "Increased risk deposit" };
+  }
+  
+  return { amount: 50, type: "percentage", reason: "Required high-risk deposit" };
+};
+
+export const getClients = async (businessId: string): Promise<Client[]> => {
+  const q = query(
+    collection(db, CLIENTS_COL),
+    ...getBaseQuery(businessId)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
+};
+
+export const createClient = async (clientData: Partial<Client>, businessId: string): Promise<string> => {
+  const clientRef = doc(collection(db, CLIENTS_COL));
+  const data = createDocMetadata(businessId);
+  await setDoc(clientRef, { ...clientData, ...data });
+  return clientRef.id;
+};
+
+export const updateClient = async (clientId: string, clientData: Partial<Client>) => {
+  const clientRef = doc(db, CLIENTS_COL, clientId);
+  const data = updateDocMetadata();
+  await updateDoc(clientRef, { ...clientData, ...data });
 };
 
 export const ensureClientTypes = async () => {
@@ -201,10 +294,10 @@ export const migrateDataToClients = async () => {
   return { migratedCount: Object.keys(migrationMap).length };
 };
 
-export const ensureClientNameFields = async () => {
-  const q = query(collection(db, CLIENTS_COL));
+export const ensureClientNameFields = async (businessId: string) => {
+  const q = query(collection(db, CLIENTS_COL), ...getBaseQuery(businessId));
   const snap = await getDocs(q);
-  const typesSnap = await getDocs(collection(db, CLIENT_TYPES_COL));
+  const typesSnap = await getDocs(query(collection(db, CLIENT_TYPES_COL), ...getBaseQuery(businessId)));
   const types = typesSnap.docs.map(d => ({ id: d.id, ...d.data() } as ClientType));
   
   const batch = writeBatch(db);
@@ -242,19 +335,9 @@ export const ensureClientNameFields = async () => {
         count++;
         
         // Also update related appointments for this client
-        const appointmentsQuery = query(
-          collection(db, "appointments"), 
-          where("clientId", "==", d.id)
-        );
-        const appointmentsSnap = await getDocs(appointmentsQuery);
-        
-        // Derive the new display name for appointments
         const fullClientData = { ...data, ...updates };
         const newDisplayName = getClientDisplayName(fullClientData);
-        
-        appointmentsSnap.docs.forEach(appDoc => {
-          batch.update(appDoc.ref, { customerName: newDisplayName });
-        });
+        await batchUpdateClientAppointmentsName(batch, businessId, d.id, newDisplayName);
       }
     }
   }

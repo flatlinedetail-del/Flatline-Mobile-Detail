@@ -5,7 +5,13 @@ import { fileURLToPath } from "url";
 import "dotenv/config";
 import sgMail from "@sendgrid/mail";
 import twilio from "twilio";
+import Stripe from "stripe";
+import admin from "firebase-admin";
+import { updateInvoiceFields } from "./src/services/invoiceService.js";
 import { startScheduler } from "./scheduler.ts";
+
+admin.initializeApp();
+const dbAdmin = admin.firestore();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +27,11 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
   } catch(e) {
     console.error("Failed to initialize Twilio client", e);
   }
+}
+
+let stripe: Stripe | null = null;
+if (process.env.STRIPE_SECRET_KEY) {
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 }
 
 async function startServer() {
@@ -285,6 +296,84 @@ async function startServer() {
     console.log(`Processing Clover payment for invoice ${invoiceId} of $${amount}`);
     
     return res.status(501).json({ error: "Payment system not configured" });
+  });
+
+  app.post("/api/payments/create-intent", async (req, res) => {
+    if (!stripe) {
+      return res.status(502).json({ error: "Stripe not configured" });
+    }
+    const { amount, currency = "usd", metadata } = req.body;
+    
+    try {
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100), // Stripe uses cents
+        currency,
+        metadata,
+      });
+      res.json({ clientSecret: paymentIntent.client_secret });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/payments/confirm-invoice", async (req, res) => {
+    if (!stripe) {
+      return res.status(502).json({ error: "Stripe not configured" });
+    }
+    const { paymentIntentId, invoiceId, businessId } = req.body;
+    
+    try {
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      
+      if (paymentIntent.status === 'succeeded') {
+         await updateInvoiceFields(invoiceId, {
+            paymentStatus: 'paid',
+            status: 'paid',
+            transactionId: paymentIntent.id,
+            paidAt: admin.firestore.Timestamp.now()
+         } as any, businessId);
+         res.json({ success: true });
+      } else {
+        res.status(400).json({ error: "Payment not successful" });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/stripe/webhook", express.raw({type: 'application/json'}), async (req, res) => {
+    if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+      return res.status(502).json({ error: "Stripe not configured" });
+    }
+    const sig = req.headers['stripe-signature'];
+    
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig!, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err: any) {
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === 'payment_intent.succeeded') {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      const { invoiceId, businessId, type } = paymentIntent.metadata;
+      
+      try {
+        if (type === 'invoice' && invoiceId) {
+             await updateInvoiceFields(invoiceId, {
+                paymentStatus: 'paid',
+                status: 'paid',
+                transactionId: paymentIntent.id,
+                paidAt: admin.firestore.Timestamp.now()
+             } as any, businessId);
+        }
+      } catch (e) {
+        console.error("Webhook processing error", e);
+        return res.status(500).send("Processing failed");
+      }
+    }
+    
+    res.json({ received: true });
   });
 
   // Vite middleware for development

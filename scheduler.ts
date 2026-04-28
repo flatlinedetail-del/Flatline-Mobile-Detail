@@ -34,8 +34,8 @@ export function startScheduler() {
   const app = initializeApp(config, "schedulerApp");
   const db = getFirestore(app, config.firestoreDatabaseId);
 
-  console.log("Scheduler started. Polling every 15 minutes.");
-  cron.schedule("*/15 * * * *", async () => {
+  console.log("Scheduler started. Polling every 30 minutes.");
+  cron.schedule("*/30 * * * *", async () => {
     try {
       await processReminders(db);
     } catch (e) {
@@ -45,74 +45,82 @@ export function startScheduler() {
 
   // Run immediately once on startup to catch up
   setTimeout(() => {
-    processReminders(db).catch(e => console.error("Initial scheduler run error", e));
+    processReminders(db).catch(e => {
+      if (e?.message?.includes("Quota limit exceeded")) {
+        console.warn("Scheduler: Quota exceeded on initial run. Normal service metrics suggest waiting until reset.");
+        return;
+      }
+      console.error("Initial scheduler run error", e);
+    });
   }, 5000);
 }
 
 async function processReminders(db: any) {
   const now = new Date();
   
-  // We want to find upcoming appointments. 
-  // We query all 'scheduled' appointments and filter in memory, as it's easier and typically small scale for a local CRM.
-  const apptsRef = collection(db, "appointments");
-  const fortyEightHoursFromNow = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-  const q = query(
-    apptsRef, 
-    where("status", "in", ["scheduled", "confirmed"]),
-    where("scheduledAt", ">=", Timestamp.fromDate(now)),
-    where("scheduledAt", "<=", Timestamp.fromDate(fortyEightHoursFromNow))
-  );
-  const snap = await getDocs(q);
+  try {
+    const apptsRef = collection(db, "appointments");
+    const fortyEightHoursFromNow = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+    const q = query(
+      apptsRef, 
+      where("status", "in", ["scheduled", "confirmed"]),
+      where("scheduledAt", ">=", Timestamp.fromDate(now)),
+      where("scheduledAt", "<=", Timestamp.fromDate(fortyEightHoursFromNow))
+    );
+    const snap = await getDocs(q);
 
-  for (const docSnap of snap.docs) {
-    const job = docSnap.data();
-    if (!job.scheduledAt) continue;
+    for (const docSnap of snap.docs) {
+      const job = docSnap.data();
+      if (!job.scheduledAt) continue;
 
-    const scheduledDate = job.scheduledAt.toDate();
-    const diffMs = scheduledDate.getTime() - now.getTime();
-    const diffHours = diffMs / (1000 * 60 * 60);
+      const scheduledDate = job.scheduledAt.toDate();
+      const diffMs = scheduledDate.getTime() - now.getTime();
+      const diffHours = diffMs / (1000 * 60 * 60);
 
-    // If it's already past or way too far in the future, skip
-    if (diffHours < 0 || diffHours > 48) continue;
+      if (diffHours < 0 || diffHours > 48) continue;
 
-    const reminders = job.reminders || {};
-    let updatedReminders = { ...reminders };
-    let needsUpdate = false;
+      const reminders = job.reminders || {};
+      let updatedReminders = { ...reminders };
+      let needsUpdate = false;
 
-    // 24-Hour Reminder: Between 23.5 and 24.5 hours away, or if it's < 24 hours and we haven't sent it yet.
-    // To be safe, if diffHours <= 24 and >= 2 and twentyFourHour is not set or failed, we send it.
-    if (diffHours <= 24 && diffHours > 2 && !reminders.twentyFourHour) {
-      const result = await sendSmsAndLog(
-        db, 
-        job, 
-        docSnap.id, 
-        "reminder_24h", 
-        `Hi ${job.customerName}, reminder: your Flatline Mobile Detail appointment is tomorrow at ${formatTime(scheduledDate)}.`
-      );
-      updatedReminders.twentyFourHour = result.status;
-      needsUpdate = true;
-    }
+      if (diffHours <= 24 && diffHours > 2 && !reminders.twentyFourHour) {
+        const result = await sendSmsAndLog(
+          db, 
+          job, 
+          docSnap.id, 
+          "reminder_24h", 
+          `Hi ${job.customerName}, reminder: your Flatline Mobile Detail appointment is tomorrow at ${formatTime(scheduledDate)}.`
+        );
+        updatedReminders.twentyFourHour = result.status;
+        needsUpdate = true;
+      }
 
-    // 2-Hour Reminder: If diffHours <= 2 and > 0, and not sent
-    if (diffHours <= 2 && diffHours > 0 && !reminders.twoHour) {
-      const result = await sendSmsAndLog(
-        db, 
-        job, 
-        docSnap.id, 
-        "reminder_2h", 
-        `Hi ${job.customerName}, Flatline Mobile Detail will see you in about 2 hours for your appointment at ${formatTime(scheduledDate)}.`
-      );
-      updatedReminders.twoHour = result.status;
-      needsUpdate = true;
-    }
+      if (diffHours <= 2 && diffHours > 0 && !reminders.twoHour) {
+        const result = await sendSmsAndLog(
+          db, 
+          job, 
+          docSnap.id, 
+          "reminder_2h", 
+          `Hi ${job.customerName}, Flatline Mobile Detail will see you in about 2 hours for your appointment at ${formatTime(scheduledDate)}.`
+        );
+        updatedReminders.twoHour = result.status;
+        needsUpdate = true;
+      }
 
-    if (needsUpdate) {
-      try {
-        await updateDoc(doc(db, "appointments", docSnap.id), { reminders: updatedReminders });
-      } catch (err) {
-        console.error("Failed to update reminders state on appt", docSnap.id, err);
+      if (needsUpdate) {
+        try {
+          await updateDoc(doc(db, "appointments", docSnap.id), { reminders: updatedReminders });
+        } catch (err) {
+          console.error("Failed to update reminders state on appt", docSnap.id, err);
+        }
       }
     }
+  } catch (error: any) {
+    if (error?.message?.includes("Quota limit exceeded")) {
+      console.warn("Scheduler: Quota limit exceeded during reminder processing. Skipping cycle.");
+      return;
+    }
+    throw error;
   }
 }
 

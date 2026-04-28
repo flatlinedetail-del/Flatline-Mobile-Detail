@@ -23,6 +23,8 @@ export interface RouteStop {
   isVip?: boolean;
 }
 
+const OPTIMIZATION_CACHE: Record<string, { stops: RouteStop[], timestamp: number }> = {};
+
 /**
  * Route Optimization Logic
  * 1. Fetches appointments for the day
@@ -31,6 +33,12 @@ export interface RouteStop {
  * 4. Calculates real travel estimates
  */
 export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], error?: string }> {
+  const dateKey = date.toISOString().split("T")[0];
+  const now = Date.now();
+  if (OPTIMIZATION_CACHE[dateKey] && now - OPTIMIZATION_CACHE[dateKey].timestamp < 5 * 60 * 1000) {
+    return { stops: OPTIMIZATION_CACHE[dateKey].stops };
+  }
+
   const start = new Date(date);
   start.setHours(0, 0, 0, 0);
   const end = new Date(date);
@@ -138,12 +146,18 @@ export async function optimizeRoute(date: Date): Promise<{ stops: RouteStop[], e
         }
     }
 
+    // Cache results
+    OPTIMIZATION_CACHE[dateKey] = { stops: optimized, timestamp: now };
+
     return { 
       stops: optimized,
       error: errors.length > 0 ? errors.join("\n") : undefined
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Route optimization failed:", error);
+    if (error?.message?.includes("Quota limit exceeded")) {
+      return { stops: [], error: "Optimization failed: Quota exceeded" };
+    }
     // Fallback: Return time-sorted stops without distance calculations if everything fails
     const qFallback = query(
       collection(db, "appointments"),

@@ -1,9 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, MessagesSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronLeft, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet, HelpCircle, Zap, Plug, PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { NotificationHub } from "./NotificationHub";
+import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, MessagesSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronLeft, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet, HelpCircle, Zap, Plug, PanelLeftClose, PanelLeftOpen, ShieldAlert } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
-import { useNotifications } from "../hooks/useNotifications";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +17,9 @@ const navigationGroups = [
     items: [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Calendar", href: "/calendar", icon: Calendar },
+      { name: "Waitlist", href: "/waitlist", icon: ClipboardList },
       { name: "Clients", href: "/clients", icon: Users },
+      { name: "Risk Management", href: "/protected-clients", icon: ShieldAlert, adminOnly: true },
       { name: "Communications", href: "/communications", icon: MessagesSquare },
       { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck, adminOnly: true },
     ]
@@ -63,8 +63,12 @@ const navigationGroups = [
   }
 ];
 
+import { useOperationsFeed } from "../hooks/useOperationsFeed";
+import { useWaitlistCount } from "../hooks/useWaitlistCount";
+import { OperationsFeed } from "./OperationsFeed";
+
 function NotificationBell() {
-  const { unreadCount } = useNotifications();
+  const { unreadCount } = useOperationsFeed();
   
   return (
     <SheetTrigger render={
@@ -84,6 +88,7 @@ export default function Layout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
+  const activeWaitlistCount = useWaitlistCount(profile?.businessId || "");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem('sidebarCollapsed');
     return saved === 'true';
@@ -105,6 +110,8 @@ export default function Layout() {
     const isActive = location.pathname === item.href.split('?')[0] && 
                      (item.href.includes('?') ? location.search === `?${item.href.split('?')[1]}` : true);
 
+    const isWaitlistGlow = item.name === "Waitlist" && activeWaitlistCount > 0;
+
     return (
       <Link
         key={item.href}
@@ -114,19 +121,27 @@ export default function Layout() {
           "flex items-center rounded-xl text-sm font-medium transition-colors duration-200 group relative",
           isActive
             ? "bg-primary text-white shadow-lg shadow-primary/20"
-            : "text-white/60 hover:bg-white/5 hover:text-white",
-          isSidebarCollapsed && !isMobile ? "justify-center w-12 h-12 mx-auto" : "gap-3 px-3 py-2.5 w-full"
+            : isWaitlistGlow
+              ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+              : "text-white/60 hover:bg-white/5 hover:text-white",
+          isSidebarCollapsed && !isMobile ? "justify-center w-12 h-12 mx-auto" : "gap-3 px-3 py-2.5 w-full",
+          isWaitlistGlow && !isActive && "animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.3)] shadow-primary/30 border border-primary/20"
         )}
         title={isSidebarCollapsed && !isMobile ? item.name : undefined}
       >
-        <item.icon className={cn("w-5 h-5 transition-transform group-hover:scale-110 shrink-0", isActive ? "text-white" : "text-white/50")} />
+        <item.icon className={cn("w-5 h-5 transition-transform group-hover:scale-110 shrink-0", isActive ? "text-white" : isWaitlistGlow ? "text-primary" : "text-white/50")} />
         {(!isSidebarCollapsed || isMobile) && (
           <span className={cn(
-            "tracking-tight font-bold truncate",
-            isActive ? "text-white" : "text-white/60"
+            "tracking-tight font-bold truncate flex-1",
+            isActive ? "text-white" : isWaitlistGlow ? "text-red-400" : "text-white/60"
           )}>
             {item.name}
           </span>
+        )}
+        {(!isSidebarCollapsed || isMobile) && item.name === "Waitlist" && activeWaitlistCount > 0 && (
+          <Badge className="bg-primary text-white border-none py-0 px-1.5 h-5 text-[10px] font-black shrink-0">
+            {activeWaitlistCount}
+          </Badge>
         )}
       </Link>
     );
@@ -246,7 +261,7 @@ export default function Layout() {
               <Sheet open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
                 <NotificationBell />
                 <SheetContent side="right" className="p-0 border-none w-full sm:max-w-[450px] bg-sidebar">
-                  <NotificationHub />
+                  <OperationsFeed notifications={useOperationsFeed().notifications} onClose={() => setIsNotificationsOpen(false)} />
                 </SheetContent>
               </Sheet>
 

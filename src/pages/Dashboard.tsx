@@ -51,6 +51,7 @@ import { optimizeRoute, RouteStop } from "@/lib/scheduling";
 import { Appointment, Lead, Expense, Client, Invoice, BusinessSettings, WeatherInfo } from "@/types";
 import { askAssistant, AIResponse } from "../services/gemini";
 import { fetchWeather } from "../services/weatherService";
+import { getAppointments, getAppointmentsForMonth, getUpcomingJobs } from "../services/appointmentService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -114,6 +115,35 @@ export default function Dashboard() {
 
   const fetchDashboardData = async (showToast = false) => {
     if (!profile) return;
+    
+    // Cache check to avoid redundant reads during navigation (5 min TTL)
+    const CACHE_KEY = `dashboard_cache_${profile.id}`;
+    const lastFetch = Number(sessionStorage.getItem(`${CACHE_KEY}_time`) || 0);
+    const now = Date.now();
+    const CACHE_TTL = 5 * 60 * 1000;
+
+    if (!showToast && now - lastFetch < CACHE_TTL) {
+      const cachedData = sessionStorage.getItem(CACHE_KEY);
+      if (cachedData) {
+        try {
+          const parsed = JSON.parse(cachedData);
+          setStats(parsed.stats);
+          setUpcomingJobs(parsed.upcomingJobs);
+          setRecentLeads(parsed.recentLeads);
+          setAllLeads(parsed.allLeads);
+          setClients(parsed.clients);
+          setInvoices(parsed.invoices);
+          setAllAppointments(parsed.allAppointments);
+          setSettings(parsed.settings);
+          setLoading(false);
+          console.log("[Dashboard] Loaded from cache");
+          return;
+        } catch (e) {
+          console.warn("[Dashboard] Cache parse failed", e);
+        }
+      }
+    }
+
     if (showToast) toast.loading("Syncing operations...", { id: "sync-dashboard" });
     
     setLoading(true);
@@ -127,29 +157,19 @@ export default function Dashboard() {
     const endMonth = endOfMonth(today);
 
     try {
-      const [statsSnap, jobsSnap, leadsSnap, aiLeadsSnap, aiClientsSnap, aiInvoicesSnap, settingsSnap] = await Promise.all([
-        getDocs(query(
-          collection(db, "appointments"),
-          where("scheduledAt", ">=", Timestamp.fromDate(startMonth)),
-          where("scheduledAt", "<=", Timestamp.fromDate(endMonth)),
-          limit(300)
-        )),
-        getDocs(query(
-          collection(db, "appointments"),
-          where("scheduledAt", ">=", Timestamp.fromDate(todayStart)),
-          orderBy("scheduledAt", "asc"),
-          limit(5)
-        )),
+      const [statsList, jobsList, leadsSnap, aiLeadsSnap, aiClientsSnap, aiInvoicesSnap, settingsSnap] = await Promise.all([
+        getAppointmentsForMonth(profile.businessId, startMonth, endMonth),
+        getUpcomingJobs(profile.businessId, 5),
         getDocs(query(
           collection(db, "leads"),
           where("status", "==", "new"),
           orderBy("createdAt", "desc"),
-          limit(5)
+          limit(8)
         )),
         getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(20))),
         getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(20))),
         getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(20))),
-        getDoc(doc(db, "settings", "business"))
+        getDoc(doc(db, "settings", profile.businessId))
       ]);
 
       // Stats Processing
@@ -157,8 +177,7 @@ export default function Dashboard() {
       let weekProj = 0, weekComp = 0;
       let monthProj = 0, monthComp = 0;
       
-      statsSnap.docs.forEach(doc => {
-        const data = doc.data() as Appointment;
+      statsList.forEach(data => {
         const date = data.scheduledAt instanceof Timestamp ? data.scheduledAt.toDate() : new Date(data.scheduledAt as any);
         const amount = data.totalAmount || 0;
 
@@ -183,8 +202,7 @@ export default function Dashboard() {
         }
       });
       
-      setStats(prev => ({
-        ...prev,
+      const newStats = {
         projected: dayProj,
         completed: dayComp,
         pending: dayPend,
@@ -194,29 +212,50 @@ export default function Dashboard() {
         monthProjected: monthProj,
         monthCompleted: monthComp,
         leadsCount: leadsSnap.size
-      }));
-
-      setUpcomingJobs(jobsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-      setRecentLeads(leadsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead)));
+      };
       
-      const allFetchedJobs = statsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
-      setAllAppointments(allFetchedJobs);
-      setAllLeads(aiLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
-      setClients(aiClientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-      setInvoices(aiInvoicesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice)));
+      setStats(newStats);
 
-      if (settingsSnap.exists()) {
-        const businessSettings = settingsSnap.data() as BusinessSettings;
-        setSettings(businessSettings);
-        if (businessSettings.baseLatitude && businessSettings.baseLongitude) {
-          fetchWeather(businessSettings.baseLatitude, businessSettings.baseLongitude)
-            .then(setWeather);
-        }
+      const recentLeadsList = leadsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
+      const allLeadsList = aiLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Lead));
+      const clientsList = aiClientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+      const invoicesList = aiInvoicesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice));
+      const businessSettings = settingsSnap.exists() ? (settingsSnap.data() as BusinessSettings) : null;
+
+      setUpcomingJobs(jobsList);
+      setRecentLeads(recentLeadsList);
+      setAllAppointments(statsList);
+      setAllLeads(allLeadsList);
+      setClients(clientsList);
+      setInvoices(invoicesList);
+      setSettings(businessSettings);
+
+      if (businessSettings?.baseLatitude && businessSettings?.baseLongitude) {
+        fetchWeather(businessSettings.baseLatitude, businessSettings.baseLongitude)
+          .then(setWeather);
       }
+
+      // Save to Session Cache
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+        stats: newStats,
+        upcomingJobs: jobsList,
+        recentLeads: recentLeadsList,
+        allLeads: allLeadsList,
+        clients: clientsList,
+        invoices: invoicesList,
+        allAppointments: statsList,
+        settings: businessSettings
+      }));
+      sessionStorage.setItem(`${CACHE_KEY}_time`, Date.now().toString());
+
       if (showToast) toast.success("Command Center Ready", { id: "sync-dashboard" });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching dashboard data:", error);
-      if (showToast) toast.error("Sync Interrupted", { id: "sync-dashboard" });
+      if (error?.message?.includes("Quota limit exceeded")) {
+        toast.error("Dashboard Sync Failed: Quota exceeded");
+      } else if (showToast) {
+        toast.error("Sync Interrupted", { id: "sync-dashboard" });
+      }
     } finally {
       setLoading(false);
     }

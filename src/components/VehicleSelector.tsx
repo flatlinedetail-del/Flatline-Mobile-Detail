@@ -53,27 +53,27 @@ function DropdownSelector({
       <Button
         type="button"
         variant="outline"
-        className="w-full justify-between bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white hover:bg-white/10 hover:text-white"
+        className="w-full justify-between bg-white border-gray-300 h-12 rounded-xl font-bold text-gray-900 hover:bg-gray-50 hover:text-gray-900 shadow-sm"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
       >
         <span className="truncate">{value ? value : loading ? "Loading..." : placeholder}</span>
-        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-100 text-gray-500" />
       </Button>
 
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-gray-900 border border-white/10 rounded-xl shadow-xl max-h-72 overflow-hidden flex flex-col">
-          <div className="p-2 border-b border-white/10">
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-72 overflow-hidden flex flex-col">
+          <div className="p-2 border-b border-gray-100">
             <input
               type="text"
-              className="w-full px-3 py-2 text-sm border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white/5 text-white placeholder-gray-400"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 bg-gray-50 text-gray-900 placeholder-gray-500 font-bold"
               placeholder={searchPlaceholder}
               value={searchValue}
               onChange={(e) => onSearchChange(e.target.value)}
               onClick={(e) => e.stopPropagation()}
             />
           </div>
-          <div className="overflow-y-auto flex-1 p-1 custom-scrollbar bg-gray-900">
+          <div className="overflow-y-auto flex-1 p-1 custom-scrollbar bg-white">
             {options.length === 0 && !showCustomAdd && (
               <div className="p-3 text-sm text-gray-400 text-center">No results found.</div>
             )}
@@ -81,21 +81,21 @@ function DropdownSelector({
               <button
                 key={idx}
                 type="button"
-                className="w-full text-left px-2 py-2 text-sm hover:bg-white/10 rounded-lg flex items-center transition-colors text-white"
+                className="w-full text-left px-2 py-2 text-sm hover:bg-gray-50 rounded-lg flex items-center transition-colors text-gray-900 font-bold"
                 onClick={() => {
                   onSelect(opt.value);
                   setIsOpen(false);
                   onSearchChange("");
                 }}
               >
-                <Check className={cn("mr-2 h-4 w-4 shrink-0", value === opt.value ? "opacity-100" : "opacity-0")} />
+                <Check className={cn("mr-2 h-4 w-4 shrink-0 text-primary", value === opt.value ? "opacity-100" : "opacity-0")} />
                 <span className="truncate">{opt.label}</span>
               </button>
             ))}
             {showCustomAdd && onCustomAdd && (
               <button
                 type="button"
-                className="w-full text-left px-2 py-2 text-sm text-primary hover:bg-white/5 rounded-lg flex items-center font-bold border-t border-white/10 mt-1 pt-2 transition-colors"
+                className="w-full text-left px-2 py-2 text-sm text-primary hover:bg-red-50 rounded-lg flex items-center font-bold border-t border-gray-100 mt-1 pt-2 transition-colors"
                 onClick={() => {
                   onCustomAdd(searchValue);
                   setIsOpen(false);
@@ -196,7 +196,7 @@ export default function VehicleSelector({ onSelect, initialValues }: VehicleSele
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div className="space-y-2">
-        <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Year</Label>
+        <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Year</Label>
         <DropdownSelector
           value={year}
           placeholder="Select Year"
@@ -209,7 +209,7 @@ export default function VehicleSelector({ onSelect, initialValues }: VehicleSele
       </div>
 
       <div className="space-y-2">
-        <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Make</Label>
+        <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Make</Label>
         <DropdownSelector
           value={make}
           placeholder="Select Make"
@@ -226,7 +226,7 @@ export default function VehicleSelector({ onSelect, initialValues }: VehicleSele
       </div>
 
       <div className="space-y-2">
-        <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Model</Label>
+        <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Model</Label>
         <DropdownSelector
           value={model}
           placeholder="Select Model"

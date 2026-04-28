@@ -101,12 +101,13 @@ export const messagingService = {
     toPhone: string,
     type: string,
     templateData: SmsTemplateData,
+    businessId: string,
     appointmentId?: string,
     clientId?: string
   ): Promise<{ success: boolean; status: string; detail: string }> {
     try {
       // 1. Fetch templates from settings
-      const settingsDoc = await getDoc(doc(db, "settings", "general"));
+      const settingsDoc = await getDoc(doc(db, "settings", businessId));
       const settings = settingsDoc.exists() ? settingsDoc.data() : {};
       
       // Check if automation is paused for this appointment
@@ -159,7 +160,7 @@ export const messagingService = {
           type: "system",
           relatedId: appointmentId || clientId,
           relatedType: appointmentId ? "appointment" : "client"
-        });
+        }, businessId);
       }
 
       return { 
@@ -191,7 +192,7 @@ export const messagingService = {
           type: "system",
           relatedId: appointmentId || clientId,
           relatedType: appointmentId ? "appointment" : "client"
-        });
+        }, businessId);
       }
 
       return { success: false, status: "failed", detail: errMsg };

@@ -1,16 +1,16 @@
 import { useState, useEffect } from "react";
-import { doc, updateDoc, getDoc } from "firebase/firestore";
-import { db } from "../firebase";
 import { Checkbox } from "./ui/checkbox";
 import { Label } from "./ui/label";
 import { Card, CardContent } from "./ui/card";
 import { CheckCircle2, Circle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { getAppointmentById, updateAppointment } from "../services/appointmentService";
 
 interface ServiceChecklistProps {
   jobId: string;
   services: string[];
+  businessId: string;
 }
 
 const defaultChecklist: Record<string, string[]> = {
@@ -21,7 +21,7 @@ const defaultChecklist: Record<string, string[]> = {
   "Paint Correction": ["Compound", "Polish", "Finish Polish"],
 };
 
-export default function ServiceChecklist({ jobId, services }: ServiceChecklistProps) {
+export default function ServiceChecklist({ jobId, services, businessId }: ServiceChecklistProps) {
   const [completedTasks, setCompletedTasks] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
 
@@ -32,10 +32,9 @@ export default function ServiceChecklist({ jobId, services }: ServiceChecklistPr
   const loadChecklist = async () => {
     if (!jobId) return;
     try {
-      const docRef = doc(db, "appointments", jobId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setCompletedTasks(docSnap.data().completedTasks || {});
+      const appt = await getAppointmentById(jobId);
+      if (appt) {
+        setCompletedTasks(appt.completedTasks || {});
       }
     } catch (error) {
       console.error("Error loading checklist:", error);
@@ -58,8 +57,7 @@ export default function ServiceChecklist({ jobId, services }: ServiceChecklistPr
     setCompletedTasks(updatedCompletedTasks);
 
     try {
-      const docRef = doc(db, "appointments", jobId);
-      await updateDoc(docRef, { completedTasks: updatedCompletedTasks });
+      await updateAppointment(jobId, { completedTasks: updatedCompletedTasks }, businessId);
     } catch (error) {
       console.error("Error updating checklist:", error);
       toast.error("Failed to save progress");

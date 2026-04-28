@@ -1,20 +1,120 @@
-import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, doc, getDoc, getDocs, where } from "firebase/firestore";
+import { useState, useEffect, useMemo } from "react";
+import { doc, getDoc, getDocs, where, query, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { createAppointment, getFutureAppointments } from "../services/appointmentService";
+import { findMatchingClient, getDepositRequirement } from "../services/clientService";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
-import { Star, Clock, MapPin, Calendar, CheckCircle2, Loader2, ArrowRight, Truck } from "lucide-react";
+import { CheckCircle2, Loader2, ArrowRight, Truck, Star, Clock, User, Calendar, MapPin, Receipt, ShieldCheck, Phone, XCircle, Car, CircleDot, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import AddressInput from "../components/AddressInput";
 import { BusinessSettings, Service, AddOn } from "../types";
 import { createNotification } from "../services/notificationService";
-import { cn, cleanAddress, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import VehicleSelector from "../components/VehicleSelector";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { checkAvailability as checkAvailabilityService, generateSmartRecommendations } from "../services/smartBookingService";
+import Logo from "../components/Logo";
+
+const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
+
+const getVehicleImage = (size: string) => {
+  switch (size) {
+    case 'coupe': return 'https://images.unsplash.com/photo-1610444391624-9dfc1fbced24?auto=format&fit=crop&q=80&w=800';
+    case 'sedan': return 'https://images.unsplash.com/photo-1549317661-bd32c8ce0be2?auto=format&fit=crop&q=80&w=800';
+    case 'suv_small': return 'https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&fit=crop&q=80&w=800';
+    case 'suv_large': return 'https://images.unsplash.com/photo-1519750157634-b6d498a584ce?auto=format&fit=crop&q=80&w=800';
+    case 'truck': return 'https://images.unsplash.com/photo-1601362840469-51e4d8d58785?auto=format&fit=crop&q=80&w=800';
+    case 'van': return 'https://images.unsplash.com/photo-1520050206274-a1cb4463300a?auto=format&fit=crop&q=80&w=800';
+    case 'luxury': return 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=800';
+    default: return 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?auto=format&fit=crop&q=80&w=800';
+  }
+};
+
+function VehicleImagePreview({ size, vehicleInfo }: { size: string, vehicleInfo: string }) {
+  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const imageUrl = useMemo(() => getVehicleImage(size), [size]);
+
+  useEffect(() => {
+    setError(false);
+    setLoading(true);
+  }, [imageUrl]);
+
+  const getPlaceholderIcon = () => {
+    switch (size) {
+      case 'truck': return <Truck className="w-20 h-20 text-gray-200" />;
+      case 'van': return <Truck className="w-20 h-20 text-gray-200 -scale-x-100" />;
+      case 'suv_small':
+      case 'suv_large':
+        return <Car className="w-20 h-20 text-gray-200" />;
+      case 'luxury':
+        return <Star className="w-20 h-20 text-primary/30" />;
+      case 'coupe':
+      case 'sedan':
+        return <Car className="w-20 h-20 text-gray-200" />;
+      default:
+        return <CircleDot className="w-20 h-20 text-gray-200" />;
+    }
+  };
+
+  const getTypeName = () => {
+    return size.replace('_', ' ').toUpperCase();
+  };
+
+  return (
+    <div className="absolute inset-0 w-full h-full bg-neutral-50 flex items-center justify-center overflow-hidden">
+      {!error && (
+        <img 
+          src={imageUrl} 
+          alt={vehicleInfo} 
+          className={cn(
+            "absolute inset-0 w-full h-full object-cover transition-opacity duration-500",
+            loading ? "opacity-0" : "opacity-100"
+          )}
+          onLoad={() => setLoading(false)}
+          onError={() => {
+            setError(true);
+            setLoading(false);
+          }}
+        />
+      )}
+      
+      {(error || loading) && (
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <div className="flex flex-col items-center">
+            <div className="p-6 rounded-full bg-white shadow-sm border border-gray-100 mb-4">
+              {getPlaceholderIcon()}
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 mb-1">
+              Vehicle Type
+            </span>
+            <span className="text-sm font-black text-gray-600 uppercase tracking-widest">
+              {getTypeName()}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssistantBubble({ text }: { text: string }) {
+  return (
+    <div className="flex gap-4 mb-8">
+      <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center shrink-0 border border-primary/20">
+        <Logo variant="icon" className="w-6 h-6" />
+      </div>
+      <div className="bg-white p-5 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-gray-800 font-medium text-lg leading-relaxed flex-1">
+        <p>{text}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function PublicBooking() {
   const [step, setStep] = useState(1);
@@ -31,20 +131,48 @@ export default function PublicBooking() {
     address: "",
     lat: 0,
     lng: 0,
-    vehicleInfo: ""
+    vehicleInfo: "",
+    vehicleSize: "sedan",
+    vehicleColor: "",
+    vehiclePlate: ""
   });
   
+  const [clientGoal, setClientGoal] = useState("");
+  const [condition, setCondition] = useState({
+    interior: "",
+    exterior: "",
+    petHair: "none",
+    odor: "no",
+    stains: "no",
+    protection: "no"
+  });
+
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
   const [scheduledAt, setScheduledAt] = useState("");
   const [bookingStatus, setBookingStatus] = useState<"idle" | "success">("idle");
   const [isAfterHours, setIsAfterHours] = useState(false);
   const [afterHoursFee, setAfterHoursFee] = useState(0);
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [isTimeAvailable, setIsTimeAvailable] = useState<boolean | null>(null);
+  
+  const [backupScheduledAt, setBackupScheduledAt] = useState("");
+  const [flexibleSameDay, setFlexibleSameDay] = useState(false);
+  const [clientNote, setClientNote] = useState("");
+  const [alternativeTimes, setAlternativeTimes] = useState<Date[]>([]);
+  const [isBackupAvailable, setIsBackupAvailable] = useState<boolean | null>(null);
+
+  const [depositInfo, setDepositInfo] = useState<{ amount: number; type: "fixed" | "percentage"; reason: string } | null>(null);
+  const [depositAccepted, setDepositAccepted] = useState(false);
+  const depositRequirement = depositInfo;
+
+  const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
       setIsAfterHours(false);
       setAfterHoursFee(0);
+      setIsTimeAvailable(null);
       return;
     }
 
@@ -80,7 +208,88 @@ export default function PublicBooking() {
     } else {
       setAfterHoursFee(0);
     }
-  }, [scheduledAt, selectedServices, services, settings?.businessHours]);
+    
+    const checkAsync = async () => {
+      try {
+        const reqAvail = await checkAvailabilityService({
+          targetDate: startAt,
+          durationMinutes: totalDuration,
+          businessHours: settings.businessHours
+        });
+        
+        setIsTimeAvailable(reqAvail.isAvailable);
+        
+        if (!reqAvail.isAvailable) {
+          const recs = await generateSmartRecommendations({
+            baseDate: startAt,
+            addressLat: 0,
+            addressLng: 0,
+            durationMinutes: totalDuration,
+            rainThreshold: 60,
+            businessHours: settings.businessHours
+          });
+          setAlternativeTimes(recs.map(r => r.startTime));
+        } else {
+          setAlternativeTimes([]);
+        }
+      } catch (err) {
+        console.error("Failed to check availability", err);
+      }
+    };
+    checkAsync();
+  }, [scheduledAt, selectedServices, services, settings?.businessHours, appointments]);
+
+  useEffect(() => {
+    if (!backupScheduledAt || isTimeAvailable !== false || !settings?.businessHours) {
+      setIsBackupAvailable(null);
+      return;
+    }
+
+    const checkBackupAsync = async () => {
+      try {
+        const startAt = new Date(backupScheduledAt);
+        const totalDuration = selectedServices.reduce((acc, id) => {
+          const service = services.find(srv => srv.id === id);
+          return acc + (service?.estimatedDuration || 120);
+        }, 0);
+
+        const checkAvail = await checkAvailabilityService({
+          targetDate: startAt,
+          durationMinutes: totalDuration,
+          businessHours: settings.businessHours
+        });
+        setIsBackupAvailable(checkAvail.isAvailable);
+      } catch (err) {
+        console.error("Backup check failed", err);
+      }
+    };
+    checkBackupAsync();
+  }, [backupScheduledAt, selectedServices, services, settings?.businessHours, isTimeAvailable]);
+
+  const handleAcceptRecommendation = () => {
+    if (recommendedChoice.recommendedService) {
+      setSelectedServices([recommendedChoice.recommendedService.id]);
+      const suggestedAddonIds = recommendedChoice.suggestedAddons.map(a => a.id);
+      setSelectedAddons(suggestedAddonIds);
+      toast.success("Professional recommendation applied!");
+      if (step < 5) setStep(5);
+    }
+  };
+
+  useEffect(() => {
+    const checkClientRisk = async () => {
+      if (clientInfo.email || clientInfo.phone || clientInfo.name) {
+         const match = await findMatchingClient(settings?.businessId || "default-business", {
+           email: clientInfo.email,
+           phone: clientInfo.phone,
+           name: clientInfo.name
+         });
+         const dep = getDepositRequirement(match);
+         setDepositInfo(dep.amount > 0 ? dep : null);
+      }
+    };
+    checkClientRisk();
+  }, [clientInfo.email, clientInfo.phone, clientInfo.name]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -93,7 +302,10 @@ export default function PublicBooking() {
 
         const addonsSnap = await getDocs(query(collection(db, "addons")));
         setAddons(addonsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AddOn)).filter(a => a.isActive));
-      } catch (error) {
+
+        const appts = await getFutureAppointments(settings?.businessId || "default-business");
+        setAppointments(appts);
+       } catch (error) {
         console.error("Error fetching data for booking:", error);
         toast.error("Failed to load booking information.");
       } finally {
@@ -102,6 +314,62 @@ export default function PublicBooking() {
     };
     fetchData();
   }, []);
+
+  const calculateRecommendations = () => {
+    const sorted = [...services].sort((a,b) => a.basePrice - b.basePrice);
+    if (sorted.length === 0) {
+      return { recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" };
+    }
+
+    let rec = sorted[0];
+    let lower: Service | null = null;
+    let explanation = "Best fit based on your selections.";
+    let sAddons: AddOn[] = [];
+
+    const isHeavy = condition.interior === "heavy" || condition.exterior === "heavy";
+    const goalUpper = clientGoal.toLowerCase();
+
+    if (goalUpper.includes("sell") || goalUpper.includes("deep") || goalUpper.includes("luxury")) {
+      rec = sorted[sorted.length - 1]; 
+      lower = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+      explanation = "Based on your goal, this package provides the most thorough reset for both interior and exterior, ensuring the highest quality finish.";
+    } else if (isHeavy) {
+      rec = sorted[Math.min(sorted.length - 1, 2)] || sorted[0];
+      lower = sorted[0];
+      explanation = "Given the heavy condition selected, this package provides the necessary depth of cleaning to properly restore your vehicle.";
+    } else if (goalUpper.includes("protection")) {
+      rec = sorted[Math.floor(sorted.length / 2)] || sorted[0];
+      lower = sorted[0];
+      explanation = "This package includes enhanced exterior treatments recommended for long-lasting protection.";
+    } else {
+      rec = sorted[0];
+      lower = null;
+      explanation = "For light maintenance, this package is the most efficient and cost-effective choice to keep your vehicle looking great.";
+    }
+
+    if (condition.petHair === "heavy" || condition.petHair === "moderate") {
+      const pa = addons.find(a => a.name.toLowerCase().includes("pet"));
+      if (pa) sAddons.push(pa);
+    }
+    if (condition.odor === "yes") {
+      const oa = addons.find(a => a.name.toLowerCase().includes("odor") || a.name.toLowerCase().includes("ozone"));
+      if (oa) sAddons.push(oa);
+    }
+
+    return { recommendedService: rec, lowerCostService: lower, suggestedAddons: sAddons, explanation };
+  };
+
+  useEffect(() => {
+    if (step >= 3) {
+      const recs = calculateRecommendations();
+      setRecommendedChoice(recs);
+
+      if (selectedServices.length === 0 && recs.recommendedService) {
+         setSelectedServices([recs.recommendedService.id]);
+         setSelectedAddons(recs.suggestedAddons.map(a => a.id));
+      }
+    }
+  }, [clientGoal, condition, services, addons, step]);
 
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,6 +380,14 @@ export default function PublicBooking() {
 
     setIsSubmitting(true);
     try {
+      const fullVehicleInfo = `${clientInfo.vehicleInfo} (${clientInfo.vehicleSize}) ${clientInfo.vehicleColor} ${clientInfo.vehiclePlate}`.trim();
+      
+      const waitlistInfo = isTimeAvailable === false ? {
+        backupScheduledAt: backupScheduledAt ? new Date(backupScheduledAt) : null,
+        flexibleSameDay,
+        clientNote
+      } : null;
+
       const appointmentData: any = {
         customerName: clientInfo.name,
         customerEmail: clientInfo.email,
@@ -119,17 +395,21 @@ export default function PublicBooking() {
         address: clientInfo.address,
         latitude: clientInfo.lat,
         longitude: clientInfo.lng,
-        vehicleInfo: clientInfo.vehicleInfo,
+        vehicleInfo: fullVehicleInfo,
+        vehicleSize: clientInfo.vehicleSize,
         serviceIds: selectedServices,
         serviceNames: services.filter(s => selectedServices.includes(s.id)).map(s => s.name),
         addOnIds: selectedAddons,
         addOnNames: addons.filter(a => selectedAddons.includes(a.id)).map(a => a.name),
         scheduledAt: new Date(scheduledAt),
-        status: "requested",
+        status: isTimeAvailable === false ? "waitlisted" : "requested",
+        waitlistInfo,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         customerType: "retail",
-        totalAmount: 0, // Admin will finalize
+        baseAmount: totalPrice,
+        totalAmount: totalPrice + (isAfterHours && afterHoursFee ? afterHoursFee * 100 : 0),
+        estimatedDuration: totalDuration,
         afterHoursRecord: isAfterHours ? {
           isAfterHours: true,
           afterHoursFee,
@@ -139,37 +419,108 @@ export default function PublicBooking() {
         paymentStatus: "unpaid",
         technicianId: "",
         technicianName: "TBD",
-        waiverAccepted: false,
+        waiverAccepted: true,
         photos: { before: [], after: [], damage: [] },
-        completedTasks: {}
+        completedTasks: {},
+        depositAmount: depositInfo ? (depositInfo.type === 'percentage' ? totalPrice * depositInfo.amount / 100 : depositInfo.amount) : 0,
+        depositType: depositInfo?.type || 'fixed',
+        depositReason: depositInfo?.reason || '',
+        bookingFunnelData: {
+          clientGoal,
+          condition,
+          recommendedServiceId: recommendedChoice.recommendedService?.id || null,
+          lowerCostServiceId: recommendedChoice.lowerCostService?.id || null,
+          choseLowerCost: recommendedChoice.lowerCostService?.id && selectedServices.includes(recommendedChoice.lowerCostService.id),
+          choseManual: true
+        }
       };
 
-      const docRef = await addDoc(collection(db, "appointments"), appointmentData);
+      if (depositInfo && depositInfo.amount > 0 && !depositAccepted) {
+        toast.error("You must accept the deposit requirement to proceed.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const appointmentId = await createAppointment(appointmentData, settings?.businessId || "default-business");
+      const docRef = { id: appointmentId };
       
-      // Notify Admin
-      const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
-      const adminsSnap = await getDocs(adminsQuery);
-      const notifyPromises = adminsSnap.docs.map(admin => 
-        createNotification({
-          userId: admin.id,
-          title: "Public Booking Request",
-          message: `${clientInfo.name} has requested a booking for ${format(new Date(scheduledAt), "MMM d, h:mm a")}`,
-          type: "booking",
-          relatedId: docRef.id,
-          relatedType: "appointment"
-        })
-      );
-      await Promise.all(notifyPromises);
+      try {
+        const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
+        const adminsSnap = await getDocs(adminsQuery);
+        
+        const isWaitlisted = isTimeAvailable === false;
+        
+        const notifyPromises = adminsSnap.docs.map(async (admin) => 
+          await createNotification({
+            userId: admin.id,
+            title: isWaitlisted ? "Waitlist Request" : "New Booking Request",
+            message: isWaitlisted 
+              ? `${clientInfo.name} requested a booked time and selected a backup time.\nReq: ${format(new Date(scheduledAt), "MMM d, h:mm a")}\nBak: ${backupScheduledAt ? format(new Date(backupScheduledAt), "MMM d, h:mm a") : 'None'}` 
+              : `New booking request from ${clientInfo.name}\n${format(new Date(scheduledAt), "h:mm a")} - ${services.filter(s => selectedServices.includes(s.id)).map(s => s.name).join(", ")}`,
+            type: isWaitlisted ? "waitlist_request" : "new_booking_request",
+            category: "Booking Requests",
+            relatedId: docRef.id,
+            relatedType: "appointment",
+            priority: "medium",
+            clientName: clientInfo.name,
+            requestedDateTime: new Date(scheduledAt),
+            backupDateTime: backupScheduledAt ? new Date(backupScheduledAt) : null,
+            bookingRequestId: docRef.id
+          }, settings!.businessId)
+        );
+        await Promise.all(notifyPromises);
+      } catch (notifyError) {
+        console.error("Failed to notify admins of new booking:", notifyError);
+      }
 
       setBookingStatus("success");
       toast.success("Booking request submitted!");
-    } catch (error) {
-      console.error("Booking error:", error);
-      toast.error("Failed to submit booking request.");
+    } catch (error: any) {
+      console.error("Booking error details:", {
+        code: error.code,
+        message: error.message,
+        target: "collection('appointments')"
+      });
+
+      if (error.code === 'permission-denied' || error.message?.includes('permission') || error.message?.includes('Missing or insufficient permissions')) {
+        toast.error("Booking could not be submitted because the booking database is not allowing this request.");
+      } else if (error.message?.includes('missing required') || error.message?.includes('Missing required')) {
+        toast.error("Please complete all required booking information before submitting.");
+      } else if (error.message?.includes('invalid date') || error.message?.includes('Invalid date')) {
+        toast.error("Please choose a valid appointment date and time.");
+      } else if (error.code === 'unavailable' || error.message?.includes('network') || error.message?.includes('Connection') || error.message?.includes('offline')) {
+        toast.error("Connection issue. Please try again.");
+      } else {
+        toast.error("Failed to submit booking request.");
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+
+  const totalDuration = useMemo(() => {
+    let dur = 0;
+    selectedServices.forEach(id => {
+       const s = services.find(x => x.id === id);
+       if (s) dur += s.estimatedDuration || 120;
+    });
+    return dur;
+  }, [selectedServices, services]);
+
+  const totalPrice = useMemo(() => {
+     let price = 0;
+     selectedServices.forEach(id => {
+        const s = services.find(x => x.id === id);
+        if (s) price += s.basePrice;
+     });
+     selectedAddons.forEach(id => {
+       const a = addons.find(x => x.id === id);
+       if (a) price += a.price;
+     });
+     return price;
+  }, [selectedServices, selectedAddons, services, addons]);
+
 
   if (loading) {
     return (
@@ -188,8 +539,8 @@ export default function PublicBooking() {
           </div>
           <CardContent className="p-8 text-center space-y-4">
             <h2 className="text-2xl font-black text-gray-900 tracking-tighter uppercase">Request Received!</h2>
-            <p className="text-gray-500 font-medium">
-              Thank you, {clientInfo.name.split(' ')[0]}! Your booking request has been submitted. 
+            <p className="text-gray-700 font-medium">
+              Thank you, {clientInfo.name.split(" ")[0] || "there"}! Your booking request has been submitted. 
               We will review it and contact you shortly to confirm.
             </p>
             <Button onClick={() => window.location.reload()} className="w-full bg-primary font-bold">
@@ -202,229 +553,871 @@ export default function PublicBooking() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-2xl mx-auto space-y-8">
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-black text-gray-900 tracking-tighter uppercase">Book Your Service</h1>
-          <p className="text-gray-500 font-medium">Professional mobile detailing at your doorstep.</p>
+    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+      {/* Top Navigation */}
+      <div className="bg-[#050505] border-b border-zinc-800 sticky top-0 z-40 shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
+           <div className="pt-2">
+             <Logo variant="full" color="white" /> 
+           </div>
+           
+           <div className="hidden sm:flex items-center gap-8">
+             <div className="flex items-center gap-2">
+               <ShieldCheck className="w-5 h-5 text-emerald-500" />
+               <span className="text-xs font-black uppercase tracking-widest text-emerald-50">Secure Booking</span>
+             </div>
+             {settings?.businessPhone && (
+               <div className="flex items-center gap-2 text-white">
+                 <Phone className="w-5 h-5 text-primary" />
+                 <span className="text-sm font-black">{settings.businessPhone}</span>
+               </div>
+             )}
+           </div>
         </div>
+        
+        {/* Stepper */}
+        <div className="bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 py-4 hide-scrollbar overflow-x-auto">
+           <div className="flex items-center gap-2 min-w-max">
+             {STEPS.map((stepName, idx) => {
+               const sNum = idx + 1;
+               const isActive = step === sNum;
+               const isCompleted = step > sNum;
+               return (
+                 <div key={idx} className="flex items-center">
+                   <div className={cn(
+                     "flex items-center justify-center h-8 w-8 rounded-full text-xs font-black transition-all",
+                     isActive ? "bg-primary text-white scale-110 shadow-md shadow-primary/20" : 
+                     isCompleted ? "bg-primary/10 text-primary" : "bg-gray-100 text-gray-400"
+                   )}>
+                     {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : sNum}
+                   </div>
+                   <span className={cn(
+                     "ml-2 text-xs font-bold uppercase tracking-widest transition-colors",
+                     isActive ? "text-gray-900" : isCompleted ? "text-gray-700" : "text-gray-400"
+                   )}>
+                     {stepName}
+                   </span>
+                   {idx < STEPS.length - 1 && (
+                     <div className={cn(
+                       "w-8 sm:w-12 h-1 mx-3 rounded-full transition-colors",
+                       isCompleted ? "bg-primary/20" : "bg-gray-100"
+                     )} />
+                   )}
+                 </div>
+               )
+             })}
+           </div>
+          </div>
+        </div>
+      </div>
 
-        <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
-          <CardHeader className="bg-gray-50/50 border-b border-gray-100 p-8">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xl font-black uppercase tracking-tight">
-                Step {step} of 3
-              </CardTitle>
-              <div className="flex gap-1">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className={cn("h-1.5 w-8 rounded-full transition-all", step >= i ? "bg-primary" : "bg-gray-200")} />
-                ))}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-8">
-            <form onSubmit={handleBooking} className="space-y-8">
+      <div className="max-w-7xl mx-auto w-full px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 flex-1">
+         
+         {/* Left Column (Assistant Flow) */}
+         <div className="lg:col-span-7 pb-20">
+           <form id="booking-form" onSubmit={handleBooking} className="space-y-6">
+              
+              {/* STEP 1: VEHICLE */}
               {step === 1 && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                  <div className="space-y-4">
-                    <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Your Information</Label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Full Name</Label>
-                        <Input 
-                          placeholder="John Doe" 
-                          value={clientInfo.name}
-                          onChange={e => setClientInfo(prev => ({ ...prev, name: e.target.value }))}
-                          required
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Email Address</Label>
-                        <Input 
-                          type="email" 
-                          placeholder="john@example.com" 
-                          value={clientInfo.email}
-                          onChange={e => setClientInfo(prev => ({ ...prev, email: e.target.value }))}
-                          required
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Phone Number</Label>
-                        <Input 
-                          type="tel" 
-                          placeholder="(555) 000-0000" 
-                          value={clientInfo.phone}
-                          onChange={e => setClientInfo(prev => ({ ...prev, phone: e.target.value }))}
-                          required
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label>Vehicle Selection (NHTSA Verified)</Label>
+                <div className="animate-in fade-in slide-in-from-right-4">
+                  <AssistantBubble text="Let's start with your vehicle details. What will we be working on today?" />
+                  
+                  <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
+                    <CardContent className="p-8 space-y-6">
+                      <div className="space-y-4">
                         <VehicleSelector 
                           onSelect={(v) => setClientInfo(prev => ({ ...prev, vehicleInfo: `${v.year} ${v.make} ${v.model}` }))}
                         />
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <Label className="text-gray-900 font-bold">Vehicle Size</Label>
+                            <Select value={clientInfo.vehicleSize} onValueChange={v => setClientInfo(prev => ({...prev, vehicleSize: v}))}>
+                              <SelectTrigger className="border-gray-300 text-gray-900 focus:ring-primary/20">
+                                <SelectValue placeholder="Select Size" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="coupe">Coupe/Compact</SelectItem>
+                                <SelectItem value="sedan">Sedan</SelectItem>
+                                <SelectItem value="suv_small">Small SUV / Crossover</SelectItem>
+                                <SelectItem value="suv_large">Large SUV / Minivan</SelectItem>
+                                <SelectItem value="truck">Truck</SelectItem>
+                                <SelectItem value="van">Van / Work Van</SelectItem>
+                                <SelectItem value="luxury">Luxury / Exotic</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-gray-900 font-bold">Color (Optional)</Label>
+                            <Input className="border-gray-300 text-gray-900 placeholder:text-gray-600 focus-visible:ring-primary/20" value={clientInfo.vehicleColor} onChange={e => setClientInfo(prev => ({...prev, vehicleColor: e.target.value}))} placeholder="Black" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-gray-900 font-bold">License Plate (Optional)</Label>
+                            <Input className="border-gray-300 text-gray-900 placeholder:text-gray-600 focus-visible:ring-primary/20" value={clientInfo.vehiclePlate} onChange={e => setClientInfo(prev => ({...prev, vehiclePlate: e.target.value}))} placeholder="ABC-1234" />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Service Address</Label>
-                    <AddressInput 
-                      onAddressSelect={(addr, lat, lng) => setClientInfo(prev => ({ ...prev, address: addr, lat, lng }))}
-                      placeholder="Enter your location for mobile service"
-                    />
-                  </div>
-                  <Button 
-                    type="button" 
-                    className="w-full bg-primary font-bold h-12 text-lg"
-                    disabled={!clientInfo.name || !clientInfo.email || !clientInfo.phone || !clientInfo.address}
-                    onClick={() => setStep(2)}
-                  >
-                    Next: Choose Services <ArrowRight className="w-5 h-5 ml-2" />
-                  </Button>
+
+                      <div className="flex justify-end pt-4">
+                        <Button 
+                          type="button" 
+                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          disabled={!clientInfo.vehicleInfo}
+                          onClick={() => setStep(2)}
+                        >
+                          Next <ArrowRight className="w-5 h-5 ml-2" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               )}
 
+              {/* STEP 2: NEEDS */}
               {step === 2 && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                  <div className="space-y-4">
-                    <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Select Services</Label>
-                    <div className="grid grid-cols-1 gap-3">
-                      {services.map(service => (
-                        <div 
-                          key={service.id}
-                          className={cn(
-                            "p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between",
-                            selectedServices.includes(service.id) ? "border-primary bg-red-50" : "border-gray-100 hover:border-gray-200"
-                          )}
-                          onClick={() => {
-                            setSelectedServices(prev => 
-                              prev.includes(service.id) ? prev.filter(id => id !== service.id) : [...prev, service.id]
-                            );
-                          }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <Checkbox checked={selectedServices.includes(service.id)} />
-                            <div>
-                              <p className="font-bold text-gray-900">{service.name}</p>
-                              <p className="text-xs text-gray-500">{service.estimatedDuration} mins</p>
-                            </div>
-                          </div>
-                          <p className="font-black text-primary">${service.basePrice}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {addons.length > 0 && (
-                    <div className="space-y-4">
-                      <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Add-ons</Label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {addons.map(addon => (
+                <div className="animate-in fade-in slide-in-from-right-4">
+                  <AssistantBubble text="Got it! What are the main goals for this detail? Select the option that best fits." />
+                  
+                  <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
+                    <CardContent className="p-8 space-y-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {[
+                          "Maintenance clean",
+                          "Deep clean",
+                          "Preparing to sell",
+                          "Odor removal",
+                          "Pet hair removal",
+                          "Paint protection",
+                          "Luxury/premium reset",
+                          "Fleet/business service"
+                        ].map(goal => (
                           <div 
-                            key={addon.id}
+                            key={goal}
                             className={cn(
-                              "p-3 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-between",
-                              selectedAddons.includes(addon.id) ? "border-primary bg-red-50" : "border-gray-100 hover:border-gray-200"
+                              "p-4 rounded-xl border-2 transition-all cursor-pointer font-bold text-center",
+                              clientGoal === goal ? "border-primary bg-red-50 text-primary shadow-sm" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
                             )}
-                            onClick={() => {
-                              setSelectedAddons(prev => 
-                                prev.includes(addon.id) ? prev.filter(id => id !== addon.id) : [...prev, addon.id]
-                              );
-                            }}
+                            onClick={() => setClientGoal(goal)}
                           >
-                            <div className="flex items-center gap-2">
-                              <Checkbox checked={selectedAddons.includes(addon.id)} />
-                              <p className="text-sm font-bold text-gray-900">{addon.name}</p>
-                            </div>
-                            <p className="text-sm font-black text-primary">${addon.price}</p>
+                            {goal}
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
 
-                  <div className="flex gap-3">
-                    <Button type="button" variant="outline" className="flex-1 font-bold h-12" onClick={() => setStep(1)}>Back</Button>
-                    <Button 
-                      type="button" 
-                      className="flex-[2] bg-primary font-bold h-12 text-lg"
-                      disabled={selectedServices.length === 0}
-                      onClick={() => setStep(3)}
-                    >
-                      Next: Pick a Time <ArrowRight className="w-5 h-5 ml-2" />
-                    </Button>
-                  </div>
+                      <div className="flex justify-between pt-4 border-t border-gray-100">
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(1)}>Back</Button>
+                        <Button 
+                          type="button" 
+                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          disabled={!clientGoal}
+                          onClick={() => setStep(3)}
+                        >
+                          Next <ArrowRight className="w-5 h-5 ml-2" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               )}
 
+              {/* STEP 3: CONDITION */}
               {step === 3 && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                  <div className="space-y-4">
-                    <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Request a Specific Time</Label>
-                    <div className="space-y-2">
-                      <Input 
-                        type="datetime-local" 
-                        value={scheduledAt}
-                        onChange={e => setScheduledAt(e.target.value)}
-                        className="h-12 bg-white border-2 border-gray-100 rounded-xl focus:border-primary transition-all"
-                      />
-                      {isAfterHours && (
-                        <div className="mt-2 p-4 bg-yellow-50 border border-yellow-200 rounded-2xl flex items-start gap-3">
-                          <Clock className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
-                          <div>
-                            <p className="text-xs font-black text-yellow-700 uppercase tracking-widest">After-Hours Request</p>
-                            <p className="text-[11px] text-yellow-600 font-medium mt-1 leading-relaxed">
-                              This time slot falls outside our standard operating hours. {afterHoursFee > 0 ? `An after-hours premium of ${formatCurrency(afterHoursFee)} will be applied to your final invoice.` : "Please note that after-hours requests may take longer to approve."}
-                            </p>
+                <div className="animate-in fade-in slide-in-from-right-4">
+                  <AssistantBubble text="Could you tell me a bit about the vehicle's current condition?" />
+                  
+                  <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
+                    <CardContent className="p-8 space-y-8">
+                      
+                      <div className="space-y-4">
+                        <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Interior Condition</Label>
+                        <div className="grid grid-cols-3 gap-3">
+                          {['light', 'moderate', 'heavy'].map(lvl => (
+                            <div
+                              key={'int-'+lvl}
+                              className={cn(
+                                "p-4 rounded-xl border-2 transition-all cursor-pointer font-bold text-center capitalize",
+                                condition.interior === lvl ? "border-primary bg-red-50 text-primary shadow-sm" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300"
+                              )}
+                              onClick={() => setCondition(prev => ({...prev, interior: lvl}))}
+                            >
+                              {lvl}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Exterior Condition</Label>
+                        <div className="grid grid-cols-3 gap-3">
+                          {['light', 'moderate', 'heavy'].map(lvl => (
+                            <div
+                              key={'ext-'+lvl}
+                              className={cn(
+                                "p-4 rounded-xl border-2 transition-all cursor-pointer font-bold text-center capitalize",
+                                condition.exterior === lvl ? "border-primary bg-red-50 text-primary shadow-sm" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300"
+                              )}
+                              onClick={() => setCondition(prev => ({...prev, exterior: lvl}))}
+                            >
+                              {lvl}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 pt-6 border-t border-gray-100">
+                        <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Additional Concerns</Label>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                            <Label className="text-gray-700 font-bold">Pet Hair</Label>
+                            <Select value={condition.petHair} onValueChange={v => setCondition(prev => ({...prev, petHair: v}))}>
+                              <SelectTrigger className="border-gray-300 text-gray-900 focus:ring-primary/20 h-11"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">None</SelectItem>
+                                <SelectItem value="light">Light</SelectItem>
+                                <SelectItem value="moderate">Moderate</SelectItem>
+                                <SelectItem value="heavy">Heavy</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-gray-700 font-bold">Odor Issue?</Label>
+                            <Select value={condition.odor} onValueChange={v => setCondition(prev => ({...prev, odor: v}))}>
+                              <SelectTrigger className="border-gray-300 text-gray-900 focus:ring-primary/20 h-11"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="no">No</SelectItem>
+                                <SelectItem value="yes">Yes</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label className="text-gray-700 font-bold">Stains?</Label>
+                            <Select value={condition.stains} onValueChange={v => setCondition(prev => ({...prev, stains: v}))}>
+                              <SelectTrigger className="border-gray-300 text-gray-900 focus:ring-primary/20 h-11"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="no">No</SelectItem>
+                                <SelectItem value="yes">Yes</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-gray-700 font-bold">Want Protection?</Label>
+                            <Select value={condition.protection} onValueChange={v => setCondition(prev => ({...prev, protection: v}))}>
+                              <SelectTrigger className="border-gray-300 text-gray-900 focus:ring-primary/20 h-11"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="no">No</SelectItem>
+                                <SelectItem value="yes">Yes</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between pt-4 border-t border-gray-100">
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(2)}>Back</Button>
+                        <Button 
+                          type="button" 
+                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          disabled={!condition.interior || !condition.exterior}
+                          onClick={() => setStep(4)}
+                        >
+                          Next <ArrowRight className="w-5 h-5 ml-2" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* STEP 4: OPTIONS */}
+              {step === 4 && (
+                <div className="animate-in fade-in slide-in-from-right-4">
+                  <AssistantBubble text="I've put together a recommendation for you on the right. You can select it directly, or browse all options below to fully customize your service." />
+                  
+                  <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
+                    <CardContent className="p-8 space-y-8">
+                       <div className="space-y-4">
+                        <Label className="text-sm font-black uppercase tracking-widest text-gray-900">All Services</Label>
+                        <div className="grid grid-cols-1 gap-3">
+                          {services.map(service => (
+                            <div 
+                              key={service.id}
+                              className={cn(
+                                "p-5 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between",
+                                selectedServices.includes(service.id) ? "border-primary bg-red-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"
+                              )}
+                              onClick={() => {
+                                setSelectedServices(prev => 
+                                  prev.includes(service.id) ? prev.filter(id => id !== service.id) : [service.id]
+                                );
+                              }}
+                            >
+                              <div className="flex items-center gap-4">
+                                <Checkbox checked={selectedServices.includes(service.id)} className="w-5 h-5 border-gray-300 data-[state=checked]:bg-primary data-[state=checked]:border-primary" />
+                                <div>
+                                  <p className="font-black text-gray-900 text-lg">{service.name}</p>
+                                  <p className="text-sm text-gray-600 font-bold">{service.estimatedDuration} mins</p>
+                                </div>
+                              </div>
+                              <p className="font-black text-primary text-xl">${service.basePrice}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {addons.length > 0 && (
+                        <div className="space-y-4 pt-6 border-t border-gray-100">
+                          <Label className="text-sm font-black uppercase tracking-widest text-gray-900">All Add-ons</Label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {addons.map(addon => (
+                              <div 
+                                key={addon.id}
+                                className={cn(
+                                  "p-4 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-between",
+                                  selectedAddons.includes(addon.id) ? "border-primary bg-red-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"
+                                )}
+                                onClick={() => {
+                                  setSelectedAddons(prev => 
+                                    prev.includes(addon.id) ? prev.filter(id => id !== addon.id) : [...prev, addon.id]
+                                  );
+                                }}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <Checkbox className="border-gray-300 data-[state=checked]:bg-primary data-[state=checked]:border-primary" checked={selectedAddons.includes(addon.id)} />
+                                  <p className="text-sm font-bold text-gray-900">{addon.name}</p>
+                                </div>
+                                <p className="text-sm font-black text-primary">+${addon.price}</p>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       )}
-                      <p className="text-[10px] text-gray-400 font-medium italic">
-                        * Custom time requests require manual approval from our team.
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="space-y-4 pt-4 border-t border-gray-100">
-                    <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-primary/20 transition-all">
-                      <Checkbox id="agreement" className="mt-1" required />
-                      <Label htmlFor="agreement" className="text-[11px] leading-relaxed text-gray-500 font-medium cursor-pointer">
-                        I acknowledge that I have read and agree to the <span className="text-primary font-black uppercase tracking-widest text-[9px]">Service Agreement</span> and understand the cancellation policy. I authorize the team to perform requested services at the provided location.
-                      </Label>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-3">
-                    <Button type="button" variant="outline" className="flex-1 font-bold h-12" onClick={() => setStep(2)}>Back</Button>
-                    <Button 
-                      type="submit" 
-                      className="flex-[2] bg-primary hover:bg-red-700 font-bold h-12 text-lg shadow-lg shadow-red-100"
-                      disabled={isSubmitting || !scheduledAt}
-                    >
-                      {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
-                      Request Booking
-                    </Button>
-                  </div>
+                      <div className="flex justify-between pt-4 border-t border-gray-100">
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(3)}>Back</Button>
+                        <Button 
+                          type="button" 
+                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          disabled={selectedServices.length === 0}
+                          onClick={() => setStep(5)}
+                        >
+                          Next <ArrowRight className="w-5 h-5 ml-2" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               )}
-            </form>
-          </CardContent>
-        </Card>
 
-        <div className="flex items-center justify-center gap-8 text-gray-400">
-          <div className="flex items-center gap-2">
-            <Truck className="w-4 h-4" />
-            <span className="text-xs font-bold uppercase tracking-widest">Mobile Service</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Star className="w-4 h-4" />
-            <span className="text-xs font-bold uppercase tracking-widest">Top Rated</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4" />
-            <span className="text-xs font-bold uppercase tracking-widest">Fully Insured</span>
-          </div>
-        </div>
+              {/* STEP 5: DATE & TIME */}
+              {step === 5 && (
+                <div className="animate-in fade-in slide-in-from-right-4">
+                  <AssistantBubble text="When would you like us to come out?" />
+                  
+                  <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
+                    <CardContent className="p-8 space-y-6">
+                      <div className="space-y-4">
+                        <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Request a Date & Time</Label>
+                        <div className="space-y-2">
+                          <Input 
+                            type="datetime-local" 
+                            value={scheduledAt}
+                            onChange={e => setScheduledAt(e.target.value)}
+                            className="h-14 bg-white border-2 border-gray-300 rounded-xl focus:border-primary transition-all text-gray-900 font-bold text-lg px-4"
+                          />
+                          {scheduledAt && isTimeAvailable !== null && (
+                            <div className={cn(
+                              "mt-4 p-5 rounded-2xl border flex flex-col gap-4",
+                              isTimeAvailable ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"
+                            )}>
+                              <div className="flex items-start gap-3">
+                                {isTimeAvailable ? (
+                                  <>
+                                    <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
+                                    <span className="text-sm font-bold">This time appears to be available!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <XCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                                    <span className="text-sm font-bold leading-tight">
+                                      The time you selected is currently unavailable. We can place you on the waiting list for this requested time. Please choose a backup time from the available options below in case this time does not open.
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                              
+                              {/* Waitlist Options */}
+                              {isTimeAvailable === false && (
+                                <div className="mt-2 space-y-6 pt-5 border-t border-red-200">
+                                  
+                                  <div className="space-y-1">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-red-900/60">Requested Time</Label>
+                                    <p className="font-bold text-red-900">{format(new Date(scheduledAt), "MMM d, yyyy h:mm a")}</p>
+                                    <p className="text-xs font-bold text-red-800 mt-1 flex items-center gap-1">
+                                      Status: <span className="bg-white/50 px-2 py-0.5 rounded text-[10px] uppercase tracking-widest">Waiting List Requested</span>
+                                    </p>
+                                  </div>
+
+                                  <div className="space-y-3">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-red-900/60">Available Backup Times</Label>
+                                    {alternativeTimes.length > 0 ? (
+                                      <div className="flex flex-wrap gap-2">
+                                        {alternativeTimes.map((t, i) => {
+                                          const tString = format(t, "yyyy-MM-dd'T'HH:mm");
+                                          const isSelected = backupScheduledAt === tString;
+                                          return (
+                                            <Button 
+                                              key={i} 
+                                              type="button" 
+                                              variant="outline" 
+                                              className={cn(
+                                                "border-2 text-sm font-bold transition-all",
+                                                isSelected 
+                                                  ? "bg-red-800 border-red-800 text-white" 
+                                                  : "bg-white border-red-200 hover:border-red-400 text-red-900 hover:bg-white/80"
+                                              )}
+                                              onClick={() => setBackupScheduledAt(tString)}
+                                            >
+                                              {format(t, "E, MMM d - h:mm a")}
+                                            </Button>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <p className="text-sm italic text-red-800/80">No immediate backup times found within normal business hours.</p>
+                                    )}
+                                  </div>
+
+                                  <div className="space-y-3">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-red-900/60">Backup Time (Required)</Label>
+                                    <Input 
+                                      type="datetime-local" 
+                                      value={backupScheduledAt}
+                                      onChange={e => setBackupScheduledAt(e.target.value)}
+                                      className="h-12 bg-white border-2 border-red-200 text-red-900 font-bold focus:border-red-500"
+                                    />
+                                    {backupScheduledAt && isBackupAvailable === false && (
+                                       <div className="flex items-center gap-2 text-red-700 bg-red-100 p-2 rounded-lg mt-1">
+                                         <AlertCircle className="w-4 h-4" />
+                                          <p className="text-xs font-bold">That backup time is not available. Please choose one of the available options.</p>
+                                       </div>
+                                    )}
+                                  </div>
+
+                                  <div className="pt-2 border-t border-red-200 space-y-4">
+                                    <div className="flex items-center space-x-3">
+                                      <Checkbox 
+                                        id="flexibleSameDay" 
+                                        checked={flexibleSameDay} 
+                                        onCheckedChange={(c) => setFlexibleSameDay(c as boolean)} 
+                                        className="h-5 w-5 border-2 border-red-300 data-[state=checked]:bg-red-800 data-[state=checked]:border-red-800"
+                                      />
+                                      <Label htmlFor="flexibleSameDay" className="text-sm font-bold text-red-900 cursor-pointer">
+                                        I am flexible for ANY TIME on my requested day
+                                      </Label>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                      <Label className="text-[10px] font-black uppercase tracking-widest text-red-900/60">Note for Admin (Optional)</Label>
+                                      <Input 
+                                        placeholder="e.g. Can do mornings only..."
+                                        value={clientNote}
+                                        onChange={e => setClientNote(e.target.value)}
+                                        className="bg-white border-red-200 placeholder:text-red-300 text-red-900"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {isAfterHours && (
+                            <div className="mt-4 p-5 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-4">
+                              <Clock className="w-6 h-6 text-amber-700 shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-xs font-black text-amber-800 uppercase tracking-widest">After-Hours Request</p>
+                                <p className="text-sm text-amber-800 font-bold mt-1 leading-relaxed">
+                                  This time slot falls outside our standard operating hours. {afterHoursFee > 0 ? `An after-hours premium of ${formatCurrency(afterHoursFee)} will be applied.` : "Please note that after-hours requests may take longer to approve."}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          <p className="text-xs text-gray-700 font-medium italic pt-2">
+                            * All time requests require final approval from our team.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between pt-4 border-t border-gray-100">
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(4)}>Back</Button>
+                        <Button 
+                          type="button" 
+                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white disabled:opacity-50"
+                          disabled={!scheduledAt || (isTimeAvailable === false && (!backupScheduledAt || isBackupAvailable === false))}
+                          onClick={() => setStep(6)}
+                        >
+                          Next <ArrowRight className="w-5 h-5 ml-2" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* STEP 6: INFO */}
+              {step === 6 && (
+                <div className="animate-in fade-in slide-in-from-right-4">
+                  <AssistantBubble text="Who should we contact, and where will we be detailing?" />
+                  
+                  <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
+                    <CardContent className="p-8 space-y-8">
+                      <div className="space-y-4">
+                        <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Contact Details</Label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          <div className="space-y-2">
+                            <Label className="text-gray-900 font-bold">Full Name</Label>
+                            <Input 
+                              placeholder="John Doe" 
+                              className="border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-primary/20 h-11"
+                              value={clientInfo.name}
+                              onChange={e => setClientInfo(prev => ({ ...prev, name: e.target.value }))}
+                              required
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-gray-900 font-bold">Email</Label>
+                            <Input 
+                              type="email" 
+                              placeholder="john@example.com" 
+                              className="border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-primary/20 h-11"
+                              value={clientInfo.email}
+                              onChange={e => setClientInfo(prev => ({ ...prev, email: e.target.value }))}
+                              required
+                            />
+                          </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <Label className="text-gray-900 font-bold">Phone</Label>
+                            <Input 
+                              type="tel" 
+                              placeholder="(555) 000-0000" 
+                              className="border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-primary/20 h-11"
+                              value={clientInfo.phone}
+                              onChange={e => setClientInfo(prev => ({ ...prev, phone: e.target.value }))}
+                              required
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 pt-4 border-t border-gray-100">
+                        <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Service Location</Label>
+                        <AddressInput 
+                          onAddressSelect={(addr, lat, lng) => setClientInfo(prev => ({ ...prev, address: addr, lat, lng }))}
+                          placeholder="Enter your location for mobile service"
+                        />
+                      </div>
+
+                      <div className="flex justify-between pt-4 border-t border-gray-100">
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(5)}>Back</Button>
+                        <Button 
+                          type="button" 
+                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          disabled={!clientInfo.name || !clientInfo.phone || !clientInfo.address}
+                          onClick={() => setStep(7)}
+                        >
+                          Review & Confirm <ArrowRight className="w-5 h-5 ml-2" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* STEP 7: REVIEW */}
+              {step === 7 && (
+                <div className="animate-in fade-in slide-in-from-right-4">
+                  <AssistantBubble text="Almost done! Please review your details and confirm." />
+                  
+                  <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
+                    <CardContent className="p-8 space-y-6">
+                      
+                      <div className="space-y-4 border-2 border-gray-100 rounded-2xl p-6 bg-gray-50">
+                        <div className="flex items-center gap-3 border-b border-gray-200 pb-4">
+                           <User className="w-5 h-5 text-gray-600" />
+                           <div>
+                             <p className="font-black text-gray-900">{clientInfo.name}</p>
+                             <p className="text-sm text-gray-600 font-medium">{clientInfo.phone} • {clientInfo.email}</p>
+                           </div>
+                        </div>
+                        <div className="flex items-center gap-3 pt-2">
+                           <MapPin className="w-5 h-5 text-gray-600" />
+                           <p className="text-sm font-bold text-gray-800">{clientInfo.address}</p>
+                        </div>
+                      </div>
+
+                      {/* Display Mobile Booking Summary for mobile screens */}
+                      <div className="block lg:hidden border-2 border-gray-100 rounded-2xl p-6 bg-white space-y-4">
+                         <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
+                           <Receipt className="w-5 h-5 text-gray-700" />
+                           <h3 className="font-black text-gray-900 uppercase tracking-tight">Booking Summary</h3>
+                         </div>
+                         <div className="space-y-3">
+                           {selectedServices.map(id => {
+                              const s = services.find(x => x.id === id);
+                              if (!s) return null;
+                              return (
+                                <div key={id} className="flex justify-between items-start">
+                                  <span className="font-bold text-gray-900">{s.name}</span>
+                                  <span className="font-black text-gray-900">${s.basePrice}</span>
+                                </div>
+                              )
+                           })}
+                           {selectedAddons.map(id => {
+                              const a = addons.find(x => x.id === id);
+                              if (!a) return null;
+                              return (
+                                <div key={id} className="flex justify-between items-start text-sm">
+                                  <span className="font-bold text-gray-600">+ {a.name}</span>
+                                  <span className="font-black text-gray-600">${a.price}</span>
+                                </div>
+                              )
+                           })}
+                        </div>
+                        <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
+                           <div>
+                             <p className="text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1">Estimated Total</p>
+                             <p className="text-sm font-bold text-gray-600 flex items-center gap-1">
+                               <Clock className="w-3 h-3" /> {totalDuration} mins
+                             </p>
+                           </div>
+                           <span className="text-3xl font-black text-primary">${totalPrice}</span>
+                        </div>
+                      </div>
+
+                      {depositInfo && depositInfo.amount > 0 && (
+                          <div className="flex items-start gap-3 p-5 bg-red-50 rounded-2xl border border-red-200 group transition-all mb-4">
+                             <Checkbox 
+                                id="deposit-accepted" 
+                                className="mt-1 border-red-400 data-[state=checked]:bg-primary data-[state=checked]:border-primary" 
+                                checked={depositAccepted} 
+                                onCheckedChange={(c) => setDepositAccepted(c as boolean)}
+                             />
+                             <Label htmlFor="deposit-accepted" className="text-sm leading-relaxed text-red-900 font-bold cursor-pointer">
+                               I accept the required deposit of {depositInfo.type === 'percentage' ? `${depositInfo.amount}%` : formatCurrency(depositInfo.amount)} for this booking. <span className="block text-xs font-normal text-red-800/70">{depositInfo.reason}</span>
+                             </Label>
+                          </div>
+                      )}
+
+                      <div className="flex items-start gap-3 p-5 bg-gray-50 rounded-2xl border border-gray-200 group transition-all">
+                        <Checkbox id="agreement" className="mt-1 border-gray-400 data-[state=checked]:bg-primary data-[state=checked]:border-primary" required />
+                        <Label htmlFor="agreement" className="text-sm leading-relaxed text-gray-800 font-bold cursor-pointer">
+                          I acknowledge that I have read and agree to the <span className="text-primary font-black uppercase tracking-widest text-[10px]">Service Agreement</span> and understand the cancellation policy. I authorize the team to perform requested services at the provided location.
+                        </Label>
+                      </div>
+
+                      <div className="flex justify-between pt-4 border-t border-gray-100">
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(6)}>Back</Button>
+                        <Button 
+                          type="submit" 
+                          form="booking-form"
+                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white shadow-xl shadow-red-500/20"
+                          disabled={isSubmitting}
+                        >
+                          {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
+                          Submit Booking Requirement
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+           </form>
+         </div>
+
+         {/* Right Column (Sticky Panel) */}
+         <div className="lg:col-span-5 relative hidden lg:block">
+            <div className="sticky top-40 space-y-6">
+               
+               {/* Vehicle Preview Card */}
+               {step >= 2 && clientInfo.vehicleInfo && (
+                 <Card className="border border-gray-200 shadow-sm rounded-3xl overflow-hidden bg-white">
+                    <div className="h-48 w-full bg-gray-100 relative">
+                       <VehicleImagePreview 
+                         size={clientInfo.vehicleSize} 
+                         vehicleInfo={clientInfo.vehicleInfo} 
+                       />
+                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
+                       <div className="absolute bottom-4 left-4 right-4 text-white">
+                         <span className="text-[10px] uppercase font-black tracking-widest text-white/70">Your Vehicle</span>
+                         <h3 className="font-black text-xl truncate">{clientInfo.vehicleInfo || 'Vehicle Selected'}</h3>
+                         <p className="text-sm text-white/80 font-medium">{clientInfo.vehicleColor} {clientInfo.vehicleSize.replace('_', ' ').toUpperCase()}</p>
+                       </div>
+                    </div>
+                 </Card>
+               )}
+               
+               {/* Show Recommendation Panel starting Step 3 or 4 */}
+               {(step >= 3 && recommendedChoice.recommendedService) && (
+                 <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
+                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-900 text-xs font-black uppercase tracking-widest gap-2 border border-emerald-200 shadow-sm">
+                      <Star className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600" />
+                      Recommended for your vehicle
+                    </div>
+                    
+                    <Card className="border-2 border-emerald-500 shadow-xl overflow-hidden rounded-3xl bg-white transition-all">
+                      <CardContent className="p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h3 className="text-xl font-black text-gray-900 leading-tight">{recommendedChoice.recommendedService.name}</h3>
+                            <p className="text-sm text-gray-600 font-bold mt-1 flex items-center gap-1">
+                              <Clock className="w-4 h-4" />
+                              {recommendedChoice.recommendedService.estimatedDuration} mins
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-black text-primary">{formatCurrency(recommendedChoice.recommendedService.basePrice)}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 mb-4">
+                          <span className="block text-[10px] uppercase font-black tracking-widest text-primary mb-1">Why this service fits</span>
+                          <p className="text-sm font-bold text-gray-800 leading-relaxed">
+                            {recommendedChoice.explanation}
+                          </p>
+                        </div>
+                        
+                        {recommendedChoice.recommendedService.description && (
+                          <div className="space-y-1.5 mb-4 px-2">
+                            {recommendedChoice.recommendedService.description.split('\n').filter(Boolean).map((item, idx) => (
+                              <div key={idx} className="flex items-start gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                <span className="text-sm font-medium text-gray-700">{item.replace(/^-\s*/, '')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {recommendedChoice.suggestedAddons.length > 0 && (
+                          <div className="space-y-2 mt-4 pt-4 border-t border-gray-100">
+                             <span className="block text-[10px] uppercase font-black tracking-widest text-gray-700 mb-2">Suggested Add-ons</span>
+                             {recommendedChoice.suggestedAddons.map(a => (
+                               <div key={a.id} className="flex justify-between text-sm font-bold text-gray-700 bg-white border border-gray-100 p-2 rounded-lg">
+                                  <span>+ {a.name}</span>
+                               </div>
+                             ))}
+                          </div>
+                        )}
+
+                        <Button 
+                          type="button" 
+                          onClick={handleAcceptRecommendation}
+                          className="w-full mt-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-lg shadow-emerald-200 group"
+                        >
+                          Accept Recommendation
+                          <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                        </Button>
+                      </CardContent>
+                    </Card>
+                    
+                    {recommendedChoice.lowerCostService && (
+                      <Card className="border border-gray-200 shadow-sm overflow-hidden rounded-2xl bg-white mt-4 opacity-90 transition-opacity hover:opacity-100">
+                         <CardContent className="p-5 flex items-center justify-between">
+                            <div className="flex-1 flex justify-between items-center mr-4">
+                               <div>
+                                  <span className="block text-[10px] uppercase font-black tracking-widest text-gray-700 mb-1">Lower-cost option available</span>
+                                  <h4 className="font-black text-gray-900">{recommendedChoice.lowerCostService.name}</h4>
+                               </div>
+                               <span className="font-black text-primary text-sm whitespace-nowrap">
+                                   {recommendedChoice.lowerCostService.basePrice ? formatCurrency(recommendedChoice.lowerCostService.basePrice) : "Contact for pricing"}
+                               </span>
+                            </div>
+                            {step === 4 && (
+                               <Button 
+                                 type="button" 
+                                 variant="outline" 
+                                 className="font-bold border-gray-300 text-gray-700 text-xs px-4"
+                                 onClick={() => {
+                                   setSelectedServices([recommendedChoice.lowerCostService!.id]);
+                                   setSelectedAddons([]); 
+                                   setStep(5);
+                                 }}
+                               >
+                                 Select instead
+                               </Button>
+                            )}
+                         </CardContent>
+                      </Card>
+                    )}
+                 </div>
+               )}
+
+               {/* Booking Summary */}
+               <Card className="border border-gray-200 shadow-lg rounded-3xl overflow-hidden bg-white">
+                 <div className="bg-gray-50 border-b border-gray-100 p-5 flex items-center gap-3">
+                   <Receipt className="w-5 h-5 text-gray-500" />
+                   <h3 className="font-black text-gray-900 uppercase tracking-tight">Booking Summary</h3>
+                 </div>
+                 <CardContent className="p-6 space-y-4">
+                   {selectedServices.length === 0 ? (
+                      <p className="text-sm font-medium text-gray-500 italic text-center py-4">No services selected yet</p>
+                   ) : (
+                     <>
+                        <div className="space-y-3">
+                           {selectedServices.map(id => {
+                              const s = services.find(x => x.id === id);
+                              if (!s) return null;
+                              return (
+                                <div key={id} className="flex justify-between items-start">
+                                  <span className="font-bold text-gray-900">{s.name}</span>
+                                  <span className="font-black text-gray-900">${s.basePrice}</span>
+                                </div>
+                              )
+                           })}
+                           {selectedAddons.map(id => {
+                              const a = addons.find(x => x.id === id);
+                              if (!a) return null;
+                              return (
+                                <div key={id} className="flex justify-between items-start text-sm">
+                                  <span className="font-bold text-gray-600">+ {a.name}</span>
+                                  <span className="font-black text-gray-600">${a.price}</span>
+                                </div>
+                              )
+                           })}
+                        </div>
+                        <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
+                           <div>
+                             <p className="text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1">Estimated Total</p>
+                             <p className="text-sm font-bold text-gray-600 flex items-center gap-1">
+                               <Clock className="w-3 h-3" /> {totalDuration} mins
+                             </p>
+                           </div>
+                           <span className="text-3xl font-black text-primary">${totalPrice}</span>
+                        </div>
+                     </>
+                   )}
+                 </CardContent>
+               </Card>
+               
+               {/* Footer trust badges */}
+               <div className="flex items-center justify-center gap-6 text-gray-400 pt-4">
+                  <div className="flex items-center gap-1.5">
+                    <Truck className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Mobile</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Insured</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Star className="w-3.5 h-3.5 fill-primary text-primary" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">5-Star Rated</span>
+                  </div>
+               </div>
+            </div>
+         </div>
       </div>
     </div>
   );

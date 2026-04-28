@@ -1,18 +1,15 @@
 import { useState, useEffect } from "react";
-import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, deleteDoc, doc, updateDoc, getDocs, getDoc, limit, where, arrayUnion, deleteField } from "firebase/firestore";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
-import { SearchableSelector } from "../components/SearchableSelector";
-import { db, handleFirestoreError, OperationType } from "../firebase";
+import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { useLocation, useNavigate } from "react-router-dom";
 import { messagingService } from "../services/messagingService";
+import { getInvoicesByBusiness, updateInvoiceFields, softDeleteInvoice } from "../services/invoiceService";
 import { PageHeader } from "../components/PageHeader";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent, CardHeader } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
@@ -22,54 +19,27 @@ import {
   Filter, 
   Receipt, 
   Trash2, 
-  Car, 
   User as UserIcon, 
-  CheckCircle2, 
-  Clock, 
-  AlertCircle,
+  Settings2,
+  DollarSign,
   FileText,
   Mail,
-  User,
-  Settings2,
-  CreditCard,
-  DollarSign,
-  Eye,
   Calendar,
   Undo,
   Ban,
   RefreshCcw
 } from "lucide-react";
-import { paymentService } from "../services/paymentService";
 import { toast } from "sonner";
-import AddressInput from "../components/AddressInput";
-import VehicleSelector from "../components/VehicleSelector";
 import { format } from "date-fns";
-import { Invoice, Client, Vehicle, Service, AddOn, BusinessSettings, LineItem } from "../types";
+import { Invoice, Client, Vehicle, BusinessSettings, LineItem } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
-import { Checkbox } from "../components/ui/checkbox";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn, getClientDisplayName, cleanAddress, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
-import { 
-  AlertDialog, 
-  AlertDialogAction, 
-  AlertDialogCancel, 
-  AlertDialogContent, 
-  AlertDialogDescription, 
-  AlertDialogFooter, 
-  AlertDialogHeader, 
-  AlertDialogTitle, 
-  AlertDialogTrigger 
-} from "@/components/ui/alert-dialog";
 
 export default function Invoices() {
   const navigate = useNavigate();
   const { profile, loading: authLoading } = useAuth();
-  const location = useLocation();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -80,14 +50,15 @@ export default function Invoices() {
   const fetchInvoicesData = async (showToast = false) => {
     if (showToast) toast.loading("Syncing Ledger...", { id: "sync-invoices" });
     try {
-      const queryRef = query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(50));
-      const snap = await getDocs(queryRef);
-      setInvoices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice)));
+      if (!profile?.businessId) throw new Error("No business context");
+
+      const invoicesData = await getInvoicesByBusiness(profile.businessId);
+      setInvoices(invoicesData);
       
-      const settingsSnap = await getDoc(doc(db, "settings", "business"));
-      if (settingsSnap.exists()) {
-        setSettings(settingsSnap.data() as BusinessSettings);
-      }
+      // Update cache
+      sessionStorage.setItem('invoices_cache', JSON.stringify(invoicesData));
+      sessionStorage.setItem('invoices_cache_time', Date.now().toString());
+      
       setLoading(false);
       if (showToast) toast.success("Ledger Synchronized", { id: "sync-invoices" });
     } catch (error) {
@@ -137,29 +108,20 @@ export default function Invoices() {
   };
 
   const handleMarkAsPaid = async (invoice: Invoice | null) => {
-    if (!invoice?.id) return;
+    if (!invoice?.id || !profile?.businessId) return;
     try {
       toast.loading("Processing payment...", { id: "payment" });
-      const invoiceRef = doc(db, "invoices", invoice.id);
-      const paymentHistoryEntry = {
-        action: "paid",
-        timestamp: serverTimestamp(),
-        method: "Admin Override",
-        provider: "manual"
-      };
-      await updateDoc(invoiceRef, {
+      await updateInvoiceFields(invoice.id, {
         status: "paid",
-        paidAt: serverTimestamp(),
         paymentStatus: "paid",
-        paymentProvider: "manual",
-        paymentHistory: arrayUnion(paymentHistoryEntry)
-      });
+        paymentProvider: "manual"
+      }, profile.businessId);
+
       setSelectedInvoice((prev) => prev ? { 
         ...prev, 
         status: "paid", 
         paymentStatus: "paid", 
-        paymentProvider: "manual",
-        paymentHistory: [...(prev.paymentHistory || []), { ...paymentHistoryEntry, timestamp: new Date() }]
+        paymentProvider: "manual"
       } as Invoice : null);
       
       // Send Payment Receipt SMS
@@ -167,16 +129,14 @@ export default function Invoices() {
         messagingService.sendSms({
           to: invoice.clientPhone,
           body: `Flatline Mobile Detail: Payment received. Thank you! We appreciate your business. Reply STOP to opt out.`
-        }).then(() => console.log("Payment Receipt SMS sent successfully."))
-          .catch(e => console.error("Receipt SMS failed:", e));
+        }).catch(e => console.error("Receipt SMS failed:", e));
       }
 
-      toast.success("Payment recorded successfully", { id: "payment" });
+      // Invalidate cache
+      sessionStorage.removeItem('invoices_cache');
+      sessionStorage.removeItem('invoices_cache_time');
       
-      if (invoice.appointmentId) {
-        const docRef = doc(db, "appointments", invoice.appointmentId);
-        await updateDoc(docRef, { paymentStatus: "paid" });
-      }
+      toast.success("Payment recorded successfully", { id: "payment" });
     } catch (error) {
        console.error("Payment error", error);
        toast.error("Failed to process payment", { id: "payment" });
@@ -184,33 +144,26 @@ export default function Invoices() {
   };
 
   const handleVoidInvoice = async (invoice: Invoice | null) => {
-    if (!invoice?.id) return;
+    if (!invoice?.id || !profile?.businessId) return;
     try {
       toast.loading("Applying void protocol...", { id: "delete" });
-      const invoiceRef = doc(db, "invoices", invoice.id);
-      const paymentHistoryEntry = {
-        action: "voided",
-        timestamp: serverTimestamp(),
-        method: invoice.paymentMethodDetails || invoice.paymentProvider || "unknown"
-      };
-      await updateDoc(invoiceRef, {
+      await updateInvoiceFields(invoice.id, {
         status: "voided",
-        paymentStatus: "voided",
-        paymentHistory: arrayUnion(paymentHistoryEntry)
-      });
+        paymentStatus: "voided"
+      }, profile.businessId);
+
       setSelectedInvoice((prev) => prev ? { 
         ...prev, 
         status: "voided",
-        paymentStatus: "voided",
-        paymentHistory: [...(prev.paymentHistory || []), { ...paymentHistoryEntry, timestamp: new Date() }]
+        paymentStatus: "voided"
       } as Invoice : null);
       setIsDetailOpen(false);
+      
+      // Invalidate cache
+      sessionStorage.removeItem('invoices_cache');
+      sessionStorage.removeItem('invoices_cache_time');
+      
       toast.success("Invoice voided successfully", { id: "delete" });
-
-      if (invoice.appointmentId) {
-        const docRef = doc(db, "appointments", invoice.appointmentId);
-        await updateDoc(docRef, { paymentStatus: "voided" });
-      }
     } catch (error) {
        console.error("Void error", error);
        toast.error("Failed to void invoice", { id: "delete" });
@@ -218,48 +171,28 @@ export default function Invoices() {
   };
 
   const handleUndoPayment = async (invoice: Invoice | null) => {
-    if (!invoice?.id) return;
+    if (!invoice?.id || !profile?.businessId) return;
     try {
       toast.loading("Undoing payment...", { id: "payment-undo" });
-      const invoiceRef = doc(db, "invoices", invoice.id);
       
-      const paymentHistoryEntry = {
-        action: "undone",
-        timestamp: serverTimestamp(),
-        method: invoice.paymentMethodDetails || invoice.paymentProvider || "unknown"
-      };
-
-      const updateData = {
+      await updateInvoiceFields(invoice.id, {
         status: "pending",
-        paymentStatus: "unpaid",
-        paymentProvider: deleteField(),
-        paymentMethodDetails: deleteField(),
-        paidAt: deleteField(),
-        transactionReference: deleteField(),
-        paymentHistory: arrayUnion(paymentHistoryEntry)
-      };
-
-      await updateDoc(invoiceRef, updateData as any);
+        paymentStatus: "unpaid"
+      }, profile.businessId);
       
       setSelectedInvoice((prev: any) => {
         if (!prev) return null;
         let newState = { ...prev };
         newState.status = "pending";
         newState.paymentStatus = "unpaid";
-        delete newState.paymentProvider;
-        delete newState.paymentMethodDetails;
-        delete newState.paidAt;
-        delete newState.transactionReference;
-        newState.paymentHistory = [...(prev.paymentHistory || []), { ...paymentHistoryEntry, timestamp: new Date() }];
         return newState;
       });
       
-      toast.success("Payment reversed to unpaid", { id: "payment-undo" });
+      // Invalidate cache
+      sessionStorage.removeItem('invoices_cache');
+      sessionStorage.removeItem('invoices_cache_time');
       
-      if (invoice.appointmentId) {
-        const docRef = doc(db, "appointments", invoice.appointmentId);
-        await updateDoc(docRef, { paymentStatus: "unpaid" });
-      }
+      toast.success("Payment reversed to unpaid", { id: "payment-undo" });
     } catch (error) {
        console.error("Undo payment error:", error);
        toast.error("Failed to undo payment", { id: "payment-undo" });

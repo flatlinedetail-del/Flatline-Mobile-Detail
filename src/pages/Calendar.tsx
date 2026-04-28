@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, AlertTriangle, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe, Navigation2, Play, Check, X, Map } from "lucide-react";
+import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, RefreshCcw, AlertTriangle, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe, Navigation2, Play, Check, X, Map } from "lucide-react";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { format, startOfDay, endOfDay, isSameDay, addDays, subDays, addHours, addWeeks, addMonths, subMonths, startOfMonth, endOfMonth, isBefore, parseISO, parse, startOfWeek, getDay, addMinutes } from "date-fns";
@@ -50,6 +50,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { fetchGoogleEvents, createGoogleEvent, updateGoogleEvent, deleteGoogleEvent } from "../services/googleCalendarService";
 import { geocodeAddress } from "../services/geocodingService";
 import { createNotification } from "../services/notificationService";
+import { getAppointmentsInRange, softDeleteAppointment, softDeleteAppointmentsBatch, updateAppointment, updateAppointmentsBatch, createAppointmentsBatch, createAppointment, getAppointmentsBySeriesId, getRecentAppointments } from "../services/appointmentService";
+import * as firestoreUtils from "../lib/firestoreUtils";
 
 const localizer = dateFnsLocalizer({
   format,
@@ -274,46 +276,91 @@ export default function Calendar() {
     );
   }, [isLoaded, optimizedStops, settings, date]);
 
+  const fetchCalendarData = async (showToast = false) => {
+    if (!profile) return;
+
+    // Cache check to avoid redundant reads during navigation (5 min TTL)
+    const CACHE_KEY = `calendar_cache_${profile.id}`;
+    const lastFetch = Number(sessionStorage.getItem(`${CACHE_KEY}_time`) || 0);
+    const now = Date.now();
+    const CACHE_TTL = 5 * 60 * 1000;
+
+    if (!showToast && now - lastFetch < CACHE_TTL) {
+      const cachedData = sessionStorage.getItem(CACHE_KEY);
+      if (cachedData) {
+        try {
+          const parsed = JSON.parse(cachedData);
+          setAppointments(parsed.appointments);
+          setTimeBlocks(parsed.timeBlocks);
+          setClients(parsed.clients || []);
+          setServices(parsed.services);
+          setAddons(parsed.addons);
+          setSettings(parsed.settings);
+          setLoading(false);
+          console.log("[Calendar] Loaded from cache");
+          return;
+        } catch (e) {
+          console.warn("[Calendar] Cache parse failed", e);
+        }
+      }
+    }
+
+    if (showToast) toast.loading("Syncing Ops...", { id: "sync-cal" });
+    setLoading(true);
+    try {
+      // Reduced range to 1 month back and 2 months forward to save quota
+      const startOfRange = startOfMonth(subMonths(new Date(), 1));
+      const endOfRange = endOfMonth(addMonths(new Date(), 2));
+
+      const [appointmentsData, tbSnap, clientsSnap, servicesSnap, addonsSnap, settingsSnap] = await Promise.all([
+        getAppointmentsInRange(profile?.businessId || "default-business", startOfRange, endOfRange),
+        getDocs(query(collection(db, "blocked_dates"), where("businessId", "==", profile?.businessId || "default-business"), limit(100))),
+        getDocs(query(collection(db, "clients"), ...firestoreUtils.getBaseQuery(profile?.businessId || "default-business"), limit(200))),
+        getDocs(query(collection(db, "services"), ...firestoreUtils.getBaseQuery(profile?.businessId || "default-business"))),
+        getDocs(query(collection(db, "addons"), ...firestoreUtils.getBaseQuery(profile?.businessId || "default-business"))),
+        getDoc(doc(db, "settings", profile?.businessId || "default-business"))
+      ]);
+
+      const timeBlocksData = tbSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const clientsData = clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const servicesData = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => s.isActive);
+      const addonsData = addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((a: any) => a.isActive);
+      const businessSettings = settingsSnap.exists() ? (settingsSnap.data() as BusinessSettings) : null;
+
+      setAppointments(appointmentsData);
+      setTimeBlocks(timeBlocksData);
+      setClients(clientsData);
+      setServices(servicesData);
+      setAddons(addonsData);
+      
+      if (businessSettings) setSettings(businessSettings);
+      
+      // Save to Session Cache
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+        appointments: appointmentsData,
+        timeBlocks: timeBlocksData,
+        clients: clientsData,
+        services: servicesData,
+        addons: addonsData,
+        settings: businessSettings
+      }));
+      sessionStorage.setItem(`${CACHE_KEY}_time`, Date.now().toString());
+
+      setLoading(false);
+      if (showToast) toast.success("Ops Synchronized", { id: "sync-cal" });
+    } catch (error: any) {
+      console.error("Error fetching calendar data:", error);
+      setLoading(false);
+      if (error?.message?.includes("Quota limit exceeded")) {
+        toast.error("Calendar Sync Failed: Quota exceeded");
+      } else if (showToast) {
+        toast.error("Sync Failed", { id: "sync-cal" });
+      }
+    }
+  };
+
   useEffect(() => {
     if (authLoading || !profile) return;
-
-    // Data fetcher for Calendar metadata (Fetch once on mount to save quota)
-    const fetchCalendarData = async () => {
-      try {
-        const startOfRange = startOfMonth(subMonths(new Date(), 3));
-        const endOfRange = endOfMonth(addMonths(new Date(), 3));
-
-        const [apptsSnap, tbSnap, clientsSnap, servicesSnap, addonsSnap, settingsSnap] = await Promise.all([
-          getDocs(query(
-            collection(db, "appointments"), 
-            where("scheduledAt", ">=", Timestamp.fromDate(startOfRange)),
-            where("scheduledAt", "<=", Timestamp.fromDate(endOfRange)),
-            orderBy("scheduledAt", "asc")
-          )),
-          getDocs(query(collection(db, "blocked_dates"))),
-          getDocs(query(collection(db, "clients"), limit(200))),
-          getDocs(collection(db, "services")),
-          getDocs(collection(db, "addons")),
-          getDoc(doc(db, "settings", "business"))
-        ]);
-
-        const appointmentsData = apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setAppointments(appointmentsData);
-        setTimeBlocks(tbSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setClients(clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setServices(servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => s.isActive));
-        setAddons(addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((a: any) => a.isActive));
-        
-        if (settingsSnap.exists()) setSettings(settingsSnap.data() as BusinessSettings);
-        
-        setLoading(false);
-      } catch (error) {
-        console.error("Error fetching calendar data:", error);
-        setLoading(false);
-        toast.error("Failed to load calendar data. Quota may be exceeded.");
-      }
-    };
-
     fetchCalendarData();
     
     return () => {};
@@ -395,7 +442,7 @@ export default function Calendar() {
     if (loading) return; // Wait for appointments to load
     if (locationStateProcessed.current) return;
 
-    if (location.state && (location.state.lead || location.state.openAddDialog || location.state.editingAppointmentId)) {
+    if (location.state && (location.state.lead || location.state.openAddDialog || location.state.editingAppointmentId || location.state.editingWaitlistId)) {
       toast.success("Calendar State Received");
       
       if (location.state.lead) {
@@ -411,9 +458,12 @@ export default function Calendar() {
         }
       } else if (location.state.clientId || location.state.customerId || location.state.vendorId) {
         setSelectedCustomerId(location.state.clientId || location.state.customerId || location.state.vendorId);
-      } else if (location.state.editingAppointmentId) {
-        const appToEdit = appointments.find(a => a.id === location.state.editingAppointmentId);
+      } else if (location.state.editingAppointmentId || location.state.editingWaitlistId) {
+        const targetId = location.state.editingAppointmentId || location.state.editingWaitlistId;
+        const appToEdit = appointments.find(a => a.id === targetId);
         if (appToEdit) {
+          const dt = appToEdit.scheduledAt?.toDate ? appToEdit.scheduledAt.toDate() : new Date(appToEdit.scheduledAt);
+          if (dt && !isNaN(dt.getTime())) setDate(dt);
           setEditingAppointment({
             ...appToEdit,
             _editSeries: location.state.editSeries || false
@@ -457,6 +507,11 @@ export default function Calendar() {
           }));
           setSelectedVehicleIds([v.id]);
         }
+      }, (error: any) => {
+        if (error?.code === 'cancelled' || error?.message?.includes('CANCELLED') || error?.message?.includes('idle stream')) {
+          return; // Ignore idle stream disconnects
+        }
+        console.error("Error listening to vehicles:", error);
       });
     } else {
       setAvailableVehicles([]);
@@ -502,7 +557,11 @@ export default function Calendar() {
         
         if (editingAppointment.scheduledAt) {
           const date = editingAppointment.scheduledAt.toDate ? editingAppointment.scheduledAt.toDate() : new Date(editingAppointment.scheduledAt);
-          setScheduledAtValue(format(date, "yyyy-MM-dd'T'HH:mm"));
+          if (!isNaN(date.getTime())) {
+            setScheduledAtValue(format(date, "yyyy-MM-dd'T'HH:mm"));
+          } else {
+            setScheduledAtValue("");
+          }
         }
         
         setAppointment(prev => ({
@@ -761,7 +820,7 @@ export default function Calendar() {
         type: "system",
         relatedId: clientId,
         relatedType: "client"
-      });
+      }, profile!.businessId);
     }
 
     if (daySettings) {
@@ -912,10 +971,9 @@ export default function Calendar() {
 
     if (!jobNum) {
       // Auto-generate job number
-      const appointmentsQuery = query(collection(db, "appointments"), orderBy("createdAt", "desc"), limit(100));
-      const snapshot = await getDocs(appointmentsQuery);
-      const existingJobNums = snapshot.docs
-        .map(doc => doc.data().jobNum as string)
+      const recentApps = await getRecentAppointments(profile!.businessId, 100);
+      const existingJobNums = recentApps
+        .map(appt => appt.jobNum as string)
         .filter(Boolean);
       
       let maxNum = 1000;
@@ -1028,22 +1086,9 @@ export default function Calendar() {
     try {
       if (editingAppointment) {
         if (editingAppointment._editSeries && editingAppointment.recurringInfo?.seriesId) {
-          const q = query(
-            collection(db, "appointments"), 
-            where("recurringInfo.seriesId", "==", editingAppointment.recurringInfo.seriesId)
-          );
-          const snapshot = await getDocs(q);
-          const batch = writeBatch(db);
+          const appts = await getAppointmentsBySeriesId(profile!.businessId, editingAppointment.recurringInfo.seriesId);
+          await updateAppointmentsBatch(appts.map(a => a.id), { ...appointmentData, updatedAt: serverTimestamp() }, profile!.businessId);
           
-          snapshot.docs.forEach(docSnap => {
-            const { scheduledAt, updatedAt, createdAt, ...rest } = appointmentData;
-            batch.update(docSnap.ref, {
-              ...rest,
-              updatedAt: serverTimestamp()
-            });
-          });
-          
-          await batch.commit();
           toast.success("Entire series updated!");
         } else {
           const smsData = {
@@ -1057,7 +1102,7 @@ export default function Calendar() {
 
           const gRes = await syncWithGoogle(appointmentData, editingAppointment.googleEventId);
           if (gRes?.id) appointmentData.googleEventId = gRes.id;
-          await updateDoc(doc(db, "appointments", editingAppointment.id), appointmentData);
+          await updateAppointment(editingAppointment.id, appointmentData, profile!.businessId);
           
           await createNotification({
             userId: profile!.id,
@@ -1066,7 +1111,7 @@ export default function Calendar() {
             type: "booking",
             relatedId: editingAppointment.id,
             relatedType: "appointment"
-          });
+          }, profile!.businessId);
           
           if (client?.phone) {
             messagingService.sendTemplateSms(
@@ -1111,20 +1156,17 @@ export default function Calendar() {
             currentDate = nextDate;
           }
 
-          const savePromises = occurrences.map((date, index) => {
-            return addDoc(collection(db, "appointments"), {
-              ...appointmentData,
-              scheduledAt: date,
-              createdAt: serverTimestamp(),
-              recurringInfo: {
-                ...appointmentData.recurringInfo,
-                occurrenceIndex: index + 1,
-                totalOccurrences: occurrences.length
-              }
-            });
-          });
+          const appointmentDataList = occurrences.map((date, index) => ({
+            ...appointmentData,
+            scheduledAt: date,
+            recurringInfo: {
+              ...appointmentData.recurringInfo,
+              occurrenceIndex: index + 1,
+              totalOccurrences: occurrences.length
+            }
+          }));
 
-          await Promise.all(savePromises);
+          await createAppointmentsBatch(appointmentDataList, profile!.businessId);
           
           // Trigger Notification for series
           await createNotification({
@@ -1134,7 +1176,7 @@ export default function Calendar() {
             type: "booking",
             relatedId: appointmentData.clientId || appointmentData.customerId,
             relatedType: "appointment"
-          });
+          }, profile!.businessId);
 
           toast.success(`Created ${occurrences.length} recurring appointments!`);
         } else {
@@ -1146,19 +1188,16 @@ export default function Calendar() {
             confirmation: "pending"
           };
 
-          const docRef = await addDoc(collection(db, "appointments"), {
-            ...appointmentData,
-            createdAt: serverTimestamp(),
-          });
+          const docId = await createAppointment(appointmentData, profile!.businessId);
 
           await createNotification({
             userId: profile!.id,
             title: "New Appointment",
             message: `New booking for ${appointmentData.customerName} on ${format(startAt, "MMM do")}`,
             type: "booking",
-            relatedId: docRef.id,
+            relatedId: docId,
             relatedType: "appointment"
-          });
+          }, profile!.businessId);
 
           // Attempt to send confirmation SMS
           if (client?.phone) {
@@ -1175,19 +1214,19 @@ export default function Calendar() {
               client.phone,
               "booked",
               smsData,
-              docRef.id,
+              docId,
               client.id
             ).then(async (res: any) => {
               if (res.success) {
-                await updateDoc(docRef, { "reminders.confirmation": "sent" });
+                await updateAppointment(docId, { reminders: { confirmation: "sent" } }, profile!.businessId);
               } else {
-                await updateDoc(docRef, { "reminders.confirmation": "failed" });
+                await updateAppointment(docId, { reminders: { confirmation: "failed" } }, profile!.businessId);
               }
             }).catch(async (e) => {
-              await updateDoc(docRef, { "reminders.confirmation": "failed" });
+              await updateAppointment(docId, { reminders: { confirmation: "failed" } }, profile!.businessId);
             });
           } else {
-             await updateDoc(docRef, { "reminders.confirmation": "skipped" });
+             await updateAppointment(docId, { reminders: { confirmation: "skipped" } }, profile!.businessId);
           }
 
           // Trigger Notification
@@ -1198,7 +1237,7 @@ export default function Calendar() {
             type: "booking",
             relatedId: appointmentData.clientId || appointmentData.customerId,
             relatedType: "appointment"
-          });
+          }, profile!.businessId);
 
           if (activeLeadId) {
             await updateDoc(doc(db, "leads", activeLeadId), {
@@ -1326,17 +1365,14 @@ export default function Calendar() {
 
     try {
       if (scope === "series" && app?.recurringInfo?.seriesId) {
-        const q = query(collection(db, "appointments"), where("recurringInfo.seriesId", "==", app.recurringInfo.seriesId));
-        const snapshot = await getDocs(q);
-        const batch = writeBatch(db);
-        snapshot.docs.forEach(docSnap => batch.delete(docSnap.ref));
-        await batch.commit();
+        const appts = await getAppointmentsBySeriesId(profile!.businessId, app.recurringInfo.seriesId);
+        await softDeleteAppointmentsBatch(appts.map(a => a.id), profile!.businessId);
         toast.success("Entire series deleted successfully");
       } else {
         if (app?.googleEventId) {
           try { await deleteGoogleEvent(app.googleEventId); } catch(e) { console.error("Google delete failed:", e); }
         }
-        await deleteDoc(doc(db, "appointments", id));
+        await softDeleteAppointment(id, profile!.businessId);
         toast.success("Job deleted successfully");
       }
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
@@ -1356,11 +1392,7 @@ export default function Calendar() {
     if (selectedIds.length === 0) return;
     setIsDeletingBulk(true);
     try {
-      const batch = writeBatch(db);
-      selectedIds.forEach(id => {
-        batch.delete(doc(db, "appointments", id));
-      });
-      await batch.commit();
+      await softDeleteAppointmentsBatch(selectedIds, profile!.businessId);
       toast.success(`Successfully deleted ${selectedIds.length} jobs`);
       setSelectedIds([]);
       setIsSelectionMode(false);
@@ -1391,6 +1423,7 @@ export default function Calendar() {
     paid: "bg-zinc-400/20 text-zinc-300 border border-zinc-400/30",
     canceled: "bg-red-500/20 text-red-400 border border-red-500/30",
     no_show: "bg-rose-500/20 text-rose-400 border border-rose-500/30",
+    waitlisted: "bg-purple-500/20 text-purple-400 border border-purple-500/30",
   };
 
   const getStatusColor = (status: string, isVip?: boolean) => {
@@ -1596,7 +1629,7 @@ export default function Calendar() {
       if (newStatus === 'arrived') {
         console.log(`Arrived clicked for appointmentId: ${selectedDetailedApp.id}`);
       }
-      await updateDoc(doc(db, "appointments", selectedDetailedApp.id), { status: newStatus });
+      await updateAppointment(selectedDetailedApp.id, { status: newStatus as any }, profile!.businessId);
       setSelectedDetailedApp({ ...selectedDetailedApp, status: newStatus });
       setAppointments(prev => prev.map(a => a.id === selectedDetailedApp.id ? { ...a, status: newStatus } : a));
       toast.success(`Job marked as ${newStatus.replace('_', ' ')}`);
@@ -1610,7 +1643,7 @@ export default function Calendar() {
           type: "booking",
           relatedId: selectedDetailedApp.id,
           relatedType: "appointment"
-        });
+        }, profile!.businessId);
       }
 
       // Trigger SMS
@@ -2300,6 +2333,7 @@ export default function Calendar() {
                                   <SelectItem value="paid">Paid</SelectItem>
                                   <SelectItem value="canceled">Canceled</SelectItem>
                                   <SelectItem value="no_show">No Show</SelectItem>
+                                  <SelectItem value="waitlisted">Waitlisted</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -3613,56 +3647,77 @@ export default function Calendar() {
                      <p className="text-sm font-bold text-white truncate">{app.address || "No address"}</p>
                    </div>
 
-                   {/* Vehicles Section */}
-                   <div className="space-y-3 mb-4">
-                     <h3 className="text-[10px] text-gray-500 font-bold uppercase tracking-widest px-1">VEHICLE(S) BEING SERVICED</h3>
-                     {(app.vehicleIds?.length > 0) ? (
-                       <div className="space-y-3">
-                         {app.vehicleIds.map((vId: string) => {
-                           const vData = detailedAppVehicles.find(v => v.id === vId);
-                           // Filter services matching this vehicle
-                           const assignedServices = app.serviceSelections?.filter((s: any) => s.vehicleId === vId || !s.vehicleId) || [];
-                           const serviceNames = assignedServices.map((s: any) => services.find(srv => srv.id === s.id)?.name || s.name).filter(Boolean);
-                           
-                           if (!vData) {
-                             // Fallback if not loaded yet or missing
+                     {/* Vehicles Section */}
+                     <div className="space-y-3 mb-4">
+                       <h3 className="text-[10px] text-gray-500 font-bold uppercase tracking-widest px-1">VEHICLE(S) BEING SERVICED</h3>
+                       {(app.vehicleIds?.length > 0) ? (
+                         <div className="space-y-3">
+                           {app.vehicleIds.map((vId: string) => {
+                             const vData = detailedAppVehicles.find(v => v.id === vId);
+                             // Filter services matching this vehicle
+                             const assignedServices = app.serviceSelections?.filter((s: any) => s.vehicleId === vId || !s.vehicleId) || [];
+                             const serviceNames = assignedServices.map((s: any) => services.find(srv => srv.id === s.id)?.name || s.name).filter(Boolean);
+                             
+                             if (!vData) {
+                               // Fallback if not loaded yet or missing
+                               return (
+                                 <div key={vId} className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-1">
+                                   <p className="text-sm font-bold text-white">Loading vehicle data...</p>
+                                   <p className="text-[10px] text-gray-400 capitalize">{serviceNames.join(", ") || "No services assigned"}</p>
+                                 </div>
+                               );
+                             }
+  
                              return (
-                               <div key={vId} className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-1">
-                                 <p className="text-sm font-bold text-white">Loading vehicle data...</p>
-                                 <p className="text-[10px] text-gray-400 capitalize">{serviceNames.join(", ") || "No services assigned"}</p>
-                               </div>
-                             );
-                           }
-
-                           return (
-                             <div key={vId} className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-2 relative overflow-hidden">
-                               <div className="absolute top-0 right-0 p-3">
-                                 <div className="w-1.5 h-1.5 rounded-full bg-primary/50 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></div>
-                               </div>
-                               <div>
-                                 <p className="text-base font-black text-white">{vData.year} {vData.make} {vData.model}</p>
-                                 <p className="text-xs text-gray-400 font-medium">
-                                   {vData.type || vData.size || "Standard"} • {vData.color || "No color"}
-                                   {vData.licensePlate && ` • LXP: ${vData.licensePlate}`}
-                                 </p>
-                               </div>
-                               {serviceNames.length > 0 && (
-                                 <div className="mt-1">
-                                   <p className="text-[10px] text-primary/80 font-bold uppercase tracking-widest bg-primary/10 inline-block px-2 py-0.5 rounded">
-                                     {serviceNames.join(", ")}
+                               <div key={vId} className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-2 relative overflow-hidden">
+                                 <div className="absolute top-0 right-0 p-3">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-primary/50 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></div>
+                                 </div>
+                                 <div>
+                                   <p className="text-base font-black text-white">{vData.year} {vData.make} {vData.model}</p>
+                                   <p className="text-xs text-gray-400 font-medium">
+                                     {vData.type || vData.size || "Standard"} • {vData.color || "No color"}
+                                     {vData.licensePlate && ` • LXP: ${vData.licensePlate}`}
                                    </p>
                                  </div>
-                               )}
+                                 {serviceNames.length > 0 && (
+                                   <div className="mt-1">
+                                     <p className="text-[10px] text-primary/80 font-bold uppercase tracking-widest bg-primary/10 inline-block px-2 py-0.5 rounded">
+                                       {serviceNames.join(", ")}
+                                     </p>
+                                   </div>
+                                 )}
+                               </div>
+                             )
+                           })}
+                         </div>
+                       ) : app.vehicleInfo || (app.vehicleNames && app.vehicleNames.length > 0) ? (
+                         <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-2 relative overflow-hidden">
+                           <div className="absolute top-0 right-0 p-3">
+                             <div className="w-1.5 h-1.5 rounded-full bg-primary/50 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></div>
+                           </div>
+                           <div>
+                             <p className="text-base font-black text-white">{app.vehicleInfo || app.vehicleNames?.join(", ")}</p>
+                             {app.vehicleSize && (
+                                <p className="text-xs text-gray-400 font-medium capitalize">
+                                  {app.vehicleSize}
+                                </p>
+                             )}
+                           </div>
+                           {app.serviceNames?.length > 0 && (
+                             <div className="mt-1">
+                               <p className="text-[10px] text-primary/80 font-bold uppercase tracking-widest bg-primary/10 inline-block px-2 py-0.5 rounded">
+                                 {app.serviceNames.join(", ")}
+                               </p>
                              </div>
-                           )
-                         })}
-                       </div>
-                     ) : (
-                       <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-1 text-center items-center justify-center py-6">
-                         <p className="text-sm font-bold text-gray-400">No vehicle assigned</p>
-                       </div>
-                     )}
-                   </div>
+                           )}
+                         </div>
+                       ) : (
+                         <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-1 text-center items-center justify-center py-6">
+                           <p className="text-sm font-bold text-gray-400">No vehicle assigned</p>
+                         </div>
+                       )}
+                     </div>
 
                   {/* Action Controls */}
                   <div className="grid grid-cols-3 gap-3 pt-4 border-t border-white/5">

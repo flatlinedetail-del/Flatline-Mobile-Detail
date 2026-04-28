@@ -4,6 +4,7 @@ import { db } from "../firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { getAppointmentsInRange } from "../services/appointmentService";
 import { 
   BarChart, 
   Bar, 
@@ -66,12 +67,6 @@ export default function Reports() {
       end = endOfMonth(subMonths(now, 1));
     }
 
-    const qAppts = query(
-      collection(db, "appointments"),
-      where("scheduledAt", ">=", Timestamp.fromDate(start)),
-      where("scheduledAt", "<=", Timestamp.fromDate(end))
-    );
-
     const qExpenses = query(
       collection(db, "expenses"),
       where("date", ">=", Timestamp.fromDate(start)),
@@ -80,11 +75,11 @@ export default function Reports() {
 
     const fetchReportsData = async () => {
       try {
-        const [apptsSnap, expensesSnap] = await Promise.all([
-          getDocs(qAppts),
+        const [appts, expensesSnap] = await Promise.all([
+          getAppointmentsInRange(profile!.businessId, start, end),
           getDocs(qExpenses)
         ]);
-        setAppointments(apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+        setAppointments(appts);
         setExpenses(expensesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense)));
         setLoading(false);
       } catch (error) {

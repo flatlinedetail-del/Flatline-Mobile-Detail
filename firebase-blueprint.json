@@ -291,6 +291,32 @@
       },
       "required": ["formId", "formVersion", "appointmentId", "signedAt"]
     },
+    "ProtectedClient": {
+      "title": "ProtectedClient",
+      "description": "Clients flagged for protection/risk",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "vehicleYear": { "type": "string" },
+        "vehicleMake": { "type": "string" },
+        "vehicleModel": { "type": "string" },
+        "vin": { "type": "string" },
+        "licensePlate": { "type": "string" },
+        "riskReason": { "type": "string" },
+        "internalNotes": { "type": "string" },
+        "protectionLevel": { "type": "string", "enum": ["Normal", "Higher Deposit", "Full Payment Required", "Approval Required", "Block Booking"] },
+        "requiredDepositType": { "type": "string", "enum": ["percentage", "fixed"] },
+        "requiredDepositValue": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "linkedClientId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["fullName", "protectionLevel", "isActive", "createdAt"]
+    },
     "TimeBlock": {
       "title": "TimeBlock",
       "description": "Personal time blocking for technicians/admins",
@@ -361,6 +387,7 @@
     "/time_blocks/{blockId}": { "schema": "TimeBlock", "description": "Personal time blocks" },
     "/users/{uid}/integrations/{integrationId}": { "schema": "object", "description": "User integrations like Google Calendar" },
     "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" },
-    "/communication_logs/{logId}": { "schema": "CommunicationLog", "description": "Client communication logs" }
+    "/communication_logs/{logId}": { "schema": "CommunicationLog", "description": "Client communication logs" },
+    "/protected_clients/{protectedClientId}": { "schema": "ProtectedClient", "description": "Protected clients" }
   }
 }

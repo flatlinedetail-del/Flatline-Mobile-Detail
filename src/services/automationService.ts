@@ -8,12 +8,37 @@ import {
   getDoc,
   Timestamp,
   addDoc,
+  increment,
   serverTimestamp
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { Appointment, Client, BusinessSettings, Service } from "../types";
+import { Appointment, Client, BusinessSettings, Service, Invoice } from "../types";
 
 import { messagingService } from "./messagingService";
+import { getUnpaidInvoices, triggerInvoiceReminder } from "./invoiceService";
+import { updateClientRiskStats } from "./clientService";
+
+export async function checkOverdueInvoices(businessId: string) {
+  const unpaid = await getUnpaidInvoices(businessId);
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  
+  for (const inv of unpaid) {
+    // Overdue if past due date (or arbitrary threshold if dueDate missing)
+    const dueDate = inv.dueDate ? inv.dueDate.toDate().getTime() : inv.createdAt.toDate().getTime() + 7 * ONE_DAY;
+    
+    if (now > dueDate) {
+       // Late payment logic
+       if (!inv.latePaymentProcessedAt) {
+         await updateClientRiskStats(inv.clientId, "latePayment");
+         await updateDoc(doc(db, "invoices", inv.id), { latePaymentProcessedAt: serverTimestamp() });
+       }
+       
+       // Trigger reminder if needed
+       await triggerInvoiceReminder(inv.id, businessId);
+    }
+  }
+}
 
 export async function processFollowUps() {
   try {
@@ -188,6 +213,78 @@ export async function processMaintenanceAutomation(appointment: Appointment) {
     }
   } catch (error) {
     console.error("Error in processMaintenanceAutomation:", error);
+  }
+}
+
+export async function triggerPostJobFollowUp(clientId: string, businessId: string) {
+  try {
+    const clientSnap = await getDoc(doc(db, "clients", clientId));
+    if (!clientSnap.exists()) return;
+    const client = { id: clientSnap.id, ...clientSnap.data() } as Client;
+
+    // Send Thanks/Review
+    const body = `Thank you for choosing Flatline Mobile Detail! We hope you enjoyed your service. Please let us know if you have any questions or would like to schedule your next appointment!`;
+    
+    if (client.phone) {
+        await messagingService.sendSms({
+            to: client.phone,
+            body: body
+        }).catch(e => console.error("Post-job SMS failed", e));
+    }
+    
+    // Log
+    await addDoc(collection(db, "automation_logs"), {
+        clientId: client.id,
+        type: "post_job_followup",
+        sentAt: serverTimestamp(),
+        status: "sent"
+    });
+
+  } catch (error) {
+    console.error("Error in triggerPostJobFollowUp:", error);
+  }
+}
+
+export async function triggerInvoiceReminder(invoiceId: string, businessId: string) {
+  const invRef = doc(db, "invoices", invoiceId);
+  const snap = await getDoc(invRef);
+  if (!snap.exists()) return;
+  const invoice = { id: snap.id, ...snap.data() } as Invoice;
+
+  if (invoice.status === 'paid' || (invoice.reminderCount || 0) >= 3) return;
+
+  const now = Date.now();
+  if (invoice.lastReminderSentAt && (now - invoice.lastReminderSentAt.toMillis() < 24 * 60 * 60 * 1000)) return; // 24h cooldown
+
+  await updateDoc(invRef, {
+    reminderCount: (invoice.reminderCount || 0) + 1,
+    lastReminderSentAt: serverTimestamp()
+  });
+
+  if (invoice.clientPhone) {
+    await messagingService.sendSms({
+        to: invoice.clientPhone,
+        body: `Friendly reminder from Flatline Mobile Detail: Invoice #${invoice.invoiceNumber || invoice.id.slice(-6)} is still outstanding. Please reach out if you have any questions!`
+    }).catch(e => console.error("Invoice reminder SMS failed", e));
+  }
+}
+
+export async function handleMissedAppointment(appointmentId: string, businessId: string) {
+  const appSnap = await getDoc(doc(db, "appointments", appointmentId));
+  if (!appSnap.exists()) return;
+  const appointment = { id: appSnap.id, ...appSnap.data() } as Appointment;
+
+  // 1. Update client risk
+  if (appointment.clientId) {
+      await updateClientRiskStats(appointment.clientId, "cancellation");
+  }
+
+  // 2. Notify
+  if (appointment.clientPhone) {
+      await messagingService.sendSms({
+          to: appointment.clientPhone,
+          body: `We missed you for your appointment with Flatline Mobile Detail. Please let us know if you'd like to reschedule!`
+      }).catch(e => console.error("Missed appointment SMS failed", e));
   }
 }
 
