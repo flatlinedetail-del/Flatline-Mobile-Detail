@@ -25,25 +25,25 @@ export const getInvoiceById = async (invoiceId: string): Promise<Invoice | null>
 };
 
 export const getInvoicesByBusiness = async (businessId: string): Promise<Invoice[]> => {
-  const q = query(collection(db, INVOICES_COL), where("businessId", "==", businessId), where("isDeleted", "!=", true));
+  const q = query(collection(db, INVOICES_COL), where("businessId", "==", businessId), where("isDeleted", "==", false));
   const snap = await getDocs(q);
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
 };
 
 export const getInvoicesByClient = async (clientId: string, businessId: string): Promise<Invoice[]> => {
-  const q = query(collection(db, INVOICES_COL), where("clientId", "==", clientId), where("businessId", "==", businessId), where("isDeleted", "!=", true));
+  const q = query(collection(db, INVOICES_COL), where("clientId", "==", clientId), where("businessId", "==", businessId), where("isDeleted", "==", false));
   const snap = await getDocs(q);
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
 };
 
 export const getInvoicesByJob = async (jobId: string, businessId: string): Promise<Invoice[]> => {
-  const q = query(collection(db, INVOICES_COL), where("jobId", "==", jobId), where("businessId", "==", businessId), where("isDeleted", "!=", true));
+  const q = query(collection(db, INVOICES_COL), where("jobId", "==", jobId), where("businessId", "==", businessId), where("isDeleted", "==", false));
   const snap = await getDocs(q);
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
 };
 
 export const getInvoicesByAppointment = async (appointmentId: string, businessId: string): Promise<Invoice[]> => {
-  const q = query(collection(db, INVOICES_COL), where("appointmentId", "==", appointmentId), where("businessId", "==", businessId), where("isDeleted", "!=", true));
+  const q = query(collection(db, INVOICES_COL), where("appointmentId", "==", appointmentId), where("businessId", "==", businessId), where("isDeleted", "==", false));
   const snap = await getDocs(q);
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
 };
@@ -52,7 +52,7 @@ export const getUnpaidInvoices = async (businessId: string): Promise<Invoice[]> 
   const q = query(
     collection(db, INVOICES_COL),
     where("businessId", "==", businessId),
-    where("isDeleted", "!=", true),
+    where("isDeleted", "==", false),
     where("paymentStatus", "in", ["unpaid", "partial"])
   );
   const snap = await getDocs(q);

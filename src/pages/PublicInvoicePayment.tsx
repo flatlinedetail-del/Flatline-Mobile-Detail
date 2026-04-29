@@ -34,7 +34,7 @@ export default function PublicInvoicePayment() {
   if (!invoice) return <div className="text-center mt-10">Invoice not found.</div>;
   if (invoice.paymentStatus === 'paid') return <div className="text-center mt-10 font-bold text-green-600">Invoice already paid.</div>;
 
-  const remainingBalance = invoice.total - (invoice.paidAmount || 0);
+  const remainingBalance = invoice.total - (invoice.amountPaid || 0);
 
   return (
     <div className="max-w-md mx-auto p-6 space-y-6">

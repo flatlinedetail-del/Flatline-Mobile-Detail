@@ -9,7 +9,8 @@ import {
   serverTimestamp, 
   orderBy, 
   getDocs,
-  deleteDoc
+  deleteDoc,
+  where
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -26,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "../components/ui/textarea";
 import { toast } from "sonner";
 import { Shield, Plus, Trash2, Edit2 } from "lucide-react";
+import { cn } from "../lib/utils";
 import { ProtectedClient, Client } from "../types";
 import { format } from "date-fns";
 
@@ -37,6 +39,7 @@ export default function ProtectedClients() {
   const [editingClient, setEditingClient] = useState<ProtectedClient | null>(null);
 
   const [formData, setFormData] = useState({
+    linkedClientId: "",
     fullName: "",
     phone: "",
     email: "",
@@ -48,28 +51,37 @@ export default function ProtectedClients() {
     licensePlate: "",
     riskReason: "",
     internalNotes: "",
-    protectionLevel: "Normal" as any,
-    requiredDepositType: "fixed" as any,
-    requiredDepositValue: 0,
+    riskLevel: "low" as "low" | "med" | "high",
     isActive: true
   });
 
+  const { profile } = useAuth();
+  
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, "protected_clients"), orderBy("createdAt", "desc")), (snap) => {
+    if (!profile?.businessId) return;
+
+    const unsub = onSnapshot(query(
+      collection(db, "protected_clients"), 
+      where("businessId", "==", profile.businessId),
+      orderBy("createdAt", "desc")
+    ), (snap) => {
       setProtectedClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient)));
+    }, (error) => {
+      console.error("Protected Clients Subscription Error:", error);
     });
     
     const fetchClients = async () => {
-      const snap = await getDocs(collection(db, "clients"));
+      const snap = await getDocs(query(collection(db, "clients"), where("businessId", "==", profile.businessId)));
       setAllClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
     };
     fetchClients();
     return unsub;
-  }, []);
+  }, [profile?.businessId]);
 
   useEffect(() => {
     if(editingClient) {
       setFormData({
+        linkedClientId: editingClient.linkedClientId || "",
         fullName: editingClient.fullName,
         phone: editingClient.phone,
         email: editingClient.email,
@@ -81,13 +93,12 @@ export default function ProtectedClients() {
         licensePlate: editingClient.licensePlate || "",
         riskReason: editingClient.riskReason,
         internalNotes: editingClient.internalNotes || "",
-        protectionLevel: editingClient.protectionLevel,
-        requiredDepositType: editingClient.requiredDepositType,
-        requiredDepositValue: editingClient.requiredDepositValue,
+        riskLevel: (editingClient as any).riskLevel || "low",
         isActive: editingClient.isActive
       });
     } else {
        setFormData({
+        linkedClientId: "",
         fullName: "",
         phone: "",
         email: "",
@@ -99,9 +110,7 @@ export default function ProtectedClients() {
         licensePlate: "",
         riskReason: "",
         internalNotes: "",
-        protectionLevel: "Normal",
-        requiredDepositType: "fixed",
-        requiredDepositValue: 0,
+        riskLevel: "low",
         isActive: true
       });
     }
@@ -110,24 +119,50 @@ export default function ProtectedClients() {
   const autofillClient = (client: Client) => {
     setFormData(prev => ({
       ...prev,
+      linkedClientId: client.id,
       fullName: client.name,
       phone: client.phone,
       email: client.email,
-      address: client.address
+      address: client.address,
+      riskLevel: client.riskLevel || "low"
     }));
   };
 
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const data = { ...formData, updatedAt: serverTimestamp() };
+    const data = { ...formData, updatedAt: serverTimestamp(), businessId: profile?.businessId };
     try {
+      let savedId;
       if (editingClient) {
         await updateDoc(doc(db, "protected_clients", editingClient.id), data);
+        savedId = editingClient.id;
         toast.success("Protected client updated");
       } else {
-        await addDoc(collection(db, "protected_clients"), { ...data, createdAt: serverTimestamp() });
+        const docRef = await addDoc(collection(db, "protected_clients"), { ...data, createdAt: serverTimestamp() });
+        savedId = docRef.id;
         toast.success("Protected client added");
       }
+
+      // SYNC to Clients Registry
+      if (formData.linkedClientId) {
+         try {
+           await updateDoc(doc(db, "clients", formData.linkedClientId), { riskLevel: formData.riskLevel });
+         } catch(e) { console.error("Failed syncing link to client", e); }
+      } else {
+        // Find match
+        const matchingClient = allClients.find(c => 
+           (c.email && formData.email && c.email.toLowerCase() === formData.email.toLowerCase()) ||
+           (c.phone && formData.phone && c.phone === formData.phone) ||
+           (c.name && formData.fullName && c.name.toLowerCase() === formData.fullName.toLowerCase())
+        );
+        if (matchingClient) {
+          try {
+            await updateDoc(doc(db, "clients", matchingClient.id), { riskLevel: formData.riskLevel });
+            await updateDoc(doc(db, "protected_clients", savedId), { linkedClientId: matchingClient.id });
+          } catch(e) { console.error("Failed matching client link", e); }
+        }
+      }
+
       setIsDialogOpen(false);
       setEditingClient(null);
     } catch (error) {
@@ -183,7 +218,7 @@ export default function ProtectedClients() {
                 <TableCell className="px-8 py-4">
                   <p className="font-bold text-white">{client.fullName}</p>
                 </TableCell>
-                <TableCell><Badge className="bg-orange-500/10 text-orange-500">{client.protectionLevel}</Badge></TableCell>
+                <TableCell><Badge className={cn("text-[10px] font-black uppercase tracking-widest", (client as any).riskLevel === 'high' ? "bg-red-500/20 text-red-500" : (client as any).riskLevel === 'med' ? "bg-yellow-500/20 text-yellow-500" : "bg-green-500/20 text-green-500")}>{(client as any).riskLevel === 'high' ? 'High Risk' : (client as any).riskLevel === 'med' ? 'Medium Risk' : 'Low Risk'}</Badge></TableCell>
                 <TableCell><Switch checked={client.isActive} disabled /></TableCell>
                 <TableCell className="text-right px-8">
                   <Button variant="ghost" size="icon" onClick={() => { setEditingClient(client); setIsDialogOpen(true); }}><Edit2 className="w-4 h-4 text-white/40" /></Button>
@@ -222,16 +257,14 @@ export default function ProtectedClients() {
              </div>
              <Input name="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="Email" className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
              <Textarea name="riskReason" value={formData.riskReason} onChange={e => setFormData({...formData, riskReason: e.target.value})} placeholder="Risk Reason" required className="bg-white/5 border-white/10 text-white rounded-xl" />
-             <Select value={formData.protectionLevel} onValueChange={(val: any) => setFormData({...formData, protectionLevel: val})}>
+             <Select value={formData.riskLevel} onValueChange={(val: any) => setFormData({...formData, riskLevel: val})}>
                 <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12">
-                   <SelectValue placeholder="Protection Level" />
+                   <SelectValue placeholder="Risk Level" />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-900 border-white/10 text-white">
-                   <SelectItem value="Normal">Normal</SelectItem>
-                   <SelectItem value="Higher Deposit">Higher Deposit</SelectItem>
-                   <SelectItem value="Full Payment Required">Full Payment Required</SelectItem>
-                   <SelectItem value="Approval Required">Approval Required</SelectItem>
-                   <SelectItem value="Block Booking">Block Booking</SelectItem>
+                   <SelectItem value="low">Low Risk</SelectItem>
+                   <SelectItem value="med">Medium Risk</SelectItem>
+                   <SelectItem value="high">High Risk</SelectItem>
                 </SelectContent>
              </Select>
              <div className="flex items-center gap-4">

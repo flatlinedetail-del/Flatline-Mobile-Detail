@@ -127,6 +127,8 @@ export default function Vendors() {
     
     const unsubVehicles = onSnapshot(query(collection(db, "vehicles"), where("ownerId", "==", selectedVendor.id), where("ownerType", "==", "vendor")), snap => {
       setVendorVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+    }, (error) => {
+      console.error("Vendor Vehicles Subscription Error:", error);
     });
 
     return () => {

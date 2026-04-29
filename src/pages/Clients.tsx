@@ -71,14 +71,14 @@ import {
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { format } from "date-fns";
 import VehicleSelector from "../components/VehicleSelector";
 import { 
   cn, 
   formatPhoneNumber, 
   getClientDisplayName,
   cleanAddress,
-  formatCurrency 
+  formatCurrency,
+  formatDateSafe 
 } from "../lib/utils";
 import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote } from "../types";
 import AddressInput from "../components/AddressInput";
@@ -326,7 +326,7 @@ export default function Clients() {
   }, [profile, authLoading]);
 
   useEffect(() => {
-    if (!selectedClient) {
+    if (!selectedClient || !selectedClient.id) {
       setClientVehicles([]);
       setClientHistory([]);
       setSignedForms([]);
@@ -454,6 +454,7 @@ export default function Clients() {
       } else {
         await addDoc(collection(db, "clients"), {
           ...clientData,
+          businessId: profile!.businessId,
           categoryIds: [],
           loyaltyPoints: 0,
           membershipLevel: "none",
@@ -841,7 +842,7 @@ export default function Clients() {
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
                               <Badge className={cn("text-[8px] font-black uppercase tracking-widest", 
                                  client.riskLevel === 'high' ? "bg-red-500/20 text-red-500" :
-                                 client.riskLevel === 'medium' ? "bg-yellow-500/20 text-yellow-500" :
+                                 client.riskLevel === 'med' ? "bg-yellow-500/20 text-yellow-500" :
                                  "bg-green-500/20 text-green-500"
                               )}>Risk: {client.riskLevel || 'low'}</Badge>
                               {(() => {
@@ -1206,7 +1207,7 @@ export default function Clients() {
                           <span className="text-xs font-bold uppercase tracking-wider">Follow-up Sent</span>
                         </div>
                         <p className="text-xs text-blue-600">
-                          Last follow-up sent on {format(selectedClient.followUpStatus.lastSentAt?.toDate() || new Date(), "MMM d, yyyy")} via {selectedClient.followUpStatus.channel}.
+                          Last follow-up sent on {formatDateSafe(selectedClient.followUpStatus.lastSentAt, "MMM d, yyyy")} via {selectedClient.followUpStatus.channel}.
                         </p>
                       </div>
                     )}
@@ -1470,9 +1471,15 @@ export default function Clients() {
                                 </Badge>
                               </div>
                               <div className="flex items-center gap-4 text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                                <span className="flex items-center gap-1.5"><Calendar className="w-3 h-3" /> {format(app.scheduledAt.toDate(), "MMM d, yyyy")}</span>
+                                <span className="flex items-center gap-1.5">
+                                  <Calendar className="w-3 h-3" /> 
+                                  {formatDateSafe(app.scheduledAt, "MMM d, yyyy")}
+                                </span>
                                 <span className="opacity-30">|</span>
-                                <span className="flex items-center gap-1.5"><Clock className="w-3 h-3" /> {format(app.scheduledAt.toDate(), "h:mm a")}</span>
+                                <span className="flex items-center gap-1.5">
+                                  <Clock className="w-3 h-3" /> 
+                                  {formatDateSafe(app.scheduledAt, "h:mm a")}
+                                </span>
                                 <span className="opacity-30">|</span>
                                 <span className="text-white font-black">{formatCurrency(app.totalAmount)}</span>
                               </div>
@@ -1501,7 +1508,7 @@ export default function Clients() {
                                 </Button>
                               }
                               title="Delete Appointment?"
-                              itemName={`Appointment on ${format(app.scheduledAt.toDate(), "MMM d")}`}
+                              itemName={`Appointment on ${formatDateSafe(app.scheduledAt, "MMM d")}`}
                               onConfirm={async () => {
                                 try {
                                   await deleteDoc(doc(db, "appointments", app.id));
@@ -1803,7 +1810,7 @@ export default function Clients() {
                                 <div>
                                   <p className="font-black text-white uppercase tracking-tight text-xs">INV-{inv.id.slice(-6).toUpperCase()}</p>
                                   <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
-                                    {inv.createdAt ? format((inv.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}
+                                    {formatDateSafe(inv.createdAt, "MMM d, yyyy")}
                                   </p>
                                 </div>
                               </div>
@@ -1850,7 +1857,7 @@ export default function Clients() {
                                 <div>
                                   <p className="font-black text-white uppercase tracking-tight text-xs">QUOTE-{q.id.slice(-6).toUpperCase()}</p>
                                   <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
-                                    {q.createdAt ? format((q.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}
+                                    {formatDateSafe(q.createdAt, "MMM d, yyyy")}
                                   </p>
                                 </div>
                               </div>
@@ -1984,13 +1991,13 @@ export default function Clients() {
                               <div className="flex items-center gap-3">
                                 <span className="text-[10px] tracking-widest uppercase text-white/40">Last Done:</span>
                                 <span className="text-xs font-bold text-white">
-                                  {timing.lastCompletedDate ? format(timing.lastCompletedDate, "MMM d, yyyy") : "Never"}
+                                  {formatDateSafe(timing.lastCompletedDate, "MMM d, yyyy", "Never")}
                                 </span>
                               </div>
                               <div className="flex items-center gap-3">
                                 <span className="text-[10px] tracking-widest uppercase text-white/40">Next Due:</span>
                                 <span className="text-xs font-bold text-white">
-                                  {timing.nextDueDate ? format(timing.nextDueDate, "MMM d, yyyy") : "Unknown"}
+                                  {formatDateSafe(timing.nextDueDate, "MMM d, yyyy", "Unknown")}
                                 </span>
                               </div>
                             </div>

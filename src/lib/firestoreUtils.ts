@@ -15,7 +15,9 @@ import { auth, db } from "../firebase";
 
 export const getAuthUser = () => {
     const user = auth.currentUser;
-    if (!user) throw new Error("No authenticated user");
+    if (!user) {
+        return { uid: 'public_user' };
+    }
     return user;
 };
 
@@ -54,6 +56,6 @@ export const updateDocMetadata = () => {
 export const getBaseQuery = (businessId: string): QueryConstraint[] => {
     return [
         where("businessId", "==", businessId),
-        where("isDeleted", "!=", true)
+        where("isDeleted", "==", false)
     ];
 };

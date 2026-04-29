@@ -28,11 +28,12 @@ export const subscribeToWaitlistCount = (
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("status", "in", ["waitlisted", "pending_waitlist", "offered"]),
-    where("isDeleted", "!=", true)
+    where("status", "in", ["waitlisted", "pending_waitlist", "offered"])
   );
   return onSnapshot(q, (snap) => {
     callback(snap.size);
+  }, (error) => {
+    console.error("Waitlist Count Subscription Error:", error);
   });
 };
 
@@ -44,12 +45,13 @@ export const subscribeToAppointmentsForClientRecommendations = (
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("clientId", "==", clientId),
-    where("isDeleted", "!=", true)
+    where("clientId", "==", clientId)
   );
   return onSnapshot(q, (snap) => {
     const apps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
     callback(apps);
+  }, (error) => {
+    console.error("Client Recommendations Subscription Error:", error);
   });
 };
 
@@ -120,8 +122,7 @@ export const getClientAppointments = async (businessId: string, clientId: string
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("clientId", "==", clientId),
-    where("isDeleted", "!=", true)
+    where("clientId", "==", clientId)
   );
   const snap = await getDocs(q);
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
@@ -132,7 +133,6 @@ export const getClientAppointmentsRecent = async (businessId: string, clientId: 
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
     where("clientId", "==", clientId),
-    where("isDeleted", "!=", true),
     orderBy("scheduledAt", "desc"),
     limit(limitCount)
   );
@@ -144,8 +144,7 @@ export const updateClientAppointmentsName = async (businessId: string, clientId:
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("clientId", "==", clientId),
-    where("isDeleted", "!=", true)
+    where("clientId", "==", clientId)
   );
   const snap = await getDocs(q);
   const batch = writeBatch(db);
@@ -160,8 +159,7 @@ export const softDeleteClientAppointmentsBatch = async (businessId: string, clie
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("clientId", "==", clientId),
-     where("isDeleted", "!=", true)
+    where("clientId", "==", clientId)
   );
   const snap = await getDocs(q);
   const batch = writeBatch(db);
@@ -254,8 +252,7 @@ export const batchDeleteClientAppointments = async (batch: WriteBatch, businessI
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("clientId", "==", clientId),
-    where("isDeleted", "!=", true)
+    where("clientId", "==", clientId)
   );
   const snap = await getDocs(q);
   const metadata = updateDocMetadata();
@@ -268,8 +265,7 @@ export const batchUpdateClientAppointmentsName = async (batch: WriteBatch, busin
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("clientId", "==", clientId),
-    where("isDeleted", "!=", true)
+    where("clientId", "==", clientId)
   );
   const snap = await getDocs(q);
   const metadata = updateDocMetadata();
@@ -282,8 +278,7 @@ export const hasVehicleAppointments = async (businessId: string, vehicleId: stri
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("vehicleId", "==", vehicleId),
-    where("isDeleted", "!=", true)
+    where("vehicleId", "==", vehicleId)
   );
   const snap = await getDocs(q);
   return !snap.empty;
@@ -293,8 +288,7 @@ export const hasCustomerAppointments = async (businessId: string, customerId: st
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("customerId", "==", customerId),
-    where("isDeleted", "!=", true)
+    where("customerId", "==", customerId)
   );
   const snap = await getDocs(q);
   return !snap.empty;
@@ -304,8 +298,7 @@ export const hasVendorAppointments = async (businessId: string, vendorId: string
   const q = query(
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
-    where("vendorId", "==", vendorId),
-    where("isDeleted", "!=", true)
+    where("vendorId", "==", vendorId)
   );
   const snap = await getDocs(q);
   return !snap.empty;
@@ -316,7 +309,6 @@ export const getVendorAppointmentsRecent = async (businessId: string, vendorId: 
     collection(db, APPOINTMENTS_COL),
     ...getBaseQuery(businessId),
     where("vendorId", "==", vendorId),
-    where("isDeleted", "!=", true),
     orderBy("scheduledAt", "desc"),
     limit(limitCount)
   );

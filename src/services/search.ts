@@ -41,7 +41,7 @@ export async function globalSearch(businessId: string, searchTerm: string): Prom
     });
 
     // 2. Search Appointments
-    const appsSnap = await getDocs(query(collection(db, "appointments"), ...getBaseQuery(businessId), where("isDeleted", "!=", true)));
+    const appsSnap = await getDocs(query(collection(db, "appointments"), ...getBaseQuery(businessId)));
     appsSnap.docs.forEach(doc => {
       const data = doc.data() as any;
       const combined = `${data.customerName} ${data.vin} ${data.roNumber} ${data.vehicleInfo} ${doc.id}`.toLowerCase();

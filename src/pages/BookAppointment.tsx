@@ -26,13 +26,12 @@ import {
 } from "../services/clientService";
 import { useAuth } from "../hooks/useAuth";
 import { toast } from "sonner";
-import { PaymentWrapper } from "../components/ui/PaymentWrapper";
+import { PaymentSection } from "../components/ui/PaymentWrapper";
 import { 
   Building2, CalendarIcon, Car, Clock, CreditCard, DollarSign, 
-
   AlertTriangle, Globe, Sparkles, Loader2, Star, RefreshCw,
   Bell, Info, AlertCircle, Wrench, ShieldCheck, Droplets,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, Check, ChevronLeft, Plus, Search
 } from "lucide-react";
 import { format, addHours } from "date-fns";
 import { motion, AnimatePresence } from "motion/react";
@@ -664,8 +663,22 @@ export default function BookAppointment() {
   useEffect(() => {
     let total = 0;
     const client = clients.find(c => c.id === selectedCustomerId);
-    const depositRequirement = getDepositRequirement(client || null);
-    setDepositInfo(depositRequirement);
+    
+    // DEBUG LOGGING
+    if (client) {
+      console.log("--- BOOKING RISK DEBUG ---");
+      console.log("Client ID:", client.id);
+      console.log("Client Name:", getClientDisplayName(client));
+      console.log("Risk Score:", client.riskScore);
+      console.log("Risk Level (stored):", client.riskLevel);
+      
+      const depositReq = getDepositRequirement(client);
+      console.log("Calculated Deposit Requirement:", depositReq);
+      console.log("--------------------------");
+      setDepositInfo(depositReq);
+    } else {
+      setDepositInfo(null);
+    }
 
     const isVIP = client?.isVIP;
     const vipSettings = client?.vipSettings;
@@ -1824,17 +1837,24 @@ export default function BookAppointment() {
                           : formatCurrency(depositInfo.amount)}
                       </span>
                     </div>
-                    <PaymentSection 
-                      amount={depositInfo.type === 'percentage' 
-                          ? (baseAmount + travelFee + afterHoursFeeDisplay) * depositInfo.amount / 100
-                          : depositInfo.amount}
-                      onPaymentSuccess={(id) => {
-                          setDepositPaid(true);
-                          setDepositTransactionId(id);
-                          setDepositPaidAt(new Date());
-                          toast.success("Deposit paid!");
-                      }}
-                    />
+                    {((depositInfo.type === 'percentage' ? (baseAmount + travelFee + afterHoursFeeDisplay) * depositInfo.amount / 100 : depositInfo.amount) > 0) && (
+                      <PaymentSection 
+                        amount={depositInfo.type === 'percentage' 
+                            ? (baseAmount + travelFee + afterHoursFeeDisplay) * depositInfo.amount / 100
+                            : depositInfo.amount}
+                        metadata={{
+                          clientId: selectedCustomerId,
+                          clientName: getClientDisplayName(clients.find(c => c.id === selectedCustomerId)),
+                          bookingDate: scheduledAtValue
+                        }}
+                        onPaymentSuccess={(id) => {
+                            setDepositPaid(true);
+                            setDepositTransactionId(id);
+                            setDepositPaidAt(new Date());
+                            toast.success("Deposit processed successfully.");
+                        }}
+                      />
+                    )}
                   </div>
                 )}
                 {depositPaid && (
@@ -1852,6 +1872,7 @@ export default function BookAppointment() {
           {/* 7. ACTIONS */}
           <div className="flex justify-end gap-4 pb-12">
             <Button
+              id="cancel-booking-button"
               type="button"
               onClick={() => navigate(-1)}
               variant="outline"
@@ -1860,8 +1881,9 @@ export default function BookAppointment() {
               Cancel
             </Button>
             <Button
+              id="confirm-booking-button"
               type="submit"
-              disabled={saving}
+              disabled={saving || (depositInfo && depositInfo.amount > 0 && !depositPaid)}
               className="px-8 h-12 bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-105 disabled:opacity-50"
             >
               {saving ? "Deploying..." : "Confirm Booking"}

@@ -165,7 +165,7 @@ export interface Client {
   latePayments: number;
   cancellations: number;
   riskScore: number; // 0-100
-  riskLevel: "low" | "medium" | "high";
+  riskLevel?: "low" | "med" | "high";
 }
 
 export interface Vehicle {
@@ -316,6 +316,7 @@ export interface Appointment {
   addOnNames?: string[];
   addOnSelections?: ServiceSelection[];
   jobNum?: string; // Added jobNum
+  jobId?: string; // Added jobId
   waitlistInfo?: any; // Added waitlistInfo
   baseAmount: number;
   travelFee: number;
@@ -444,6 +445,8 @@ export interface Job {
   productCosts?: JobProductCost[];
   smsAutomationPaused?: boolean;
   paymentStatus?: "unpaid" | "partial" | "paid" | "voided" | "refunded";
+  depositAmount?: number;
+  depositType?: "fixed" | "percentage";
   pricingAnalysis?: PricingAnalysis;
   internalNotes?: string;
   notes?: string;
@@ -503,10 +506,10 @@ export interface Invoice {
   dueDate?: Timestamp | FieldValue;
   lineItems: LineItem[];
   total: number;
-  status: "draft" | "sent" | "paid" | "voided" | "pending";
+  status: string; // "draft" | "sent" | "paid" | "voided" | "pending";
   description?: string;
   attachedFormIds?: string[];
-  paymentStatus: "unpaid" | "partial" | "paid" | "voided" | "refunded";
+  paymentStatus: string; // "unpaid" | "partial" | "paid" | "voided" | "refunded";
   paymentProvider?: "stripe" | "square" | "paypal" | "clover" | "manual";
   transactionReference?: string;
   paymentMethodDetails?: string;
@@ -517,11 +520,11 @@ export interface Invoice {
     amount?: number;
     provider?: string;
     notes?: string;
-  }[];
+  }[] | FieldValue;
   amountPaid: number;
   paidAt?: Timestamp | FieldValue;
   lateFeeEnabled: boolean; // New
-  lateFeeType: "fixed" | "percentage"; // New
+  lateFeeType: string; // "fixed" | "percentage"; // New
   lateFeeAmount: number; // New
   lateFeeGracePeriodDays: number; // New
   lateFeeApplied?: number; // New

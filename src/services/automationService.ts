@@ -15,17 +15,24 @@ import { db } from "../firebase";
 import { Appointment, Client, BusinessSettings, Service, Invoice } from "../types";
 
 import { messagingService } from "./messagingService";
-import { getUnpaidInvoices, triggerInvoiceReminder } from "./invoiceService";
 import { updateClientRiskStats } from "./clientService";
 
 export async function checkOverdueInvoices(businessId: string) {
-  const unpaid = await getUnpaidInvoices(businessId);
+  const q = query(
+    collection(db, "invoices"),
+    where("businessId", "==", businessId),
+    where("status", "==", "unpaid")
+  );
+  const snap = await getDocs(q);
+  const unpaid = snap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice));
   const now = Date.now();
   const ONE_DAY = 24 * 60 * 60 * 1000;
   
   for (const inv of unpaid) {
     // Overdue if past due date (or arbitrary threshold if dueDate missing)
-    const dueDate = inv.dueDate ? inv.dueDate.toDate().getTime() : inv.createdAt.toDate().getTime() + 7 * ONE_DAY;
+    const dueDateDate = (inv.dueDate instanceof Timestamp) ? inv.dueDate.toDate() : 
+                        (inv.createdAt instanceof Timestamp ? new Date(inv.createdAt.toDate().getTime() + 7 * ONE_DAY) : new Date(0));
+    const dueDate = dueDateDate.getTime();
     
     if (now > dueDate) {
        // Late payment logic
@@ -277,14 +284,18 @@ export async function handleMissedAppointment(appointmentId: string, businessId:
   // 1. Update client risk
   if (appointment.clientId) {
       await updateClientRiskStats(appointment.clientId, "cancellation");
-  }
-
-  // 2. Notify
-  if (appointment.clientPhone) {
-      await messagingService.sendSms({
-          to: appointment.clientPhone,
-          body: `We missed you for your appointment with Flatline Mobile Detail. Please let us know if you'd like to reschedule!`
-      }).catch(e => console.error("Missed appointment SMS failed", e));
+      
+      // 2. Notify
+      const clientSnap = await getDoc(doc(db, "clients", appointment.clientId));
+      if (clientSnap.exists()) {
+        const client = clientSnap.data() as Client;
+        if (client.phone) {
+            await messagingService.sendSms({
+                to: client.phone,
+                body: `We missed you for your appointment with Flatline Mobile Detail. Please let us know if you'd like to reschedule!`
+            }).catch(e => console.error("Missed appointment SMS failed", e));
+        }
+      }
   }
 }
 

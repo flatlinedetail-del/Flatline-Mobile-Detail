@@ -15,7 +15,6 @@ import { db } from "../firebase";
 import { Client, ClientType, ClientCategory, Customer, Vendor } from "../types";
 import { createDocMetadata, updateDocMetadata, getBaseQuery } from "../lib/firestoreUtils";
 import { getClientDisplayName } from "../lib/utils";
-import { batchUpdateClientAppointmentsName } from "./appointmentService";
 
 const CLIENTS_COL = "clients";
 const CLIENT_TYPES_COL = "client_types";
@@ -40,11 +39,11 @@ export const getClientCategories = async (): Promise<ClientCategory[]> => {
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClientCategory));
 };
 
-export const calculateRiskScore = (client: Client): { score: number; level: "low" | "medium" | "high" } => {
+export const calculateRiskScore = (client: Client): { score: number; level: "low" | "med" | "high" } => {
   const score = (client.noShows * 40) + (client.latePayments * 30) + (client.cancellations * 10);
-  let level: "low" | "medium" | "high" = "low";
+  let level: "low" | "med" | "high" = "low";
   if (score > 70) level = "high";
-  else if (score > 30) level = "medium";
+  else if (score > 30) level = "med";
   return { score, level };
 };
 
@@ -92,15 +91,34 @@ export const findMatchingClient = async (
 };
 
 export const getDepositRequirement = (client: Client | null): { amount: number; type: "fixed" | "percentage"; reason: string } => {
-  if (!client || client.riskLevel === 'low') {
+  if (!client) {
     return { amount: 0, type: "fixed", reason: "Standard deposit" };
   }
   
-  if (client.riskLevel === 'medium') {
+  // Normalize risk level to lowercase for comparison and handle potential missing values
+  // Support alternative field names just in case they exist in some records
+  const rawRisk = String(
+    client.riskLevel || 
+    (client as any).clientRisk || 
+    (client as any).riskStatus || 
+    (client as any).riskCategory || 
+    "low"
+  ).toLowerCase();
+  
+  if (rawRisk.includes('low')) {
+    return { amount: 0, type: "fixed", reason: "Standard deposit" };
+  }
+  
+  if (rawRisk.includes('med')) {
     return { amount: 25, type: "percentage", reason: "Increased risk deposit" };
   }
   
-  return { amount: 50, type: "percentage", reason: "Required high-risk deposit" };
+  if (rawRisk.includes('high')) {
+    return { amount: 50, type: "percentage", reason: "Required high-risk deposit" };
+  }
+
+  // Final fallback or for any value that doesn't explicitly match high/med
+  return { amount: 0, type: "fixed", reason: "Standard deposit" };
 };
 
 export const getClients = async (businessId: string): Promise<Client[]> => {
@@ -337,7 +355,17 @@ export const ensureClientNameFields = async (businessId: string) => {
         // Also update related appointments for this client
         const fullClientData = { ...data, ...updates };
         const newDisplayName = getClientDisplayName(fullClientData);
-        await batchUpdateClientAppointmentsName(batch, businessId, d.id, newDisplayName);
+
+        const qApps = query(
+          collection(db, "appointments"),
+          ...getBaseQuery(businessId),
+          where("clientId", "==", d.id)
+        );
+        const snapApps = await getDocs(qApps);
+        const meta = updateDocMetadata();
+        snapApps.docs.forEach(appDoc => {
+          batch.update(appDoc.ref, { customerName: newDisplayName, ...meta });
+        });
       }
     }
   }

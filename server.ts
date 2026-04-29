@@ -1,19 +1,56 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import { fileURLToPath } from "url";
 import "dotenv/config";
 import sgMail from "@sendgrid/mail";
 import twilio from "twilio";
 import Stripe from "stripe";
 import admin from "firebase-admin";
-import { updateInvoiceFields } from "./src/services/invoiceService.js";
 import { startScheduler } from "./scheduler.ts";
+import fs from "fs";
 
-admin.initializeApp();
-const dbAdmin = admin.firestore();
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION at:', promise, 'reason:', reason);
+});
+
+let firebaseConfig: any = {};
+try {
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+} catch (e) {
+  console.warn("Could not read firebase-applet-config.json");
+}
+
+let appAdmin: admin.app.App | undefined;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    appAdmin = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+  } catch(e) {
+    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT", e);
+  }
+}
+
+if (!appAdmin) {
+  if (firebaseConfig.projectId) {
+    appAdmin = admin.initializeApp({
+      projectId: firebaseConfig.projectId
+    });
+  } else {
+    console.error("CRITICAL: No Firebase project ID found. Firebase Admin will not be initialized.");
+  }
+}
+
+const dbAdmin = appAdmin ? appAdmin.firestore() : null;
+if (appAdmin && dbAdmin && firebaseConfig.firestoreDatabaseId) {
+  dbAdmin.settings({ databaseId: firebaseConfig.firestoreDatabaseId });
+}
 
 // Initialize providers if available
 if (process.env.SENDGRID_API_KEY) {
@@ -31,20 +68,46 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
 
 let stripe: Stripe | null = null;
 if (process.env.STRIPE_SECRET_KEY) {
-  stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  const key = process.env.STRIPE_SECRET_KEY.trim();
+  if (!key.startsWith('sk_')) {
+    console.error("CRITICAL: Invalid STRIPE_SECRET_KEY. Backend keys must start with 'sk_'. Found prefix: " + key.substring(0, 3));
+  } else {
+    stripe = new Stripe(key);
+  }
 }
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = parseInt(process.env.TEST_PORT || "3000", 10);
 
-  // Start background jobs
-  startScheduler();
+  // Start background jobs safely
+  try {
+    startScheduler();
+  } catch (err) {
+    console.error("Failed to start scheduler, but continuing server startup:", err);
+  }
 
   app.use(express.json());
 
-  // API routes
-  
+  // API routes FIRST
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      env: process.env.NODE_ENV || 'development',
+      distExists: fs.existsSync(path.join(process.cwd(), 'dist')),
+      indexExists: fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'))
+    });
+  });
+
+  let vite: any = null;
+  const isProd = process.env.NODE_ENV === "production";
+
+  // Start listening IMMEDIATELY to satisfy platform health check
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`CRITICAL_LOG: Server successfully reached app.listen on port ${PORT}`);
+  });
+
   // Messaging API Routes
   app.post("/api/messages/email", async (req, res) => {
     if (!process.env.SENDGRID_API_KEY) {
@@ -304,14 +367,37 @@ async function startServer() {
     }
     const { amount, currency = "usd", metadata } = req.body;
     
+    console.log(`Backend: Received payment request for amount: ${amount}, type: ${typeof amount}`);
+
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+      return res.status(400).json({ error: "Invalid payment amount. Must be a positive number." });
+    }
+
     try {
+      const amountInCents = Math.round(Number(amount) * 100);
+      console.log(`Backend: Creating payment intent for ${amountInCents} cents`);
+
+      const sanitizedMetadata: Record<string, string> = {};
+      if (metadata && typeof metadata === 'object') {
+        Object.entries(metadata).forEach(([key, value]) => {
+          sanitizedMetadata[key.substring(0, 40)] = String(value).substring(0, 500);
+        });
+      }
+
       const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // Stripe uses cents
-        currency,
-        metadata,
+        amount: amountInCents, 
+        currency: "usd",
+        metadata: sanitizedMetadata,
       });
+      
+      if (!paymentIntent.client_secret) {
+        throw new Error("Stripe failed to generate a client secret");
+      }
+
+      console.log(`Backend: Payment intent created successfully: ${paymentIntent.id}, secret: ${paymentIntent.client_secret.substring(0, 10)}...`);
       res.json({ clientSecret: paymentIntent.client_secret });
     } catch (e: any) {
+      console.error("Backend: Stripe intent creation error:", e.message);
       res.status(500).json({ error: e.message });
     }
   });
@@ -326,12 +412,15 @@ async function startServer() {
       const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
       
       if (paymentIntent.status === 'succeeded') {
-         await updateInvoiceFields(invoiceId, {
+         if (!dbAdmin) {
+           return res.status(500).json({ error: "Database not initialized" });
+         }
+         await dbAdmin.collection('invoices').doc(invoiceId).update({
             paymentStatus: 'paid',
             status: 'paid',
             transactionId: paymentIntent.id,
             paidAt: admin.firestore.Timestamp.now()
-         } as any, businessId);
+         });
          res.json({ success: true });
       } else {
         res.status(400).json({ error: "Payment not successful" });
@@ -360,12 +449,15 @@ async function startServer() {
       
       try {
         if (type === 'invoice' && invoiceId) {
-             await updateInvoiceFields(invoiceId, {
+             if (!dbAdmin) {
+               throw new Error("Database not initialized");
+             }
+             await dbAdmin.collection('invoices').doc(invoiceId).update({
                 paymentStatus: 'paid',
                 status: 'paid',
                 transactionId: paymentIntent.id,
                 paidAt: admin.firestore.Timestamp.now()
-             } as any, businessId);
+             });
         }
       } catch (e) {
         console.error("Webhook processing error", e);
@@ -376,24 +468,41 @@ async function startServer() {
     res.json({ received: true });
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+  if (!isProd) {
+    console.log("CRITICAL_LOG: Starting Vite initialization...");
+    try {
+      vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+      console.log("CRITICAL_LOG: Vite middleware attached.");
+    } catch (err) {
+      console.error("CRITICAL_LOG: Vite failed to start:", err);
+    }
   } else {
-    const distPath = path.join(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    const distPath = path.join(process.cwd(), 'dist');
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        const indexPath = path.join(distPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          res.status(404).send("Production build not found. Please run build script.");
+        }
+      });
+      console.log("CRITICAL_LOG: Static serving configured for /dist.");
+    } else {
+      console.error("CRITICAL_LOG: /dist directory not found in production mode.");
+      app.get('*', (req, res) => {
+        res.status(500).send("Application not built. Please run build script.");
+      });
+    }
   }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("CRITICAL: Failed to start server:", err);
+  process.exit(1);
+});

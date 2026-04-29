@@ -43,6 +43,8 @@ export const onJobSnapshot = (jobId: string, businessId: string, callback: (job:
     } else {
       callback(null);
     }
+  }, (error) => {
+    console.error(`Job Subscription Error for ID ${jobId}:`, error);
   });
 };
 
@@ -118,7 +120,7 @@ export const updateJobFields = async (jobId: string, updates: Partial<Job>, busi
   
   if (updates.status === 'completed' && currentJob.status !== 'completed' && !currentJob.postJobFollowUpSentAt) {
     await triggerPostJobFollowUp(currentJob.clientId, businessId);
-    await updateDoc(jobRef, { postJobFollowUpSentAt: serverTimestamp() }, { merge: true });
+    await updateDoc(jobRef, { postJobFollowUpSentAt: serverTimestamp() });
   }
 
   await syncJobToAppointment(jobId, updates, businessId);
@@ -140,22 +142,20 @@ export const convertAppointmentToJob = async (appointment: Appointment, business
     appointmentId: appointment.id,
     clientId: appointment.clientId,
     vehicleId: appointment.vehicleId,
-    services: appointment.services,
+    serviceIds: appointment.serviceIds,
     totalAmount: appointment.totalAmount,
     baseAmount: appointment.totalAmount,
     scheduledAt: appointment.scheduledAt,
-    notes: appointment.notes,
+    notes: appointment.customerNotes,
     status: "scheduled",
     paymentStatus: "unpaid",
     depositAmount: appointment.depositAmount,
     depositType: appointment.depositType,
-    depositReason: appointment.depositReason
   };
 
   const jobId = await createJob(jobData, businessId);
 
   await updateAppointment(appointment.id, {
-    convertedToJob: true,
     jobId: jobId
   }, businessId);
 

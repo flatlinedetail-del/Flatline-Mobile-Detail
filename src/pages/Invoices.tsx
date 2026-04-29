@@ -2,10 +2,14 @@ import { useState, useEffect } from "react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { db } from "../firebase";
+import { collection, query, getDocs, orderBy, limit, where, doc, updateDoc } from "firebase/firestore";
 import { useAuth } from "../hooks/useAuth";
 import { useLocation, useNavigate } from "react-router-dom";
 import { messagingService } from "../services/messagingService";
-import { getInvoicesByBusiness, updateInvoiceFields, softDeleteInvoice } from "../services/invoiceService";
+import { getInvoicesByBusiness, updateInvoiceFields, softDeleteInvoice, createInvoice } from "../services/invoiceService";
+import { getClients } from "../services/clientService";
+
+import { Client, Invoice, Vehicle, BusinessSettings, LineItem } from "../types";
 import { PageHeader } from "../components/PageHeader";
 import { Card, CardContent, CardHeader } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -31,7 +35,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Invoice, Client, Vehicle, BusinessSettings, LineItem } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { cn, formatCurrency } from "@/lib/utils";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
@@ -43,6 +46,14 @@ export default function Invoices() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [newInvoiceData, setNewInvoiceData] = useState({
+      clientId: "",
+      clientName: "",
+      description: "",
+      price: 0
+  });
+
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
@@ -50,7 +61,8 @@ export default function Invoices() {
   const fetchInvoicesData = async (showToast = false) => {
     if (showToast) toast.loading("Syncing Ledger...", { id: "sync-invoices" });
     try {
-      if (!profile?.businessId) throw new Error("No business context");
+      if (!profile) throw new Error("No authenticated user");
+      if (!profile.businessId) throw new Error("No business context");
 
       const invoicesData = await getInvoicesByBusiness(profile.businessId);
       setInvoices(invoicesData);
@@ -72,6 +84,66 @@ export default function Invoices() {
     if (authLoading || !profile) return;
     fetchInvoicesData();
   }, [profile, authLoading]);
+
+  useEffect(() => {
+    if (isAddDialogOpen && profile) {
+        const busId = profile.businessId;
+        const uid = profile.uid;
+        console.log("--- INVOICE CLIENT LOOKUP DEBUG ---");
+        console.log("Current Profile BusinessID:", busId);
+        console.log("Current Profile UID:", uid);
+
+        // Match Clients.tsx pattern: Fetch global list and filter to ensure we see what security rules allow
+        const q = query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(200));
+        
+        getDocs(q).then(async (snapshot) => {
+            const rawClients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+            console.log("Total Raw Clients Fetched:", rawClients.length);
+            
+            const filteredClients: Client[] = [];
+            
+            for (const c of rawClients) {
+                const displayName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim();
+                const isDeleted = c.isDeleted === true;
+                
+                // Mismatch Check: Match by businessId, ownerId, or userId
+                const belongsToUser = (
+                    c.businessId === busId || 
+                    c.businessId === uid ||
+                    c.ownerId === uid ||
+                    c.userId === uid ||
+                    (!c.businessId && !c.ownerId && !c.userId) // Safe fallback for records without ownership field
+                );
+
+                console.log(`- ID: ${c.id}, Name: ${displayName}, businessId: ${c.businessId}, ownerId: ${c.ownerId}, userId: ${c.userId}, isDeleted: ${c.isDeleted}, belongs: ${belongsToUser}`);
+
+                if (belongsToUser && !isDeleted) {
+                    filteredClients.push(c as Client);
+                    
+                    // Backfill missing businessId if we have a target
+                    if (!c.businessId && busId) {
+                        try {
+                            await updateDoc(doc(db, "clients", c.id), { 
+                                businessId: busId,
+                                updatedAt: new Date(),
+                                updatedBy: uid
+                            });
+                            console.log(`Backfilled businessId to ${busId} for client ${c.id}`);
+                        } catch (err) {
+                            console.error("Failed to backfill businessId:", err);
+                        }
+                    }
+                }
+            }
+            
+            console.log("Total Clients After Filtering:", filteredClients.length);
+            console.log("Exact query path/filters used: collection('clients'), orderBy('createdAt', 'desc'), limit(200), followed by in-memory ownership logic covering businessId, ownerId, and userId");
+            setClients(filteredClients);
+        }).catch(err => {
+            console.error("Error loading clients for Generate Invoice:", err);
+        });
+    }
+  }, [isAddDialogOpen, profile]);
 
   // Fetch vehicles removed during rebuild
   useEffect(() => {
@@ -96,15 +168,47 @@ export default function Invoices() {
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.info("Invoice creation is temporarily disabled during system rebuild");
+    if (!profile?.businessId) return;
+    
+    try {
+        await createInvoice({
+            clientId: newInvoiceData.clientId,
+            clientName: newInvoiceData.clientName,
+            total: newInvoiceData.price,
+            status: "draft",
+            paymentStatus: "unpaid",
+            lineItems: [{
+               serviceName: newInvoiceData.description,
+               description: newInvoiceData.description,
+               quantity: 1,
+               price: newInvoiceData.price,
+               total: newInvoiceData.price,
+               source: "manual",
+               protocolAccepted: true
+            }]
+        }, profile.businessId);
+        
+        toast.success("Invoice created successfully.");
+        setIsAddDialogOpen(false);
+        fetchInvoicesData();
+        resetForm();
+    } catch(e) {
+        toast.error("Failed to create invoice.");
+    }
   };
 
   const resetForm = () => {
-    // UI placeholder
+    setNewInvoiceData({
+        clientId: "",
+        clientName: "",
+        description: "",
+        price: 0
+    });
   };
 
   const handleCloverPayment = async () => {
-    toast.info("Payment system is being rebuilt");
+    // Payment integration coming soon
+    toast.info("Clover payment not integrated.");
   };
 
   const handleMarkAsPaid = async (invoice: Invoice | null) => {
@@ -263,20 +367,42 @@ export default function Invoices() {
                 Generate Invoice
               </Button>
             } />
-          <DialogContent className="sm:max-w-[500px] p-8 bg-card border-none rounded-3xl shadow-2xl shadow-black flex flex-col items-center justify-center text-center">
+          <DialogContent className="sm:max-w-[800px] p-8 bg-card border-none rounded-3xl shadow-2xl shadow-black">
             <DialogHeader>
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20 mb-4 mx-auto">
-                <Settings2 className="w-8 h-8 animate-spin-slow" />
-              </div>
-              <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">System Offline</DialogTitle>
+              <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Generate Invoice</DialogTitle>
             </DialogHeader>
-            <div className="py-6">
-              <p className="text-white/60 font-medium italic">"Invoice system is being rebuilt"</p>
-              <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.2em] mt-4">Legacy Address Mapping Offline</p>
-            </div>
-            <DialogFooter className="w-full">
-              <Button onClick={() => setIsAddDialogOpen(false)} className="w-full bg-primary hover:bg-red-700 text-white font-black h-12 rounded-xl">Acknowledged</Button>
-            </DialogFooter>
+            <form onSubmit={handleCreateInvoice} className="py-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm text-white/70">Client</label>
+                {clients.length > 0 ? (
+                  <select 
+                    className="w-full p-3 rounded-xl bg-white border border-gray-200"
+                    onChange={(e) => {
+                      const client = clients.find(c => c.id === e.target.value);
+                      setNewInvoiceData({...newInvoiceData, clientId: e.target.value, clientName: client?.name || `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || "Unknown Client"});
+                    }}
+                    value={newInvoiceData.clientId}
+                    required
+                  >
+                    <option value="">Select a client</option>
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()}</option>)}
+                  </select>
+                ) : (
+                  <div className="w-full p-3 rounded-xl bg-white border border-gray-200 text-red-500 font-medium">
+                    No clients found. Add a client first.
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-white/70">Description</label>
+                <Input required value={newInvoiceData.description} onChange={(e) => setNewInvoiceData({...newInvoiceData, description: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-white/70">Amount</label>
+                <Input required type="number" min="0.01" step="0.01" value={newInvoiceData.price || ''} onChange={(e) => setNewInvoiceData({...newInvoiceData, price: parseFloat(e.target.value) || 0})} />
+              </div>
+              <Button type="submit" disabled={!newInvoiceData.clientId || newInvoiceData.price <= 0} className="w-full bg-primary hover:bg-red-700 text-white font-black h-12 rounded-xl">Create Invoice</Button>
+            </form>
           </DialogContent>
         </Dialog>
       }

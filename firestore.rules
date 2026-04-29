@@ -55,20 +55,22 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (
-          request.auth.token.email.lower() == "flatlinedetail@gmail.com" ||
-          hasRole('admin') ||
-          hasRole('manager')
+          (request.auth.token.email != null && request.auth.token.email.lower() == "flatlinedetail@gmail.com") ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'manager', 'owner'])
         );
     }
 
     function isTechnician() {
       return isAuthenticated() && 
         (
-          request.auth.token.email.lower() == "flatlinedetail@gmail.com" ||
+          (request.auth.token.email != null && request.auth.token.email.lower() == "flatlinedetail@gmail.com") ||
           hasRole('technician') || 
           hasRole('admin') ||
           hasRole('manager') ||
-          hasRole('worker')
+          hasRole('worker') ||
+          hasRole('owner') ||
+          isAdmin()
         );
     }
 
@@ -164,6 +166,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /jobs/{jobId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
     match /communication_logs/{logId} {
       allow read: if isPublic();
       allow create: if isPublic();
@@ -223,7 +232,7 @@ service cloud.firestore {
     }
 
     match /invoices/{invoiceId} {
-      allow read: if isTechnician();
+      allow read: if isPublic();
       allow create: if isTechnician();
       allow update: if isTechnician();
       allow delete: if isAdmin();

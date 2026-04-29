@@ -101,6 +101,8 @@ export default function Customers() {
       );
       unsub = onSnapshot(qVehicles, snap => {
         setCustomerVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
+      }, (error) => {
+        console.error("Customer Vehicles Subscription Error:", error);
       });
 
       const qForms = query(

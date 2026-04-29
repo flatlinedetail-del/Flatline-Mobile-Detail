@@ -1,13 +1,8 @@
 import cron from "node-cron";
-import { initializeApp } from "firebase/app";
-import { getFirestore, collection, query, where, getDocs, updateDoc, doc, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import admin from "firebase-admin";
 import twilio from "twilio";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 let twilioClient: twilio.Twilio | null = null;
 if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
@@ -24,15 +19,34 @@ export function startScheduler() {
 
   let config;
   try {
-    const configPath = path.join(__dirname, "firebase-applet-config.json");
+    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
     config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
   } catch (e) {
     console.error("Scheduler: Could not read firebase config", e);
     return;
   }
 
-  const app = initializeApp(config, "schedulerApp");
-  const db = getFirestore(app, config.firestoreDatabaseId);
+  let appAdmin: admin.app.App | undefined;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      appAdmin = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      }, "schedulerApp");
+    } catch(e) {
+      console.error("Scheduler: Failed to parse FIREBASE_SERVICE_ACCOUNT", e);
+    }
+  }
+
+  if (!appAdmin) {
+    console.warn("Scheduler disabled: missing or invalid Firebase Admin credentials.");
+    return;
+  }
+
+  const db = appAdmin.firestore();
+  if (config.firestoreDatabaseId) {
+    db.settings({ databaseId: config.firestoreDatabaseId });
+  }
 
   console.log("Scheduler started. Polling every 30 minutes.");
   cron.schedule("*/30 * * * *", async () => {
@@ -59,15 +73,13 @@ async function processReminders(db: any) {
   const now = new Date();
   
   try {
-    const apptsRef = collection(db, "appointments");
+    const apptsRef = db.collection("appointments");
     const fortyEightHoursFromNow = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-    const q = query(
-      apptsRef, 
-      where("status", "in", ["scheduled", "confirmed"]),
-      where("scheduledAt", ">=", Timestamp.fromDate(now)),
-      where("scheduledAt", "<=", Timestamp.fromDate(fortyEightHoursFromNow))
-    );
-    const snap = await getDocs(q);
+    const snap = await apptsRef
+      .where("status", "in", ["scheduled", "confirmed"])
+      .where("scheduledAt", ">=", admin.firestore.Timestamp.fromDate(now))
+      .where("scheduledAt", "<=", admin.firestore.Timestamp.fromDate(fortyEightHoursFromNow))
+      .get();
 
     for (const docSnap of snap.docs) {
       const job = docSnap.data();
@@ -109,7 +121,7 @@ async function processReminders(db: any) {
 
       if (needsUpdate) {
         try {
-          await updateDoc(doc(db, "appointments", docSnap.id), { reminders: updatedReminders });
+          await db.collection("appointments").doc(docSnap.id).update({ reminders: updatedReminders });
         } catch (err) {
           console.error("Failed to update reminders state on appt", docSnap.id, err);
         }
@@ -153,7 +165,7 @@ async function sendSmsAndLog(db: any, job: any, appointmentId: string, type: str
 
 async function logCommunication(db: any, clientId: string | null, appointmentId: string, type: string, content: string, status: string, detail: string) {
   try {
-    await addDoc(collection(db, "communication_logs"), {
+    await db.collection("communication_logs").add({
       clientId: clientId || "walk-in",
       appointmentId,
       type,
@@ -161,7 +173,7 @@ async function logCommunication(db: any, clientId: string | null, appointmentId:
       status,
       errorDetail: status === "failed" ? detail : "",
       messageId: status === "sent" ? detail : "",
-      createdAt: serverTimestamp()
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
   } catch(e) {
     console.error("Failed to write to communication_logs", e);

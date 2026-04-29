@@ -150,6 +150,12 @@ function SmallCardWrapper({
   );
 }
 
+import { JobAnalytics } from "../components/JobAnalytics";
+import { JobForms } from "../components/JobForms";
+import { JobSettings } from "../components/JobSettings";
+import { JobRevenueIntel } from "../components/JobRevenueIntel";
+import { JobOperations } from "../components/JobOperations";
+
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -815,8 +821,8 @@ export default function JobDetail() {
           clientName: invoiceData.clientName || "Customer",
           businessName: businessSettings?.businessName || "Flatline Mobile Detail",
           invoiceAmount: formatCurrency(invoiceData.total || 0),
-          invoiceLink: window.location.origin + "/public-invoice/" + docRef.id,
-          paymentLink: window.location.origin + "/public-invoice/" + docRef.id + "/pay"
+          invoiceLink: window.location.origin + "/public-invoice/" + invoiceId,
+          paymentLink: window.location.origin + "/public-invoice/" + invoiceId + "/pay"
         };
         messagingService.sendTemplateSms(
           invoiceData.clientPhone,
@@ -835,7 +841,7 @@ export default function JobDetail() {
       }
       toast.success(showPaymentSelection ? "Invoice created and payment opened!" : "Job converted to Invoice and opened!");
       setIsGeneratingInvoice(false);
-      return docRef.id;
+      return invoiceId;
     } catch (error) {
       console.error("Error converting job to invoice:", error);
       toast.error("Invoice conversion failed");
@@ -2277,834 +2283,61 @@ export default function JobDetail() {
         {/* Center Column: Operations & Intelligence - Now Primary Wide Area */}
         <div className="lg:col-span-9 order-last lg:order-none min-w-0 pt-0">
           <TabsContent value="ai_upsell" className="mt-0 space-y-12">
-              <Card className="border-none shadow-xl bg-card rounded-3xl">
-                <CardHeader className="p-8 border-b border-white/5 bg-black/40">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
-                      <Scan className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter">Tactical Upsell Intelligence</CardTitle>
-                      <p className="text-[10px] text-white/50 font-black uppercase tracking-[0.2em] mt-1">AI-Powered Revenue Optimization</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-12 space-y-12">
-                  <div className="space-y-12">
-                    <div className="space-y-6">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Field Assessment</Label>
-                      
-                      <div className="flex flex-wrap gap-2">
-                        {AVAILABLE_TAGS.map(tag => (
-                          <Badge 
-                            key={tag}
-                            variant="outline"
-                            className={cn(
-                              "cursor-pointer uppercase font-black text-[9px] tracking-widest border-white/10 px-3 py-1.5 rounded-lg transition-colors",
-                              assessmentTags.includes(tag) 
-                                ? "bg-primary text-white border-primary" 
-                                : "text-white/40 hover:text-white hover:bg-white/5"
-                            )}
-                            onClick={() => toggleAssessmentTag(tag)}
-                          >
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
+            <JobRevenueIntel
+              technicianAssessment={technicianAssessment}
+              setTechnicianAssessment={setTechnicianAssessment}
+              assessmentTags={assessmentTags}
+              toggleAssessmentTag={toggleAssessmentTag}
+              assessmentImages={assessmentImages}
+              handleAssessmentImageUpload={handleAssessmentImageUpload}
+              removeAssessmentImage={removeAssessmentImage}
+              isGeneratingUpsells={isGeneratingUpsells}
+              generateUpsells={async () => {
+                const hasAssessmentData = technicianAssessment.trim() !== "" || assessmentTags.length > 0 || assessmentImages.length > 0;
+                if (!hasAssessmentData || isGeneratingUpsells) return;
+                setIsGeneratingUpsells(true);
+                try {
+                  const structuredPayload = {
+                    services: job.serviceNames || [],
+                    addOns: job.addOnNames || [],
+                    totalPrice: job.totalAmount || 0,
+                    travelFee: job.travelFee || 0,
+                    vehicle: {
+                      year: job.vehicleInfo?.split(" ")[0],
+                      make: job.vehicleInfo?.split(" ")[1],
+                      model: job.vehicleInfo?.split(" ").slice(2).join(" "),
+                      size: job.vehicleSize
+                    },
+                    customerType: job.clientType || "Retail"
+                  };
+                  const fullAssessmentContext = `${assessmentTags.length > 0 ? 'Tags: ' + assessmentTags.join(', ') + '. ' : ''}${technicianAssessment}`;
+                  const response = await getRevenueOptimization(fullAssessmentContext, structuredPayload, productCosts, businessSettings, assessmentImages);
+                  setRevenueProtocol(response);
+                  setRecommendations(response.recommendedUpsells);
+                  if (response.pricingAnalysis) {
+                    setPricingAnalysis(response.pricingAnalysis);
+                    await updateJob(id!, { pricingAnalysis: response.pricingAnalysis }, profile!.businessId);
+                  }
+                  toast.success("Revenue generation protocol synthesized!");
+                } catch (err) {
+                  toast.error("Failed to generate strategic recommendations");
+                } finally {
+                  setIsGeneratingUpsells(false);
+                }
+              }}
+              productCosts={productCosts}
+              handleAddProductCost={handleAddProductCost}
+              handleUpdateProductCost={handleUpdateProductCost}
+              handleDeleteProductCost={handleDeleteProductCost}
+              saveProductCosts={saveProductCosts}
+              revenueProtocol={revenueProtocol}
+              recommendations={recommendations}
+              pricingAnalysis={pricingAnalysis}
+              AVAILABLE_TAGS={AVAILABLE_TAGS}
+            />
+          </TabsContent>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <textarea 
-                          className="w-full h-32 p-4 rounded-2xl bg-white/5 border border-white/10 text-white text-sm font-medium resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                          placeholder="Describe additional details: 'Deep scratches on hood', 'Mold on driver seat belt'..."
-                          value={technicianAssessment}
-                          onChange={(e) => setTechnicianAssessment(e.target.value)}
-                        />
-
-                        <div className="h-32 rounded-2xl bg-white/5 border border-white/10 p-4 overflow-y-auto custom-scrollbar">
-                          <div className="flex flex-wrap gap-2">
-                            {assessmentImages.map((img, i) => (
-                              <div key={i} className="relative group w-20 h-20">
-                                <img src={img} alt="Assessment" className="w-full h-full object-cover rounded-xl" />
-                                <button 
-                                  onClick={() => removeAssessmentImage(i)}
-                                  className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ))}
-                            <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl hover:border-white/40 hover:bg-white/5 transition-colors cursor-pointer">
-                              <ImageIcon className="w-6 h-6 text-white/40 mb-1" />
-                              <span className="text-[8px] uppercase font-bold tracking-widest text-white/40 text-center">Add<br/>Photo</span>
-                              <input 
-                                type="file" 
-                                accept="image/*" 
-                                multiple
-                                capture="environment"
-                                className="hidden" 
-                                onChange={handleAssessmentImageUpload}
-                              />
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Product Cost Section */}
-                    <div className="p-10 rounded-2xl bg-black/40 border border-white/5 space-y-8">
-                      <div className="flex items-center justify-between">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-primary">Internal Job Costs (Products)</Label>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={handleAddProductCost}
-                          className="h-7 text-[9px] font-black uppercase tracking-widest border-white/20 hover:bg-white/5"
-                        >
-                          <Plus className="w-3 h-3 mr-1" />
-                          Add Cost Item
-                        </Button>
-                      </div>
-
-                      {productCosts.length > 0 ? (
-                        <div className="space-y-3">
-                          {productCosts.map((cost) => (
-                            <div key={cost.id} className="grid grid-cols-12 gap-2 items-center bg-white/5 p-3 rounded-xl border border-white/5">
-                              <div className="col-span-4">
-                                <Input 
-                                  placeholder="Product Name" 
-                                  value={cost.name}
-                                  onChange={(e) => handleUpdateProductCost(cost.id, { name: e.target.value })}
-                                  className="h-8 text-[10px] bg-black/20 border-white/10"
-                                />
-                              </div>
-                              <div className="col-span-2">
-                                <Input 
-                                  type="number"
-                                  placeholder="Qty" 
-                                  value={cost.quantity}
-                                  onChange={(e) => handleUpdateProductCost(cost.id, { quantity: parseFloat(e.target.value) || 0 })}
-                                  className="h-8 text-[10px] bg-black/20 border-white/10"
-                                />
-                              </div>
-                              <div className="col-span-2">
-                                <Input 
-                                  type="number"
-                                  placeholder="Cost" 
-                                  value={cost.unitCost}
-                                  onChange={(e) => handleUpdateProductCost(cost.id, { unitCost: parseFloat(e.target.value) || 0 })}
-                                  className="h-8 text-[10px] bg-black/20 border-white/10"
-                                />
-                              </div>
-                              <div className="col-span-3">
-                                <Select 
-                                  value={cost.costType} 
-                                  onValueChange={(val) => handleUpdateProductCost(cost.id, { costType: val })}
-                                >
-                                  <SelectTrigger className="h-8 text-[10px] bg-black/20 border-white/10">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="inventory">Inventory</SelectItem>
-                                    <SelectItem value="must_buy">Must Buy</SelectItem>
-                                    <SelectItem value="partial_use">Partial</SelectItem>
-                                    <SelectItem value="pass_through">Pass Thru</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="col-span-1 flex justify-end">
-                                <Button 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  onClick={() => handleDeleteProductCost(cost.id)}
-                                  className="h-8 w-8 text-white hover:bg-red-500/20 hover:text-red-500 transition-colors bg-white/10"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                          
-                          <div className="flex justify-between items-center pt-2 border-t border-white/5">
-                            <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Total Product Cost</span>
-                            <span className="text-sm font-black text-primary">{formatCurrency(productCosts.reduce((sum, p) => sum + (parseFloat((p.totalCost || 0).toFixed(2))), 0))}</span>
-                          </div>
-                          
-                          <Button 
-                            className="w-full h-8 text-[9px] font-black uppercase tracking-widest bg-white/5 hover:bg-white/10 border border-white/10"
-                            onClick={() => saveProductCosts(productCosts)}
-                          >
-                            <Save className="w-3 h-3 mr-2" />
-                            Lock Internal Costs
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="text-center py-4 bg-white/5 rounded-xl border border-dashed border-white/10">
-                          <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">No product costs recorded</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <Button 
-                        onClick={async () => {
-                          const hasAssessmentData = technicianAssessment.trim() !== "" || assessmentTags.length > 0 || assessmentImages.length > 0;
-                          if (!hasAssessmentData || isGeneratingUpsells) return;
-                          
-                          // Add debounce check
-                          const now = Date.now();
-                          const lastAIAction = Number(localStorage.getItem('last_upsell_ai_action') || 0);
-                          if (now - lastAIAction < 3000) {
-                            toast.info("Please wait a moment between AI requests.");
-                            return;
-                          }
-                          localStorage.setItem('last_upsell_ai_action', now.toString());
-
-                          setIsGeneratingUpsells(true);
-                          try {
-                            // STRUCTURED PAYLOAD EXTRACTION
-                            const structuredPayload = {
-                              services: job.serviceNames || [],
-                              addOns: job.addOnNames || [],
-                              totalPrice: job.totalAmount || 0,
-                              travelFee: job.travelFee || 0,
-                              vehicle: {
-                                year: job.vehicleInfo?.split(" ")[0],
-                                make: job.vehicleInfo?.split(" ")[1],
-                                model: job.vehicleInfo?.split(" ").slice(2).join(" "),
-                                size: job.vehicleSize
-                              },
-                              customerType: job.clientType || "Retail"
-                            };
-
-                            console.log("[Revenue Protocol] Initializing High-Impact Analysis...");
-                            const fullAssessmentContext = `${assessmentTags.length > 0 ? 'Tags: ' + assessmentTags.join(', ') + '. ' : ''}${technicianAssessment}`;
-                            const response = await getRevenueOptimization(fullAssessmentContext, structuredPayload, productCosts, businessSettings, assessmentImages);
-                            setRevenueProtocol(response);
-                            setRecommendations(response.recommendedUpsells);
-                            if (response.pricingAnalysis) {
-                              setPricingAnalysis(response.pricingAnalysis);
-                              await updateJob(id!, {
-                                pricingAnalysis: response.pricingAnalysis,
-                              }, profile!.businessId);
-                            }
-
-                            // Cache the generated bundles to memory!
-                            if (response.bundlingOpportunities && response.bundlingOpportunities.length > 0) {
-                              const bundlesRef = collection(db, "bundle_offers");
-                              await Promise.all(response.bundlingOpportunities.map(b => 
-                                addDoc(bundlesRef, {
-                                  clientId: job.clientId,
-                                  vehicleId: activeVehicleId,
-                                  vehicleName: job.vehicleInfo,
-                                  bundleName: b.bundleName,
-                                  includedServices: b.items.map((i: string) => ({ serviceId: i, serviceName: i })),
-                                  originalPrice: b.discountedPrice + b.savings,
-                                  dealPrice: b.discountedPrice,
-                                  savings: b.savings,
-                                  status: "pending",
-                                  createdAt: serverTimestamp(),
-                                  updatedAt: serverTimestamp()
-                                })
-                              ));
-                            }
-
-                            toast.success("Revenue generation protocol synthesized!");
-                          } catch (err) {
-                            console.error("Revenue Protocol Error:", err);
-                            toast.error("Failed to generate strategic recommendations");
-                          } finally {
-                            setIsGeneratingUpsells(false);
-                          }
-                        }}
-                        disabled={isGeneratingUpsells || (technicianAssessment.trim() === "" && assessmentTags.length === 0 && assessmentImages.length === 0)}
-                        className="w-full h-14 bg-primary hover:bg-red-700 text-white font-black rounded-xl uppercase tracking-[0.2em] text-[10px]"
-                      >
-                        {isGeneratingUpsells ? <Loader2 className="w-5 h-5 animate-spin" /> : "Initiate Revenue Optimization"}
-                      </Button>
-
-                      <Button 
-                        onClick={async () => {
-                          if (isAnalyzingDeployment) return;
-                          
-                          setIsAnalyzingDeployment(true);
-                          try {
-                            const response = await analyzeDeployment(job);
-                            setDeploymentInsights(response.insights);
-                            toast.success("Deployment Intelligence Generated!");
-                          } catch (err) {
-                            console.error("Deployment Error:", err);
-                            toast.error("Failed to generate deployment intelligence");
-                          } finally {
-                            setIsAnalyzingDeployment(false);
-                          }
-                        }}
-                        disabled={isAnalyzingDeployment}
-                        className="w-full h-14 bg-black border border-white/10 hover:bg-white/5 text-white font-black rounded-xl uppercase tracking-[0.2em] text-[10px]"
-                      >
-                        {isAnalyzingDeployment ? <Loader2 className="w-5 h-5 animate-spin" /> : "Initiate Deployment Intelligence"}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {recommendations.length > 0 && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500 items-stretch">
-                      {recommendations.map((rec, idx) => {
-                        const isAdded = job.serviceNames?.includes(rec.serviceName) || job.addOnNames?.includes(rec.serviceName);
-                        // Is this individual service in any selected/applied bundle?
-                        const isIncludedInBundle = allConflictingBundledItems.includes(rec.serviceName);
-                        const isDisabled = isUpdating || isAdded || isIncludedInBundle;
-
-                        return (
-                          <SmallCardWrapper key={`rec-${idx}`} id={`rec-${idx}`} focusedId={focusedSmallCardId} onFocus={setFocusedSmallCardId}>
-                          <div 
-                            className={cn(
-                              "p-6 rounded-2xl border transition-all flex flex-col relative h-auto min-h-full",
-                              isAdded ? "bg-green-500/10 border-green-500/50 opacity-50 pointer-events-none" : 
-                              isIncludedInBundle ? "bg-white/5 border-white/10 opacity-70 cursor-not-allowed" :
-                              "bg-white/5 border-primary/20 hover:border-primary/50 shadow-lg shadow-black/20 cursor-pointer"
-                            )}
-                            onClick={() => {
-                              if (!isDisabled) {
-                                handleApplyOneTapUpsell(rec);
-                              }
-                            }}
-                          >
-                            {isAdded && (
-                              <div className="absolute top-2 right-2 bg-green-500 text-white text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full flex items-center gap-1">
-                                <CheckCircle2 className="w-3 h-3" />
-                                Added
-                              </div>
-                            )}
-                            {isIncludedInBundle && !isAdded && (
-                              <div className="absolute top-2 right-2 bg-amber-500/80 text-white text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-sm shadow-md">
-                                Included in selected bundle
-                              </div>
-                            )}
-                            <div className="flex flex-col gap-1 mb-2">
-                              <h4 className="font-black text-white uppercase tracking-tight pr-14">{rec.serviceName}</h4>
-                              <span className="text-[9px] font-black uppercase text-primary tracking-widest bg-primary/10 w-fit px-2 py-0.5 rounded-sm">Smart Suggestion</span>
-                            </div>
-                            
-                            <p className="text-xs text-white/60 font-medium mb-4 leading-relaxed flex-1">{rec.reason}</p>
-                            
-                            {rec.recommendedProduct && (
-                              <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-[9px] font-black uppercase tracking-widest text-blue-400">Suggested Tool / Product</span>
-                                </div>
-                                <p className="text-xs font-black text-white mb-1">{rec.recommendedProduct}</p>
-                                {rec.productReason && (
-                                  <p className="text-[10px] text-blue-200/60 leading-tight">{rec.productReason}</p>
-                                )}
-                              </div>
-                            )}
-                            
-                            {rec.requiresProductCost && (
-                              <div className="mb-4 p-2 rounded-lg bg-primary/10 border border-primary/20 flex items-center gap-2">
-                                <AlertCircle className="w-3 h-3 text-primary" />
-                                <span className="text-[8px] font-black uppercase text-primary tracking-widest">Extra Product Cost Likely Required</span>
-                              </div>
-                            )}
-
-                            <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/10">
-                              <div className="flex flex-col gap-1">
-                                <span className="text-[9px] font-black uppercase text-white/40 tracking-widest leading-none">Range: {rec.priceRange}</span>
-                                {rec.originalPrice && rec.bundlePrice && rec.originalPrice > rec.bundlePrice && (
-                                  <div className="flex items-center gap-1.5 mt-1">
-                                    <span className="text-xs text-white/40 line-through">${rec.originalPrice}</span>
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">
-                                      Save {formatCurrency(rec.originalPrice - rec.bundlePrice)}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 bg-black/40 border border-white/10 p-1 rounded-lg">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-white/30 hover:text-red-500 hover:bg-red-500/10 pointer-events-auto"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setRecommendations(recommendations.filter(r => r.serviceName !== rec.serviceName));
-                                  }}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
-                                <span className="text-primary font-black text-xs pl-2">$</span>
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  value={rec.recommendedPrice}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) => {
-                                    const newPrice = parseFloat(e.target.value) || 0;
-                                    const updatedRec = { ...rec, recommendedPrice: newPrice };
-                                    setRecommendations(recommendations.map(r => r.serviceName === rec.serviceName ? updatedRec : r));
-                                  }}
-                                  className="w-16 h-8 py-1 px-1 bg-transparent border-none text-white font-black text-sm text-right focus:ring-0 pointer-events-auto"
-                                />
-                                <Button 
-                                  onClick={(e) => { e.stopPropagation(); handleApplyOneTapUpsell(rec); }}
-                                  disabled={isDisabled}
-                                  className="h-8 px-4 text-[10px] font-black uppercase tracking-widest bg-primary hover:bg-red-700 text-white rounded-md pointer-events-auto shrink-0 disabled:opacity-50"
-                                >
-                                  {isUpdating ? <Loader2 className="w-3 h-3 animate-spin" /> : "Add Recommended Service"}
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                          </SmallCardWrapper>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {pricingAnalysis && (
-                    <div className="space-y-12 animate-in fade-in slide-in-from-top-4 duration-700">
-                      <div className="p-10 rounded-2xl bg-black/60 border border-primary/20 shadow-2xl shadow-primary/5">
-                        <div className="flex items-center gap-2 mb-6">
-                          <DollarSign className="w-5 h-5 text-primary" />
-                          <Label className="font-black uppercase tracking-widest text-sm text-white">Profit-Protected Pricing Analysis</Label>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                          {/* Floor Tier */}
-                          <div className={cn(
-                            "p-4 rounded-xl border transition-all",
-                            pricingAnalysis.floorPrice < pricingAnalysis.totalProductCost * 1.5 
-                              ? "bg-amber-500/10 border-amber-500/40" 
-                              : "bg-white/5 border-white/10"
-                          )}>
-                            <div className="flex justify-between items-start mb-2">
-                              <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">Floor</span>
-                              {pricingAnalysis.floorPrice < pricingAnalysis.totalProductCost * 1.5 && (
-                                <AlertCircle className="w-3 h-3 text-amber-500" />
-                              )}
-                            </div>
-                            <div className="text-2xl font-black text-white mb-4">{formatCurrency(pricingAnalysis.floorPrice)}</div>
-                            <Button 
-                              onClick={() => handleApplyPriceTier('floor')}
-                              disabled={isApplyingPrice}
-                              className="w-full h-8 text-[9px] font-black uppercase tracking-widest bg-white/10 hover:bg-white/20"
-                            >
-                              Apply Floor
-                            </Button>
-                          </div>
-
-                          {/* Recommended Tier */}
-                          <div className="p-4 rounded-xl border bg-primary/10 border-primary shadow-lg shadow-primary/10 scale-[1.05] z-10">
-                            <span className="text-[10px] font-black text-primary uppercase tracking-widest block mb-2">Recommended</span>
-                            <div className="text-3xl font-black text-white mb-4">{formatCurrency(pricingAnalysis.recommendedPrice)}</div>
-                            <Button 
-                              onClick={() => handleApplyPriceTier('recommended')}
-                              disabled={isApplyingPrice}
-                              className="w-full h-10 text-[9px] font-black uppercase tracking-widest bg-primary hover:bg-red-700"
-                            >
-                              Apply Recommended
-                            </Button>
-                          </div>
-
-                          {/* Premium Tier */}
-                          <div className="p-4 rounded-xl border bg-white/5 border-white/10">
-                            <span className="text-[10px] font-black text-white/50 uppercase tracking-widest block mb-2">Premium</span>
-                            <div className="text-2xl font-black text-white mb-4">{formatCurrency(pricingAnalysis.premiumPrice)}</div>
-                            <Button 
-                              onClick={() => handleApplyPriceTier('premium')}
-                              disabled={isApplyingPrice}
-                              className="w-full h-8 text-[9px] font-black uppercase tracking-widest bg-white/10 hover:bg-white/20"
-                            >
-                              Apply Premium
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* Financial Metrics */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
-                          <div>
-                            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Total Job Cost</p>
-                            <p className="text-sm font-black text-white">{formatCurrency(pricingAnalysis.totalProductCost)}</p>
-                          </div>
-                          <div>
-                            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Gross Revenue</p>
-                            <p className="text-sm font-black text-green-500">{formatCurrency(pricingAnalysis.recommendedPrice)}</p>
-                          </div>
-                          <div>
-                            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Margin Dollars</p>
-                            <p className="text-sm font-black text-primary">{formatCurrency(pricingAnalysis.estimatedMarginDollars)}</p>
-                          </div>
-                          <div>
-                            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Margin %</p>
-                            <p className="text-sm font-black text-primary">{pricingAnalysis.estimatedMarginPercent.toFixed(1)}%</p>
-                          </div>
-                        </div>
-                        
-                        {(pricingAnalysis.estimatedMarginPercent < (businessSettings?.marginTargets?.floor || 20)) && (
-                          <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3">
-                            <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-                            <p className="text-[10px] font-bold text-red-100 uppercase tracking-tight">Warning: Projected margin is below floor target. Review product costs or increase price.</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {revenueProtocol && (
-                    <div className="mt-12 space-y-12 animate-in fade-in slide-in-from-top-4 duration-700">
-                      {/* Pricing Adjustments */}
-                      {revenueProtocol.pricingAdjustments && revenueProtocol.pricingAdjustments.length > 0 && (
-                        <div className="space-y-6">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Strategic Pricing Adjustments</Label>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-                            {revenueProtocol.pricingAdjustments.map((adj, idx) => {
-                              const isSelected = selectedAdjustments.some(a => a.targetServiceName === adj.targetServiceName && a.reason === adj.reason);
-                              return (
-                                <SmallCardWrapper key={`adj-${idx}`} id={`adj-${idx}`} focusedId={focusedSmallCardId} onFocus={setFocusedSmallCardId}>
-                                <div 
-                                  className={cn(
-                                    "p-6 rounded-xl cursor-pointer transition-all border border-l-4 h-auto min-h-full",
-                                    isSelected 
-                                      ? "bg-primary/10 border-primary border-l-primary shadow-lg shadow-primary/5 scale-[1.02]" 
-                                      : "bg-white/5 border-white/10 border-l-primary hover:bg-white/10"
-                                  )}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (isSelected) {
-                                      setSelectedAdjustments(selectedAdjustments.filter(a => !(a.targetServiceName === adj.targetServiceName && a.reason === adj.reason)));
-                                    } else {
-                                      setSelectedAdjustments([...selectedAdjustments, adj]);
-                                    }
-                                  }}
-                                >
-                                  <div className="flex justify-between items-start mb-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs font-black text-white uppercase">{adj.reason}</span>
-                                      {isSelected && <Badge className="bg-primary text-white text-[8px] h-4 px-1.5 font-bold uppercase tracking-widest pointer-events-none">Selected</Badge>}
-                                    </div>
-                                    <span className="text-xs font-black text-primary">${adj.suggestedPrice}</span>
-                                  </div>
-                                  <p className="text-[10px] text-white/50 font-bold uppercase tracking-tight mb-2">Target: {adj.targetServiceName}</p>
-                                  <p className="text-[10px] text-white/60 font-medium">{adj.impact}</p>
-                                </div>
-                                </SmallCardWrapper>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Bundling Opportunities */}
-                      {revenueProtocol.bundlingOpportunities && revenueProtocol.bundlingOpportunities.length > 0 && (
-                        <div className="space-y-6">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-green-500">Tactical Bundle Opportunities</Label>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-                            {revenueProtocol.bundlingOpportunities.map((bundle, idx) => {
-                              const isBundleAlreadyAdded = job.serviceNames?.includes(bundle.bundleName) || job.addOnNames?.includes(bundle.bundleName);
-                              const isAnyItemIndividuallyAdded = bundle.items.some(item => allAppliedIndividualServices.includes(item));
-                              const isDisabled = isBundleAlreadyAdded || isAnyItemIndividuallyAdded;
-
-                              const isSelected = selectedBundles.some(b => b.bundleName === bundle.bundleName);
-                              return (
-                                <SmallCardWrapper key={`bundle-${idx}`} id={`bundle-${idx}`} focusedId={focusedSmallCardId} onFocus={setFocusedSmallCardId}>
-                                <div 
-                                  className={cn(
-                                    "p-6 rounded-xl transition-all border border-l-4 h-auto min-h-full flex flex-col relative",
-                                    isBundleAlreadyAdded ? "bg-green-500/10 border-green-500 border-l-green-500 opacity-50 cursor-not-allowed pointer-events-none" :
-                                    isAnyItemIndividuallyAdded ? "bg-white/5 border-white/10 opacity-70 cursor-not-allowed" :
-                                    isSelected
-                                      ? "bg-green-500/10 border-green-500 border-l-green-500 shadow-lg shadow-green-500/5 scale-[1.02] cursor-pointer"
-                                      : "bg-white/5 border-white/10 border-l-green-500 hover:bg-white/10 cursor-pointer"
-                                  )}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (!isDisabled) {
-                                      if (isSelected) {
-                                        setSelectedBundles(selectedBundles.filter(b => b.bundleName !== bundle.bundleName));
-                                      } else {
-                                        setSelectedBundles([...selectedBundles, bundle]);
-                                      }
-                                    }
-                                  }}
-                                >
-                                  {isBundleAlreadyAdded && (
-                                    <div className="absolute top-2 right-2 bg-green-500 text-white text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full flex items-center gap-1 shadow-md">
-                                      <CheckCircle2 className="w-3 h-3" />
-                                      Added
-                                    </div>
-                                  )}
-                                  {isAnyItemIndividuallyAdded && !isBundleAlreadyAdded && (
-                                    <div className="absolute top-0 right-4 -translate-y-1/2 bg-amber-500/80 text-white text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-sm shadow-md">
-                                      Bundle unavailable because included service is already selected
-                                    </div>
-                                  )}
-                                  <div className="flex justify-between items-start mb-2 pt-2">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs font-black text-white uppercase">{bundle.bundleName}</span>
-                                      {isSelected && !isBundleAlreadyAdded && <Badge className="bg-green-500 text-white text-[8px] h-4 px-1.5 font-bold uppercase tracking-widest">Selected</Badge>}
-                                    </div>
-                                    <div className="text-right whitespace-nowrap">
-                                      <div className="text-xs font-black text-green-500">{formatCurrency(bundle.discountedPrice)}</div>
-                                      <div className="text-[9px] font-bold text-white/40 tracking-tighter">Save {formatCurrency(bundle.savings)}</div>
-                                    </div>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2 mt-auto">
-                                    {bundle.items.map((item, i) => (
-                                      <Badge key={i} variant="outline" className="bg-white/5 border-white/10 text-[9px] font-bold text-white/60 pointer-events-none">{item}</Badge>
-                                    ))}
-                                  </div>
-                                </div>
-                                </SmallCardWrapper>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Deployment Insights */}
-                      {deploymentInsights.length > 0 && (
-                        <div className="space-y-6">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-purple-500">Structured Deployment Intelligence</Label>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-                            {deploymentInsights.map((insight, idx) => {
-                              const isFee = insight.name.toLowerCase().includes("travel") || insight.name.toLowerCase().includes("fee") || insight.name.toLowerCase().includes("surcharge");
-                              const isSelected = selectedDeploymentInsights.some(i => i.name === insight.name);
-                              
-                              if (isFee) {
-                                return (
-                                  <div 
-                                    key={idx} 
-                                    className={cn(
-                                      "p-6 rounded-xl cursor-pointer transition-all border border-l-4 h-auto min-h-full",
-                                      isSelected
-                                        ? "bg-purple-500/10 border-purple-500 border-l-purple-500 shadow-lg shadow-purple-500/5 scale-[1.02]"
-                                        : "bg-white/5 border-white/10 border-l-purple-500 hover:bg-white/10"
-                                    )}
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setSelectedDeploymentInsights(selectedDeploymentInsights.filter(i => i.name !== insight.name));
-                                      } else {
-                                        setSelectedDeploymentInsights([...selectedDeploymentInsights, insight]);
-                                      }
-                                    }}
-                                  >
-                                    <div className="flex justify-between items-center">
-                                      <div className="space-y-1">
-                                        <div className="flex items-center gap-2">
-                                          <Truck className="w-3 h-3 text-purple-500" />
-                                          <span className="text-xs font-black text-white uppercase tracking-tight">{insight.name}</span>
-                                          {isSelected && <Badge className="bg-purple-500 text-white text-[8px] h-4 px-1.5 font-bold uppercase tracking-widest">Added</Badge>}
-                                        </div>
-                                        <p className="text-[10px] text-white/50 font-bold uppercase tracking-tight">{insight.reason}</p>
-                                      </div>
-                                      <div className="text-right">
-                                        <div className="text-xs font-black text-purple-500">${insight.price}</div>
-                                        <div className="text-[8px] text-white/30 font-bold uppercase">Calculated Fee</div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              }
-
-                              return (
-                                <div 
-                                  key={idx} 
-                                  className={cn(
-                                    "p-6 rounded-xl cursor-pointer transition-all border border-l-4 h-auto min-h-full",
-                                    isSelected
-                                      ? "bg-purple-500/10 border-purple-500 border-l-purple-500 shadow-lg shadow-purple-500/5 scale-[1.02]"
-                                      : "bg-white/5 border-white/10 border-l-purple-500 hover:bg-white/10"
-                                  )}
-                                  onClick={() => {
-                                    if (isSelected) {
-                                      setSelectedDeploymentInsights(selectedDeploymentInsights.filter(i => i.name !== insight.name));
-                                    } else {
-                                      setSelectedDeploymentInsights([...selectedDeploymentInsights, insight]);
-                                    }
-                                  }}
-                                >
-                                  <div className="flex justify-between items-start mb-2">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs font-black text-white uppercase">{insight.name}</span>
-                                      {isSelected && <Badge className="bg-purple-500 text-white text-[8px] h-4 px-1.5 font-bold uppercase tracking-widest">Added</Badge>}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs font-black text-purple-500">${insight.price}</span>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 text-white/20 hover:text-red-500"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setDeploymentInsights(deploymentInsights.filter(di => di.name !== insight.name));
-                                        }}
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </Button>
-                                    </div>
-                                  </div>
-                                  <p className="text-[10px] text-white/60 font-medium leading-relaxed">{insight.description}</p>
-                                  <p className="text-[9px] text-white/30 font-bold uppercase mt-2">Detected: {insight.reason}</p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Strategic Suggestions */}
-                      {revenueProtocol.customerSpecificSuggestions && revenueProtocol.customerSpecificSuggestions.length > 0 && (
-                        <div className="space-y-6">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-blue-500">Client-Specific Strategy</Label>
-                          <div className="grid grid-cols-1 gap-6">
-                            {revenueProtocol.customerSpecificSuggestions.map((sug, idx) => (
-                              <div key={idx} className="p-6 rounded-xl bg-white/5 border border-white/10 border-l-4 border-l-blue-500">
-                                <p className="text-xs font-black text-white mb-1 uppercase tracking-tight">{sug.suggestion}</p>
-                                <p className="text-[10px] text-white/60 font-medium italic">Logic: {sug.logic}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {(selectedAdjustments.length > 0 || selectedBundles.length > 0 || selectedDeploymentInsights.length > 0) && (
-                    <Button 
-                      onClick={async () => {
-                        setIsUpdating(true);
-                        try {
-                          const docRef = doc(db, "appointments", id!);
-                          const currentNames = job.serviceNames || [];
-                          let currentSelections = job.serviceSelections || [];
-                          const currentAddOnSelections = job.addOnSelections || [];
-                          let currentTotal = job.totalAmount || 0;
-                          let currentBase = job.baseAmount || 0;
-                          
-                          let addedValue = 0;
-                          let newNames = [...currentNames];
-                          let newSelections = [...currentSelections];
-                          let newAddOnSelections = [...currentAddOnSelections];
-
-                          // 1. Process Adjustments
-                          selectedAdjustments.forEach(adj => {
-                             // Find in serviceSelections
-                             const sIdx = newSelections.findIndex(s => s.name === adj.targetServiceName);
-                             if (sIdx !== -1) {
-                               const diff = adj.suggestedPrice - newSelections[sIdx].price;
-                               newSelections[sIdx] = {
-                                 ...newSelections[sIdx],
-                                 price: adj.suggestedPrice,
-                                 total: adj.suggestedPrice * (newSelections[sIdx].qty || 1),
-                                 description: (newSelections[sIdx].description || "") + ` | Optimized Pricing: ${adj.reason}`,
-                                 source: "ai_revenue_intelligence",
-                                 protocolAccepted: true
-                               };
-                               addedValue += diff;
-                             } else {
-                               // Find in addOnSelections
-                               const aIdx = newAddOnSelections.findIndex(a => a.name === adj.targetServiceName);
-                               if (aIdx !== -1) {
-                                 const diff = adj.suggestedPrice - newAddOnSelections[aIdx].price;
-                                 newAddOnSelections[aIdx] = {
-                                   ...newAddOnSelections[aIdx],
-                                   price: adj.suggestedPrice,
-                                   total: adj.suggestedPrice * (newAddOnSelections[aIdx].qty || 1),
-                                   description: (newAddOnSelections[aIdx].description || "") + ` | Optimized Pricing: ${adj.reason}`,
-                                   source: "ai_revenue_intelligence",
-                                   protocolAccepted: true
-                                 };
-                                 addedValue += diff;
-                               }
-                             }
-                          });
-
-                          // 2. Process Bundles
-                          selectedBundles.forEach(bundle => {
-                            newNames.push(bundle.bundleName);
-                            const newItem = {
-                              id: `ai-bundle-${Date.now()}-${Math.random()}`,
-                              name: bundle.bundleName,
-                              description: `Strategic Package: ${bundle.items.join(", ")}`,
-                              price: bundle.discountedPrice,
-                              qty: 1,
-                              total: bundle.discountedPrice,
-                              source: "ai_revenue_intelligence",
-                              protocolAccepted: true,
-                              vehicleId: activeVehicleId || "",
-                              bundledServiceNames: bundle.items // Important for conflict checking
-                            };
-                            newSelections.push(newItem);
-                            addedValue += bundle.discountedPrice;
-                          });
-
-                          // 4. Process Deployment Insights
-                          selectedDeploymentInsights.forEach(insight => {
-                            const isFee = insight.name.toLowerCase().includes("travel") || insight.name.toLowerCase().includes("fee") || insight.name.toLowerCase().includes("surcharge");
-                            if (!isFee) {
-                              newNames.push(insight.name);
-                            }
-                            
-                            const newItem = {
-                              id: `dep-insight-${Date.now()}-${Math.random()}`,
-                              name: insight.name,
-                              description: insight.description,
-                              price: insight.price,
-                              qty: 1,
-                              total: insight.price,
-                              source: "deployment_intelligence",
-                              protocolAccepted: true,
-                              instruction: insight.reason || insight.description || "Deploy as directed.",
-                              vehicleId: activeVehicleId || ""
-                            };
-                            newSelections.push(newItem);
-                            addedValue += insight.price;
-                          });
-
-                          const protocolNote = revenueProtocol.customerSpecificSuggestions ? `\n\n[CLIENT STRATEGY]\n${revenueProtocol.customerSpecificSuggestions}` : "";
-                          
-                          await updateDoc(docRef, {
-                            serviceNames: newNames,
-                            serviceSelections: newSelections,
-                            addOnSelections: newAddOnSelections,
-                            totalAmount: currentTotal + addedValue,
-                            baseAmount: currentBase + addedValue,
-                            internalNotes: (job.internalNotes || "") + `\n\n[REVENUE PROTOCOL] Optimized at ${new Date().toLocaleString()}. Added ${selectedAdjustments.length} adjustments, ${selectedBundles.length} bundles, and ${selectedDeploymentInsights.length} deployment items.${protocolNote}`
-                          });
-                          
-                          toast.success("Revenue Protocol Assets Synchronized!");
-                          setRecommendations([]);
-                          setSelectedRecommendations([]); // Keep for cleanliness
-                          setSelectedAdjustments([]);
-                          setSelectedBundles([]);
-                          setSelectedDeploymentInsights([]);
-                          setDeploymentInsights([]);
-                          setTechnicianAssessment("");
-                          setRevenueProtocol(null);
-                        } catch (err) {
-                          console.error("Sync Error:", err);
-                          toast.error("Failed to sync revenue protocol assets");
-                        } finally {
-                          setIsUpdating(false);
-                        }
-                      }}
-                      className="w-full h-14 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl uppercase tracking-[0.2em] text-xs shadow-xl shadow-green-600/20 shrink-0 mt-12"
-                    >
-                      Apply Selected Assets (+{formatCurrency(
-                        selectedAdjustments.reduce((sum, adj) => {
-                          const existingSev = job.serviceSelections?.find((s: any) => s.name === adj.targetServiceName);
-                          const existingAdd = job.addOnSelections?.find((a: any) => a.name === adj.targetServiceName);
-                          const currentPrice = existingSev?.price || existingAdd?.price || 0;
-                          return sum + (adj.suggestedPrice - currentPrice);
-                        }, 0) +
-                        selectedBundles.reduce((sum, b) => sum + b.discountedPrice, 0) +
-                        selectedDeploymentInsights.reduce((sum, i) => sum + i.price, 0)
-                      )})
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="checklist" className="mt-6 space-y-12">
+          <TabsContent value="checklist" className="mt-6 space-y-12">
               {/* Live Revenue Intelligence Directives (Restored) */}
               {(() => {
                 const liveRecommendations = recommendations.map(r => ({
@@ -3419,133 +2652,32 @@ export default function JobDetail() {
             </TabsContent>
 
             <TabsContent value="photos" className="mt-6 space-y-12">
-              <div><PhotoDocumentation jobId={job.id} type="before" /></div>
-              <div><PhotoDocumentation jobId={job.id} type="after" /></div>
-              <div><PhotoDocumentation jobId={job.id} type="damage" /></div>
+              <PhotoDocumentation jobId={job.id} type="before" />
+              <PhotoDocumentation jobId={job.id} type="after" />
+              <PhotoDocumentation jobId={job.id} type="damage" />
             </TabsContent>
 
             <TabsContent value="notes" className="mt-6 space-y-12">
-              <Card className="border-none shadow-sm bg-white">
-                <CardContent className="p-10">
+              <Card className="bg-card border-white/5 rounded-3xl shadow-xl">
+                <CardContent className="p-8">
                   <textarea 
-                    className="w-full h-40 p-4 rounded-2xl border border-gray-100 focus:ring-2 focus:ring-primary focus:border-transparent resize-none text-sm font-medium"
-                    placeholder="Add job notes, technician observations, or special instructions..."
+                    className="w-full h-40 p-4 rounded-2xl bg-white/5 border border-white/10 text-white focus:ring-2 focus:ring-primary focus:border-transparent resize-none text-sm font-medium"
+                    placeholder="Job notes..."
                     defaultValue={job.notes}
+                    onBlur={async (e) => {
+                      await updateJobFields(id!, { notes: e.target.value }, profile!.businessId);
+                    }}
                   />
-                  <div className="flex justify-end mt-4">
-                    <Button className="bg-primary hover:bg-red-700 font-bold">Save Notes</Button>
-                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
             <TabsContent value="forms" className="mt-6 space-y-12">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                <h3 className="text-lg font-bold">Job Forms & Waivers</h3>
-                <Dialog>
-                  <DialogTrigger render={
-                    <Button size="sm" variant="outline" className="font-bold">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Form
-                    </Button>
-                  } />
-                  <DialogContent className="max-w-2xl bg-white p-6 rounded-2xl border-none shadow-2xl">
-                    <DialogHeader><DialogTitle className="font-black">Select Form to Add</DialogTitle></DialogHeader>
-                    <div className="grid grid-cols-1 gap-3 mt-4">
-                      {formTemplates.filter(t => t.isActive).map(t => (
-                        <Button 
-                          key={t.id} 
-                          variant="outline" 
-                          className="justify-start h-auto p-4 flex-col items-start gap-1"
-                          onClick={() => setShowFormSigner(t)}
-                        >
-                          <span className="font-bold">{t.title}</span>
-                          <span className="text-[10px] text-gray-500 capitalize">{t.category} • v{t.version}</span>
-                        </Button>
-                      ))}
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
-
-              {signedForms.length === 0 ? (
-                <Card className="border-none shadow-sm bg-white">
-                  <CardContent className="p-12 text-center space-y-3">
-                    <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto">
-                      <FileText className="w-6 h-6 text-gray-300" />
-                    </div>
-                    <p className="text-sm text-gray-500 font-medium">No forms have been signed for this job yet.</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-3">
-                  {signedForms.map(sf => (
-                    <Card key={sf.id} className="border-none shadow-sm bg-white overflow-hidden">
-                      <CardContent className="p-4 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center text-green-600">
-                            <CheckCircle2 className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <p className="font-bold text-gray-900">{sf.formTitle}</p>
-                            <p className="text-[10px] text-gray-500">Signed on {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
-                          </div>
-                        </div>
-                        <Dialog>
-                          <DialogTrigger render={<Button variant="ghost" size="sm" className="font-bold text-primary">View</Button>} />
-                          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-white p-8 rounded-2xl border-none shadow-2xl">
-                            <div className="space-y-8">
-                              <div className="flex justify-between items-start border-b pb-6">
-                                <div>
-                                  <h2 className="text-2xl font-black uppercase tracking-tighter">{sf.formTitle}</h2>
-                                  <p className="text-xs text-gray-500">Version {sf.formVersion} • Signed At: {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
-                                </div>
-                                <Badge className="bg-green-100 text-green-700 border-green-200">Verified Signature</Badge>
-                              </div>
-                              
-                              <div className="prose prose-sm max-w-none p-6 bg-gray-50 rounded-xl border border-gray-100">
-                                <ReactMarkdown>{formTemplates.find(t => t.id === sf.formId)?.content || "Content unavailable"}</ReactMarkdown>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-8">
-                                {sf.printedName && (
-                                  <div>
-                                    <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Printed Name</Label>
-                                    <p className="font-bold text-gray-900">{sf.printedName}</p>
-                                  </div>
-                                )}
-                                {sf.initials && (
-                                  <div>
-                                    <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Initials</Label>
-                                    <p className="font-bold text-gray-900">{sf.initials}</p>
-                                  </div>
-                                )}
-                                {sf.date && (
-                                  <div>
-                                    <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Date</Label>
-                                    <p className="font-bold text-gray-900">{sf.date}</p>
-                                  </div>
-                                )}
-                              </div>
-
-                              {sf.signature && (
-                                <div className="space-y-2">
-                                  <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Signature</Label>
-                                  <div className="border rounded-xl p-4 bg-white inline-block">
-                                    <img src={sf.signature} alt="Signature" className="h-24" />
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-              </div>
+               <JobForms 
+                 signedForms={signedForms}
+                 formTemplates={formTemplates}
+                 setShowFormSigner={setShowFormSigner}
+               />
             </TabsContent>
         </div>
 

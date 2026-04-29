@@ -60,6 +60,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 
 export default function Dashboard() {
+  console.log("Dashboard rendering");
   const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
@@ -157,18 +158,22 @@ export default function Dashboard() {
     const endMonth = endOfMonth(today);
 
     try {
+      if (!profile) throw new Error("No authenticated user");
+      if (!profile.businessId) throw new Error("No business context");
+
       const [statsList, jobsList, leadsSnap, aiLeadsSnap, aiClientsSnap, aiInvoicesSnap, settingsSnap] = await Promise.all([
         getAppointmentsForMonth(profile.businessId, startMonth, endMonth),
         getUpcomingJobs(profile.businessId, 5),
         getDocs(query(
           collection(db, "leads"),
+          where("businessId", "==", profile.businessId),
           where("status", "==", "new"),
           orderBy("createdAt", "desc"),
           limit(8)
         )),
-        getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(20))),
-        getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(20))),
-        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(20))),
+        getDocs(query(collection(db, "leads"), where("businessId", "==", profile.businessId), orderBy("createdAt", "desc"), limit(20))),
+        getDocs(query(collection(db, "clients"), where("businessId", "==", profile.businessId), orderBy("createdAt", "desc"), limit(20))),
+        getDocs(query(collection(db, "invoices"), where("businessId", "==", profile.businessId), orderBy("createdAt", "desc"), limit(20))),
         getDoc(doc(db, "settings", profile.businessId))
       ]);
 
@@ -479,11 +484,9 @@ export default function Dashboard() {
               Sync Ops
             </Button>
             <Dialog open={isExpenseDialogOpen} onOpenChange={setIsExpenseDialogOpen}>
-              <DialogTrigger render={
-                <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[11px]">
-                  <Receipt className="w-4 h-4 mr-2 text-primary" /> Log Expense
-                </Button>
-              } />
+              <DialogTrigger className="inline-flex items-center justify-center border border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[11px] outline-none cursor-pointer">
+                <Receipt className="w-4 h-4 mr-2 text-primary" /> Log Expense
+              </DialogTrigger>
               <DialogContent className="bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black max-w-lg w-full">
                 <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
                   <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase">Business Expense</DialogTitle>
