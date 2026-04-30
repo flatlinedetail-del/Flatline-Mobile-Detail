@@ -34,18 +34,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             const docSnap = await getDoc(userDocRef);
             if (docSnap.exists()) {
-              let data = { ...docSnap.data() };
+              let data = docSnap.data();
               // Ensure owner email always has admin role (maintain logic from before)
               if (authUser.email?.toLowerCase() === "flatlinedetail@gmail.com" && data.role !== "admin") {
                 await updateDoc(userDocRef, { role: "admin" });
                 data.role = "admin";
-              }
-              // Set default businessId if missing
-              if (!data.businessId) {
-                data.businessId = authUser.uid;
-                try {
-                  await updateDoc(userDocRef, { businessId: authUser.uid });
-                } catch(e) {}
               }
               setProfile({ ...data, uid: authUser.uid, id: authUser.uid });
               setLoading(false);
@@ -61,7 +54,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               const newProfile = {
                 uid: authUser.uid,
                 id: authUser.uid,
-                businessId: authUser.uid,
                 email: authUser.email || "",
                 displayName: authUser.displayName || "",
                 photoURL: authUser.photoURL || "",

@@ -177,7 +177,6 @@ export default function Settings() {
         } else if (profile?.role === "admin") {
           // Initialize default settings ONLY if user is admin
           const defaultSettings: BusinessSettings = {
-            businessId: profile!.businessId,
             businessName: "Flatline Mobile Detail",
             taxRate: 8.25,
             currency: "USD",

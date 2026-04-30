@@ -51,7 +51,6 @@ import { optimizeRoute, RouteStop } from "@/lib/scheduling";
 import { Appointment, Lead, Expense, Client, Invoice, BusinessSettings, WeatherInfo } from "@/types";
 import { askAssistant, AIResponse } from "../services/gemini";
 import { fetchWeather } from "../services/weatherService";
-import { getAppointments, getAppointmentsForMonth, getUpcomingJobs } from "../services/appointmentService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -60,7 +59,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 
 export default function Dashboard() {
-  console.log("Dashboard rendering");
   const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
@@ -158,23 +156,29 @@ export default function Dashboard() {
     const endMonth = endOfMonth(today);
 
     try {
-      if (!profile) throw new Error("No authenticated user");
-      if (!profile.businessId) throw new Error("No business context");
-
-      const [statsList, jobsList, leadsSnap, aiLeadsSnap, aiClientsSnap, aiInvoicesSnap, settingsSnap] = await Promise.all([
-        getAppointmentsForMonth(profile.businessId, startMonth, endMonth),
-        getUpcomingJobs(profile.businessId, 5),
+      const [statsSnap, jobsSnap, leadsSnap, aiLeadsSnap, aiClientsSnap, aiInvoicesSnap, settingsSnap] = await Promise.all([
+        getDocs(query(
+          collection(db, "appointments"),
+          where("scheduledAt", ">=", Timestamp.fromDate(startMonth)),
+          where("scheduledAt", "<=", Timestamp.fromDate(endMonth)),
+          limit(300)
+        )),
+        getDocs(query(
+          collection(db, "appointments"),
+          where("scheduledAt", ">=", Timestamp.fromDate(todayStart)),
+          orderBy("scheduledAt", "asc"),
+          limit(5)
+        )),
         getDocs(query(
           collection(db, "leads"),
-          where("businessId", "==", profile.businessId),
           where("status", "==", "new"),
           orderBy("createdAt", "desc"),
           limit(8)
         )),
-        getDocs(query(collection(db, "leads"), where("businessId", "==", profile.businessId), orderBy("createdAt", "desc"), limit(20))),
-        getDocs(query(collection(db, "clients"), where("businessId", "==", profile.businessId), orderBy("createdAt", "desc"), limit(20))),
-        getDocs(query(collection(db, "invoices"), where("businessId", "==", profile.businessId), orderBy("createdAt", "desc"), limit(20))),
-        getDoc(doc(db, "settings", profile.businessId))
+        getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(20))),
+        getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(20))),
+        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(20))),
+        getDoc(doc(db, "settings", "business"))
       ]);
 
       // Stats Processing
@@ -182,7 +186,10 @@ export default function Dashboard() {
       let weekProj = 0, weekComp = 0;
       let monthProj = 0, monthComp = 0;
       
-      statsList.forEach(data => {
+      const statsList: Appointment[] = [];
+      statsSnap.docs.forEach(doc => {
+        const data = doc.data() as Appointment;
+        statsList.push({ id: doc.id, ...data });
         const date = data.scheduledAt instanceof Timestamp ? data.scheduledAt.toDate() : new Date(data.scheduledAt as any);
         const amount = data.totalAmount || 0;
 
@@ -221,6 +228,7 @@ export default function Dashboard() {
       
       setStats(newStats);
 
+      const jobsList = jobsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
       const recentLeadsList = leadsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
       const allLeadsList = aiLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Lead));
       const clientsList = aiClientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
@@ -484,9 +492,11 @@ export default function Dashboard() {
               Sync Ops
             </Button>
             <Dialog open={isExpenseDialogOpen} onOpenChange={setIsExpenseDialogOpen}>
-              <DialogTrigger className="inline-flex items-center justify-center border border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[11px] outline-none cursor-pointer">
-                <Receipt className="w-4 h-4 mr-2 text-primary" /> Log Expense
-              </DialogTrigger>
+              <DialogTrigger render={
+                <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[11px]">
+                  <Receipt className="w-4 h-4 mr-2 text-primary" /> Log Expense
+                </Button>
+              } />
               <DialogContent className="bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black max-w-lg w-full">
                 <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
                   <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase">Business Expense</DialogTitle>

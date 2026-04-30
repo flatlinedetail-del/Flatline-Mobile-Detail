@@ -161,7 +161,7 @@ export default function Leads() {
           type: "client",
           relatedId: docRef.id,
           relatedType: "lead"
-        }, profile!.businessId);
+        });
 
         toast.success("Lead added successfully");
       }
@@ -205,7 +205,7 @@ export default function Leads() {
         type: "client",
         relatedId: leadId,
         relatedType: "lead"
-      }, profile!.businessId);
+      });
 
       toast.success(`Status updated to ${status}`);
     } catch (error) {

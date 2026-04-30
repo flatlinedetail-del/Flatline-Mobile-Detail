@@ -1,8 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
-import { doc, getDoc, getDocs, where, query, collection, serverTimestamp } from "firebase/firestore";
+import { collection, query, addDoc, serverTimestamp, doc, getDoc, getDocs, where } from "firebase/firestore";
 import { db } from "../firebase";
-import { createAppointment, getFutureAppointments } from "../services/appointmentService";
-import { findMatchingClient, getDepositRequirement } from "../services/clientService";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -162,11 +160,29 @@ export default function PublicBooking() {
   const [alternativeTimes, setAlternativeTimes] = useState<Date[]>([]);
   const [isBackupAvailable, setIsBackupAvailable] = useState<boolean | null>(null);
 
-  const [depositInfo, setDepositInfo] = useState<{ amount: number; type: "fixed" | "percentage"; reason: string } | null>(null);
-  const [depositAccepted, setDepositAccepted] = useState(false);
-  const depositRequirement = depositInfo;
-
   const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
+
+  const [protectedClients, setProtectedClients] = useState<any[]>([]);
+  const [matchedRiskRule, setMatchedRiskRule] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (!clientInfo.email && !clientInfo.phone) {
+      setMatchedRiskRule(null);
+      return;
+    }
+
+    const email = clientInfo.email.toLowerCase().trim();
+    const phone = clientInfo.phone.replace(/\D/g, "");
+
+    const match = protectedClients.find(pc => 
+      pc.isActive && (
+        (email && pc.email?.toLowerCase().trim() === email) ||
+        (phone && pc.phone?.replace(/\D/g, "") === phone)
+      )
+    );
+
+    setMatchedRiskRule(match || null);
+  }, [clientInfo.email, clientInfo.phone, protectedClients]);
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -277,21 +293,6 @@ export default function PublicBooking() {
   };
 
   useEffect(() => {
-    const checkClientRisk = async () => {
-      if (clientInfo.email || clientInfo.phone || clientInfo.name) {
-         const match = await findMatchingClient(settings?.businessId || "default-business", {
-           email: clientInfo.email,
-           phone: clientInfo.phone,
-           name: clientInfo.name
-         });
-         const dep = getDepositRequirement(match);
-         setDepositInfo(dep.amount > 0 ? dep : null);
-      }
-    };
-    checkClientRisk();
-  }, [clientInfo.email, clientInfo.phone, clientInfo.name]);
-
-  useEffect(() => {
     const fetchData = async () => {
       try {
         const settingsSnap = await getDoc(doc(db, "settings", "business"));
@@ -303,9 +304,12 @@ export default function PublicBooking() {
         const addonsSnap = await getDocs(query(collection(db, "addons")));
         setAddons(addonsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AddOn)).filter(a => a.isActive));
 
-        const appts = await getFutureAppointments(settings?.businessId || "default-business");
-        setAppointments(appts);
-       } catch (error) {
+         const apptsSnap = await getDocs(query(collection(db, "appointments"), where("scheduledAt", ">=", new Date())));
+        setAppointments(apptsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        const protectedSnap = await getDocs(collection(db, "protected_clients"));
+        setProtectedClients(protectedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (error) {
         console.error("Error fetching data for booking:", error);
         toast.error("Failed to load booking information.");
       } finally {
@@ -388,7 +392,7 @@ export default function PublicBooking() {
         clientNote
       } : null;
 
-      const appointmentData: any = {
+       const appointmentData: any = {
         customerName: clientInfo.name,
         customerEmail: clientInfo.email,
         customerPhone: clientInfo.phone,
@@ -416,15 +420,20 @@ export default function PublicBooking() {
           afterHoursReason: "Time selected falls outside standard operating hours.",
           businessHoursSnapshot: settings?.businessHours || null
         } : null,
+        depositAmount: depositInfo.amount,
+        depositRequired: depositInfo.isRequired,
+        depositSource: depositInfo.source,
+        riskProfile: matchedRiskRule ? {
+          protectionLevel: matchedRiskRule.protectionLevel,
+          riskReason: matchedRiskRule.riskReason,
+          ruleId: matchedRiskRule.id
+        } : null,
         paymentStatus: "unpaid",
         technicianId: "",
         technicianName: "TBD",
         waiverAccepted: true,
         photos: { before: [], after: [], damage: [] },
         completedTasks: {},
-        depositAmount: depositInfo ? (depositInfo.type === 'percentage' ? totalPrice * depositInfo.amount / 100 : depositInfo.amount) : 0,
-        depositType: depositInfo?.type || 'fixed',
-        depositReason: depositInfo?.reason || '',
         bookingFunnelData: {
           clientGoal,
           condition,
@@ -435,14 +444,7 @@ export default function PublicBooking() {
         }
       };
 
-      if (depositInfo && depositInfo.amount > 0 && !depositAccepted) {
-        toast.error("You must accept the deposit requirement to proceed.");
-        setIsSubmitting(false);
-        return;
-      }
-
-      const appointmentId = await createAppointment(appointmentData, settings?.businessId || "default-business");
-      const docRef = { id: appointmentId };
+      const docRef = await addDoc(collection(db, "appointments"), appointmentData);
       
       try {
         const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
@@ -450,8 +452,8 @@ export default function PublicBooking() {
         
         const isWaitlisted = isTimeAvailable === false;
         
-        const notifyPromises = adminsSnap.docs.map(async (admin) => 
-          await createNotification({
+        const notifyPromises = adminsSnap.docs.map(admin => 
+          createNotification({
             userId: admin.id,
             title: isWaitlisted ? "Waitlist Request" : "New Booking Request",
             message: isWaitlisted 
@@ -466,7 +468,7 @@ export default function PublicBooking() {
             requestedDateTime: new Date(scheduledAt),
             backupDateTime: backupScheduledAt ? new Date(backupScheduledAt) : null,
             bookingRequestId: docRef.id
-          }, settings!.businessId)
+          })
         );
         await Promise.all(notifyPromises);
       } catch (notifyError) {
@@ -508,7 +510,7 @@ export default function PublicBooking() {
     return dur;
   }, [selectedServices, services]);
 
-  const totalPrice = useMemo(() => {
+   const totalPrice = useMemo(() => {
      let price = 0;
      selectedServices.forEach(id => {
         const s = services.find(x => x.id === id);
@@ -520,6 +522,41 @@ export default function PublicBooking() {
      });
      return price;
   }, [selectedServices, selectedAddons, services, addons]);
+
+  const depositInfo = useMemo(() => {
+    let amount = 0;
+    let type: "fixed" | "percentage" = "fixed";
+    let isRequired = false;
+    let source = "service";
+
+    // 1. Check matched risk rule FIRST (Manual Adjustment)
+    if (matchedRiskRule) {
+      isRequired = true;
+      amount = matchedRiskRule.requiredDepositValue || 0;
+      type = matchedRiskRule.requiredDepositType || "fixed";
+      source = "risk_rule";
+    } else {
+      // 2. Check service-level deposits
+      selectedServices.forEach(id => {
+        const s = services.find(x => x.id === id);
+        if (s?.depositRequired) {
+          isRequired = true;
+          if (s.depositType === "percentage") {
+            amount += (s.basePrice * (s.depositAmount || 0)) / 100;
+          } else {
+            amount += s.depositAmount || 0;
+          }
+        }
+      });
+    }
+
+    // If percentage from risk rule, calculate now
+    if (source === "risk_rule" && type === "percentage") {
+      amount = (totalPrice * amount) / 100;
+    }
+
+    return { amount, isRequired, source, riskLevel: matchedRiskRule?.protectionLevel };
+  }, [matchedRiskRule, selectedServices, services, totalPrice]);
 
 
   if (loading) {
@@ -539,7 +576,7 @@ export default function PublicBooking() {
           </div>
           <CardContent className="p-8 text-center space-y-4">
             <h2 className="text-2xl font-black text-gray-900 tracking-tighter uppercase">Request Received!</h2>
-            <p className="text-gray-700 font-medium">
+            <p className="text-gray-500 font-medium">
               Thank you, {clientInfo.name.split(" ")[0] || "there"}! Your booking request has been submitted. 
               We will review it and contact you shortly to confirm.
             </p>
@@ -649,11 +686,11 @@ export default function PublicBooking() {
                           </div>
                           <div className="space-y-2">
                             <Label className="text-gray-900 font-bold">Color (Optional)</Label>
-                            <Input className="border-gray-300 text-gray-900 placeholder:text-gray-600 focus-visible:ring-primary/20" value={clientInfo.vehicleColor} onChange={e => setClientInfo(prev => ({...prev, vehicleColor: e.target.value}))} placeholder="Black" />
+                            <Input className="border-gray-300 text-gray-900 placeholder:text-gray-500 focus-visible:ring-primary/20" value={clientInfo.vehicleColor} onChange={e => setClientInfo(prev => ({...prev, vehicleColor: e.target.value}))} placeholder="Black" />
                           </div>
                           <div className="space-y-2">
                             <Label className="text-gray-900 font-bold">License Plate (Optional)</Label>
-                            <Input className="border-gray-300 text-gray-900 placeholder:text-gray-600 focus-visible:ring-primary/20" value={clientInfo.vehiclePlate} onChange={e => setClientInfo(prev => ({...prev, vehiclePlate: e.target.value}))} placeholder="ABC-1234" />
+                            <Input className="border-gray-300 text-gray-900 placeholder:text-gray-500 focus-visible:ring-primary/20" value={clientInfo.vehiclePlate} onChange={e => setClientInfo(prev => ({...prev, vehiclePlate: e.target.value}))} placeholder="ABC-1234" />
                           </div>
                         </div>
                       </div>
@@ -1045,7 +1082,7 @@ export default function PublicBooking() {
                               </div>
                             </div>
                           )}
-                          <p className="text-xs text-gray-700 font-medium italic pt-2">
+                          <p className="text-xs text-gray-500 font-medium italic pt-2">
                             * All time requests require final approval from our team.
                           </p>
                         </div>
@@ -1146,14 +1183,14 @@ export default function PublicBooking() {
                       
                       <div className="space-y-4 border-2 border-gray-100 rounded-2xl p-6 bg-gray-50">
                         <div className="flex items-center gap-3 border-b border-gray-200 pb-4">
-                           <User className="w-5 h-5 text-gray-600" />
+                           <User className="w-5 h-5 text-gray-500" />
                            <div>
                              <p className="font-black text-gray-900">{clientInfo.name}</p>
                              <p className="text-sm text-gray-600 font-medium">{clientInfo.phone} • {clientInfo.email}</p>
                            </div>
                         </div>
                         <div className="flex items-center gap-3 pt-2">
-                           <MapPin className="w-5 h-5 text-gray-600" />
+                           <MapPin className="w-5 h-5 text-gray-500" />
                            <p className="text-sm font-bold text-gray-800">{clientInfo.address}</p>
                         </div>
                       </div>
@@ -1161,7 +1198,7 @@ export default function PublicBooking() {
                       {/* Display Mobile Booking Summary for mobile screens */}
                       <div className="block lg:hidden border-2 border-gray-100 rounded-2xl p-6 bg-white space-y-4">
                          <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
-                           <Receipt className="w-5 h-5 text-gray-700" />
+                           <Receipt className="w-5 h-5 text-gray-500" />
                            <h3 className="font-black text-gray-900 uppercase tracking-tight">Booking Summary</h3>
                          </div>
                          <div className="space-y-3">
@@ -1193,22 +1230,42 @@ export default function PublicBooking() {
                                <Clock className="w-3 h-3" /> {totalDuration} mins
                              </p>
                            </div>
-                           <span className="text-3xl font-black text-primary">${totalPrice}</span>
+                            <div className="text-right">
+                              {depositInfo.isRequired && (
+                                <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
+                                  Deposit Due: {formatCurrency(depositInfo.amount)}
+                                </p>
+                              )}
+                              <span className="text-3xl font-black text-primary">${totalPrice}</span>
+                            </div>
                         </div>
                       </div>
 
-                      {depositInfo && depositInfo.amount > 0 && (
-                          <div className="flex items-start gap-3 p-5 bg-red-50 rounded-2xl border border-red-200 group transition-all mb-4">
-                             <Checkbox 
-                                id="deposit-accepted" 
-                                className="mt-1 border-red-400 data-[state=checked]:bg-primary data-[state=checked]:border-primary" 
-                                checked={depositAccepted} 
-                                onCheckedChange={(c) => setDepositAccepted(c as boolean)}
-                             />
-                             <Label htmlFor="deposit-accepted" className="text-sm leading-relaxed text-red-900 font-bold cursor-pointer">
-                               I accept the required deposit of {depositInfo.type === 'percentage' ? `${depositInfo.amount}%` : formatCurrency(depositInfo.amount)} for this booking. <span className="block text-xs font-normal text-red-800/70">{depositInfo.reason}</span>
-                             </Label>
+                      {matchedRiskRule && (
+                        <div className={cn(
+                          "p-5 rounded-2xl border flex items-start gap-4 animate-in fade-in zoom-in",
+                          matchedRiskRule.protectionLevel === "High" ? "bg-red-50 border-red-200" : 
+                          matchedRiskRule.protectionLevel === "Block Booking" ? "bg-black border-red-900" : "bg-orange-50 border-orange-200"
+                        )}>
+                          <AlertCircle className={cn("w-6 h-6 shrink-0 mt-0.5", 
+                            matchedRiskRule.protectionLevel === "High" ? "text-red-600" : 
+                            matchedRiskRule.protectionLevel === "Block Booking" ? "text-red-500" : "text-orange-600"
+                          )} />
+                          <div>
+                            <p className={cn("text-xs font-black uppercase tracking-widest", 
+                              matchedRiskRule.protectionLevel === "High" ? "text-red-800" : 
+                              matchedRiskRule.protectionLevel === "Block Booking" ? "text-red-400" : "text-orange-800"
+                            )}>
+                              {matchedRiskRule.protectionLevel === "Block Booking" ? "RESTRICTED ACCOUNT" : `${matchedRiskRule.protectionLevel} Risk Detected`}
+                            </p>
+                            <p className={cn("text-sm font-bold mt-1", matchedRiskRule.protectionLevel === "Block Booking" ? "text-white" : "text-gray-800")}>
+                              {matchedRiskRule.protectionLevel === "Block Booking" 
+                                ? "This account has been restricted. We are not accepting new automated bookings for this client at this time. Please contact us directly."
+                                : <>Based on our risk management protocols, a deposit of <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> is required to secure this booking.</>
+                              }
+                            </p>
                           </div>
+                        </div>
                       )}
 
                       <div className="flex items-start gap-3 p-5 bg-gray-50 rounded-2xl border border-gray-200 group transition-all">
@@ -1224,10 +1281,10 @@ export default function PublicBooking() {
                           type="submit" 
                           form="booking-form"
                           className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white shadow-xl shadow-red-500/20"
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || matchedRiskRule?.protectionLevel === "Block Booking"}
                         >
                           {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
-                          Submit Booking Requirement
+                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Account Restricted" : "Submit Booking Requirement"}
                         </Button>
                       </div>
                     </CardContent>
@@ -1302,7 +1359,7 @@ export default function PublicBooking() {
                         
                         {recommendedChoice.suggestedAddons.length > 0 && (
                           <div className="space-y-2 mt-4 pt-4 border-t border-gray-100">
-                             <span className="block text-[10px] uppercase font-black tracking-widest text-gray-700 mb-2">Suggested Add-ons</span>
+                             <span className="block text-[10px] uppercase font-black tracking-widest text-gray-500 mb-2">Suggested Add-ons</span>
                              {recommendedChoice.suggestedAddons.map(a => (
                                <div key={a.id} className="flex justify-between text-sm font-bold text-gray-700 bg-white border border-gray-100 p-2 rounded-lg">
                                   <span>+ {a.name}</span>
@@ -1325,14 +1382,9 @@ export default function PublicBooking() {
                     {recommendedChoice.lowerCostService && (
                       <Card className="border border-gray-200 shadow-sm overflow-hidden rounded-2xl bg-white mt-4 opacity-90 transition-opacity hover:opacity-100">
                          <CardContent className="p-5 flex items-center justify-between">
-                            <div className="flex-1 flex justify-between items-center mr-4">
-                               <div>
-                                  <span className="block text-[10px] uppercase font-black tracking-widest text-gray-700 mb-1">Lower-cost option available</span>
-                                  <h4 className="font-black text-gray-900">{recommendedChoice.lowerCostService.name}</h4>
-                               </div>
-                               <span className="font-black text-primary text-sm whitespace-nowrap">
-                                   {recommendedChoice.lowerCostService.basePrice ? formatCurrency(recommendedChoice.lowerCostService.basePrice) : "Contact for pricing"}
-                               </span>
+                            <div>
+                               <span className="block text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1">Lower-cost option available</span>
+                               <h4 className="font-black text-gray-900">{recommendedChoice.lowerCostService.name}</h4>
                             </div>
                             {step === 4 && (
                                <Button 
@@ -1394,7 +1446,14 @@ export default function PublicBooking() {
                                <Clock className="w-3 h-3" /> {totalDuration} mins
                              </p>
                            </div>
-                           <span className="text-3xl font-black text-primary">${totalPrice}</span>
+                           <div className="text-right">
+                             {depositInfo.isRequired && (
+                               <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
+                                 Deposit Due: {formatCurrency(depositInfo.amount)}
+                               </p>
+                             )}
+                             <span className="text-3xl font-black text-primary">${totalPrice}</span>
+                           </div>
                         </div>
                      </>
                    )}

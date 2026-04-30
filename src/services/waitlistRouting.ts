@@ -3,7 +3,7 @@ import { db } from "../firebase";
 import { createNotification } from "./notificationService";
 import { format } from "date-fns";
 
-export const handleWaitlistRouting = async (clearedAppointment: any, businessId: string) => {
+export const handleWaitlistRouting = async (clearedAppointment: any) => {
   try {
     const clearedDate = clearedAppointment.scheduledAt?.toDate ? clearedAppointment.scheduledAt.toDate() : new Date(clearedAppointment.scheduledAt);
     if (!clearedDate || isNaN(clearedDate.getTime())) return;
@@ -67,7 +67,7 @@ export const handleWaitlistRouting = async (clearedAppointment: any, businessId:
              appointmentId: clearedAppointment.id,
              clientName: clientName,
              priority: "medium",
-           }, businessId);
+           });
         }
       }
     }

@@ -11,7 +11,7 @@ import { db } from "../firebase";
 import { createNotification } from "./notificationService";
 import { Appointment, Invoice } from "../types";
 
-export const checkAndGenerateNotifications = async (userId: string, businessId: string) => {
+export const checkAndGenerateNotifications = async (userId: string) => {
   try {
     if (!userId) return;
 
@@ -36,7 +36,7 @@ export const checkAndGenerateNotifications = async (userId: string, businessId: 
     for (const doc of invoicesSnapshot.docs) {
       const invoice = { id: doc.id, ...doc.data() } as Invoice;
       if (invoice.dueDate && (invoice.dueDate as Timestamp).toDate() < now) {
-        await createIfNew(userId, businessId, {
+        await createIfNew(userId, {
           title: "Overdue Invoice",
           message: `Invoice #${invoice.invoiceNumber || invoice.id} for ${invoice.clientName} is overdue.`,
           type: "system",
@@ -61,7 +61,7 @@ export const checkAndGenerateNotifications = async (userId: string, businessId: 
     const apptsSnapshot = await getDocs(apptsQ);
     for (const doc of apptsSnapshot.docs) {
       const appt = { id: doc.id, ...doc.data() } as Appointment;
-      await createIfNew(userId, businessId, {
+      await createIfNew(userId, {
         title: "Upcoming Appointment",
         message: `${appt.customerName} scheduled for ${appt.scheduledAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
         type: "booking",
@@ -82,7 +82,7 @@ export const checkAndGenerateNotifications = async (userId: string, businessId: 
   }
 };
 
-async function createIfNew(userId: string, businessId: string, notification: any) {
+async function createIfNew(userId: string, notification: any) {
   try {
     // Check if a similar unread notification exists to avoid spam
     const q = query(
@@ -99,7 +99,7 @@ async function createIfNew(userId: string, businessId: string, notification: any
       await createNotification({
         ...notification,
         userId
-      }, businessId);
+      });
     }
   } catch (error: any) {
     if (!error?.message?.includes("Quota limit exceeded")) {

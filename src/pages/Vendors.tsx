@@ -54,7 +54,6 @@ import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { storage } from "../firebase";
-import { getVendorAppointmentsRecent, hasVendorAppointments } from "../services/appointmentService";
 
 export default function Vendors() {
   const { profile, loading: authLoading } = useAuth();
@@ -111,12 +110,12 @@ export default function Vendors() {
 
     const fetchVendorDetails = async () => {
       try {
-        const [historyData, formsSnap] = await Promise.all([
-          getVendorAppointmentsRecent(profile!.businessId, selectedVendor.id, 50),
+        const [historySnap, formsSnap] = await Promise.all([
+          getDocs(query(collection(db, "appointments"), where("vendorId", "==", selectedVendor.id), orderBy("scheduledAt", "desc"), limit(50))),
           getDocs(query(collection(db, "signed_forms"), where("vendorId", "==", selectedVendor.id)))
         ]);
 
-        setVendorHistory(historyData);
+        setVendorHistory(historySnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
         setSignedForms(formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       } catch (error) {
         console.error("Error fetching vendor details:", error);
@@ -127,8 +126,6 @@ export default function Vendors() {
     
     const unsubVehicles = onSnapshot(query(collection(db, "vehicles"), where("ownerId", "==", selectedVendor.id), where("ownerType", "==", "vendor")), snap => {
       setVendorVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
-    }, (error) => {
-      console.error("Vendor Vehicles Subscription Error:", error);
     });
 
     return () => {
@@ -310,10 +307,15 @@ export default function Vendors() {
 
     try {
       // Check for linked records
-      const hasAppointments = await hasVendorAppointments(profile!.businessId, id);
-      const vehiclesSnap = await getDocs(query(collection(db, "vehicles"), where("ownerId", "==", id)));
+      const qAppointments = query(collection(db, "appointments"), where("vendorId", "==", id));
+      const qVehicles = query(collection(db, "vehicles"), where("ownerId", "==", id));
       
-      if (hasAppointments || !vehiclesSnap.empty) {
+      const [appointmentsSnap, vehiclesSnap] = await Promise.all([
+        getDocs(qAppointments),
+        getDocs(qVehicles)
+      ]);
+
+      if (!appointmentsSnap.empty || !vehiclesSnap.empty) {
         toast.error("Cannot delete vendor with linked appointments or vehicles.");
         return;
       }

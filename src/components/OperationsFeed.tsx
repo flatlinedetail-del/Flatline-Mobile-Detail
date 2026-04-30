@@ -105,7 +105,7 @@ export function OperationsFeed({ notifications, onClose }: OperationsFeedProps) 
               variant="ghost" 
               size="sm" 
               className="text-[10px] font-black uppercase tracking-widest text-primary hover:text-white"
-              onClick={() => markAllAsRead(notifications)}
+              onClick={() => markAllAsRead(profile.id, notifications)}
             >
               Mark all read
             </Button>

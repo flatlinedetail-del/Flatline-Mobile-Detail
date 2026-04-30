@@ -50,8 +50,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { fetchGoogleEvents, createGoogleEvent, updateGoogleEvent, deleteGoogleEvent } from "../services/googleCalendarService";
 import { geocodeAddress } from "../services/geocodingService";
 import { createNotification } from "../services/notificationService";
-import { getAppointmentsInRange, softDeleteAppointment, softDeleteAppointmentsBatch, updateAppointment, updateAppointmentsBatch, createAppointmentsBatch, createAppointment, getAppointmentsBySeriesId, getRecentAppointments } from "../services/appointmentService";
-import * as firestoreUtils from "../lib/firestoreUtils";
 
 const localizer = dateFnsLocalizer({
   format,
@@ -312,15 +310,22 @@ export default function Calendar() {
       const startOfRange = startOfMonth(subMonths(new Date(), 1));
       const endOfRange = endOfMonth(addMonths(new Date(), 2));
 
-      const [appointmentsData, tbSnap, clientsSnap, servicesSnap, addonsSnap, settingsSnap] = await Promise.all([
-        getAppointmentsInRange(profile?.businessId || "default-business", startOfRange, endOfRange),
-        getDocs(query(collection(db, "blocked_dates"), where("businessId", "==", profile?.businessId || "default-business"), limit(100))),
-        getDocs(query(collection(db, "clients"), ...firestoreUtils.getBaseQuery(profile?.businessId || "default-business"), limit(200))),
-        getDocs(query(collection(db, "services"), ...firestoreUtils.getBaseQuery(profile?.businessId || "default-business"))),
-        getDocs(query(collection(db, "addons"), ...firestoreUtils.getBaseQuery(profile?.businessId || "default-business"))),
-        getDoc(doc(db, "settings", profile?.businessId || "default-business"))
+      const [apptsSnap, tbSnap, clientsSnap, servicesSnap, addonsSnap, settingsSnap] = await Promise.all([
+        getDocs(query(
+          collection(db, "appointments"), 
+          where("scheduledAt", ">=", Timestamp.fromDate(startOfRange)),
+          where("scheduledAt", "<=", Timestamp.fromDate(endOfRange)),
+          orderBy("scheduledAt", "asc"),
+          limit(500)
+        )),
+        getDocs(query(collection(db, "blocked_dates"), limit(100))),
+        getDocs(query(collection(db, "clients"), limit(200))),
+        getDocs(collection(db, "services")),
+        getDocs(collection(db, "addons")),
+        getDoc(doc(db, "settings", "business"))
       ]);
 
+      const appointmentsData = apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       const timeBlocksData = tbSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       const clientsData = clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       const servicesData = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => s.isActive);
@@ -820,7 +825,7 @@ export default function Calendar() {
         type: "system",
         relatedId: clientId,
         relatedType: "client"
-      }, profile!.businessId);
+      });
     }
 
     if (daySettings) {
@@ -971,9 +976,10 @@ export default function Calendar() {
 
     if (!jobNum) {
       // Auto-generate job number
-      const recentApps = await getRecentAppointments(profile!.businessId, 100);
-      const existingJobNums = recentApps
-        .map(appt => appt.jobNum as string)
+      const appointmentsQuery = query(collection(db, "appointments"), orderBy("createdAt", "desc"), limit(100));
+      const snapshot = await getDocs(appointmentsQuery);
+      const existingJobNums = snapshot.docs
+        .map(doc => doc.data().jobNum as string)
         .filter(Boolean);
       
       let maxNum = 1000;
@@ -1086,9 +1092,22 @@ export default function Calendar() {
     try {
       if (editingAppointment) {
         if (editingAppointment._editSeries && editingAppointment.recurringInfo?.seriesId) {
-          const appts = await getAppointmentsBySeriesId(profile!.businessId, editingAppointment.recurringInfo.seriesId);
-          await updateAppointmentsBatch(appts.map(a => a.id), { ...appointmentData, updatedAt: serverTimestamp() }, profile!.businessId);
+          const q = query(
+            collection(db, "appointments"), 
+            where("recurringInfo.seriesId", "==", editingAppointment.recurringInfo.seriesId)
+          );
+          const snapshot = await getDocs(q);
+          const batch = writeBatch(db);
           
+          snapshot.docs.forEach(docSnap => {
+            const { scheduledAt, updatedAt, createdAt, ...rest } = appointmentData;
+            batch.update(docSnap.ref, {
+              ...rest,
+              updatedAt: serverTimestamp()
+            });
+          });
+          
+          await batch.commit();
           toast.success("Entire series updated!");
         } else {
           const smsData = {
@@ -1102,7 +1121,7 @@ export default function Calendar() {
 
           const gRes = await syncWithGoogle(appointmentData, editingAppointment.googleEventId);
           if (gRes?.id) appointmentData.googleEventId = gRes.id;
-          await updateAppointment(editingAppointment.id, appointmentData, profile!.businessId);
+          await updateDoc(doc(db, "appointments", editingAppointment.id), appointmentData);
           
           await createNotification({
             userId: profile!.id,
@@ -1111,7 +1130,7 @@ export default function Calendar() {
             type: "booking",
             relatedId: editingAppointment.id,
             relatedType: "appointment"
-          }, profile!.businessId);
+          });
           
           if (client?.phone) {
             messagingService.sendTemplateSms(
@@ -1156,17 +1175,20 @@ export default function Calendar() {
             currentDate = nextDate;
           }
 
-          const appointmentDataList = occurrences.map((date, index) => ({
-            ...appointmentData,
-            scheduledAt: date,
-            recurringInfo: {
-              ...appointmentData.recurringInfo,
-              occurrenceIndex: index + 1,
-              totalOccurrences: occurrences.length
-            }
-          }));
+          const savePromises = occurrences.map((date, index) => {
+            return addDoc(collection(db, "appointments"), {
+              ...appointmentData,
+              scheduledAt: date,
+              createdAt: serverTimestamp(),
+              recurringInfo: {
+                ...appointmentData.recurringInfo,
+                occurrenceIndex: index + 1,
+                totalOccurrences: occurrences.length
+              }
+            });
+          });
 
-          await createAppointmentsBatch(appointmentDataList, profile!.businessId);
+          await Promise.all(savePromises);
           
           // Trigger Notification for series
           await createNotification({
@@ -1176,7 +1198,7 @@ export default function Calendar() {
             type: "booking",
             relatedId: appointmentData.clientId || appointmentData.customerId,
             relatedType: "appointment"
-          }, profile!.businessId);
+          });
 
           toast.success(`Created ${occurrences.length} recurring appointments!`);
         } else {
@@ -1188,16 +1210,19 @@ export default function Calendar() {
             confirmation: "pending"
           };
 
-          const docId = await createAppointment(appointmentData, profile!.businessId);
+          const docRef = await addDoc(collection(db, "appointments"), {
+            ...appointmentData,
+            createdAt: serverTimestamp(),
+          });
 
           await createNotification({
             userId: profile!.id,
             title: "New Appointment",
             message: `New booking for ${appointmentData.customerName} on ${format(startAt, "MMM do")}`,
             type: "booking",
-            relatedId: docId,
+            relatedId: docRef.id,
             relatedType: "appointment"
-          }, profile!.businessId);
+          });
 
           // Attempt to send confirmation SMS
           if (client?.phone) {
@@ -1214,19 +1239,19 @@ export default function Calendar() {
               client.phone,
               "booked",
               smsData,
-              docId,
+              docRef.id,
               client.id
             ).then(async (res: any) => {
               if (res.success) {
-                await updateAppointment(docId, { reminders: { confirmation: "sent" } }, profile!.businessId);
+                await updateDoc(docRef, { "reminders.confirmation": "sent" });
               } else {
-                await updateAppointment(docId, { reminders: { confirmation: "failed" } }, profile!.businessId);
+                await updateDoc(docRef, { "reminders.confirmation": "failed" });
               }
             }).catch(async (e) => {
-              await updateAppointment(docId, { reminders: { confirmation: "failed" } }, profile!.businessId);
+              await updateDoc(docRef, { "reminders.confirmation": "failed" });
             });
           } else {
-             await updateAppointment(docId, { reminders: { confirmation: "skipped" } }, profile!.businessId);
+             await updateDoc(docRef, { "reminders.confirmation": "skipped" });
           }
 
           // Trigger Notification
@@ -1237,7 +1262,7 @@ export default function Calendar() {
             type: "booking",
             relatedId: appointmentData.clientId || appointmentData.customerId,
             relatedType: "appointment"
-          }, profile!.businessId);
+          });
 
           if (activeLeadId) {
             await updateDoc(doc(db, "leads", activeLeadId), {
@@ -1365,14 +1390,17 @@ export default function Calendar() {
 
     try {
       if (scope === "series" && app?.recurringInfo?.seriesId) {
-        const appts = await getAppointmentsBySeriesId(profile!.businessId, app.recurringInfo.seriesId);
-        await softDeleteAppointmentsBatch(appts.map(a => a.id), profile!.businessId);
+        const q = query(collection(db, "appointments"), where("recurringInfo.seriesId", "==", app.recurringInfo.seriesId));
+        const snapshot = await getDocs(q);
+        const batch = writeBatch(db);
+        snapshot.docs.forEach(docSnap => batch.delete(docSnap.ref));
+        await batch.commit();
         toast.success("Entire series deleted successfully");
       } else {
         if (app?.googleEventId) {
           try { await deleteGoogleEvent(app.googleEventId); } catch(e) { console.error("Google delete failed:", e); }
         }
-        await softDeleteAppointment(id, profile!.businessId);
+        await deleteDoc(doc(db, "appointments", id));
         toast.success("Job deleted successfully");
       }
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
@@ -1392,7 +1420,11 @@ export default function Calendar() {
     if (selectedIds.length === 0) return;
     setIsDeletingBulk(true);
     try {
-      await softDeleteAppointmentsBatch(selectedIds, profile!.businessId);
+      const batch = writeBatch(db);
+      selectedIds.forEach(id => {
+        batch.delete(doc(db, "appointments", id));
+      });
+      await batch.commit();
       toast.success(`Successfully deleted ${selectedIds.length} jobs`);
       setSelectedIds([]);
       setIsSelectionMode(false);
@@ -1629,7 +1661,7 @@ export default function Calendar() {
       if (newStatus === 'arrived') {
         console.log(`Arrived clicked for appointmentId: ${selectedDetailedApp.id}`);
       }
-      await updateAppointment(selectedDetailedApp.id, { status: newStatus as any }, profile!.businessId);
+      await updateDoc(doc(db, "appointments", selectedDetailedApp.id), { status: newStatus });
       setSelectedDetailedApp({ ...selectedDetailedApp, status: newStatus });
       setAppointments(prev => prev.map(a => a.id === selectedDetailedApp.id ? { ...a, status: newStatus } : a));
       toast.success(`Job marked as ${newStatus.replace('_', ' ')}`);
@@ -1643,7 +1675,7 @@ export default function Calendar() {
           type: "booking",
           relatedId: selectedDetailedApp.id,
           relatedType: "appointment"
-        }, profile!.businessId);
+        });
       }
 
       // Trigger SMS

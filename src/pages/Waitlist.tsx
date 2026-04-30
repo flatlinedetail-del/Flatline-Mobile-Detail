@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useAuth } from "../hooks/useAuth";
-import { getAppointments } from "../services/appointmentService";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Clock, Calendar as CalendarIcon, User, Truck, FileText } from "lucide-react";
@@ -10,37 +10,34 @@ import { WaitlistDetailModal } from "../components/WaitlistDetailModal";
 import { cn } from "@/lib/utils";
 
 export default function Waitlist() {
-  const { profile } = useAuth();
   const [waitlistRecords, setWaitlistRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!profile?.businessId) return;
+    const q = query(
+      collection(db, "appointments"),
+      where("status", "in", ["waitlisted", "pending_waitlist", "offered"])
+    );
 
-    const fetchWaitlist = async () => {
-        setLoading(true);
-        try {
-            const allAppointments = await getAppointments(profile.businessId);
-            const filtered = allAppointments.filter(app => 
-                ["waitlisted", "pending_waitlist", "offered"].includes(app.status || "")
-            );
-            filtered.sort((a, b) => {
-                const dateA = a.scheduledAt?.toDate ? a.scheduledAt.toDate().getTime() : 0;
-                const dateB = b.scheduledAt?.toDate ? b.scheduledAt.toDate().getTime() : 0;
-                return dateA - dateB;
-            });
-            setWaitlistRecords(filtered);
-        } catch (error) {
-            console.error("Error fetching waitlist:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-    
-    fetchWaitlist();
-  }, [profile?.businessId]);
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const records = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      // Sort by creation or requested date ideally
+      records.sort((a: any, b: any) => {
+        const dateA = a.scheduledAt?.toDate ? a.scheduledAt.toDate().getTime() : 0;
+        const dateB = b.scheduledAt?.toDate ? b.scheduledAt.toDate().getTime() : 0;
+        return dateA - dateB;
+      });
+      setWaitlistRecords(records);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   if (loading) {
     return <div className="p-8 flex justify-center items-center h-full text-white/50">Loading Waitlist...</div>;

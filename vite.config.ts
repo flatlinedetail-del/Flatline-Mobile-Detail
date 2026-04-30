@@ -1,42 +1,24 @@
-import react from '@vitejs/plugin-react-swc';
+import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
     resolve: {
       alias: {
-        '@': path.resolve(process.cwd(), './src'),
+        '@': path.resolve(__dirname, './src'),
       },
     },
-    build: {
-      chunkSizeWarningLimit: 2000,
-      reportCompressedSize: false,
-      sourcemap: false,
-      minify: false,
-      rollupOptions: {
-        maxParallelFileOps: 1,
-        output: {
-          manualChunks: (id) => {
-            if (id.includes('node_modules')) {
-              if (id.includes('lucide-react')) return 'vendor-lucide';
-              if (id.includes('firebase')) return 'vendor-firebase';
-              if (id.includes('react')) return 'vendor-react';
-              return 'vendor';
-            }
-          }
-        }
-      }
-    },
-    esbuild: {
-      logLevel: 'error',
-    },
     optimizeDeps: {
+      // Force Vite to re-bundle dependencies when cache is cleared.
+      // We keep this block clean to allow default optimization unless specific 
+      // incompatibility issues arise.
       include: [
         'react',
         'react-dom',
@@ -44,9 +26,11 @@ export default defineConfig(({mode}) => {
         'firebase/app',
         'firebase/auth',
         'firebase/firestore',
+        'lucide-react',
         'date-fns'
       ],
-      exclude: ['lucide-react']
+      // Only exclude packages that are strictly incompatible with Vite's optimizer
+      exclude: []
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

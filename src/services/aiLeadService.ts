@@ -1,9 +1,8 @@
-import { collection, query, where, getDocs, addDoc, getDoc, doc } from "firebase/firestore";
+import { collection, query, where, getDocs, Timestamp, addDoc, serverTimestamp, orderBy, limit, getDoc, doc } from "firebase/firestore";
 import { db } from "../firebase";
 import { Lead, Client, Appointment, Quote, BusinessSettings } from "../types";
 import { qualifyLeadAI } from "./gemini";
 import { calculateDistance } from "./travelService";
-import { createDocMetadata, getBaseQuery } from "../lib/firestoreUtils";
 
 export interface LeadGenerationParams {
   type: "collision_center" | "dealership" | "fleet" | "rental" | "commercial" | "retail";
@@ -19,7 +18,7 @@ export const aiLeadService = {
   /**
    * Scores and classifies a lead using Gemini
    */
-  async qualifyLead(lead: Partial<Lead>, businessId: string): Promise<Partial<Lead>> {
+  async qualifyLead(lead: Partial<Lead>): Promise<Partial<Lead>> {
     const aiData = await qualifyLeadAI(lead);
     
     // Add distance awareness if coordinates are available
@@ -27,7 +26,7 @@ export const aiLeadService = {
     let isOutsideRadius = false;
 
     if (lead.latitude && lead.longitude) {
-      const settingsSnap = await getDoc(doc(db, "settings", businessId));
+      const settingsSnap = await getDoc(doc(db, "settings", "business"));
       if (settingsSnap.exists()) {
         const settings = settingsSnap.data() as BusinessSettings;
         if (settings.baseLatitude && settings.baseLongitude) {
@@ -54,7 +53,7 @@ export const aiLeadService = {
   /**
    * Scans internal data to find new lead opportunities
    */
-  async generateInternalLeads(businessId: string): Promise<Lead[]> {
+  async generateInternalLeads(): Promise<Lead[]> {
     const newLeads: Lead[] = [];
     const now = new Date();
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
@@ -62,8 +61,8 @@ export const aiLeadService = {
     // 1. Inactive Clients (no appointment in 90 days)
     // Fetch all clients and all appointments once to avoid N+1 queries
     const [clientsSnap, appsSnap] = await Promise.all([
-      getDocs(query(collection(db, "clients"), ...getBaseQuery(businessId))),
-      getDocs(query(collection(db, "appointments"), ...getBaseQuery(businessId)))
+      getDocs(collection(db, "clients")),
+      getDocs(query(collection(db, "appointments"), orderBy("scheduledAt", "desc")))
     ]);
 
     const appointmentsByClient: Record<string, Appointment[]> = {};
@@ -96,31 +95,26 @@ export const aiLeadService = {
       }
 
       if (isInactive) {
-        newLeads.push(this.mapClientToLead(client, "inactive", businessId));
+        newLeads.push(this.mapClientToLead(client, "inactive"));
       }
     });
 
     // 2. Unaccepted Quotes
-    const quotesQuery = query(
-        collection(db, "quotes"), 
-        ...getBaseQuery(businessId),
-        where("status", "==", "sent")
-    );
+    const quotesQuery = query(collection(db, "quotes"), where("status", "==", "sent"));
     const quotesSnap = await getDocs(quotesQuery);
     quotesSnap.docs.forEach(quoteDoc => {
       const quote = quoteDoc.data() as Quote;
       // If quote is older than 3 days, it's a lead
-      const createdAt = (quote.createdAt as any).toDate();
+      const createdAt = (quote.createdAt as Timestamp).toDate();
       if (createdAt < new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)) {
-        newLeads.push(this.mapQuoteToLead(quote, businessId));
+        newLeads.push(this.mapQuoteToLead(quote));
       }
     });
 
     return newLeads;
   },
 
-  mapClientToLead(client: Client, type: "inactive" | "maintenance", businessId: string): any {
-    const metadata = createDocMetadata(businessId);
+  mapClientToLead(client: Client, type: "inactive" | "maintenance"): any {
     return {
       name: client.name,
       email: client.email,
@@ -132,12 +126,12 @@ export const aiLeadService = {
       isInternal: true,
       internalSourceType: type,
       notes: client.notes || "",
-      ...metadata
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     };
   },
 
-  mapQuoteToLead(quote: Quote, businessId: string): any {
-    const metadata = createDocMetadata(businessId);
+  mapQuoteToLead(quote: Quote): any {
     return {
       name: quote.clientName,
       email: quote.clientEmail || "",
@@ -149,7 +143,8 @@ export const aiLeadService = {
       isInternal: true,
       internalSourceType: "quote_followup",
       notes: `Quote Total: $${quote.total}. Services: ${quote.lineItems.map(li => li.serviceName).join(", ")}`,
-      ...metadata
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     };
   }
 };

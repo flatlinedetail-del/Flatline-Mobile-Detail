@@ -1,6 +1,5 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { format } from "date-fns"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -163,29 +162,4 @@ export function formatCurrency(value: number | undefined | null): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(value);
-}
-
-export function formatDateSafe(dateValue: any, formatStr: string, fallback = "Pending") {
-  if (!dateValue) return fallback;
-  try {
-    let dateObj: Date;
-    if (typeof dateValue.toDate === 'function') {
-      dateObj = dateValue.toDate();
-    } else if (dateValue instanceof Date) {
-      dateObj = dateValue;
-    } else if (typeof dateValue?.seconds === 'number') {
-      dateObj = new Date(dateValue.seconds * 1000);
-    } else if (typeof dateValue === 'number' || typeof dateValue === 'string') {
-      dateObj = new Date(dateValue);
-    } else {
-      return fallback;
-    }
-
-    if (!dateObj || isNaN(dateObj.getTime())) {
-      return fallback;
-    }
-    return format(dateObj, formatStr);
-  } catch (e) {
-    return fallback;
-  }
 }

@@ -1,89 +1,80 @@
 import { 
   collection, 
-  addDoc,
+  addDoc, 
+  serverTimestamp, 
   query, 
   where, 
+  onSnapshot, 
+  orderBy, 
+  limit,
   doc,
-  updateDoc
+  updateDoc,
+  Timestamp,
+  FieldValue
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { AppNotification } from "../types";
-import { createDocMetadata, updateDocMetadata, getBaseQuery } from "../lib/firestoreUtils";
 
-const NOTIFICATIONS_COL = "notifications";
-
-export const createNotification = async (notification: Omit<AppNotification, "id" | "createdAt" | "read" | "updatedAt" | "createdBy" | "updatedBy" | "isDeleted">, businessId: string) => {
+export const createNotification = async (notification: Omit<AppNotification, "id" | "createdAt" | "read">) => {
   try {
-    const metadata = createDocMetadata(businessId);
-    await addDoc(collection(db, NOTIFICATIONS_COL), {
+    await addDoc(collection(db, "notifications"), {
       ...notification,
       read: false,
-      ...metadata
+      createdAt: serverTimestamp()
     });
   } catch (error) {
     console.error("Error creating notification:", error);
-    throw error;
   }
 };
 
 export const markNotificationAsRead = async (notificationId: string) => {
   try {
-    const metadata = updateDocMetadata();
-    await updateDoc(doc(db, NOTIFICATIONS_COL, notificationId), {
-      read: true,
-      ...metadata
+    await updateDoc(doc(db, "notifications", notificationId), {
+      read: true
     });
   } catch (error) {
     console.error("Error marking notification as read:", error);
-    throw error;
   }
 };
 
-export const markAllAsRead = async (notifications: AppNotification[]) => {
+export const markAllAsRead = async (userId: string, notifications: AppNotification[]) => {
   try {
-    const metadata = updateDocMetadata();
-    const promises = notifications.filter(n => !n.read).map(n => updateDoc(doc(db, NOTIFICATIONS_COL, n.id), { read: true, ...metadata }));
+    const unread = notifications.filter(n => !n.read);
+    const promises = unread.map(n => updateDoc(doc(db, "notifications", n.id), { read: true }));
     await Promise.all(promises);
   } catch (error) {
     console.error("Error marking all as read:", error);
-    throw error;
   }
 };
 
 export const deleteNotification = async (notificationId: string) => {
   try {
-    const metadata = updateDocMetadata();
-    await updateDoc(doc(db, NOTIFICATIONS_COL, notificationId), {
-      isDeleted: true,
-      ...metadata
-    });
+    const { deleteDoc } = await import("firebase/firestore");
+    await deleteDoc(doc(db, "notifications", notificationId));
   } catch (error) {
     console.error("Error deleting notification:", error);
-    throw error;
   }
 };
 
 export const clearCategoryRead = async (notifications: AppNotification[]) => {
   try {
-    const metadata = updateDocMetadata();
+    const { deleteDoc } = await import("firebase/firestore");
     const read = notifications.filter(n => n.read);
-    const promises = read.map(n => updateDoc(doc(db, NOTIFICATIONS_COL, n.id), { isDeleted: true, ...metadata }));
+    const promises = read.map(n => deleteDoc(doc(db, "notifications", n.id)));
     await Promise.all(promises);
   } catch (error) {
     console.error("Error clearing category:", error);
-    throw error;
   }
 };
 
 export const clearAllRead = async (notifications: AppNotification[]) => {
   try {
-    const metadata = updateDocMetadata();
+    const { deleteDoc } = await import("firebase/firestore");
     const read = notifications.filter(n => n.read);
-    const promises = read.map(n => updateDoc(doc(db, NOTIFICATIONS_COL, n.id), { isDeleted: true, ...metadata }));
+    const promises = read.map(n => deleteDoc(doc(db, "notifications", n.id)));
     await Promise.all(promises);
   } catch (error) {
     console.error("Error clearing all read notifications:", error);
-    throw error;
   }
 };
 

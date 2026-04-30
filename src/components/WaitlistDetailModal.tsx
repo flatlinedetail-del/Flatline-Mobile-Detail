@@ -2,19 +2,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFoo
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { Calendar, User, Clock, MapPin, Truck, HelpCircle, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
-import { getDoc, doc, Timestamp } from "firebase/firestore";
+import { updateDoc, doc, getDoc, collection, query, getDocs, orderBy, limit } from "firebase/firestore";
 import { db } from "../firebase";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { checkAvailability, generateSmartRecommendations, SmartRecommendation } from "../services/smartBookingService";
 import { cn } from "@/lib/utils";
-import { updateAppointment, softDeleteAppointment, getRecentAppointments } from "../services/appointmentService";
-import { useAuth } from "../hooks/useAuth";
 
 export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComplete }: { appointment: any, isOpen: boolean, onClose: () => void, onActionComplete?: () => void }) {
   const navigate = useNavigate();
-  const { profile } = useAuth();
   const [requestedStatus, setRequestedStatus] = useState<{isAvailable: boolean, reason: string} | null>(null);
   const [backupStatus, setBackupStatus] = useState<{isAvailable: boolean, reason: string} | null>(null);
   const [evaluating, setEvaluating] = useState(false);
@@ -27,7 +24,7 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
     const checkTimes = async () => {
       setEvaluating(true);
       try {
-        const settingsSnap = await getDoc(doc(db, "settings", profile!.businessId)); // Should also use a service
+        const settingsSnap = await getDoc(doc(db, "settings", "business"));
         const businessSettings = settingsSnap.exists() ? settingsSnap.data() : null;
 
         const reqDate = appointment.scheduledAt?.toDate ? appointment.scheduledAt.toDate() : new Date(appointment.scheduledAt);
@@ -80,14 +77,15 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
     };
 
     checkTimes();
-  }, [isOpen, appointment, profile]);
+  }, [isOpen, appointment]);
 
   if (!appointment) return null;
 
   const generateJobNum = async () => {
-    const recentApps = await getRecentAppointments(profile!.businessId, 100);
-    const existingJobNums = recentApps
-      .map(appt => appt.jobNum as string)
+    const appointmentsQuery = query(collection(db, "appointments"), orderBy("createdAt", "desc"), limit(100));
+    const snapshot = await getDocs(appointmentsQuery);
+    const existingJobNums = snapshot.docs
+      .map(doc => doc.data().jobNum as string)
       .filter(Boolean);
     
     let maxNum = 1000;
@@ -108,12 +106,12 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
       
       const newJobNum = appointment.jobNum || await generateJobNum();
 
-      await updateAppointment(appointment.id, {
+      await updateDoc(doc(db, "appointments", appointment.id), {
         scheduledAt: backupTime,
         status: "scheduled",
         jobNum: newJobNum,
-        waitlistInfo: { ...appointment.waitlistInfo, status: "accepted_backup" }
-      }, profile!.businessId);
+        "waitlistInfo.status": "accepted_backup" 
+      });
       toast.success("Backup time approved and scheduled!");
       onClose();
       if (onActionComplete) onActionComplete();
@@ -126,11 +124,11 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
   const handleApproveRequested = async () => {
     try {
       const newJobNum = appointment.jobNum || await generateJobNum();
-      await updateAppointment(appointment.id, {
+      await updateDoc(doc(db, "appointments", appointment.id), {
         status: "scheduled",
         jobNum: newJobNum,
-        waitlistInfo: { ...appointment.waitlistInfo, status: "accepted_requested" }
-      }, profile!.businessId);
+        "waitlistInfo.status": "accepted_requested"
+      });
       toast.success("Requested time approved and scheduled!");
       onClose();
       if (onActionComplete) onActionComplete();
@@ -144,12 +142,12 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
     if (!selectedRec) return;
     try {
       const newJobNum = appointment.jobNum || await generateJobNum();
-      await updateAppointment(appointment.id, {
-        scheduledAt: Timestamp.fromDate(selectedRec.startTime instanceof Date ? selectedRec.startTime : new Date(selectedRec.startTime)),
+      await updateDoc(doc(db, "appointments", appointment.id), {
+        scheduledAt: selectedRec.startTime,
         status: "scheduled",
         jobNum: newJobNum,
-        waitlistInfo: { ...appointment.waitlistInfo, status: "accepted_suggestion" }
-      }, profile!.businessId);
+        "waitlistInfo.status": "accepted_suggestion"
+      });
       toast.success("Suggested time scheduled!");
       onClose();
       if (onActionComplete) onActionComplete();
@@ -161,10 +159,10 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
 
   const handleDecline = async () => {
     try {
-      await updateAppointment(appointment.id, {
+      await updateDoc(doc(db, "appointments", appointment.id), {
         status: "canceled",
-        waitlistInfo: { ...appointment.waitlistInfo, status: "declined" }
-      }, profile!.businessId);
+        "waitlistInfo.status": "declined"
+      });
       toast.success("Waitlist request declined");
       onClose();
       if (onActionComplete) onActionComplete();

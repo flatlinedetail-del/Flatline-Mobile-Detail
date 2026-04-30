@@ -160,12 +160,6 @@ export interface Client {
   marketingTags?: string[];
   isOneTime?: boolean;
   gallery?: string[];
-  // Intelligence Fields
-  noShows: number;
-  latePayments: number;
-  cancellations: number;
-  riskScore: number; // 0-100
-  riskLevel?: "low" | "med" | "high";
 }
 
 export interface Vehicle {
@@ -278,10 +272,6 @@ export interface ServiceSelection {
   vehicleId?: string;
   vehicleName?: string;
   reason?: string;
-  productCost?: number;
-  estimatedProfit?: number;
-  aiRecommended?: boolean;
-  aiAccepted?: boolean;
 }
 
 export interface Appointment {
@@ -315,9 +305,6 @@ export interface Appointment {
   addOnIds?: string[];
   addOnNames?: string[];
   addOnSelections?: ServiceSelection[];
-  jobNum?: string; // Added jobNum
-  jobId?: string; // Added jobId
-  waitlistInfo?: any; // Added waitlistInfo
   baseAmount: number;
   travelFee: number;
   travelFeeBreakdown?: {
@@ -402,12 +389,7 @@ export interface Appointment {
     afterHoursReason?: string;
     businessHoursSnapshot?: any;
   };
-  smsAutomationPaused?: boolean;
   invoiceNumber?: string;
-  priceAdjustments?: any[];
-  reminders?: { 
-    confirmation?: "pending" | "sent" | "failed" | "skipped"; 
-  };
 }
 
 export interface JobProductCost {
@@ -418,46 +400,6 @@ export interface JobProductCost {
   totalCost: number;
   category: "chemical" | "pad" | "towel" | "tool" | "disposable" | "misc";
   costType: "inventory" | "must_buy" | "partial_use" | "pass_through";
-}
-
-export interface Job {
-  id: string;
-  businessId: string;
-  appointmentId?: string;
-  clientId: string;
-  clientName: string;
-  clientPhone: string;
-  clientEmail: string;
-  vehicleId?: string;
-  vehicleIds?: string[];
-  vehicleInfo: string;
-  vin?: string;
-  roNumber?: string;
-  serviceIds: string[];
-  serviceNames: string[];
-  serviceSelections?: ServiceSelection[];
-  totalAmount: number;
-  baseAmount?: number;
-  totalRevenue: number;
-  totalProductCost: number;
-  estimatedProfit: number;
-  priceAdjustments?: any[];
-  productCosts?: JobProductCost[];
-  smsAutomationPaused?: boolean;
-  paymentStatus?: "unpaid" | "partial" | "paid" | "voided" | "refunded";
-  depositAmount?: number;
-  depositType?: "fixed" | "percentage";
-  pricingAnalysis?: PricingAnalysis;
-  internalNotes?: string;
-  notes?: string;
-  scheduledAt: Timestamp;
-  status: "scheduled" | "in_progress" | "completed" | "paid" | "canceled";
-  postJobFollowUpSentAt?: Timestamp;
-  isDeleted?: boolean;
-  createdAt: Timestamp | FieldValue;
-  updatedAt: Timestamp | FieldValue;
-  createdBy?: string;
-  updatedBy?: string;
 }
 
 export interface PricingAnalysis {
@@ -485,7 +427,6 @@ export interface LineItem {
 
 export interface Invoice {
   id: string;
-  businessId: string;
   clientId: string;
   appointmentId?: string;
   jobId?: string;
@@ -506,10 +447,10 @@ export interface Invoice {
   dueDate?: Timestamp | FieldValue;
   lineItems: LineItem[];
   total: number;
-  status: string; // "draft" | "sent" | "paid" | "voided" | "pending";
+  status: "draft" | "sent" | "paid" | "voided" | "pending";
   description?: string;
   attachedFormIds?: string[];
-  paymentStatus: string; // "unpaid" | "partial" | "paid" | "voided" | "refunded";
+  paymentStatus: "unpaid" | "partial" | "paid" | "voided" | "refunded";
   paymentProvider?: "stripe" | "square" | "paypal" | "clover" | "manual";
   transactionReference?: string;
   paymentMethodDetails?: string;
@@ -520,30 +461,24 @@ export interface Invoice {
     amount?: number;
     provider?: string;
     notes?: string;
-  }[] | FieldValue;
+  }[];
   amountPaid: number;
   paidAt?: Timestamp | FieldValue;
   lateFeeEnabled: boolean; // New
-  lateFeeType: string; // "fixed" | "percentage"; // New
+  lateFeeType: "fixed" | "percentage"; // New
   lateFeeAmount: number; // New
   lateFeeGracePeriodDays: number; // New
   lateFeeApplied?: number; // New
   lateFeeAppliedAt?: Timestamp; // New
   leadId?: string;
-  isDeleted?: boolean;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
-  createdBy?: string;
-  updatedBy?: string;
   invoiceNumber?: string;
   recommendedItems?: LineItem[];
   subtotal?: number;
   discountAmount?: number;
   travelFeeAmount?: number;
   unacceptedBundles?: any[];
-  reminderCount: number;
-  lastReminderSentAt?: Timestamp;
-  latePaymentProcessedAt?: Timestamp;
 }
 
 export interface Quote {
@@ -602,7 +537,6 @@ export interface TravelZone {
 }
 
 export interface BusinessSettings {
-  businessId: string;
   businessName: string;
   businessPhone?: string;
   businessEmail?: string;
@@ -859,7 +793,7 @@ export interface ProtectedClient {
   licensePlate?: string;
   riskReason: string;
   internalNotes?: string;
-  protectionLevel: "Normal" | "Higher Deposit" | "Full Payment Required" | "Approval Required" | "Block Booking";
+  protectionLevel: "Low" | "Med" | "High" | "Normal" | "Block Booking"; // Keeping old for migration if needed, but primary focus is Low, Med, High
   requiredDepositType: "percentage" | "fixed";
   requiredDepositValue: number;
   isActive: boolean;

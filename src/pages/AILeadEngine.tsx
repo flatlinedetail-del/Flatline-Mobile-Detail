@@ -209,7 +209,7 @@ export default function AILeadEngine() {
           const lead = data.results[i];
           try {
             console.log(`[AI Engine] Qualifying external lead ${i + 1}/${data.results.length}: ${lead.name}`);
-            const qualifiedLead = await aiLeadService.qualifyLead(lead, profile!.businessId);
+            const qualifiedLead = await aiLeadService.qualifyLead(lead);
             qualified.push(qualifiedLead);
           } catch (err) {
             console.error(`Failed to qualify lead:`, err);
@@ -271,7 +271,7 @@ export default function AILeadEngine() {
         const qualified = [];
         for (let i = 0; i < leads.length; i++) {
           console.log(`[AI Engine] Qualifying CSV lead ${i + 1}/${leads.length}`);
-          const q = await aiLeadService.qualifyLead(leads[i], profile!.businessId);
+          const q = await aiLeadService.qualifyLead(leads[i]);
           qualified.push(q);
           setGenerationProgress(Math.round(((i + 1) / leads.length) * 100));
         }
@@ -301,7 +301,7 @@ export default function AILeadEngine() {
     setIsGenerating(true);
     setGenerationProgress(0);
     try {
-      const internalLeads = await aiLeadService.generateInternalLeads(profile!.businessId);
+      const internalLeads = await aiLeadService.generateInternalLeads();
       
       if (internalLeads.length === 0) {
         toast.info("No new internal opportunities found at this time.");
@@ -311,7 +311,7 @@ export default function AILeadEngine() {
         for (let i = 0; i < internalLeads.length; i++) {
           const lead = internalLeads[i];
           console.log(`[AI Engine] Qualifying internal lead ${i + 1}/${internalLeads.length}: ${lead.name}`);
-          const qualified = await aiLeadService.qualifyLead(lead, profile!.businessId);
+          const qualified = await aiLeadService.qualifyLead(lead);
           qualifiedLeads.push(qualified);
           setGenerationProgress(Math.round(((i + 1) / internalLeads.length) * 100));
           await new Promise(r => setTimeout(r, 800));
@@ -352,7 +352,7 @@ export default function AILeadEngine() {
   const handleGenerateIntelligence = async (lead: Lead) => {
     setIsGenerating(true);
     try {
-      const qualified = await aiLeadService.qualifyLead(lead, profile!.businessId);
+      const qualified = await aiLeadService.qualifyLead(lead);
       if (lead.id) {
         await updateDoc(doc(db, "leads", lead.id), {
           ...qualified,

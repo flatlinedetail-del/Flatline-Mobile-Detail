@@ -1,16 +1,20 @@
 import { useState, useEffect } from "react";
-import { subscribeToWaitlistCount } from "../services/appointmentService";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
 
-export function useWaitlistCount(businessId: string) {
+export function useWaitlistCount() {
   const [activeWaitlistCount, setActiveWaitlistCount] = useState(0);
 
   useEffect(() => {
-    if (!businessId) return;
-    const unsubscribe = subscribeToWaitlistCount(businessId, (count) => {
-      setActiveWaitlistCount(count);
+    const q = query(
+      collection(db, "appointments"),
+      where("status", "in", ["waitlisted", "pending_waitlist", "offered"])
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setActiveWaitlistCount(snapshot.size);
     });
     return () => unsubscribe();
-  }, [businessId]);
+  }, []);
 
   return activeWaitlistCount;
 }

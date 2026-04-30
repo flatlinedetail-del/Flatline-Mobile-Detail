@@ -1,37 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { 
-  serverTimestamp, 
-  collection,
-  query,
-  where,
-  getDocs,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  doc,
-  Timestamp
-} from "firebase/firestore";
+import { collection, query, getDocs, doc, addDoc, updateDoc, serverTimestamp, orderBy, limit, where, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
-import { 
-  createAppointment, 
-  getClientAppointments, 
-  subscribeToAppointmentsForClientRecommendations,
-  getRecentAppointments,
-  updateAppointment
-} from "../services/appointmentService";
-import { 
-  findMatchingClient,
-  getDepositRequirement
-} from "../services/clientService";
 import { useAuth } from "../hooks/useAuth";
 import { toast } from "sonner";
-import { PaymentSection } from "../components/ui/PaymentWrapper";
 import { 
   Building2, CalendarIcon, Car, Clock, CreditCard, DollarSign, 
+  MapPin, Plus, Search, Check, ChevronLeft, Trash2,
   AlertTriangle, Globe, Sparkles, Loader2, Star, RefreshCw,
   Bell, Info, AlertCircle, Wrench, ShieldCheck, Droplets,
-  ChevronDown, ChevronUp, Check, ChevronLeft, Plus, Search
+  ChevronDown, ChevronUp
 } from "lucide-react";
 import { format, addHours } from "date-fns";
 import { motion, AnimatePresence } from "motion/react";
@@ -123,10 +101,6 @@ export default function BookAppointment() {
   const [travelInfo, setTravelInfo] = useState<any>(null);
   const [afterHoursFeeDisplay, setAfterHoursFeeDisplay] = useState(0);
   const [isAfterHoursDisplay, setIsAfterHoursDisplay] = useState(false);
-  const [depositInfo, setDepositInfo] = useState<{ amount: number; type: "fixed" | "percentage"; reason: string } | null>(null);
-  const [depositPaid, setDepositPaid] = useState(false);
-  const [depositTransactionId, setDepositTransactionId] = useState<string | null>(null);
-  const [depositPaidAt, setDepositPaidAt] = useState<Date | null>(null);
 
   const [timingRecommendations, setTimingRecommendations] = useState<ServiceTimingOutput[]>([]);
   const [fetchingTiming, setFetchingTiming] = useState(false);
@@ -203,7 +177,7 @@ export default function BookAppointment() {
           type: "system",
           relatedId: selectedCustomerId,
           relatedType: "client"
-        }, profile.businessId);
+        });
       }
     } finally {
       setIsGeneratingSmartSlots(false);
@@ -389,24 +363,27 @@ export default function BookAppointment() {
   useEffect(() => {
     if (selectedCustomerId && availableVehicles.length > 0) {
       setFetchingTiming(true);
-      
-      const unsubscribe = subscribeToAppointmentsForClientRecommendations(
-        profile!.businessId,
-        selectedCustomerId,
-        (apps) => {
-          const intelligence = generateServiceTimingIntelligence(availableVehicles as any, apps as any, services as any);
-          
-          const actionable = intelligence.filter(t => ["Due", "Due Soon", "Overdue"].includes(t.dueStatus));
-          // Sort by priority -> Overdue, Due, Due Soon
-          const sorted = actionable.sort((a,b) => {
-            const priority: Record<string, number> = { "Overdue": 1, "Due": 2, "Due Soon": 3 };
-            return (priority[a.dueStatus] || 99) - (priority[b.dueStatus] || 99);
-          });
-          setTimingRecommendations(sorted);
-          setFetchingTiming(false);
-        }
+      const appsQuery = query(
+        collection(db, "appointments"), 
+        where("clientId", "==", selectedCustomerId)
       );
       
+      const unsubscribe = onSnapshot(appsQuery, (snap) => {
+        const apps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const intelligence = generateServiceTimingIntelligence(availableVehicles as any, apps as any, services as any);
+        
+        const actionable = intelligence.filter(t => ["Due", "Due Soon", "Overdue"].includes(t.dueStatus));
+        // Sort by priority -> Overdue, Due, Due Soon
+        const sorted = actionable.sort((a,b) => {
+           const priority: Record<string, number> = { "Overdue": 1, "Due": 2, "Due Soon": 3 };
+           return (priority[a.dueStatus] || 99) - (priority[b.dueStatus] || 99);
+        });
+        setTimingRecommendations(sorted);
+        setFetchingTiming(false);
+      }, (error) => {
+        console.error("Error fetching client appointments:", error);
+        setFetchingTiming(false);
+      });
       return () => unsubscribe();
     } else {
       setTimingRecommendations([]);
@@ -663,23 +640,6 @@ export default function BookAppointment() {
   useEffect(() => {
     let total = 0;
     const client = clients.find(c => c.id === selectedCustomerId);
-    
-    // DEBUG LOGGING
-    if (client) {
-      console.log("--- BOOKING RISK DEBUG ---");
-      console.log("Client ID:", client.id);
-      console.log("Client Name:", getClientDisplayName(client));
-      console.log("Risk Score:", client.riskScore);
-      console.log("Risk Level (stored):", client.riskLevel);
-      
-      const depositReq = getDepositRequirement(client);
-      console.log("Calculated Deposit Requirement:", depositReq);
-      console.log("--------------------------");
-      setDepositInfo(depositReq);
-    } else {
-      setDepositInfo(null);
-    }
-
     const isVIP = client?.isVIP;
     const vipSettings = client?.vipSettings;
 
@@ -842,11 +802,6 @@ export default function BookAppointment() {
     if (!selectedCustomerId) return toast.error("Please select a client.");
     if (!scheduledAtValue) return toast.error("Please select a date and time.");
     if (selectedServices.length === 0) return toast.error("Please select at least one service.");
-    
-    if (depositInfo && depositInfo.amount > 0 && !depositPaid) {
-       toast.error("You must complete the deposit payment to proceed with this booking.");
-       return;
-    }
 
     setSaving(true);
     
@@ -854,9 +809,10 @@ export default function BookAppointment() {
       const client = clients.find(c => c.id === selectedCustomerId);
       const startAt = new Date(scheduledAtValue);
       
-      const recentApps = await getRecentAppointments(profile!.businessId, 100);
-      const existingJobNums = recentApps
-        .map(appt => appt.jobNum as string)
+      const appointmentsQuery = query(collection(db, "appointments"), orderBy("createdAt", "desc"), limit(100));
+      const snapshot = await getDocs(appointmentsQuery);
+      const existingJobNums = snapshot.docs
+        .map(doc => doc.data().jobNum as string)
         .filter(Boolean);
       
       let maxNum = 1000;
@@ -932,7 +888,7 @@ export default function BookAppointment() {
           qty: s.qty,
           price: price,
           total: price * s.qty,
-          source: (s.isBundleItem ? "bundle" : "standard") as 'bundle' | 'manual' | 'deployment_intelligence' | 'standard' | 'ai_revenue_intelligence',
+          source: s.isBundleItem ? "bundle" : ("standard" as const),
           protocolAccepted: true
         };
       });
@@ -984,7 +940,7 @@ export default function BookAppointment() {
         customerName: getClientDisplayName(client),
         customerPhone: client?.phone || "",
         customerEmail: client?.email || "",
-        customerType: ("client" as 'retail' | 'client' | 'vendor'),
+        customerType: "client",
         vehicleIds: selectedVehicleIds,
         vehicleId: selectedVehicleIds[0] || null,
         vehicleNames: selectedVehicleIds.map(id => {
@@ -1003,8 +959,8 @@ export default function BookAppointment() {
         zipCode: appointmentAddress.zipCode,
         latitude: appointmentAddress.lat,
         longitude: appointmentAddress.lng,
-        scheduledAt: Timestamp.fromDate(new Date(startAt)),
-        status: "scheduled" as 'scheduled' | 'confirmed' | 'canceled' | 'en_route' | 'completed' | 'in_progress' | 'paid' | 'approved' | 'requested' | 'pending_approval' | 'declined' | 'suggested' | 'reschedule_suggested',
+        scheduledAt: startAt,
+        status: "scheduled",
         jobNum: finalJobNum,
         baseAmount: baseAmount,
         travelFee: travelFee,
@@ -1033,22 +989,16 @@ export default function BookAppointment() {
           afterHoursReason: "Time selected falls outside standard operating hours.",
           businessHoursSnapshot: settings?.businessHours || null
         } : null,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
         reminders: {
-          confirmation: "pending" as 'pending' | 'sent' | 'failed' | 'skipped'
+          confirmation: "pending"
         },
         notes,
-        leadId: prefillLeadId || null,
-        depositAmount: depositInfo ? (depositInfo.type === 'percentage' ? (baseAmount + travelFee + afterHoursFeeDisplay) * depositInfo.amount / 100 : depositInfo.amount) : 0,
-        depositType: depositInfo?.type || 'fixed',
-        depositReason: depositInfo?.reason || '',
-        depositPaid: depositPaid,
-        depositTransactionId: depositTransactionId || null
+        leadId: prefillLeadId || null
       };
 
-      const appointmentId = await createAppointment(appointmentData, profile?.businessId || "default-business");
-      const docRef = { id: appointmentId };
+      const docRef = await addDoc(collection(db, "appointments"), appointmentData);
 
       // Attempt to send notifications
       if (client?.email) {
@@ -1076,7 +1026,7 @@ export default function BookAppointment() {
             messageId: res?.messageId || "sent",
             createdAt: serverTimestamp()
           });
-          await updateAppointment(docRef.id, { reminders: { confirmation: "sent" } }, profile!.businessId);
+          await updateDoc(docRef, { "reminders.confirmation": "sent" });
         }).catch(async (e) => {
           console.error("Booking Confirmed SMS failed to send:", e);
           await addDoc(collection(db, "communication_logs"), {
@@ -1088,10 +1038,10 @@ export default function BookAppointment() {
             errorDetail: e.message || String(e),
             createdAt: serverTimestamp()
           });
-          await updateAppointment(docRef.id, { reminders: { confirmation: "failed" } }, profile!.businessId);
+          await updateDoc(docRef, { "reminders.confirmation": "failed" });
         });
       } else {
-        await updateAppointment(docRef.id, { reminders: { confirmation: "skipped" } }, profile!.businessId);
+        await updateDoc(docRef, { "reminders.confirmation": "skipped" });
       }
 
       toast.success("Appointment successfully created!");
@@ -1824,47 +1774,6 @@ export default function BookAppointment() {
                   <span className="text-primary font-black uppercase tracking-widest text-xs">Projected Total</span>
                   <span className="text-2xl font-black text-white tracking-tighter">{formatCurrency(baseAmount + travelFee + afterHoursFeeDisplay)}</span>
                 </div>
-                {depositInfo && depositInfo.amount > 0 && !depositPaid && (
-                  <div className="pt-3 border-t border-dashed border-white/10 flex flex-col gap-3">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-white/60 font-bold uppercase tracking-wider text-[10px]">
-                        Required Deposit ({depositInfo.type === 'percentage' ? `${depositInfo.amount}%` : formatCurrency(depositInfo.amount)})
-                        <p className="text-[9px] text-white/40 font-normal">{depositInfo.reason}</p>
-                      </span>
-                      <span className="text-white font-black">
-                        {depositInfo.type === 'percentage' 
-                          ? formatCurrency((baseAmount + travelFee + afterHoursFeeDisplay) * depositInfo.amount / 100)
-                          : formatCurrency(depositInfo.amount)}
-                      </span>
-                    </div>
-                    {((depositInfo.type === 'percentage' ? (baseAmount + travelFee + afterHoursFeeDisplay) * depositInfo.amount / 100 : depositInfo.amount) > 0) && (
-                      <PaymentSection 
-                        amount={depositInfo.type === 'percentage' 
-                            ? (baseAmount + travelFee + afterHoursFeeDisplay) * depositInfo.amount / 100
-                            : depositInfo.amount}
-                        metadata={{
-                          clientId: selectedCustomerId,
-                          clientName: getClientDisplayName(clients.find(c => c.id === selectedCustomerId)),
-                          bookingDate: scheduledAtValue
-                        }}
-                        onPaymentSuccess={(id) => {
-                            setDepositPaid(true);
-                            setDepositTransactionId(id);
-                            setDepositPaidAt(new Date());
-                            toast.success("Deposit processed successfully.");
-                        }}
-                      />
-                    )}
-                  </div>
-                )}
-                {depositPaid && (
-                  <div className="pt-3 border-t border-dashed border-white/10 flex items-center justify-between">
-                    <span className="text-green-500 font-bold uppercase tracking-widest text-[10px] flex items-center gap-2">
-                       <Check className="w-3 h-3" /> Deposit Paid
-                    </span>
-                    <span className="text-white text-[10px] font-mono">ID: {depositTransactionId}</span>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -1872,7 +1781,6 @@ export default function BookAppointment() {
           {/* 7. ACTIONS */}
           <div className="flex justify-end gap-4 pb-12">
             <Button
-              id="cancel-booking-button"
               type="button"
               onClick={() => navigate(-1)}
               variant="outline"
@@ -1881,9 +1789,8 @@ export default function BookAppointment() {
               Cancel
             </Button>
             <Button
-              id="confirm-booking-button"
               type="submit"
-              disabled={saving || (depositInfo && depositInfo.amount > 0 && !depositPaid)}
+              disabled={saving}
               className="px-8 h-12 bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-105 disabled:opacity-50"
             >
               {saving ? "Deploying..." : "Confirm Booking"}

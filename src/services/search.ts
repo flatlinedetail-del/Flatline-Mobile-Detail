@@ -1,7 +1,6 @@
 import { collection, query, where, getDocs, or, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
 import { Appointment, Customer, Vendor, Lead } from "../types";
-import { getBaseQuery } from "../lib/firestoreUtils";
 
 export interface SearchResult {
   type: "appointment" | "customer" | "vendor" | "lead";
@@ -18,7 +17,7 @@ export interface SearchResult {
  * Searches across multiple collections: customers, vendors, appointments, leads
  * Matches by name, VIN, RO, phone, vehicle, invoice number
  */
-export async function globalSearch(businessId: string, searchTerm: string): Promise<SearchResult[]> {
+export async function globalSearch(searchTerm: string): Promise<SearchResult[]> {
   if (!searchTerm || searchTerm.length < 2) return [];
 
   const results: SearchResult[] = [];
@@ -26,7 +25,7 @@ export async function globalSearch(businessId: string, searchTerm: string): Prom
 
   try {
     // 1. Search Clients
-    const clientsSnap = await getDocs(query(collection(db, "clients"), ...getBaseQuery(businessId)));
+    const clientsSnap = await getDocs(collection(db, "clients"));
     clientsSnap.docs.forEach(doc => {
       const data = doc.data() as any;
       const combined = `${data.name} ${data.firstName} ${data.lastName} ${data.businessName} ${data.phone}`.toLowerCase();
@@ -41,7 +40,7 @@ export async function globalSearch(businessId: string, searchTerm: string): Prom
     });
 
     // 2. Search Appointments
-    const appsSnap = await getDocs(query(collection(db, "appointments"), ...getBaseQuery(businessId)));
+    const appsSnap = await getDocs(collection(db, "appointments"));
     appsSnap.docs.forEach(doc => {
       const data = doc.data() as any;
       const combined = `${data.customerName} ${data.vin} ${data.roNumber} ${data.vehicleInfo} ${doc.id}`.toLowerCase();
@@ -58,7 +57,7 @@ export async function globalSearch(businessId: string, searchTerm: string): Prom
     });
 
     // 3. Search Vendors
-    const vendorsSnap = await getDocs(query(collection(db, "vendors"), ...getBaseQuery(businessId)));
+    const vendorsSnap = await getDocs(collection(db, "vendors"));
     vendorsSnap.docs.forEach(doc => {
       const data = doc.data() as any;
       const combined = `${data.name} ${data.contactPerson} ${data.phone}`.toLowerCase();
@@ -73,7 +72,7 @@ export async function globalSearch(businessId: string, searchTerm: string): Prom
     });
 
     // 4. Search Leads
-    const leadsSnap = await getDocs(query(collection(db, "leads"), ...getBaseQuery(businessId)));
+    const leadsSnap = await getDocs(collection(db, "leads"));
     leadsSnap.docs.forEach(doc => {
       const data = doc.data() as any;
       const combined = `${data.name} ${data.email} ${data.phone} ${data.vehicleInfo}`.toLowerCase();

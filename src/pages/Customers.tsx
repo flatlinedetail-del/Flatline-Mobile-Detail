@@ -50,7 +50,6 @@ import AddCustomerDialog from "../components/AddCustomerDialog";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ClientCommunication } from "../components/ClientCommunication";
-import { hasCustomerAppointments, hasVehicleAppointments } from "../services/appointmentService";
 
 export default function Customers() {
   const { profile, loading: authLoading } = useAuth();
@@ -101,8 +100,6 @@ export default function Customers() {
       );
       unsub = onSnapshot(qVehicles, snap => {
         setCustomerVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
-      }, (error) => {
-        console.error("Customer Vehicles Subscription Error:", error);
       });
 
       const qForms = query(
@@ -137,19 +134,19 @@ export default function Customers() {
 
     try {
       // Check for linked records
-      const [
-        vehiclesSnap,
-        invoicesSnap,
-        quotesSnap
-      ] = await Promise.all([
-        getDocs(query(collection(db, "vehicles"), where("ownerId", "==", id))),
-        getDocs(query(collection(db, "invoices"), where("clientId", "==", id))),
-        getDocs(query(collection(db, "quotes"), where("clientId", "==", id)))
+      const qVehicles = query(collection(db, "vehicles"), where("ownerId", "==", id));
+      const qAppointments = query(collection(db, "appointments"), where("customerId", "==", id));
+      const qInvoices = query(collection(db, "invoices"), where("clientId", "==", id));
+      const qQuotes = query(collection(db, "quotes"), where("clientId", "==", id));
+      
+      const [vehiclesSnap, appointmentsSnap, invoicesSnap, quotesSnap] = await Promise.all([
+        getDocs(qVehicles),
+        getDocs(qAppointments),
+        getDocs(qInvoices),
+        getDocs(qQuotes)
       ]);
 
-      const hasAppointments = await hasCustomerAppointments(profile!.businessId, id);
-      
-      if (!vehiclesSnap.empty || hasAppointments || !invoicesSnap.empty || !quotesSnap.empty) {
+      if (!vehiclesSnap.empty || !appointmentsSnap.empty || !invoicesSnap.empty || !quotesSnap.empty) {
         toast.error("Cannot delete customer with linked records (vehicles, appointments, invoices, or quotes).");
         return;
       }
@@ -212,8 +209,9 @@ export default function Customers() {
     if (!selectedCustomer || !vehicleId) return;
     try {
       // Check for linked appointments
-      const hasAppointments = await hasVehicleAppointments(profile!.businessId, vehicleId);
-      if (hasAppointments) {
+      const q = query(collection(db, "appointments"), where("vehicleId", "==", vehicleId));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
         toast.error("Cannot delete vehicle linked to existing appointments.");
         return;
       }

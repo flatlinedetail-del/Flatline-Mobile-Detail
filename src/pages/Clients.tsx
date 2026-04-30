@@ -71,21 +71,20 @@ import {
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { format } from "date-fns";
 import VehicleSelector from "../components/VehicleSelector";
 import { 
   cn, 
   formatPhoneNumber, 
   getClientDisplayName,
   cleanAddress,
-  formatCurrency,
-  formatDateSafe 
+  formatCurrency 
 } from "../lib/utils";
 import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote } from "../types";
 import AddressInput from "../components/AddressInput";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { getClientTypes, getClientCategories, migrateDataToClients, ensureClientTypes, ensureClientNameFields } from "../services/clientService";
-import { getClientAppointmentsRecent, updateClientAppointmentsName, softDeleteClientAppointmentsBatch, batchDeleteClientAppointments, batchUpdateClientAppointmentsName } from "../services/appointmentService";
 import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
@@ -326,7 +325,7 @@ export default function Clients() {
   }, [profile, authLoading]);
 
   useEffect(() => {
-    if (!selectedClient || !selectedClient.id) {
+    if (!selectedClient) {
       setClientVehicles([]);
       setClientHistory([]);
       setSignedForms([]);
@@ -352,13 +351,14 @@ export default function Clients() {
       }
 
       try {
-        const [historyData, formsSnap, invoicesSnap, quotesSnap] = await Promise.all([
-          getClientAppointmentsRecent(profile!.businessId, selectedClient.id, 50),
+        const [historySnap, formsSnap, invoicesSnap, quotesSnap] = await Promise.all([
+          getDocs(query(collection(db, "appointments"), where("clientId", "==", selectedClient.id), orderBy("scheduledAt", "desc"), limit(50))),
           getDocs(query(collection(db, "signed_forms"), where("clientId", "==", selectedClient.id))),
           getDocs(query(collection(db, "invoices"), where("clientId", "==", selectedClient.id), orderBy("createdAt", "desc"), limit(50))),
           getDocs(query(collection(db, "quotes"), where("clientId", "==", selectedClient.id), orderBy("createdAt", "desc"), limit(50)))
         ]);
 
+        const historyData = historySnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
         const formsData = formsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         const invoicesData = invoicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
         const quotesData = quotesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quote));
@@ -454,7 +454,6 @@ export default function Clients() {
       } else {
         await addDoc(collection(db, "clients"), {
           ...clientData,
-          businessId: profile!.businessId,
           categoryIds: [],
           loyaltyPoints: 0,
           membershipLevel: "none",
@@ -492,7 +491,18 @@ export default function Clients() {
         data.name = newDisplayName;
         
         // Update related appointments
-        await updateClientAppointmentsName(profile!.businessId, selectedClient.id, newDisplayName);
+        const appointmentsQuery = query(
+          collection(db, "appointments"), 
+          where("clientId", "==", selectedClient.id)
+        );
+        const appointmentsSnap = await getDocs(appointmentsQuery);
+        const batch = writeBatch(db);
+        
+        appointmentsSnap.docs.forEach(appDoc => {
+          batch.update(appDoc.ref, { customerName: newDisplayName });
+        });
+        
+        await batch.commit();
       }
 
       await updateDoc(doc(db, "clients", selectedClient.id), data);
@@ -522,6 +532,7 @@ export default function Clients() {
       // 1. Find all linked records
       const [
         vehiclesSnap, 
+        appointmentsSnap, 
         invoicesSnap, 
         quotesSnap, 
         leadsSnap,
@@ -529,6 +540,7 @@ export default function Clients() {
         logsSnap
       ] = await Promise.all([
         getDocs(query(collection(db, "vehicles"), where("clientId", "==", id))),
+        getDocs(query(collection(db, "appointments"), where("clientId", "==", id))),
         getDocs(query(collection(db, "invoices"), where("clientId", "==", id))),
         getDocs(query(collection(db, "quotes"), where("clientId", "==", id))),
         getDocs(query(collection(db, "leads"), where("clientId", "==", id))),
@@ -536,11 +548,9 @@ export default function Clients() {
         getDocs(query(collection(db, "campaign_logs"), where("clientId", "==", id)))
       ]);
 
-      // Add appointment soft deletion to batch
-      await batchDeleteClientAppointments(batch, profile!.businessId, id);
-
       // 2. Add all linked records to batch delete
       vehiclesSnap.docs.forEach(d => batch.delete(d.ref));
+      appointmentsSnap.docs.forEach(d => batch.delete(d.ref));
       invoicesSnap.docs.forEach(d => batch.delete(d.ref));
       quotesSnap.docs.forEach(d => batch.delete(d.ref));
       leadsSnap.docs.forEach(d => batch.delete(d.ref));
@@ -840,11 +850,6 @@ export default function Clients() {
                             <div className="flex items-center gap-2">
                               <span className="font-black text-white tracking-tight uppercase text-sm">{getClientDisplayName(client)}</span>
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
-                              <Badge className={cn("text-[8px] font-black uppercase tracking-widest", 
-                                 client.riskLevel === 'high' ? "bg-red-500/20 text-red-500" :
-                                 client.riskLevel === 'med' ? "bg-yellow-500/20 text-yellow-500" :
-                                 "bg-green-500/20 text-green-500"
-                              )}>Risk: {client.riskLevel || 'low'}</Badge>
                               {(() => {
                                 if (!searchTerm) return null;
                                 const matchingVehicle = allVehicles.find(v => {
@@ -1207,7 +1212,7 @@ export default function Clients() {
                           <span className="text-xs font-bold uppercase tracking-wider">Follow-up Sent</span>
                         </div>
                         <p className="text-xs text-blue-600">
-                          Last follow-up sent on {formatDateSafe(selectedClient.followUpStatus.lastSentAt, "MMM d, yyyy")} via {selectedClient.followUpStatus.channel}.
+                          Last follow-up sent on {format(selectedClient.followUpStatus.lastSentAt?.toDate() || new Date(), "MMM d, yyyy")} via {selectedClient.followUpStatus.channel}.
                         </p>
                       </div>
                     )}
@@ -1471,15 +1476,9 @@ export default function Clients() {
                                 </Badge>
                               </div>
                               <div className="flex items-center gap-4 text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                                <span className="flex items-center gap-1.5">
-                                  <Calendar className="w-3 h-3" /> 
-                                  {formatDateSafe(app.scheduledAt, "MMM d, yyyy")}
-                                </span>
+                                <span className="flex items-center gap-1.5"><Calendar className="w-3 h-3" /> {format(app.scheduledAt.toDate(), "MMM d, yyyy")}</span>
                                 <span className="opacity-30">|</span>
-                                <span className="flex items-center gap-1.5">
-                                  <Clock className="w-3 h-3" /> 
-                                  {formatDateSafe(app.scheduledAt, "h:mm a")}
-                                </span>
+                                <span className="flex items-center gap-1.5"><Clock className="w-3 h-3" /> {format(app.scheduledAt.toDate(), "h:mm a")}</span>
                                 <span className="opacity-30">|</span>
                                 <span className="text-white font-black">{formatCurrency(app.totalAmount)}</span>
                               </div>
@@ -1508,7 +1507,7 @@ export default function Clients() {
                                 </Button>
                               }
                               title="Delete Appointment?"
-                              itemName={`Appointment on ${formatDateSafe(app.scheduledAt, "MMM d")}`}
+                              itemName={`Appointment on ${format(app.scheduledAt.toDate(), "MMM d")}`}
                               onConfirm={async () => {
                                 try {
                                   await deleteDoc(doc(db, "appointments", app.id));
@@ -1810,7 +1809,7 @@ export default function Clients() {
                                 <div>
                                   <p className="font-black text-white uppercase tracking-tight text-xs">INV-{inv.id.slice(-6).toUpperCase()}</p>
                                   <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
-                                    {formatDateSafe(inv.createdAt, "MMM d, yyyy")}
+                                    {inv.createdAt ? format((inv.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}
                                   </p>
                                 </div>
                               </div>
@@ -1857,7 +1856,7 @@ export default function Clients() {
                                 <div>
                                   <p className="font-black text-white uppercase tracking-tight text-xs">QUOTE-{q.id.slice(-6).toUpperCase()}</p>
                                   <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
-                                    {formatDateSafe(q.createdAt, "MMM d, yyyy")}
+                                    {q.createdAt ? format((q.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}
                                   </p>
                                 </div>
                               </div>
@@ -1991,13 +1990,13 @@ export default function Clients() {
                               <div className="flex items-center gap-3">
                                 <span className="text-[10px] tracking-widest uppercase text-white/40">Last Done:</span>
                                 <span className="text-xs font-bold text-white">
-                                  {formatDateSafe(timing.lastCompletedDate, "MMM d, yyyy", "Never")}
+                                  {timing.lastCompletedDate ? format(timing.lastCompletedDate, "MMM d, yyyy") : "Never"}
                                 </span>
                               </div>
                               <div className="flex items-center gap-3">
                                 <span className="text-[10px] tracking-widest uppercase text-white/40">Next Due:</span>
                                 <span className="text-xs font-bold text-white">
-                                  {formatDateSafe(timing.nextDueDate, "MMM d, yyyy", "Unknown")}
+                                  {timing.nextDueDate ? format(timing.nextDueDate, "MMM d, yyyy") : "Unknown"}
                                 </span>
                               </div>
                             </div>

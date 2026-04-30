@@ -9,8 +9,7 @@ import {
   serverTimestamp, 
   orderBy, 
   getDocs,
-  deleteDoc,
-  where
+  deleteDoc
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -26,10 +25,10 @@ import { Switch } from "../components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { toast } from "sonner";
-import { Shield, Plus, Trash2, Edit2 } from "lucide-react";
-import { cn } from "../lib/utils";
+import { Shield, Plus, Trash2, Edit2, User } from "lucide-react";
 import { ProtectedClient, Client } from "../types";
 import { format } from "date-fns";
+import { cn } from "../lib/utils";
 
 export default function ProtectedClients() {
   const [protectedClients, setProtectedClients] = useState<ProtectedClient[]>([]);
@@ -39,7 +38,6 @@ export default function ProtectedClients() {
   const [editingClient, setEditingClient] = useState<ProtectedClient | null>(null);
 
   const [formData, setFormData] = useState({
-    linkedClientId: "",
     fullName: "",
     phone: "",
     email: "",
@@ -51,54 +49,119 @@ export default function ProtectedClients() {
     licensePlate: "",
     riskReason: "",
     internalNotes: "",
-    riskLevel: "low" as "low" | "med" | "high",
-    isActive: true
+    protectionLevel: "Low" as any,
+    requiredDepositType: "fixed" as any,
+    requiredDepositValue: 0,
+    isActive: true,
+    linkedClientId: ""
   });
 
-  const { profile } = useAuth();
-  
   useEffect(() => {
-    if (!profile?.businessId) return;
-
-    const unsub = onSnapshot(query(
-      collection(db, "protected_clients"), 
-      where("businessId", "==", profile.businessId),
-      orderBy("createdAt", "desc")
-    ), (snap) => {
+    const unsub = onSnapshot(query(collection(db, "protected_clients"), orderBy("createdAt", "desc")), (snap) => {
       setProtectedClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient)));
-    }, (error) => {
-      console.error("Protected Clients Subscription Error:", error);
     });
     
-    const fetchClients = async () => {
-      const snap = await getDocs(query(collection(db, "clients"), where("businessId", "==", profile.businessId)));
+    const unsubClients = onSnapshot(collection(db, "clients"), (snap) => {
       setAllClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+    });
+    return () => {
+      unsub();
+      unsubClients();
     };
-    fetchClients();
-    return unsub;
-  }, [profile?.businessId]);
+  }, []);
 
-  useEffect(() => {
-    if(editingClient) {
-      setFormData({
-        linkedClientId: editingClient.linkedClientId || "",
-        fullName: editingClient.fullName,
-        phone: editingClient.phone,
-        email: editingClient.email,
-        address: editingClient.address,
-        vehicleYear: editingClient.vehicleYear || "",
-        vehicleMake: editingClient.vehicleMake || "",
-        vehicleModel: editingClient.vehicleModel || "",
-        vin: editingClient.vin || "",
-        licensePlate: editingClient.licensePlate || "",
-        riskReason: editingClient.riskReason,
-        internalNotes: editingClient.internalNotes || "",
-        riskLevel: (editingClient as any).riskLevel || "low",
-        isActive: editingClient.isActive
+  const autofillClient = (client: Client) => {
+    setFormData(prev => ({
+      ...prev,
+      fullName: client.name || "",
+      phone: client.phone || "",
+      email: client.email || "",
+      address: client.address || "",
+      linkedClientId: client.id
+    }));
+  };
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const data = { ...formData, updatedAt: serverTimestamp() };
+    try {
+      if (editingClient) {
+        await updateDoc(doc(db, "protected_clients", editingClient.id), data);
+        toast.success("Risk setting updated");
+      } else {
+        await addDoc(collection(db, "protected_clients"), { ...data, createdAt: serverTimestamp() });
+        toast.success("Risk setting added");
+      }
+      setIsDialogOpen(false);
+      setEditingClient(null);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to save risk setting");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (confirm("Are you sure you want to remove this risk rule?")) {
+      await deleteDoc(doc(db, "protected_clients", id));
+      toast.success("Risk rule removed");
+    }
+  };
+
+  const combinedRows = useMemo(() => {
+    const rows: any[] = [];
+    const usedRuleIds = new Set<string>();
+
+    // First add all clients and merge existing rules
+    allClients.forEach(client => {
+      const rule = protectedClients.find(p => 
+        p.linkedClientId === client.id || 
+        (p.email && p.email.toLowerCase() === client.email?.toLowerCase()) ||
+        (p.phone && p.phone === client.phone)
+      );
+      if (rule) usedRuleIds.add(rule.id);
+      
+      rows.push({
+        id: client.id,
+        isRuleOnly: false,
+        fullName: client.name || "Unknown",
+        phone: client.phone,
+        email: client.email,
+        isActive: rule ? rule.isActive : false,
+        protectionLevel: rule ? rule.protectionLevel : "Low",
+        ruleId: rule ? rule.id : null,
+        client: client,
+        rule: rule || null
       });
-    } else {
-       setFormData({
-        linkedClientId: "",
+    });
+
+    // Add rules that don't map to any specific client
+    protectedClients.forEach(rule => {
+       if (!usedRuleIds.has(rule.id)) {
+         rows.push({
+            id: rule.id,
+            isRuleOnly: true,
+            fullName: rule.fullName || "Unknown",
+            phone: rule.phone,
+            email: rule.email,
+            isActive: rule.isActive,
+            protectionLevel: rule.protectionLevel,
+            ruleId: rule.id,
+            client: null,
+            rule: rule
+         });
+       }
+    });
+
+    return rows.filter(r => 
+      r.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.phone?.includes(searchTerm) ||
+      r.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [allClients, protectedClients, searchTerm]);
+
+  const openNewDialog = () => {
+     setEditingClient(null);
+     setFormData({
         fullName: "",
         phone: "",
         email: "",
@@ -110,122 +173,146 @@ export default function ProtectedClients() {
         licensePlate: "",
         riskReason: "",
         internalNotes: "",
-        riskLevel: "low",
-        isActive: true
-      });
-    }
-  }, [editingClient, isDialogOpen]);
-
-  const autofillClient = (client: Client) => {
-    setFormData(prev => ({
-      ...prev,
-      linkedClientId: client.id,
-      fullName: client.name,
-      phone: client.phone,
-      email: client.email,
-      address: client.address,
-      riskLevel: client.riskLevel || "low"
-    }));
+        protectionLevel: "Low",
+        requiredDepositType: "fixed",
+        requiredDepositValue: 0,
+        isActive: true,
+        linkedClientId: ""
+     });
+     setIsDialogOpen(true);
   };
 
-  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const data = { ...formData, updatedAt: serverTimestamp(), businessId: profile?.businessId };
-    try {
-      let savedId;
-      if (editingClient) {
-        await updateDoc(doc(db, "protected_clients", editingClient.id), data);
-        savedId = editingClient.id;
-        toast.success("Protected client updated");
-      } else {
-        const docRef = await addDoc(collection(db, "protected_clients"), { ...data, createdAt: serverTimestamp() });
-        savedId = docRef.id;
-        toast.success("Protected client added");
-      }
-
-      // SYNC to Clients Registry
-      if (formData.linkedClientId) {
-         try {
-           await updateDoc(doc(db, "clients", formData.linkedClientId), { riskLevel: formData.riskLevel });
-         } catch(e) { console.error("Failed syncing link to client", e); }
-      } else {
-        // Find match
-        const matchingClient = allClients.find(c => 
-           (c.email && formData.email && c.email.toLowerCase() === formData.email.toLowerCase()) ||
-           (c.phone && formData.phone && c.phone === formData.phone) ||
-           (c.name && formData.fullName && c.name.toLowerCase() === formData.fullName.toLowerCase())
-        );
-        if (matchingClient) {
-          try {
-            await updateDoc(doc(db, "clients", matchingClient.id), { riskLevel: formData.riskLevel });
-            await updateDoc(doc(db, "protected_clients", savedId), { linkedClientId: matchingClient.id });
-          } catch(e) { console.error("Failed matching client link", e); }
-        }
-      }
-
-      setIsDialogOpen(false);
-      setEditingClient(null);
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to save protected client");
-    }
+  const handleEditClick = (row: any) => {
+     if (row.rule) {
+        setEditingClient(row.rule);
+        setFormData({
+          fullName: row.rule.fullName || row.fullName || "",
+          phone: row.rule.phone || row.phone || "",
+          email: row.rule.email || row.email || "",
+          address: row.rule.address || row.client?.address || "",
+          vehicleYear: row.rule.vehicleYear || "",
+          vehicleMake: row.rule.vehicleMake || "",
+          vehicleModel: row.rule.vehicleModel || "",
+          vin: row.rule.vin || "",
+          licensePlate: row.rule.licensePlate || "",
+          riskReason: row.rule.riskReason || "",
+          internalNotes: row.rule.internalNotes || "",
+          protectionLevel: row.rule.protectionLevel || "Low",
+          requiredDepositType: row.rule.requiredDepositType || "fixed",
+          requiredDepositValue: row.rule.requiredDepositValue || 0,
+          isActive: row.rule.isActive !== undefined ? row.rule.isActive : true,
+          linkedClientId: row.rule.linkedClientId || (row.client ? row.client.id : "")
+        });
+     } else {
+        setEditingClient(null); // Creating new rule for existing client
+        setFormData({
+          fullName: row.fullName || "",
+          phone: row.phone || "",
+          email: row.email || "",
+          address: row.client?.address || "",
+          vehicleYear: "",
+          vehicleMake: "",
+          vehicleModel: "",
+          vin: "",
+          licensePlate: "",
+          riskReason: "",
+          internalNotes: "",
+          protectionLevel: "Low",
+          requiredDepositType: "fixed",
+          requiredDepositValue: 0,
+          isActive: true,
+          linkedClientId: row.client?.id || ""
+        });
+     }
+     setIsDialogOpen(true);
   };
-
-  const handleDelete = async (id: string) => {
-    if (confirm("Are you sure?")) {
-      await deleteDoc(doc(db, "protected_clients", id));
-      toast.success("Client removed");
-    }
-  };
-
-  const filtered = useMemo(() => {
-    return protectedClients.filter(c => 
-      c.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phone.includes(searchTerm) ||
-      c.email.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [protectedClients, searchTerm]);
 
   return (
     <div className="space-y-6 pb-24 w-full">
       <PageHeader 
         title="Risk Management"
         accentWord="Management"
-        subtitle="Flag clients for special handling during the booking process."
+        subtitle="View and manually adjust risk levels or flag clients for special handling."
         actions={
-          <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-6 rounded-xl uppercase tracking-[0.2em] text-[10px]" onClick={() => { setEditingClient(null); setIsDialogOpen(true); }}>
+          <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-6 rounded-xl uppercase tracking-[0.2em] text-[10px]" onClick={openNewDialog}>
             <Plus className="w-4 h-4 mr-2" />
-            Add Protected Client
+            Add Custom Rule
           </Button>
         }
       />
       <Card className="border-none bg-card rounded-3xl overflow-hidden shadow-xl">
         <div className="p-8 border-b border-white/5 bg-black/40">
-           <Input placeholder="Search..." className="bg-white/5 border-white/10 text-white font-bold rounded-2xl h-14" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+           <Input placeholder="Search clients or rules..." className="bg-white/5 border-white/10 text-white font-bold rounded-2xl h-14" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
         <Table>
           <TableHeader>
             <TableRow className="border-white/5 hover:bg-transparent">
-              <TableHead className="text-white/40 font-black uppercase text-[10px] tracking-widest px-8">Client</TableHead>
-              <TableHead className="text-white/40 font-black uppercase text-[10px] tracking-widest">Protection</TableHead>
-              <TableHead className="text-white/40 font-black uppercase text-[10px] tracking-widest">Status</TableHead>
-              <TableHead className="text-right px-8"></TableHead>
+              <TableHead className="text-white/40 font-black uppercase text-[10px] tracking-widest px-8 w-1/4">Client</TableHead>
+              <TableHead className="text-white/40 font-black uppercase text-[10px] tracking-widest">Protection Level</TableHead>
+              <TableHead className="text-white/40 font-black uppercase text-[10px] tracking-widest w-1/3">Risk Details (Reason)</TableHead>
+              <TableHead className="text-white/40 font-black uppercase text-[10px] tracking-widest">Active Rule</TableHead>
+              <TableHead className="text-right px-8">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map(client => (
-              <TableRow key={client.id} className="border-white/5 hover:bg-white/5">
+            {combinedRows.map(row => (
+              <TableRow key={row.id} className="border-white/5 hover:bg-white/5">
                 <TableCell className="px-8 py-4">
-                  <p className="font-bold text-white">{client.fullName}</p>
+                  <div className="flex items-center gap-3">
+                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0", row.isRuleOnly ? "bg-red-500/20" : "bg-blue-500/20")}>
+                      {row.isRuleOnly ? <Shield className="w-4 h-4 text-red-500" /> : <User className="w-4 h-4 text-blue-500" />}
+                    </div>
+                    <div>
+                      <p className="font-bold text-white leading-none">{row.fullName}</p>
+                      <p className="text-xs text-white/40 mt-1">{row.email || row.phone || "No Contact Info"}</p>
+                    </div>
+                  </div>
                 </TableCell>
-                <TableCell><Badge className={cn("text-[10px] font-black uppercase tracking-widest", (client as any).riskLevel === 'high' ? "bg-red-500/20 text-red-500" : (client as any).riskLevel === 'med' ? "bg-yellow-500/20 text-yellow-500" : "bg-green-500/20 text-green-500")}>{(client as any).riskLevel === 'high' ? 'High Risk' : (client as any).riskLevel === 'med' ? 'Medium Risk' : 'Low Risk'}</Badge></TableCell>
-                <TableCell><Switch checked={client.isActive} disabled /></TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={cn(
+                    "text-[10px] font-black uppercase tracking-widest px-3 py-1",
+                    row.protectionLevel === "Low" ? "bg-green-500/10 text-green-500 border-green-500/20" : 
+                    row.protectionLevel === "High" ? "bg-red-500/10 text-red-500 border-red-500/20" :
+                    "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                  )}>
+                    {row.protectionLevel}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  {row.rule?.riskReason ? (
+                     <div className="text-xs text-white/80 line-clamp-2 max-w-sm font-medium" title={row.rule.riskReason}>{row.rule.riskReason}</div>
+                  ) : (
+                     <span className="text-xs text-white/20 italic font-medium">None</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {row.rule ? (
+                    <Switch checked={row.isActive} disabled />
+                  ) : (
+                    <span className="text-white/20 text-xs">-</span>
+                  )}
+                </TableCell>
                 <TableCell className="text-right px-8">
-                  <Button variant="ghost" size="icon" onClick={() => { setEditingClient(client); setIsDialogOpen(true); }}><Edit2 className="w-4 h-4 text-white/40" /></Button>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(client.id)}><Trash2 className="w-4 h-4 text-red-400" /></Button>
+                  <div className="flex items-center justify-end gap-2">
+                    <Button variant="ghost" size="icon" onClick={() => handleEditClick(row)} title="Adjust Risk">
+                      <Edit2 className="w-4 h-4 text-white/40 hover:text-white" />
+                    </Button>
+                    {row.ruleId && (
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(row.ruleId)} title="Remove Risk Rule">
+                        <Trash2 className="w-4 h-4 text-red-400/60 hover:text-red-400" />
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
+            {combinedRows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-8 text-white/40">
+                  No clients or risk rules found.
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </Card>
@@ -235,43 +322,74 @@ export default function ProtectedClients() {
           <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
             <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase flex items-center gap-2">
               <Shield className="w-6 h-6 text-orange-500" />
-              {editingClient ? "Edit Rule" : "New Rule"}
+              {editingClient ? "Adjust Risk Profile" : "Set Risk Profile"}
             </DialogTitle>
           </DialogHeader>
            <DialogBody>
              <form onSubmit={handleSave} className="space-y-4">
-             <div className="space-y-2">
-               <Label className="uppercase tracking-widest text-[10px] text-white/40 font-bold">Autofill from Client Registry</Label>
-               <Select onValueChange={(val) => { const cl = allClients.find(c => c.id === val); if(cl) autofillClient(cl); }}>
-                 <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12">
-                   <SelectValue placeholder="Search clients..." />
-                 </SelectTrigger>
-                 <SelectContent className="bg-gray-900 border-white/10 text-white">
-                   {allClients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                 </SelectContent>
-               </Select>
-             </div>
+             {!editingClient && !formData.linkedClientId && (
+               <div className="space-y-2">
+                 <Label className="uppercase tracking-widest text-[10px] text-white/40 font-bold">Autofill from Client Registry</Label>
+                 <Select onValueChange={(val) => { const cl = allClients.find(c => c.id === val); if(cl) autofillClient(cl); }}>
+                   <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12">
+                     <SelectValue placeholder="Search clients..." />
+                   </SelectTrigger>
+                   <SelectContent className="bg-gray-900 border-white/10 text-white">
+                     {allClients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                   </SelectContent>
+                 </Select>
+               </div>
+             )}
              <div className="grid grid-cols-2 gap-4">
                 <Input name="fullName" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} placeholder="Full Name" required className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
                 <Input name="phone" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="Phone" required className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
              </div>
              <Input name="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="Email" className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
-             <Textarea name="riskReason" value={formData.riskReason} onChange={e => setFormData({...formData, riskReason: e.target.value})} placeholder="Risk Reason" required className="bg-white/5 border-white/10 text-white rounded-xl" />
-             <Select value={formData.riskLevel} onValueChange={(val: any) => setFormData({...formData, riskLevel: val})}>
+             <Textarea name="riskReason" value={formData.riskReason} onChange={e => setFormData({...formData, riskReason: e.target.value})} placeholder="Reason for risk setting..." required className="bg-white/5 border-white/10 text-white rounded-xl" />
+             <Select value={formData.protectionLevel} onValueChange={(val: any) => setFormData({...formData, protectionLevel: val})}>
                 <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12">
-                   <SelectValue placeholder="Risk Level" />
+                   <SelectValue placeholder="Protection Level" />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-900 border-white/10 text-white">
-                   <SelectItem value="low">Low Risk</SelectItem>
-                   <SelectItem value="med">Medium Risk</SelectItem>
-                   <SelectItem value="high">High Risk</SelectItem>
+                   <SelectItem value="Low">Low Risk</SelectItem>
+                   <SelectItem value="Med">Medium Risk</SelectItem>
+                   <SelectItem value="High">High Risk</SelectItem>
                 </SelectContent>
              </Select>
              <div className="flex items-center gap-4">
                 <Switch name="isActive" checked={formData.isActive} onCheckedChange={(val) => setFormData({...formData, isActive: val})} />
-                <Label className="text-white">Active Protection</Label>
+                <Label className="text-white">Active Protection Rule</Label>
              </div>
-             <Button type="submit" className="w-full bg-primary h-14 rounded-xl font-black uppercase tracking-[0.2em]">Save Rule</Button>
+
+             <div className="space-y-4 pt-4 border-t border-white/5">
+                <Label className="uppercase tracking-widest text-[10px] text-white/40 font-bold">Manual Deposit Overrides</Label>
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-2">
+                      <Label className="text-white/60 text-xs">Deposit Type</Label>
+                      <Select value={formData.requiredDepositType} onValueChange={(val: any) => setFormData({...formData, requiredDepositType: val})}>
+                         <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-11">
+                            <SelectValue />
+                         </SelectTrigger>
+                         <SelectContent className="bg-gray-900 border-white/10 text-white">
+                            <SelectItem value="fixed">Fixed Amount ($)</SelectItem>
+                            <SelectItem value="percentage">Percentage (%)</SelectItem>
+                         </SelectContent>
+                      </Select>
+                   </div>
+                   <div className="space-y-2">
+                      <Label className="text-white/60 text-xs">Value ({formData.requiredDepositType === 'fixed' ? '$' : '%'})</Label>
+                      <Input 
+                        type="number" 
+                        value={formData.requiredDepositValue} 
+                        onChange={e => setFormData({...formData, requiredDepositValue: parseFloat(e.target.value) || 0})} 
+                        className="bg-white/5 border-white/10 text-white rounded-xl h-11" 
+                      />
+                   </div>
+                </div>
+                <p className="text-[10px] text-white/30 italic">These values will override standard service deposit settings if this rule is active for the client.</p>
+             </div>
+
+             <Button type="submit" className="w-full bg-primary hover:bg-primary/90 h-14 rounded-xl font-black uppercase tracking-[0.2em]">{editingClient ? "Save Updates" : "Create Profile"}</Button>
           </form>
           </DialogBody>
         </DialogContent>
