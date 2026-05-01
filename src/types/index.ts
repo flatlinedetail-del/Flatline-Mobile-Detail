@@ -598,6 +598,12 @@ export interface BusinessSettings {
     emailBody?: string;
     smsBody?: string;
   };
+  communicationAutomation?: {
+    enabled: boolean;
+    bookingConfirmation: boolean;
+    reminder24h: boolean;
+    reminder2h: boolean;
+  };
   weatherAutomation?: {
     enabled: boolean;
     checkTimingHours: number;
@@ -646,6 +652,7 @@ export interface BusinessSettings {
   };
   smsTemplates?: Record<string, string>;
   calendarColors?: Record<string, string>;
+  serviceColors?: Record<string, string>;
 }
 
 export interface Expense {

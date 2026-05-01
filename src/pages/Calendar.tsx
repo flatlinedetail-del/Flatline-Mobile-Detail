@@ -59,6 +59,20 @@ const localizer = dateFnsLocalizer({
   locales: { "en-US": enUS },
 });
 
+const isValidDate = (d: any): d is Date => d instanceof Date && !isNaN(d.getTime());
+
+const safeFormat = (date: any, formatStr: string, fallback: string = "---") => {
+  if (!date) return fallback;
+  const d = date instanceof Date ? date : (date?.toDate ? date.toDate() : new Date(date));
+  if (!isValidDate(d)) return fallback;
+  try {
+    return format(d, formatStr);
+  } catch (e) {
+    console.error("[Calendar] format error", e, d, formatStr);
+    return fallback;
+  }
+};
+
 export default function Calendar() {
   const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -88,8 +102,17 @@ export default function Calendar() {
     const appEvents = appointments.map((app: any) => {
       const client = clients.find(c => c.id === (app.clientId || app.customerId));
       const start = app.scheduledAt?.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
+      
+      if (!isValidDate(start)) {
+        return null;
+      }
+
       const duration = app.estimatedDuration || 120;
-      const end = addMinutes(start, duration + (app.overrideBufferTimeMinutes || 0));
+      let end = addMinutes(start, duration + (app.overrideBufferTimeMinutes || 0));
+      
+      if (!isValidDate(end)) {
+        end = addHours(start, 2);
+      }
       
       // Determine risk level from client data
       const riskLevel = client?.riskLevel || client?.risk_level || client?.riskStatus || client?.clientRiskLevel || client?.riskManagement?.level;
@@ -106,22 +129,28 @@ export default function Calendar() {
         type: "appointment",
         status: app.status
       };
-    });
+    }).filter((evt): evt is any => evt !== null);
 
     const blockEvents = timeBlocks.map((block: any) => {
       let start, end;
-      if (block.type === 'full_day') {
-        // Handle timezone by parsing parts directly from YYYY-MM-DD
-        const [sy, sm, sd] = block.date.split("-").map(Number);
-        start = new Date(sy, sm - 1, sd, 0, 0, 0);
-        
-        const endD = block.endDate || block.date;
-        const [ey, em, ed] = endD.split("-").map(Number);
-        end = new Date(ey, em - 1, ed, 23, 59, 59);
-      } else {
-        start = new Date(`${block.date}T${block.startTime || "00:00"}`);
-        end = new Date(`${block.date}T${block.endTime || "23:59"}`);
+      try {
+        if (block.type === 'full_day') {
+          // Handle timezone by parsing parts directly from YYYY-MM-DD
+          const [sy, sm, sd] = block.date.split("-").map(Number);
+          start = new Date(sy, sm - 1, sd, 0, 0, 0);
+          
+          const endD = block.endDate || block.date;
+          const [ey, em, ed] = endD.split("-").map(Number);
+          end = new Date(ey, em - 1, ed, 23, 59, 59);
+        } else {
+          start = new Date(`${block.date}T${block.startTime || "00:00"}`);
+          end = new Date(`${block.date}T${block.endTime || "23:59"}`);
+        }
+      } catch (e) {
+        return null;
       }
+
+      if (!isValidDate(start) || !isValidDate(end)) return null;
 
       return {
         id: block.id,
@@ -131,11 +160,14 @@ export default function Calendar() {
         resource: block,
         type: "block"
       };
-    });
+    }).filter((evt): evt is any => evt !== null);
 
     const gEvents = googleEvents.map((event: any) => {
       const start = new Date(event.start.dateTime || event.start.date);
       const end = new Date(event.end.dateTime || event.end.date);
+      
+      if (!isValidDate(start) || !isValidDate(end)) return null;
+
       return {
         id: event.id,
         title: `G: ${event.summary}`,
@@ -144,7 +176,7 @@ export default function Calendar() {
         resource: event,
         type: "google"
       };
-    });
+    }).filter((evt): evt is any => evt !== null);
 
     return [...appEvents, ...blockEvents, ...gEvents];
   }, [appointments, timeBlocks, googleEvents, clients]);
@@ -314,7 +346,6 @@ export default function Calendar() {
     if (showToast) toast.loading("Syncing Ops...", { id: "sync-cal" });
     setLoading(true);
     try {
-      // Reduced range to 1 month back and 2 months forward to save quota
       const startOfRange = startOfMonth(subMonths(new Date(), 1));
       const endOfRange = endOfMonth(addMonths(new Date(), 2));
 
@@ -325,13 +356,15 @@ export default function Calendar() {
           where("scheduledAt", "<=", Timestamp.fromDate(endOfRange)),
           orderBy("scheduledAt", "asc"),
           limit(500)
-        )),
-        getDocs(query(collection(db, "blocked_dates"), limit(100))),
-        getDocs(query(collection(db, "clients"), limit(200))),
-        getDocs(collection(db, "services")),
-        getDocs(collection(db, "addons")),
-        getDoc(doc(db, "settings", "business"))
+        )).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments")),
+        getDocs(query(collection(db, "blocked_dates"), limit(100))).catch(e => handleFirestoreError(e, OperationType.LIST, "blocked_dates")),
+        getDocs(query(collection(db, "clients"), limit(200))).catch(e => handleFirestoreError(e, OperationType.LIST, "clients")),
+        getDocs(collection(db, "services")).catch(e => handleFirestoreError(e, OperationType.LIST, "services")),
+        getDocs(collection(db, "addons")).catch(e => handleFirestoreError(e, OperationType.LIST, "addons")),
+        getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"))
       ]);
+
+      if (!apptsSnap || !tbSnap || !clientsSnap || !servicesSnap || !addonsSnap || !settingsSnap) return;
 
       const appointmentsData = apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       const timeBlocksData = tbSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -571,8 +604,8 @@ export default function Calendar() {
         
         if (editingAppointment.scheduledAt) {
           const date = editingAppointment.scheduledAt.toDate ? editingAppointment.scheduledAt.toDate() : new Date(editingAppointment.scheduledAt);
-          if (!isNaN(date.getTime())) {
-            setScheduledAtValue(format(date, "yyyy-MM-dd'T'HH:mm"));
+          if (isValidDate(date)) {
+            setScheduledAtValue(safeFormat(date, "yyyy-MM-dd'T'HH:mm"));
           } else {
             setScheduledAtValue("");
           }
@@ -728,9 +761,9 @@ export default function Calendar() {
       if (!daySettings.isOpen) {
         isAfterHours = true;
       } else {
-        const apptStartStr = format(startAt, "HH:mm");
+        const apptStartStr = safeFormat(startAt, "HH:mm");
         const apptEndAt = new Date(startAt.getTime() + totalDuration * 60000);
-        const apptEndStr = format(apptEndAt, "HH:mm");
+        const apptEndStr = safeFormat(apptEndAt, "HH:mm");
         
         if (apptStartStr < daySettings.openTime || apptEndStr > daySettings.closeTime) {
           isAfterHours = true;
@@ -855,9 +888,9 @@ export default function Calendar() {
       if (!daySettings.isOpen) {
         isAfterHours = true;
       } else {
-        const apptStartStr = format(startAt, "HH:mm");
+        const apptStartStr = safeFormat(startAt, "HH:mm");
         const apptEndAt = new Date(startAt.getTime() + totalDuration * 60000);
-        const apptEndStr = format(apptEndAt, "HH:mm");
+        const apptEndStr = safeFormat(apptEndAt, "HH:mm");
         
         if (apptStartStr < daySettings.openTime || apptEndStr > daySettings.closeTime) {
           isAfterHours = true;
@@ -934,10 +967,15 @@ export default function Calendar() {
 
     // Conflict detection logic
     const appointmentStart = new Date(formData.get("scheduledAt") as string);
+    if (!isValidDate(appointmentStart)) {
+      toast.error("Please select a valid mission start time.");
+      setIsCreating(false);
+      return;
+    }
     const appointmentEnd = addHours(appointmentStart, (totalDuration + totalBuffer) / 60);
 
     const hasTimeBlockConflict = timeBlocks.some(block => {
-      const apptDateIso = format(appointmentStart, "yyyy-MM-dd");
+      const apptDateIso = safeFormat(appointmentStart, "yyyy-MM-dd");
       if (block.date !== apptDateIso && (!block.endDate || apptDateIso > block.endDate || apptDateIso < block.date)) {
         return false;
       }
@@ -1059,11 +1097,21 @@ export default function Calendar() {
       cancellationFeeType,
       cancellationCutoffHours,
       cancellationStatus: "none",
-      reminders: {
-        ...(editingAppointment?.reminders || {}),
-        twentyFourHour: null,
-        twoHour: null
-      },
+      reminders: (() => {
+        const existing = editingAppointment?.reminders || {};
+        const oldTime = editingAppointment?.scheduledAt?.toDate ? editingAppointment.scheduledAt.toDate().getTime() : 
+                        (editingAppointment?.scheduledAt ? new Date(editingAppointment.scheduledAt).getTime() : 0);
+        const newTime = startAt.getTime();
+        
+        if (editingAppointment && oldTime === newTime) {
+          return existing;
+        }
+        return {
+          ...existing,
+          twentyFourHour: null,
+          twoHour: null
+        };
+      })(),
       serviceIds: selectedServices.map(s => s.id),
       serviceNames: services.filter(s => selectedServices.some(sel => sel.id === s.id)).map(s => s.name),
       serviceSelections,
@@ -1137,8 +1185,8 @@ export default function Calendar() {
           const smsData = {
             clientName: appointmentData.customerName || "Customer",
             businessName: settings?.businessName || "Flatline Mobile Detail",
-            appointmentDate: format(startAt, "MMM do, yyyy"),
-            appointmentTime: format(startAt, "h:mm a"),
+            appointmentDate: safeFormat(startAt, "MMM do, yyyy"),
+            appointmentTime: safeFormat(startAt, "h:mm a"),
             serviceName: appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service",
             vehicle: appointmentData.vehicleNames?.length ? appointmentData.vehicleNames[0] : ""
           };
@@ -1150,7 +1198,7 @@ export default function Calendar() {
           await createNotification({
             userId: profile!.id,
             title: "Appointment Updated",
-            message: `Updated booking for ${appointmentData.customerName} on ${format(startAt, "MMM do")}`,
+            message: `Updated booking for ${appointmentData.customerName} on ${safeFormat(startAt, "MMM do")}`,
             type: "booking",
             relatedId: editingAppointment.id,
             relatedType: "appointment"
@@ -1242,7 +1290,7 @@ export default function Calendar() {
           await createNotification({
             userId: profile!.id,
             title: "New Appointment",
-            message: `New booking for ${appointmentData.customerName} on ${format(startAt, "MMM do")}`,
+            message: `New booking for ${appointmentData.customerName} on ${safeFormat(startAt, "MMM do")}`,
             type: "booking",
             relatedId: docRef.id,
             relatedType: "appointment"
@@ -1253,8 +1301,8 @@ export default function Calendar() {
             const smsData = {
               clientName: appointmentData.customerName || "Customer",
               businessName: settings?.businessName || "Flatline Mobile Detail",
-              appointmentDate: format(startAt, "MMM do, yyyy"),
-              appointmentTime: format(startAt, "h:mm a"),
+              appointmentDate: safeFormat(startAt, "MMM do, yyyy"),
+              appointmentTime: safeFormat(startAt, "h:mm a"),
               serviceName: appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service",
               vehicle: appointmentData.vehicleNames?.length ? appointmentData.vehicleNames[0] : ""
             };
@@ -1282,7 +1330,7 @@ export default function Calendar() {
           await createNotification({
             userId: profile!.id,
             title: "New Tactical Deployment",
-            message: `New booking for ${appointmentData.customerName} scheduled for ${format(startAt, "MMM d, h:mm a")}`,
+            message: `New booking for ${appointmentData.customerName} scheduled for ${safeFormat(startAt, "MMM d, h:mm a")}`,
             type: "booking",
             relatedId: appointmentData.clientId || appointmentData.customerId,
             relatedType: "appointment"
@@ -1379,7 +1427,7 @@ export default function Calendar() {
 
   const dayTimeBlocks = timeBlocks.filter(block => {
     if (!date || !block.date) return false;
-    const dateIso = format(date, "yyyy-MM-dd");
+    const dateIso = safeFormat(date, "yyyy-MM-dd");
     if (block.type === 'full_day') {
       const startIso = block.date;
       const endIso = block.endDate || block.date;
@@ -1490,6 +1538,37 @@ export default function Calendar() {
     return baseColor;
   };
 
+  const getServiceGlow = (app: any) => {
+    // Comprehensive service name detection
+    const serviceName = (
+      app.serviceNames?.[0] || 
+      app.serviceName || 
+      app.service || 
+      app.services?.[0] || 
+      app.selectedServices?.[0] || 
+      app.serviceSelections?.[0]?.name || 
+      app.jobType || 
+      ""
+    ).toString();
+    const nameLower = serviceName.toLowerCase();
+    
+    if (settings?.serviceColors) {
+      if (settings.serviceColors[serviceName]) return settings.serviceColors[serviceName];
+      if (settings.serviceColors[nameLower]) return settings.serviceColors[nameLower];
+      for (const [key, color] of Object.entries(settings.serviceColors)) {
+        if (nameLower.includes(key.toLowerCase())) return color;
+      }
+    }
+
+    if (nameLower.includes("mold") || nameLower.includes("biohazard")) return "shadow-[0_0_12px_rgba(239,68,68,0.3)] border-red-500/40";
+    if (nameLower.includes("ceramic") || nameLower.includes("coating") || nameLower.includes("protection") || nameLower.includes("gold")) return "shadow-[0_0_12px_rgba(234,179,8,0.3)] border-yellow-500/40";
+    if (nameLower.includes("interior") || nameLower.includes("purple")) return "shadow-[0_0_12px_rgba(168,85,247,0.3)] border-purple-500/40";
+    if (nameLower.includes("exterior") || nameLower.includes("basic") || nameLower.includes("blue")) return "shadow-[0_0_12px_rgba(59,130,246,0.3)] border-blue-500/40";
+    if (nameLower.includes("fleet") || nameLower.includes("vendor") || nameLower.includes("commercial") || nameLower.includes("green")) return "shadow-[0_0_12px_rgba(34,197,94,0.3)] border-green-500/40";
+    
+    return "shadow-[0_0_10px_rgba(156,163,175,0.15)] border-white/10";
+  };
+
   const handleLongPress = (id: string) => {
     setIsSelectionMode(true);
     toggleSelect(id);
@@ -1500,6 +1579,21 @@ export default function Calendar() {
     const isAgendaView = calendarView === "agenda";
 
     if (isAgendaView) return null; // Handled by AgendaEvent
+
+    if (event.type === 'more_indicator') {
+      return (
+        <div 
+          className="text-[9px] font-black uppercase text-primary bg-primary/5 rounded-md px-1.5 py-0.5 w-fit cursor-pointer hover:bg-primary/10 transition-all border border-primary/10 flex items-center gap-1 leading-none shadow-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedDayEvents({ day: event.day, events: event.allDayEvents });
+          }}
+        >
+          <Sparkles className="w-2.5 h-2.5" />
+          {event.title}
+        </div>
+      );
+    }
 
     if (event.type === 'block') {
       return (
@@ -1532,11 +1626,12 @@ export default function Calendar() {
     return (
       <div 
         className={cn(
-          "h-full flex flex-col p-2.5 overflow-hidden transition-all duration-300 relative group rounded-xl border-l-[3px] border-l-primary bg-zinc-900/95 shadow-2xl backdrop-blur-md",
+          "w-full flex flex-col p-2.5 overflow-hidden transition-all duration-300 relative group rounded-xl border-l-[3px] border-l-primary bg-zinc-900/95 shadow-xl backdrop-blur-md",
           "hover:bg-zinc-800/95 hover:scale-[1.01] active:scale-[0.98]",
           "border border-white/5",
+          getServiceGlow(app),
           riskLevel && "ring-1 ring-red-500/30",
-          isDayView ? "gap-2" : "gap-1"
+          isDayView ? "h-full gap-2" : "min-h-[90px] gap-1"
         )}
       >
         {/* Header: Name and Status */}
@@ -1573,7 +1668,7 @@ export default function Calendar() {
         <div className="flex flex-col gap-1 mt-auto">
            <div className="flex items-center gap-1.5 text-[9px] text-white/50 font-bold uppercase tracking-widest">
              <Clock className="w-3 h-3 shrink-0 text-white/30" />
-             {format(event.start, "h:mm a")}
+             {safeFormat(event.start, "h:mm a")}
            </div>
            
            {isDayView && (
@@ -1629,6 +1724,13 @@ export default function Calendar() {
   );
 
   const eventPropGetter = (event: any) => {
+    if (event.type === 'more_indicator') {
+      return {
+        className: "hidden",
+        style: { display: 'none' }
+      };
+    }
+
     let backgroundColor = "transparent";
     let borderColor = "transparent";
     let borderLeft = "none";
@@ -1652,14 +1754,18 @@ export default function Calendar() {
         backgroundColor: event.type !== 'appointment' ? backgroundColor : undefined,
         borderColor: event.type !== 'appointment' ? borderColor : undefined,
         borderLeft: event.type !== 'appointment' ? borderLeft : undefined,
-        borderRadius: "8px",
+        borderRadius: "12px",
         padding: 0,
-        margin: 0
+        margin: 0,
+        width: '100%',
+        maxWidth: '100%',
+        height: 'auto'
       }
     };
   };
 
   const [selectedDetailedApp, setSelectedDetailedApp] = useState<any>(null);
+  const [selectedDayEvents, setSelectedDayEvents] = useState<{ day: Date, events: any[] } | null>(null);
   const [navDialogApp, setNavDialogApp] = useState<any>(null);
   const [detailedAppVehicles, setDetailedAppVehicles] = useState<any[]>([]);
 
@@ -1721,7 +1827,7 @@ export default function Calendar() {
         const smsData = {
           clientName: selectedDetailedApp.customerName || "Customer",
           businessName: settings?.businessName || "Flatline Mobile Detail",
-          appointmentDate: selectedDetailedApp.scheduledAt?.toDate ? format(selectedDetailedApp.scheduledAt.toDate(), "MMM do, h:mm a") : "",
+          appointmentDate: selectedDetailedApp.scheduledAt?.toDate ? safeFormat(selectedDetailedApp.scheduledAt.toDate(), "MMM do, h:mm a") : "",
           serviceName: selectedDetailedApp.serviceNames?.join(", ") || "service",
           vehicle: selectedDetailedApp.vehicleNames?.[0] || ""
         };
@@ -1750,13 +1856,35 @@ export default function Calendar() {
     }
   };
 
+  const groupedEventsByDay = useMemo(() => {
+    const grouped: Record<string, any[]> = {};
+    events.forEach(evt => {
+      const dayKey = safeFormat(evt.start, "yyyy-MM-dd");
+      if (!grouped[dayKey]) grouped[dayKey] = [];
+      grouped[dayKey].push(evt);
+    });
+    return grouped;
+  }, [events]);
+
   const displayEvents = useMemo(() => {
     if (calendarView !== "month") return events;
+
     const currentMonth = date || new Date();
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
-    return events.filter(event => (new Date(event.start) <= monthEnd && new Date(event.end) >= monthStart));
-  }, [events, calendarView, date]);
+    
+    const result: any[] = [];
+    Object.entries(groupedEventsByDay).forEach(([dayKey, dayEvts]) => {
+      const dayDate = parseISO(dayKey);
+      if (dayDate >= monthStart && dayDate <= monthEnd && dayEvts.length > 0) {
+        // Prioritize showing an appointment as the primary visible event
+        const primaryEvent = dayEvts.find(e => e.type === 'appointment') || dayEvts[0];
+        result.push(primaryEvent);
+      }
+    });
+
+    return result;
+  }, [groupedEventsByDay, calendarView, date]);
 
   const monthDayPropGetter = (day: Date) => {
     if (calendarView === "month" && !isSameMonth(day, date || new Date())) {
@@ -1768,12 +1896,38 @@ export default function Calendar() {
         }
       };
     }
-    return {};
+    return {
+      className: "relative overflow-hidden",
+      style: {
+        minHeight: "160px"
+      }
+    };
   };
 
   const MonthDateHeader = ({ label, date: dayDate }: any) => {
     if (!isSameMonth(dayDate, date || new Date())) return null;
-    return <span className="rbc-button-link">{label}</span>;
+    
+    const dayKey = safeFormat(dayDate, "yyyy-MM-dd");
+    const dayEvts = groupedEventsByDay[dayKey] || [];
+    const moreCount = dayEvts.length - 1;
+
+    return (
+      <div className="flex items-center justify-between w-full px-3 py-2">
+        <span className="rbc-button-link text-[11px] font-black text-white/40">{label}</span>
+        {moreCount > 0 && (
+          <div 
+            className="text-[9px] font-black uppercase text-primary bg-primary/10 rounded-md px-2 py-1 cursor-pointer hover:bg-primary/20 transition-all border border-primary/20 flex items-center gap-1.5 leading-none shadow-sm z-50 whitespace-nowrap"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedDayEvents({ day: dayDate, events: dayEvts });
+            }}
+          >
+            <Sparkles className="w-3 h-3" />
+            +{moreCount} more
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -1892,51 +2046,111 @@ export default function Calendar() {
         </AlertDialog>
 
         {calendarView === "month" || calendarView === "week" || calendarView === "day" || calendarView === "agenda" ? (
-          <Card className="lg:col-span-12 border-none shadow-xl bg-card rounded-[2.5rem] overflow-visible p-6 h-[850px] transition-all duration-500 animate-in fade-in zoom-in-95">
-            <BigCalendar
-              localizer={localizer}
-              events={displayEvents}
-              startAccessor="start"
-              endAccessor="end"
-              className="h-full font-sans"
-              popup={true}
-              // @ts-ignore
-              maxEvents={1}
-              dayPropGetter={monthDayPropGetter}
-              onSelectEvent={(event: any) => {
-                if (event.type === 'appointment') {
-                  setSelectedDetailedApp(event.resource);
-                } else if (event.type === 'block') {
-                  setEditingTimeBlock(event.resource);
-                  setTimeBlockForm({
-                    title: event.resource.title || "",
-                    type: event.resource.type || "full_day",
-                    date: event.resource.date || "",
-                    endDate: event.resource.endDate || "",
-                    startTime: event.resource.startTime || "",
-                    endTime: event.resource.endTime || "",
-                    notes: event.resource.notes || ""
-                  });
-                  setShowTimeBlockDialog(true);
-                }
-              }}
-              view={calendarView as any}
-              onView={(v) => setCalendarView(v as string)}
-              date={date || new Date()}
-              onNavigate={(d) => setDate(d)}
-              eventPropGetter={eventPropGetter}
-              components={{
-                event: CalendarEvent,
-                month: {
-                  dateHeader: MonthDateHeader
-                },
-                agenda: {
-                  event: AgendaEvent,
-                  date: AgendaDate,
-                  time: AgendaTime
-                }
-              }}
-            />
+          <Card className="lg:col-span-12 border-none shadow-xl bg-zinc-950 rounded-[2.5rem] p-6 h-auto min-h-[900px] transition-all duration-500 animate-in fade-in zoom-in-95 overflow-hidden">
+            <div className="w-full overflow-x-auto no-scrollbar scroll-smooth">
+              <div className="min-w-[900px] lg:min-w-0 h-full">
+                <style>{`
+                  .rbc-month-view {
+                    border: none !important;
+                    background: transparent !important;
+                    min-height: 800px;
+                    overflow: visible !important;
+                  }
+                  .rbc-month-row {
+                    min-height: 180px !important;
+                    overflow: visible !important;
+                    border-bottom: 1px solid rgba(255,255,255,0.03) !important;
+                  }
+                  .rbc-row-content {
+                    z-index: 2;
+                    height: auto !important;
+                  }
+                  .rbc-row {
+                    width: 100% !important;
+                  }
+                  .rbc-row-segment {
+                    padding: 0 4px !important;
+                  }
+                  .rbc-event {
+                    background: transparent !important;
+                    border: none !important;
+                    padding: 0 !important;
+                    margin-bottom: 8px !important;
+                    overflow: visible !important;
+                  }
+                  .rbc-event-content {
+                    overflow: visible !important;
+                  }
+                  .rbc-day-bg {
+                    border-left: 1px solid rgba(255,255,255,0.03) !important;
+                  }
+                  .rbc-off-range-bg {
+                    background: transparent !important;
+                    opacity: 0.05;
+                  }
+                  .rbc-header {
+                    border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+                    padding: 12px 0 !important;
+                    font-weight: 900 !important;
+                    text-transform: uppercase !important;
+                    letter-spacing: 0.1em !important;
+                    font-size: 10px !important;
+                    color: rgba(255,255,255,0.4) !important;
+                  }
+                  .rbc-today {
+                    background: rgba(255,255,255,0.02) !important;
+                  }
+                  .rbc-date-cell {
+                    padding: 0 !important;
+                    text-align: left !important;
+                  }
+                `}</style>
+                <BigCalendar
+                  localizer={localizer}
+                  events={displayEvents}
+                  startAccessor="start"
+                  endAccessor="end"
+                  className="h-[850px] font-sans"
+                  popup={false}
+                  // @ts-ignore
+                  maxEvents={2}
+                  dayPropGetter={monthDayPropGetter}
+                  onSelectEvent={(event: any) => {
+                    if (event.type === 'appointment') {
+                      setSelectedDetailedApp(event.resource);
+                    } else if (event.type === 'block') {
+                      setEditingTimeBlock(event.resource);
+                      setTimeBlockForm({
+                        title: event.resource.title || "",
+                        type: event.resource.type || "full_day",
+                        date: event.resource.date || "",
+                        endDate: event.resource.endDate || "",
+                        startTime: event.resource.startTime || "",
+                        endTime: event.resource.endTime || "",
+                        notes: event.resource.notes || ""
+                      });
+                      setShowTimeBlockDialog(true);
+                    }
+                  }}
+                  view={calendarView as any}
+                  onView={(v) => setCalendarView(v as string)}
+                  date={date || new Date()}
+                  onNavigate={(d) => setDate(d)}
+                  eventPropGetter={eventPropGetter}
+                  components={{
+                    event: CalendarEvent,
+                    month: {
+                      dateHeader: MonthDateHeader
+                    },
+                    agenda: {
+                      event: AgendaEvent,
+                      date: AgendaDate,
+                      time: AgendaTime
+                    }
+                  }}
+                />
+              </div>
+            </div>
           </Card>
         ) : calendarView === "tactical" ? (
           <>
@@ -1962,7 +2176,7 @@ export default function Calendar() {
                         <ChevronLeft className="w-4 h-4" />
                       </Button>
                       <div className="px-3 text-[10px] font-black text-white uppercase tracking-widest min-w-[100px] text-center">
-                        {format(date || new Date(), "MMM d, yyyy")}
+                        {safeFormat(date || new Date(), "MMM d, yyyy")}
                       </div>
                       <Button 
                         size="icon" 
@@ -2015,7 +2229,7 @@ export default function Calendar() {
                            <div className="min-w-0 flex-1">
                              <div className="flex items-center justify-between gap-2">
                                <p className="text-xs font-black text-gray-900 uppercase truncate">{stop.customerName}</p>
-                               <span className="text-[9px] font-black text-primary uppercase">{stop.scheduledAt?.toDate ? format(stop.scheduledAt.toDate(), "h:mm a") : "TBD"}</span>
+                               <span className="text-[9px] font-black text-primary uppercase">{stop.scheduledAt?.toDate ? safeFormat(stop.scheduledAt.toDate(), "h:mm a") : "TBD"}</span>
                              </div>
                              <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest truncate mt-0.5">{stop.address}</p>
                            </div>
@@ -2167,7 +2381,7 @@ export default function Calendar() {
                   return isSameDay(appDate, day);
                 }),
                 hasTimeBlock: (day) => timeBlocks.some(block => {
-                  const dateIso = format(day, "yyyy-MM-dd");
+                  const dateIso = safeFormat(day, "yyyy-MM-dd");
                   if (block.type === 'full_day') {
                     const startIso = block.date;
                     const endIso = block.endDate || block.date;
@@ -2196,7 +2410,7 @@ export default function Calendar() {
             <CardHeader className="bg-black/40 border-b border-white/5 p-8 flex flex-row items-center justify-between">
               <div className="flex flex-col">
                 <CardTitle className="text-2xl font-black text-white tracking-tighter uppercase">
-                  {date ? format(date, "EEEE, MMMM d") : "Select a date"}
+                  {date ? safeFormat(date, "EEEE, MMMM d") : "Select a date"}
                 </CardTitle>
                 <div className="flex items-center gap-2 mt-1">
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">
@@ -3093,15 +3307,15 @@ export default function Calendar() {
                                 <div className="flex items-center gap-3">
                                   <div className="w-10 h-10 rounded-xl bg-white/5 flex flex-col items-center justify-center shrink-0 border border-white/5">
                                     <span className="text-[10px] font-black text-white/30 uppercase leading-none mb-0.5">
-                                      {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "MMM") : "---"}
+                                      {app.scheduledAt?.toDate ? safeFormat(app.scheduledAt.toDate(), "MMM") : "---"}
                                     </span>
                                     <span className="text-sm font-black text-white leading-none">
-                                      {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "d") : "--"}
+                                      {app.scheduledAt?.toDate ? safeFormat(app.scheduledAt.toDate(), "d") : "--"}
                                     </span>
                                   </div>
                                   <div>
                                     <p className="text-sm font-black text-white uppercase tracking-tight">
-                                      {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "h:mm a") : "TBD"}
+                                      {app.scheduledAt?.toDate ? safeFormat(app.scheduledAt.toDate(), "h:mm a") : "TBD"}
                                     </p>
                                     <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest text-[9px]">
                                       {app.jobNum || "NO JOB #"}
@@ -3262,10 +3476,10 @@ export default function Calendar() {
 
                         <div className="flex-shrink-0 w-24 text-center md:border-r md:border-border md:pr-6">
                           <p className="text-2xl font-black text-gray-900 tracking-tighter">
-                            {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "h:mm") : "TBD"}
+                            {app.scheduledAt?.toDate ? safeFormat(app.scheduledAt.toDate(), "h:mm") : "TBD"}
                           </p>
                           <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">
-                            {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "a") : ""}
+                            {app.scheduledAt?.toDate ? safeFormat(app.scheduledAt.toDate(), "a") : ""}
                           </p>
                         </div>
                         <div className="flex-1 min-w-0">
@@ -3399,7 +3613,7 @@ export default function Calendar() {
                           <div>
                             <p className="text-xs font-black text-white uppercase">{block.title}</p>
                             <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">
-                              {block.type === 'full_day' ? 'Full Day Block' : `${format(new Date(`2000-01-01T${block.startTime}`), 'h:mm a')} - ${format(new Date(`2000-01-01T${block.endTime}`), 'h:mm a')}`}
+                              {block.type === 'full_day' ? 'Full Day Block' : `${safeFormat(new Date(`2000-01-01T${block.startTime}`), 'h:mm a')} - ${safeFormat(new Date(`2000-01-01T${block.endTime}`), 'h:mm a')}`}
                             </p>
                           </div>
                         </div>
@@ -3428,7 +3642,7 @@ export default function Calendar() {
                         <div>
                           <p className="text-xs font-black text-white uppercase">{event.summary}</p>
                           <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest truncate max-w-[150px]">
-                            {format(new Date(event.start.dateTime || event.start.date), "h:mm a")} - {format(new Date(event.end.dateTime || event.end.date), "h:mm a")}
+                            {safeFormat(new Date(event.start.dateTime || event.start.date), "h:mm a")} - {safeFormat(new Date(event.end.dateTime || event.end.date), "h:mm a")}
                           </p>
                         </div>
                       </div>
@@ -3720,7 +3934,7 @@ export default function Calendar() {
                       </DialogTitle>
                       <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-2 mt-1">
                         <Clock className="w-3 h-3" />
-                         {app.scheduledAt?.toDate ? format(app.scheduledAt.toDate(), "MMM do, yyyy • h:mm a") : ""}
+                         {app.scheduledAt?.toDate ? safeFormat(app.scheduledAt.toDate(), "MMM do, yyyy • h:mm a") : ""}
                       </p>
                     </div>
                   </div>
@@ -3964,6 +4178,42 @@ export default function Calendar() {
           </div>
         </div>
       )}
+      {/* Day Events Modal */}
+      <Dialog open={!!selectedDayEvents} onOpenChange={(val) => !val && setSelectedDayEvents(null)}>
+        <DialogContent className="max-w-md bg-zinc-950 border-white/5 rounded-3xl p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="p-6 border-b border-white/5 bg-black/40">
+            <DialogTitle className="text-xl font-black text-white uppercase tracking-tighter">
+              Day Deployments: {selectedDayEvents?.day ? safeFormat(selectedDayEvents.day, "MMM d, yyyy") : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-6 space-y-3 max-h-[60vh] overflow-y-auto no-scrollbar">
+            {selectedDayEvents?.events.map((evt: any) => (
+              <div 
+                key={evt.id}
+                className="p-4 rounded-2xl bg-zinc-900 border border-white/5 hover:bg-zinc-800 cursor-pointer transition-all flex items-center justify-between gap-4 group"
+                onClick={() => {
+                  setSelectedDetailedApp(evt.resource);
+                  setSelectedDayEvents(null);
+                }}
+              >
+                <div className="flex flex-col gap-1 min-w-0">
+                  <span className="text-[11px] font-black text-white uppercase truncate">{evt.title}</span>
+                  <div className="flex items-center gap-1.5 text-[9px] text-white/40 font-bold uppercase tracking-widest">
+                    <Clock className="w-3 h-3 text-primary" />
+                    {safeFormat(evt.start, "h:mm a")}
+                  </div>
+                </div>
+                <Badge className={cn(
+                  "text-[8px] font-black px-2 py-0.5 border-none uppercase tracking-widest shrink-0", 
+                  getStatusColor(evt.status || 'scheduled', evt.resource?.isVip)
+                )}>
+                  {evt.status?.replace("_", " ")}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   </div>
 );

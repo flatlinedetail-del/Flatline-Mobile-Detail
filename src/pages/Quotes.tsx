@@ -103,9 +103,13 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
 
   useEffect(() => {
     const fetchSettings = async () => {
-      const snap = await getDoc(doc(db, "settings", "business"));
-      if (snap.exists()) {
-        setSettings(snap.data() as BusinessSettings);
+      try {
+        const snap = await getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"));
+        if (snap && snap.exists()) {
+          setSettings(snap.data() as BusinessSettings);
+        }
+      } catch (err) {
+        console.error("Error fetching settings:", err);
       }
     };
     fetchSettings();
@@ -182,7 +186,10 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPhone(formatPhoneNumber(e.target.value));
+    const rawValue = e.target.value.replace(/[^\d]/g, "");
+    if (rawValue.length <= 10) {
+      setPhone(formatPhoneNumber(e.target.value));
+    }
   };
 
   const selectedServices = selectedServiceSelections.map(sel => {
@@ -1223,7 +1230,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                     Difficulty: {recommendations.difficulty}
                   </Badge>
                 </div>
-                <p className="text-[11px] text-gray-300 font-medium leading-relaxed">
+                <p className="text-[11px] text-gray-300 font-medium leading-relaxed overflow-hidden">
                   {recommendations.explanation}
                 </p>
               </div>

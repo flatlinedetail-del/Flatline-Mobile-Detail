@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { collection, query, where, onSnapshot, Timestamp, orderBy, getDocs, getDoc, doc } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -25,7 +25,7 @@ import {
   Users
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths, eachDayOfInterval, isSameDay } from "date-fns";
-import { cn } from "../lib/utils";
+import { cn, formatCurrency } from "../lib/utils";
 import { Appointment, Expense, BusinessSettings } from "../types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { useAuth } from "../hooks/useAuth";
@@ -81,9 +81,10 @@ export default function Reports() {
     const fetchReportsData = async () => {
       try {
         const [apptsSnap, expensesSnap] = await Promise.all([
-          getDocs(qAppts),
-          getDocs(qExpenses)
+          getDocs(qAppts).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments")),
+          getDocs(qExpenses).catch(e => handleFirestoreError(e, OperationType.LIST, "expenses"))
         ]);
+        if (!apptsSnap || !expensesSnap) return;
         setAppointments(apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
         setExpenses(expensesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense)));
         setLoading(false);
@@ -179,25 +180,25 @@ export default function Reports() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <ReportCard 
           title="Total Sales" 
-          value={`$${totalSales.toLocaleString()}`} 
+          value={formatCurrency(totalSales)} 
           icon={<DollarSign className="w-6 h-6 text-primary" />}
           color="red"
         />
         <ReportCard 
           title="Expenses" 
-          value={`$${totalExpenses.toLocaleString()}`} 
+          value={formatCurrency(totalExpenses)} 
           icon={<ArrowDownRight className="w-6 h-6 text-red-600" />}
           color="red"
         />
         <ReportCard 
           title="Net Profit" 
-          value={`$${netProfit.toLocaleString()}`} 
+          value={formatCurrency(netProfit)} 
           icon={<TrendingUp className="w-6 h-6 text-green-600" />}
           color="green"
         />
         <ReportCard 
           title="Commissions" 
-          value={`$${totalCommissions.toLocaleString()}`} 
+          value={formatCurrency(totalCommissions)} 
           icon={<Users className="w-6 h-6 text-purple-600" />}
           color="purple"
         />
@@ -225,7 +226,7 @@ export default function Reports() {
                     axisLine={false} 
                     tickLine={false} 
                     tick={{ fontSize: 10, fontWeight: 600, fill: "#9ca3af" }}
-                    tickFormatter={(value) => `$${value}`}
+                    tickFormatter={(value) => formatCurrency(value)}
                   />
                   <Tooltip 
                     contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)" }}
@@ -271,7 +272,7 @@ export default function Reports() {
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
                     <span className="text-sm font-bold text-white/60">{cat.name}</span>
                   </div>
-                  <span className="text-sm font-black text-white">${cat.value}</span>
+                  <span className="text-sm font-black text-white">{formatCurrency(cat.value)}</span>
                 </div>
               ))}
             </div>
@@ -308,8 +309,8 @@ export default function Reports() {
                 <TableRow key={name} className="border-white/5 hover:bg-white/5">
                   <TableCell className="font-bold text-white">{name}</TableCell>
                   <TableCell className="text-white/60">{stats.count}</TableCell>
-                  <TableCell className="text-white/60">${Math.round(stats.revenue).toLocaleString()}</TableCell>
-                  <TableCell className="text-white/60">${Math.round(stats.revenue / stats.count).toLocaleString()}</TableCell>
+                  <TableCell className="text-white/60">{formatCurrency(stats.revenue)}</TableCell>
+                  <TableCell className="text-white/60">{formatCurrency(stats.revenue / stats.count)}</TableCell>
                 </TableRow>
               ))}
               {appointments.length === 0 && (

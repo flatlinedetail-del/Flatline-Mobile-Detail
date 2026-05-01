@@ -33,6 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Textarea } from "../components/ui/textarea";
 import { geocodeAddress } from "../services/geocodingService";
 import { useNavigate } from "react-router-dom";
+import { NumberInput } from "../components/NumberInput";
 import { 
   Users, 
   Search, 
@@ -234,6 +235,27 @@ export default function Clients() {
     }
   }, [clients, selectedClient]);
 
+  const defaultStatusColors: Record<string, string> = {
+    scheduled: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+    confirmed: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
+    en_route: "bg-primary/20 text-primary border border-primary/30",
+    in_progress: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
+    arrived: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+    completed: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30",
+    paid: "bg-zinc-400/20 text-zinc-300 border border-zinc-400/30",
+    canceled: "bg-red-500/20 text-red-400 border border-red-500/30",
+    no_show: "bg-rose-500/20 text-rose-400 border border-rose-500/30",
+    waitlisted: "bg-purple-500/20 text-purple-400 border border-purple-500/30",
+  };
+
+  const getStatusColor = (status: string, isVip?: boolean) => {
+    let baseColor = defaultStatusColors[status] || "bg-white/5 text-white/40 border border-white/5";
+    if (isVip) {
+      baseColor += " border-amber-500/50";
+    }
+    return baseColor;
+  };
+
   const fetchClientsData = async (showToast = false) => {
     // Check cache first if not performing a manual sync
     if (!showToast) {
@@ -252,7 +274,8 @@ export default function Clients() {
     setLoading(true);
     try {
       const q = query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(200));
-      const snapshot = await getDocs(q);
+      const snapshot = await getDocs(q).catch(e => handleFirestoreError(e, OperationType.LIST, "clients"));
+      if (!snapshot) return;
       const clientsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
       setClients(clientsData);
       
@@ -287,9 +310,10 @@ export default function Clients() {
       }
 
       try {
-        const typesSnap = await getDocs(query(collection(db, "client_types"), orderBy("sortOrder", "asc")));
-        const catsSnap = await getDocs(query(collection(db, "client_categories"), orderBy("name", "asc")));
+        const typesSnap = await getDocs(query(collection(db, "client_types"), orderBy("sortOrder", "asc"))).catch(e => handleFirestoreError(e, OperationType.LIST, "client_types"));
+        const catsSnap = await getDocs(query(collection(db, "client_categories"), orderBy("name", "asc"))).catch(e => handleFirestoreError(e, OperationType.LIST, "client_categories"));
         
+        if (!typesSnap || !catsSnap) return;
         const typesData = typesSnap.docs.map(t => ({ id: t.id, ...t.data() } as ClientType));
         const catsData = catsSnap.docs.map(c => ({ id: c.id, ...c.data() } as ClientCategory));
         
@@ -312,7 +336,8 @@ export default function Clients() {
         return;
       }
       try {
-        const servicesSnap = await getDocs(collection(db, "services"));
+        const servicesSnap = await getDocs(collection(db, "services")).catch(e => handleFirestoreError(e, OperationType.LIST, "services"));
+        if (!servicesSnap) return;
         const servicesData = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service));
         setServices(servicesData);
         sessionStorage.setItem('services_list_cache', JSON.stringify(servicesData));
@@ -972,7 +997,7 @@ export default function Clients() {
                                 <Trash2 className="w-4 h-4" />
                               </Button>
                             }
-                            title="Decommission Client?"
+                            title="Delete Client?"
                             itemName={getClientDisplayName(client)}
                             onConfirm={() => handleDeleteClient(client.id)}
                           />
@@ -1067,7 +1092,7 @@ export default function Clients() {
                 </TabsTrigger>
                 <TabsTrigger value="comms" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-emerald-500">
                   <MessageSquare className="w-3.5 h-3.5 mr-2" />
-                  Tactical Comms
+                  Client Comms
                 </TabsTrigger>
               </TabsList>
 
@@ -1134,10 +1159,10 @@ export default function Clients() {
                       <div className="p-8 bg-white/5 rounded-[2.5rem] border border-white/5">
                         <div className="flex items-center justify-between mb-8">
                           <h4 className="text-sm font-black uppercase tracking-[0.2em] text-white">Recent Dossier Activity</h4>
-                          <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Client History Timeline</span>
+                          <History className="w-4 h-4 text-primary" />
                         </div>
-                        <div className="space-y-6">
-                          {clientHistory.length === 0 && clientInvoices.length === 0 && clientQuotes.length === 0 ? (
+                        <div className="space-y-6 max-h-[500px] overflow-y-auto no-scrollbar pr-2">
+                          {[...clientHistory, ...clientInvoices, ...clientQuotes, ...signedForms].length === 0 ? (
                             <div className="text-center py-10 opacity-30 italic text-sm">No recent activity detected.</div>
                           ) : (
                             [...clientHistory, ...clientInvoices, ...clientQuotes, ...signedForms]
@@ -1146,7 +1171,6 @@ export default function Clients() {
                                 const dateB = convertToDate(b.scheduledAt || b.createdAt || b.signedAt).getTime();
                                 return dateB - dateA;
                               })
-                              .slice(0, 5)
                               .map((item, idx) => (
                                 <div key={idx} className="flex gap-6 items-start group/item">
                                   <div className="relative flex flex-col items-center shrink-0">
@@ -1156,26 +1180,34 @@ export default function Clients() {
                                       item.status === "pending" || item.status === "sent" ? "bg-orange-500/10 border-orange-500/20 text-orange-400" :
                                       "bg-white/5 border-white/10 text-white/40"
                                     )}>
-                                      {item.status === "paid" || item.status === "completed" ? <CheckCircle2 className="w-5 h-5" /> :
-                                       item.status === "pending" || item.status === "sent" ? <Clock className="w-5 h-5" /> :
-                                       <FileText className="w-5 h-5" />}
+                                      {(item as any).serviceNames ? <Calendar className="w-5 h-5" /> : 
+                                       (item as any).formName ? <FileText className="w-5 h-5" /> :
+                                       <Receipt className="w-5 h-5" />}
                                     </div>
-                                    {idx !== 4 && <div className="w-px h-12 bg-white/5 mt-2" />}
+                                    {idx !== ([...clientHistory, ...clientInvoices, ...clientQuotes, ...signedForms].length - 1) && <div className="w-px h-12 bg-white/5 mt-2" />}
                                   </div>
                                   <div className="flex-1 pt-1">
                                     <div className="flex justify-between items-start mb-1">
                                       <p className="text-xs font-black text-white uppercase tracking-tight">
                                         {(item as any).serviceNames ? "Service Appointment" : 
-                                         (item as any).items ? "Invoiced Service" :
-                                         (item as any).formName ? "Signed Document" : "Financial Quote"}
+                                         (item as any).items ? "Financial Transaction" :
+                                         (item as any).formName ? "Signed Document" : "Strategic Quote"}
                                       </p>
-                                      <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest">
+                                      <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest text-right ml-2 shrink-0">
                                         {format(convertToDate(item.scheduledAt || item.createdAt || item.signedAt), "MMM d, yyyy")}
                                       </span>
                                     </div>
-                                    <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide">
-                                      {(item as any).vehicleInfo || (item as any).formName || "General Account Entry"}
-                                    </p>
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide truncate">
+                                        {(item as any).vehicleInfo || (item as any).formName || (item as any).quoteNum || "Entity Operation"}
+                                      </p>
+                                      <Badge variant="outline" className={cn(
+                                        "text-[7px] font-black uppercase tracking-widest px-1.5 py-0 border-none shrink-0 ml-2",
+                                        getStatusColor(item.status || 'scheduled', selectedClient.isVIP)
+                                      )}>
+                                        {item.status?.replace("_", " ") || "Active"}
+                                      </Badge>
+                                    </div>
                                   </div>
                                 </div>
                               ))
@@ -1489,7 +1521,7 @@ export default function Clients() {
                                 } />
                                 <AlertDialogContent className="bg-card border-border rounded-3xl shadow-2xl">
                                   <AlertDialogHeader>
-                                    <AlertDialogTitle className="text-white font-black uppercase tracking-tighter text-xl">Decommission Asset?</AlertDialogTitle>
+                                    <AlertDialogTitle className="text-white font-black uppercase tracking-tighter text-xl">Remove Vehicle?</AlertDialogTitle>
                                     <AlertDialogDescription className="text-white/60 font-medium">
                                       Are you sure you want to remove this asset from the registry? This action cannot be undone.
                                     </AlertDialogDescription>
@@ -1501,7 +1533,7 @@ export default function Clients() {
                                         e.stopPropagation();
                                         await deleteDoc(doc(db, "vehicles", v.id));
                                         setClientVehicles(prev => prev.filter(x => x.id !== v.id));
-                                        toast.success("Asset decommissioned");
+                                        toast.success("Vehicle removed");
                                       }}
                                       className="bg-primary hover:bg-red-700 text-white rounded-xl h-12 px-8 font-black uppercase tracking-widest text-[10px]"
                                     >
@@ -1786,24 +1818,20 @@ export default function Clients() {
                                     </div>
                                     <div className="space-y-2">
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Fixed VIP Rate</Label>
-                                      <div className="relative">
-                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 font-bold">$</span>
-                                        <Input 
-                                          type="number"
-                                          value={service.price}
-                                          className="pl-8 bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold"
-                                          onChange={(e) => {
-                                            const next = [...(selectedClient.vipSettings?.customCollisionServices || [])];
-                                            next[idx] = { ...next[idx], price: parseFloat(e.target.value) || 0 };
-                                            updateClient({
-                                              vipSettings: {
-                                                ...selectedClient.vipSettings,
-                                                customCollisionServices: next
-                                              }
-                                            });
-                                          }}
-                                        />
-                                      </div>
+                                      <NumberInput 
+                                        value={service.price}
+                                        onValueChange={(val) => {
+                                          const next = [...(selectedClient.vipSettings?.customCollisionServices || [])];
+                                          next[idx] = { ...next[idx], price: val };
+                                          updateClient({
+                                            vipSettings: {
+                                              ...selectedClient.vipSettings,
+                                              customCollisionServices: next
+                                            }
+                                          });
+                                        }}
+                                        className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold"
+                                      />
                                     </div>
                                   </div>
                                 ))}
@@ -1842,17 +1870,14 @@ export default function Clients() {
                                     <div key={service.id} className="p-4 bg-black/40 rounded-2xl border border-white/5 flex flex-col gap-3">
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 truncate">{service.name}</Label>
                                       <div className="relative">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 font-bold">$</span>
-                                        <Input 
-                                          type="number"
+                                        <NumberInput 
                                           placeholder={service.basePrice?.toString()}
-                                          className="pl-7 bg-white/5 border-white/10 text-white rounded-xl h-10"
-                                          value={selectedClient.vipSettings?.customServicePricing?.[service.id] || ""}
-                                          onChange={(e) => {
-                                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                                          className="bg-white/5 border-white/10 text-white rounded-xl h-10"
+                                          value={selectedClient.vipSettings?.customServicePricing?.[service.id]}
+                                          onValueChange={(val) => {
                                             const currentPricing = selectedClient.vipSettings?.customServicePricing || {};
                                             const nextPricing = { ...currentPricing };
-                                            if (val === undefined) delete nextPricing[service.id];
+                                            if (val === 0) delete nextPricing[service.id];
                                             else nextPricing[service.id] = val;
                                             
                                             updateClient({

@@ -42,6 +42,7 @@ import {
   Sparkles,
   Save,
   Search,
+  Zap,
   Image as ImageIcon,
   X,
   Target,
@@ -500,9 +501,27 @@ export default function JobDetail() {
       await updateDoc(doc(db, "appointments", id), {
         smsAutomationPaused: !job.smsAutomationPaused
       });
-      toast.success(job.smsAutomationPaused ? "SMS Automation Enabled" : "SMS Automation Paused");
+      toast.success(job.smsAutomationPaused ? "Automated Communication Active" : "Automated Communication Disabled");
     } catch (err: any) {
-      toast.error("Failed to toggle SMS automation: " + err.message);
+      toast.error("Failed to toggle automation: " + err.message);
+    }
+  };
+
+  const toggleReminderAutomation = async (type: "bookingConfirmation" | "reminder24h" | "reminder2h", val: boolean) => {
+    if (!job || !id) return;
+    try {
+      const currentPrefs = job.reminderAutomationPrefs || {
+        bookingConfirmation: true,
+        reminder24h: true,
+        reminder2h: true
+      };
+      
+      await updateDoc(doc(db, "appointments", id), {
+        [`reminderAutomationPrefs.${type}`]: val
+      });
+      toast.success(`Reminder automation updated`);
+    } catch (err: any) {
+      toast.error("Failed to update reminder preference: " + err.message);
     }
   };
 
@@ -543,6 +562,7 @@ export default function JobDetail() {
         content: messageBody,
         status: "sent",
         messageId: (res as any)?.messageId || "sent",
+        reminderTimestamp: job.scheduledAt,
         createdAt: serverTimestamp()
       });
 
@@ -564,6 +584,7 @@ export default function JobDetail() {
         content: "Manual resend attempt",
         status: "failed",
         errorDetail: err.message || String(err),
+        reminderTimestamp: job.scheduledAt,
         createdAt: serverTimestamp()
       });
       
@@ -1949,161 +1970,139 @@ export default function JobDetail() {
       {/* Live Job Command Summary */}
       <div className="sticky top-4 z-40 bg-black/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 shadow-2xl shadow-black flex flex-wrap lg:flex-nowrap items-center gap-5 justify-between animate-in slide-in-from-top-4 duration-500 overflow-hidden">
         <div className="flex flex-wrap items-center gap-6 flex-1 min-w-0">
-          <div className="flex flex-col min-w-[140px] max-w-[200px] border-r border-white/5 pr-4 shrink-0">
-            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Target</span>
+          <div className="flex flex-col min-w-[160px] max-w-[240px] border-r border-white/5 pr-4 shrink-0">
+            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Client Contact</span>
             <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
+            <div className="flex items-center gap-2 mt-1">
+              {job.customerPhone && (
+                <a href={`tel:${job.customerPhone}`} className="text-primary hover:text-red-400 transition-colors">
+                  <Phone className="w-3 h-3" />
+                </a>
+              )}
+              {job.customerEmail && (
+                <a href={`mailto:${job.customerEmail}`} className="text-primary hover:text-red-400 transition-colors">
+                  <Mail className="w-3 h-3" />
+                </a>
+              )}
+            </div>
           </div>
 
-          <div className="flex flex-col min-w-[140px] max-w-[200px] border-r border-white/5 pr-4 shrink-0">
-            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Asset(s)</span>
-            <span className="text-white font-black text-sm truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
-              {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
-            </span>
-          </div>
+          <div className="flex flex-col min-w-[180px] max-w-[280px] border-r border-white/5 pr-4 shrink-0">
+            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Vehicle Information</span>
+            <div className="flex flex-col">
+              <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
+                {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
+              </span>
+              <div className="flex items-center gap-3 mt-1">
+                {job.vin && (
+                  <span className="text-[8px] font-mono text-white/40 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
+                    VIN: {job.vin.slice(-8)}
+                  </span>
+                )}
+                {job.roNumber && (
+                  <span className="text-[8px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 uppercase tracking-tighter">
+                    RO: {job.roNumber}
+                  </span>
+                )}
+                <Dialog>
+                  <DialogTrigger render={
+                    <Button variant="ghost" size="icon" className="h-4 w-4 text-white/20 hover:text-primary transition-colors">
+                      <Zap className="w-3 h-3" />
+                    </Button>
+                  } />
+                  <DialogContent className="max-w-md bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] shadow-2xl p-0 overflow-hidden">
+                    <DialogHeader className="bg-black/40 border-b border-white/5 p-8 pb-6">
+                      <div className="flex flex-col gap-1">
+                        <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Information Manager</DialogTitle>
+                        <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Update Vehicle & Job Details</p>
+                      </div>
+                    </DialogHeader>
+                    <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                      <div className="space-y-6">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">VIN / Asset ID</Label>
+                          <div className="flex gap-3">
+                            <Input 
+                              placeholder="Enter VIN" 
+                              className="bg-black/40 border-white/10 text-white rounded-xl h-12 uppercase font-mono text-sm focus:ring-primary/50"
+                              defaultValue={job.vin}
+                              id="vin-input-quick"
+                            />
+                            <Button 
+                              className="bg-primary text-white font-black h-12 px-4 rounded-xl uppercase tracking-widest text-[9px] hover:bg-red-700 shrink-0"
+                              onClick={async () => {
+                                const vin = (document.getElementById("vin-input-quick") as HTMLInputElement).value;
+                                if (vin) {
+                                  const data = await decodeVin(vin);
+                                  if (data) {
+                                    setDecodedVin(data);
+                                    toast.success("VIN Decoded!");
+                                  } else {
+                                    toast.error("Invalid VIN or decoding failed");
+                                  }
+                                }
+                              }}
+                            >
+                              Decode
+                            </Button>
+                          </div>
+                        </div>
 
-          <div className="flex flex-col min-w-[150px] max-w-[250px] hidden md:flex border-r border-white/5 pr-4 shrink-0">
-            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Location</span>
-            <span className="text-white font-black text-sm truncate uppercase tracking-tight" title={cleanAddress(job.address)}>
-              {cleanAddress(job.address)}
-            </span>
-          </div>
+                        {decodedVin && (
+                          <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 grid grid-cols-2 gap-4 text-[10px] font-black uppercase tracking-[0.1em]">
+                            <div className="text-white/40">Make: <span className="text-white">{decodedVin.make}</span></div>
+                            <div className="text-white/40">Model: <span className="text-white">{decodedVin.model}</span></div>
+                            <div className="text-white/40">Year: <span className="text-white">{decodedVin.year}</span></div>
+                            <div className="text-white/40">Type: <span className="text-white">{decodedVin.type}</span></div>
+                          </div>
+                        )}
 
-          <div className="flex flex-col min-w-[100px] border-r border-white/5 pr-4 shrink-0">
-            <span className="text-[9px] text-primary/60 font-black uppercase tracking-[0.2em] mb-1">Intelligence</span>
-            <Dialog>
-              <DialogTrigger render={
-                <Button variant="outline" className="h-9 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-xl font-black uppercase tracking-widest text-[9px] px-4 transition-all">
-                  <Target className="w-3.5 h-3.5 mr-2" />
-                  Intel Hub
-                </Button>
-              } />
-              <DialogContent className="max-w-md bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] shadow-2xl p-0 overflow-hidden">
-                <DialogHeader className="bg-black/40 border-b border-white/5 p-8 pb-6">
-                  <div className="flex flex-col gap-1">
-                    <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Intelligence Hub</DialogTitle>
-                    <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Job & Target Data Management</p>
-                  </div>
-                </DialogHeader>
-                <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                  {/* Target Intel Section */}
-                  <div className="space-y-4">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-white/30 block mb-2">Primary Target</Label>
-                    <div className="flex items-center gap-4 text-white group">
-                      <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/40 group-hover:text-primary transition-colors border border-white/5">
-                        <Phone className="w-4 h-4" />
-                      </div>
-                      <a href={`tel:${job.customerPhone}`} className="hover:text-primary transition-colors font-black uppercase tracking-tight text-sm">
-                        {job.customerPhone || "Unspecified"}
-                      </a>
-                    </div>
-                    <div className="flex items-center gap-4 text-white group">
-                      <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/40 group-hover:text-primary transition-colors border border-white/5">
-                        <Mail className="w-4 h-4" />
-                      </div>
-                      <a href={`mailto:${job.customerEmail}`} className="hover:text-primary transition-colors font-black uppercase tracking-tight text-sm">
-                        {job.customerEmail || "Unspecified"}
-                      </a>
-                    </div>
-                    <div className="flex items-start gap-4 text-white group pt-2">
-                      <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/40 group-hover:text-primary transition-colors shrink-0 border border-white/5">
-                        <MapPin className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1">
-                        <a 
-                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.address)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="hover:text-primary transition-colors font-black uppercase tracking-tight text-sm block mb-4"
-                        >
-                          {cleanAddress(job.address)}
-                        </a>
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">RO Identifier</Label>
+                          <Input 
+                            placeholder="Repair Order #" 
+                            className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-black uppercase tracking-widest text-sm"
+                            defaultValue={job.roNumber || ""}
+                            id="ro-input-quick"
+                          />
+                        </div>
+
                         <Button 
-                          variant="outline" 
-                          size="lg" 
-                          className="h-12 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-xl font-black uppercase tracking-widest text-[10px] w-full shadow-lg shadow-primary/10"
-                          onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}`, '_blank')}
+                          className="w-full bg-white text-black font-black h-14 rounded-2xl uppercase tracking-[0.15em] text-[11px] shadow-xl hover:bg-gray-100 transition-all mt-4"
+                          onClick={async () => {
+                            const vin = (document.getElementById("vin-input-quick") as HTMLInputElement).value;
+                            const roNumber = (document.getElementById("ro-input-quick") as HTMLInputElement).value;
+                            await updateDoc(doc(db, "appointments", id!), { vin, roNumber });
+                            setJob(prev => ({ ...prev, vin, roNumber }));
+                            toast.success("Changes Saved!");
+                          }}
                         >
-                          <Navigation className="w-4 h-4 mr-2" />
-                          Plot Tactical Route
+                          Save Changes
                         </Button>
                       </div>
                     </div>
-                  </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </div>
+          </div>
 
-                  <div className="h-px bg-white/5" />
-
-                  {/* Asset Profile Section */}
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-[9px] font-black uppercase tracking-widest text-white/30">Asset Intelligence</Label>
-                    </div>
-                    
-                    <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-4">
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">VIN / Asset ID</Label>
-                        <div className="flex gap-3">
-                          <Input 
-                            placeholder="Enter VIN" 
-                            className="bg-black/40 border-white/10 text-white rounded-xl h-12 uppercase font-mono text-sm focus:ring-primary/50"
-                            defaultValue={job.vin}
-                            id="vin-input-hub"
-                          />
-                          <Button 
-                            className="bg-primary text-white font-black h-12 px-4 rounded-xl uppercase tracking-widest text-[9px] hover:bg-red-700 shrink-0"
-                            onClick={async () => {
-                              const vin = (document.getElementById("vin-input-hub") as HTMLInputElement).value;
-                              if (vin) {
-                                const data = await decodeVin(vin);
-                                if (data) {
-                                  setDecodedVin(data);
-                                  toast.success("VIN Decoded!");
-                                } else {
-                                  toast.error("Invalid VIN or decoding failed");
-                                }
-                              }
-                            }}
-                          >
-                            Decode
-                          </Button>
-                        </div>
-                      </div>
-
-                      {decodedVin && (
-                        <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 grid grid-cols-2 gap-4 text-[10px] font-black uppercase tracking-[0.1em]">
-                          <div className="text-white/40">Make: <span className="text-white">{decodedVin.make}</span></div>
-                          <div className="text-white/40">Model: <span className="text-white">{decodedVin.model}</span></div>
-                          <div className="text-white/40">Year: <span className="text-white">{decodedVin.year}</span></div>
-                          <div className="text-white/40">Type: <span className="text-white">{decodedVin.type}</span></div>
-                        </div>
-                      )}
-
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">RO Identifier</Label>
-                        <Input 
-                          placeholder="Repair Order #" 
-                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-black uppercase tracking-widest text-sm"
-                          defaultValue={job.roNumber || (job as any).ro || (job as any).ro_number || ""}
-                          id="ro-input-hub"
-                        />
-                      </div>
-
-                      <Button 
-                        className="w-full bg-white text-black font-black h-14 rounded-2xl uppercase tracking-[0.15em] text-[11px] shadow-xl hover:bg-gray-100 transition-all mt-4"
-                        onClick={async () => {
-                          const vin = (document.getElementById("vin-input-hub") as HTMLInputElement).value;
-                          const roNumber = (document.getElementById("ro-input-hub") as HTMLInputElement).value;
-                          await updateDoc(doc(db, "appointments", id!), { vin, roNumber });
-                          setJob(prev => ({ ...prev, vin, roNumber }));
-                          toast.success("Intelligence Updated!");
-                        }}
-                      >
-                        Commit Updates
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
+          <div className="flex flex-col min-w-[180px] max-w-[300px] hidden md:flex border-r border-white/5 pr-4 shrink-0">
+            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Job Location</span>
+            <div className="flex items-center gap-2">
+              <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={cleanAddress(job.address)}>
+                {cleanAddress(job.address)}
+              </span>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-6 w-6 text-primary hover:bg-primary/10 rounded-lg p-0"
+                onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}`, '_blank')}
+                title="Plan Route"
+              >
+                <Navigation className="w-3.5 h-3.5" />
+              </Button>
+            </div>
           </div>
 
           <div className="flex flex-col flex-1 min-w-[200px] hidden xl:flex">
@@ -2138,7 +2137,7 @@ export default function JobDetail() {
                     disabled={isUpdating} 
                     className="bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[9px] h-9 px-4 rounded-xl shadow-lg shadow-primary/20 whitespace-nowrap"
                   >
-                    Initiate Route
+                    Start Route
                   </Button>
                 )}
                 {(job.status === "completed" || job.status === "paid" || job.status === "pending_payment") && (
@@ -2176,17 +2175,17 @@ export default function JobDetail() {
                       disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid"}
                     >
                       <AlertCircle className="w-4 h-4 mr-2" />
-                      Cancel Mission
+                      Cancel Appointment
                     </DropdownMenuItem>
                     <DeleteConfirmationDialog
                       isNativeButton={false}
                       trigger={
                         <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500 font-bold focus:bg-red-500/10 focus:text-red-400 rounded-xl cursor-pointer text-[10px]">
                           <Trash2 className="w-4 h-4 mr-2" />
-                          Terminate Mission
+                          Delete Appointment
                         </DropdownMenuItem>
                       }
-                      title="Terminate Mission?"
+                      title="Delete Appointment?"
                       itemName={job.customerName || "this job"}
                       onConfirm={handleDeleteJob}
                     />
@@ -2272,7 +2271,7 @@ export default function JobDetail() {
             </TabsTrigger>
             <TabsTrigger value="forms" className="flex-1 rounded-2xl data-[state=active]:bg-primary data-[state=active]:text-white font-black uppercase tracking-widest text-[10px] transition-all duration-300 h-full">
               <ShieldCheck className="w-4 h-4 mr-2 hidden md:inline-block" />
-              <span className="hidden md:inline-block">Tactical </span>Forms
+              Forms
             </TabsTrigger>
             <TabsTrigger value="ai_upsell" className="flex-1 rounded-2xl data-[state=active]:bg-primary data-[state=active]:text-white font-black uppercase tracking-widest text-[10px] transition-all duration-300 h-full">
               <Scan className="w-4 h-4 mr-2 hidden md:inline-block" />
@@ -2292,7 +2291,7 @@ export default function JobDetail() {
                       <Scan className="w-6 h-6" />
                     </div>
                     <div>
-                      <CardTitle className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter">Tactical Upsell Intelligence</CardTitle>
+                      <CardTitle className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter">Upsell Intelligence</CardTitle>
                       <p className="text-[10px] text-white/50 font-black uppercase tracking-[0.2em] mt-1">AI-Powered Revenue Optimization</p>
                     </div>
                   </div>
@@ -2804,7 +2803,7 @@ export default function JobDetail() {
                       {/* Bundling Opportunities */}
                       {revenueProtocol.bundlingOpportunities && revenueProtocol.bundlingOpportunities.length > 0 && (
                         <div className="space-y-6">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-green-500">Tactical Bundle Opportunities</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-green-500">Service Bundle Opportunities</Label>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
                             {revenueProtocol.bundlingOpportunities.map((bundle, idx) => {
                               const isBundleAlreadyAdded = job.serviceNames?.includes(bundle.bundleName) || job.addOnNames?.includes(bundle.bundleName);
@@ -3608,9 +3607,9 @@ export default function JobDetail() {
               <CardHeader className="bg-black/20 border-b border-white/5 p-6 flex flex-row items-center justify-between">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Client Communication</CardTitle>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-white/50 uppercase tracking-wider">Pause</span>
+                  <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Automated Client Communication</span>
                   <Switch 
-                    checked={job.smsAutomationPaused || false}
+                    checked={!job.smsAutomationPaused || false}
                     onCheckedChange={toggleSmsAutomation}
                     className="data-[state=checked]:bg-primary"
                   />
@@ -3663,43 +3662,74 @@ export default function JobDetail() {
                   <div className="space-y-4">
                     <span className="text-[10px] uppercase font-black text-white/40 tracking-widest pl-1">Scheduled Reminders</span>
                     {[
-                      { key: "confirmation", label: "Booking Confirmation" },
-                      { key: "twentyFourHour", label: "24-Hour Reminder" },
-                      { key: "twoHour", label: "2-Hour Reminder" }
-                    ].map(({ key, label }) => {
+                      { key: "confirmation", prefKey: "bookingConfirmation", label: "Booking Confirmation" },
+                      { key: "twentyFourHour", prefKey: "reminder24h", label: "24-Hour Reminder" },
+                      { key: "twoHour", prefKey: "reminder2h", label: "2-Hour Reminder" }
+                    ].map(({ key, prefKey, label }) => {
                       const status = job.reminders?.[key];
-                      let statusLabel = "Scheduled";
-                      let statusColor = "text-yellow-600 bg-yellow-600/10";
+                      const globalAutomation = businessSettings?.communicationAutomation?.enabled ?? true;
+                      const globalTypeAutomation = businessSettings?.communicationAutomation?.[prefKey] ?? true;
+                      const jobAutomationActive = !job.smsAutomationPaused;
+                      const jobTypeAutomation = job.reminderAutomationPrefs?.[prefKey] ?? true;
+
+                      const isAutomated = globalAutomation && globalTypeAutomation && jobAutomationActive && jobTypeAutomation;
+                      
+                      let statusLabel = isAutomated ? "Automated" : "Manual Only";
+                      if (job.smsAutomationPaused) statusLabel = "Paused (Job)";
+                      else if (!globalAutomation) statusLabel = "Disabled (Global)";
+                      else if (!globalTypeAutomation || !jobTypeAutomation) statusLabel = "Manual Only";
+
+                      let statusColor = isAutomated ? "text-primary bg-primary/10" : "text-white/30 bg-white/5";
                       
                       if (status === "sent") {
                         statusLabel = "Sent";
-                        statusColor = "text-green-600 bg-green-600/10";
+                        statusColor = "text-emerald-500 bg-emerald-500/10";
                       } else if (status === "failed") {
                         statusLabel = "Failed";
-                        statusColor = "text-red-600 bg-red-600/10";
-                      } else if (status === "skipped" || job.smsAutomationPaused) {
-                        statusLabel = "Skipped/Paused";
-                        statusColor = "text-gray-400 bg-gray-400/10";
+                        statusColor = "text-red-500 bg-red-500/10";
                       }
 
                       return (
-                        <div key={key} className="flex flex-col gap-2 p-3 bg-white/5 rounded-xl border border-white/5">
+                        <div key={key} className={cn(
+                          "flex flex-col gap-3 p-4 rounded-2xl border transition-all",
+                          status === "sent" ? "bg-emerald-500/5 border-emerald-500/10" : "bg-white/5 border-white/5",
+                          job.smsAutomationPaused && status !== "sent" && "opacity-60"
+                        )}>
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium text-gray-300">{label}</span>
-                            <span className={`px-2 py-1 rounded text-[10px] uppercase font-black tracking-wider ${statusColor}`}>
-                              {statusLabel}
-                            </span>
+                            <div className="space-y-1">
+                              <span className="text-xs font-black text-white px-1 uppercase tracking-tight">{label}</span>
+                              <div className="flex items-center gap-2">
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest",
+                                  statusColor
+                                )}>
+                                  {statusLabel}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {status !== "sent" && (
+                              <Switch 
+                                checked={job.reminderAutomationPrefs?.[prefKey] ?? true}
+                                onCheckedChange={(val) => toggleReminderAutomation(prefKey as any, val)}
+                                disabled={job.smsAutomationPaused}
+                                className="data-[state=checked]:bg-primary"
+                              />
+                            )}
                           </div>
-                          {(status === "failed" || !status) && job.customerPhone && (
-                            <Button
-                              variant="ghost" 
-                              size="sm"
-                              className="w-full text-xs hover:bg-white/10 mt-1 h-8 bg-black/20"
-                              onClick={() => handleResendReminder(key === 'confirmation' ? 'confirmation' : (key === 'twentyFourHour' ? 'reminder_24h' : 'reminder_2h'))}
-                            >
-                              <Mail className="w-3 h-3 mr-2" />
-                              {status === "failed" ? "Retry" : "Send Now"}
-                            </Button>
+
+                          {(status === "failed" || status !== "sent") && job.customerPhone && (
+                            <div className="flex gap-2">
+                              <Button
+                                variant="ghost" 
+                                size="sm"
+                                className="flex-1 text-[10px] uppercase font-black tracking-widest hover:bg-white/10 h-9 bg-black/40 border border-white/5 text-white/60 hover:text-white"
+                                onClick={() => handleResendReminder(key === 'confirmation' ? 'confirmation' : (key === 'twentyFourHour' ? 'reminder_24h' : 'reminder_2h'))}
+                              >
+                                <Zap className="w-3 h-3 mr-2 text-primary" />
+                                {status === "failed" ? "Retry" : "Send Now"}
+                              </Button>
+                            </div>
                           )}
                         </div>
                       );
@@ -3710,10 +3740,10 @@ export default function JobDetail() {
             </Card>
           )}
 
-          {/* Tactical Command Card */}
+          {/* Operations Command Card */}
           <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
             <CardHeader className="bg-black/20 border-b border-white/5 p-6">
-              <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Tactical Command</CardTitle>
+              <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Operations Command</CardTitle>
             </CardHeader>
             <CardContent className="p-6">
               <div className="flex flex-col gap-3">
@@ -3723,7 +3753,7 @@ export default function JobDetail() {
                       Review & Pre-Approve
                     </Button>
                     <Button onClick={() => handleStatusChangeRequest("declined")} variant="outline" disabled={isUpdating} className="w-full border-red-500/20 text-red-500 hover:bg-red-500/10 font-black uppercase tracking-widest text-[10px] h-12 rounded-xl">
-                      Decline Mission
+                      Decline Job
                     </Button>
                   </div>
                 )}
@@ -3775,7 +3805,7 @@ export default function JobDetail() {
                       disabled={isUpdating} 
                       className="w-full bg-green-600 hover:bg-green-700 text-white font-black h-14 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-green-600/20"
                     >
-                      Complete Mission
+                      Complete Job
                     </Button>
                   </div>
                 )}

@@ -12,7 +12,7 @@ import { format } from "date-fns";
 import AddressInput from "../components/AddressInput";
 import { BusinessSettings, Service, AddOn } from "../types";
 import { createNotification } from "../services/notificationService";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, formatPhoneNumber } from "@/lib/utils";
 import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { checkAvailability as checkAvailabilityService, generateSmartRecommendations } from "../services/smartBookingService";
@@ -1266,7 +1266,7 @@ export default function PublicBooking() {
                                   Deposit Required: {formatCurrency(depositInfo.amount)}
                                 </p>
                               )}
-                              <span className="text-3xl font-black text-primary">${totalPrice}</span>
+                              <span className="text-3xl font-black text-primary">{formatCurrency(totalPrice)}</span>
                             </div>
                         </div>
                       </div>

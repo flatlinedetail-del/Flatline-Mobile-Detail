@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { query, where, onSnapshot, Timestamp, orderBy, limit, getDocs, getDoc, addDoc, collection, serverTimestamp, doc } from "firebase/firestore";
-import { db, storage } from "../firebase";
+import { db, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { PageHeader } from "../components/PageHeader";
@@ -46,7 +46,7 @@ import {
 import { format, startOfDay, endOfDay, isToday, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
-import { cn, formatDuration, resizeImage } from "@/lib/utils";
+import { cn, formatDuration, resizeImage, formatCurrency } from "@/lib/utils";
 import { optimizeRoute, RouteStop } from "@/lib/scheduling";
 import { Appointment, Lead, Expense, Client, Invoice, BusinessSettings, WeatherInfo } from "@/types";
 import { askAssistant, AIResponse } from "../services/gemini";
@@ -162,24 +162,26 @@ export default function Dashboard() {
           where("scheduledAt", ">=", Timestamp.fromDate(startMonth)),
           where("scheduledAt", "<=", Timestamp.fromDate(endMonth)),
           limit(300)
-        )),
+        )).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments")),
         getDocs(query(
           collection(db, "appointments"),
           where("scheduledAt", ">=", Timestamp.fromDate(todayStart)),
           orderBy("scheduledAt", "asc"),
           limit(5)
-        )),
+        )).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments_upcoming")),
         getDocs(query(
           collection(db, "leads"),
           where("status", "==", "new"),
           orderBy("createdAt", "desc"),
           limit(8)
-        )),
-        getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(20))),
-        getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(20))),
-        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(20))),
-        getDoc(doc(db, "settings", "business"))
+        )).catch(e => handleFirestoreError(e, OperationType.LIST, "leads_new")),
+        getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(20))).catch(e => handleFirestoreError(e, OperationType.LIST, "leads_all")),
+        getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(20))).catch(e => handleFirestoreError(e, OperationType.LIST, "clients")),
+        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(20))).catch(e => handleFirestoreError(e, OperationType.LIST, "invoices")),
+        getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"))
       ]);
+
+      if (!statsSnap || !jobsSnap || !leadsSnap || !aiLeadsSnap || !aiClientsSnap || !aiInvoicesSnap || !settingsSnap) return;
 
       // Stats Processing
       let dayProj = 0, dayComp = 0, dayPend = 0, dayActive = 0;
@@ -526,8 +528,21 @@ export default function Dashboard() {
                       type="number" 
                       placeholder="0.00" 
                       className="bg-black/40 border-white/10 text-white rounded-xl h-12 text-lg font-bold"
-                      value={newExpense.amount || ""} 
-                      onChange={(e) => setNewExpense({ ...newExpense, amount: parseFloat(e.target.value) })}
+                      value={newExpense.amount === 0 ? "" : newExpense.amount} 
+                      onFocus={(e) => {
+                        if (newExpense.amount === 0) {
+                          // Allow clearing
+                        }
+                      }}
+                      onChange={(e) => {
+                        const val = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                        setNewExpense({ ...newExpense, amount: isNaN(val) ? 0 : val });
+                      }}
+                      onBlur={(e) => {
+                        if (e.target.value === "") {
+                          setNewExpense({ ...newExpense, amount: 0 });
+                        }
+                      }}
                     />
                   </div>
                   <div className="space-y-2">
@@ -577,18 +592,8 @@ export default function Dashboard() {
         <FocusWrapper id="daily-revenue" title="Daily Revenue Strategy" focusedId={focusedCardId} onFocus={setFocusedCardId}>
           <StatCard 
             title="Daily Revenue" 
-            value={new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            }).format(stats.completed)} 
-            subValue={`Target: ${new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            }).format(stats.projected)}`}
+            value={formatCurrency(stats.completed)} 
+            subValue={`Target: ${formatCurrency(stats.projected)}`}
             icon={<DollarSign className="w-6 h-6" />}
             trend={performancePercent >= 100 ? "up" : "down"}
             trendValue={`${Math.round(performancePercent)}%`}
@@ -600,18 +605,8 @@ export default function Dashboard() {
         <FocusWrapper id="weekly-volume" title="Weekly Operational Scale" focusedId={focusedCardId} onFocus={setFocusedCardId}>
           <StatCard 
             title="Weekly Volume" 
-            value={new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            }).format(stats.weekCompleted)} 
-            subValue={`Target: ${new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            }).format(stats.weekProjected)}`}
+            value={formatCurrency(stats.weekCompleted)} 
+            subValue={`Target: ${formatCurrency(stats.weekProjected)}`}
             icon={<BarChart3 className="w-6 h-6" />}
             trend={stats.weekProjected > 0 ? (stats.weekCompleted / stats.weekProjected >= 1 ? "up" : "down") : "up"}
             trendValue={stats.weekProjected > 0 ? `${Math.round((stats.weekCompleted / stats.weekProjected) * 100)}%` : "0%"}
@@ -623,18 +618,8 @@ export default function Dashboard() {
         <FocusWrapper id="monthly-perf" title="Monthly Performance Intelligence" focusedId={focusedCardId} onFocus={setFocusedCardId}>
           <StatCard 
             title="Monthly Performance" 
-            value={new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            }).format(stats.monthCompleted)} 
-            subValue={`Target: ${new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            }).format(stats.monthProjected)}`}
+            value={formatCurrency(stats.monthCompleted)} 
+            subValue={`Target: ${formatCurrency(stats.monthProjected)}`}
             icon={<TrendingUp className="w-6 h-6" />}
             trend={stats.monthProjected > 0 ? (stats.monthCompleted / stats.monthProjected >= 1 ? "up" : "down") : "up"}
             trendValue={stats.monthProjected > 0 ? `${Math.round((stats.monthCompleted / stats.monthProjected) * 100)}%` : "0%"}
@@ -647,12 +632,7 @@ export default function Dashboard() {
           <StatCard 
             title="Active Operations" 
             value={stats.activeJobs.toString()} 
-            subValue={`${new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            }).format(stats.pending)} in pipeline`}
+            subValue={`${formatCurrency(stats.pending)} in pipeline`}
             icon={<Clock className="w-6 h-6" />}
             color="white"
             standalone={focusedCardId === "ops"}
@@ -662,10 +642,10 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
         {/* Route Optimization View */}
-        <FocusWrapper id="tactical-route" title="Tactical Field Logistics" focusedId={focusedCardId} onFocus={setFocusedCardId} className="lg:col-span-2">
+        <FocusWrapper id="job-route" title="Field Operations" focusedId={focusedCardId} onFocus={setFocusedCardId} className="lg:col-span-2">
           <Card className={cn(
             "border-none bg-card rounded-3xl overflow-hidden shadow-xl h-full flex flex-col group transition-all duration-500 hover:shadow-primary/5",
-            focusedCardId !== "tactical-route" && "max-h-[350px]"
+            focusedCardId !== "job-route" && "max-h-[350px]"
           )}>
             <CardHeader className="p-8 border-b border-white/5 flex flex-row items-center justify-between bg-black/40 shrink-0">
               <div className="flex items-center gap-4">
@@ -673,7 +653,7 @@ export default function Dashboard() {
                   <Navigation className="w-5 h-5" />
                 </div>
                 <div>
-                  <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Tactical Route</CardTitle>
+                  <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Job Route</CardTitle>
                   <div className="flex items-center gap-3 mt-1">
                     <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Efficiency Protocol Active</p>
                     {optimizedRoute.length > 0 && (
@@ -697,7 +677,7 @@ export default function Dashboard() {
                 Recalculate Protocol
               </Button>
             </CardHeader>
-            <CardContent className={cn("p-0 grow overflow-y-auto custom-scrollbar relative", focusedCardId !== "tactical-route" ? "pointer-events-none" : "")}>
+            <CardContent className={cn("p-0 grow overflow-y-auto custom-scrollbar relative", focusedCardId !== "job-route" ? "pointer-events-none" : "")}>
               <div className="p-8">
                 {(!optimizedRoute || optimizedRoute.length === 0) ? (
                   <div className="p-12 text-center flex flex-col items-center gap-4">
@@ -708,7 +688,7 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   <div className="space-y-6 relative before:absolute before:left-[19px] before:top-4 before:bottom-4 before:w-[2px] before:bg-gradient-to-b before:from-primary before:to-primary/10">
-                    {optimizedRoute.slice(0, focusedCardId === "tactical-route" ? undefined : 3).map((stop, idx) => (
+                    {optimizedRoute.slice(0, focusedCardId === "job-route" ? undefined : 3).map((stop, idx) => (
                       <div key={`stop-${stop.id}-${idx}`} className="relative pl-12 flex items-start justify-between group">
                         <div className="absolute left-0 top-1 w-10 h-10 rounded-xl bg-zinc-900 border border-white/10 flex items-center justify-center z-10 group-hover:border-primary/50 transition-all duration-300 shadow-xl text-white font-black text-sm">
                           {idx + 1}
@@ -740,7 +720,7 @@ export default function Dashboard() {
                         </div>
                       </div>
                     ))}
-                    {focusedCardId !== "tactical-route" && optimizedRoute.length > 3 && (
+                    {focusedCardId !== "job-route" && optimizedRoute.length > 3 && (
                       <div className="p-4 text-center opacity-40">
                         <p className="text-[10px] font-black uppercase tracking-[0.2em]">+ {optimizedRoute.length - 3} more destinations</p>
                       </div>
@@ -839,12 +819,7 @@ export default function Dashboard() {
                     <div className="space-y-2">
                       <div className="flex justify-between text-[10px] font-black uppercase">
                         <span className="text-white/40">Avg Ticket Size</span>
-                        <span className="text-primary">{new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: "USD",
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    }).format(growthMetrics.avgTicket)}</span>
+                        <span className="text-primary">{formatCurrency(growthMetrics.avgTicket)}</span>
                       </div>
                       <Progress value={Math.min(100, (growthMetrics.avgTicket / 500) * 100)} className="h-1.5" />
                     </div>
@@ -888,7 +863,7 @@ export default function Dashboard() {
       )}
 
       {/* Recent Leads */}
-      <FocusWrapper id="recent-leads" title="Tactical Acquisition Pipeline" focusedId={focusedCardId} onFocus={setFocusedCardId}>
+      <FocusWrapper id="recent-leads" title="Sales Acquisition Pipeline" focusedId={focusedCardId} onFocus={setFocusedCardId}>
         <Card className={cn(
           "border-none bg-card rounded-3xl overflow-hidden shadow-xl transition-all duration-500 hover:shadow-primary/5",
           focusedCardId !== "recent-leads" && "max-h-[350px]"

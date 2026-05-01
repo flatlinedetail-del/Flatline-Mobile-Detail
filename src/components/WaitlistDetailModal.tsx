@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { checkAvailability, generateSmartRecommendations, SmartRecommendation } from "../services/smartBookingService";
-import { cn } from "@/lib/utils";
+import { cn, formatPhoneNumber, formatCurrency } from "@/lib/utils";
 
 export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComplete }: { appointment: any, isOpen: boolean, onClose: () => void, onActionComplete?: () => void }) {
   const navigate = useNavigate();
@@ -211,7 +211,7 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
               </div>
               <div>
                 <h4 className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">Contact</h4>
-                <p className="text-sm font-bold text-white/80">{appointment.customerPhone}</p>
+                <p className="text-sm font-bold text-white/80">{formatPhoneNumber(appointment.customerPhone)}</p>
                 {appointment.customerEmail && <p className="text-sm font-bold text-white/80">{appointment.customerEmail}</p>}
               </div>
               <div>
@@ -247,7 +247,7 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
                 </div>
                 <div>
                   <h4 className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1 mb-1">Total</h4>
-                  <p className="text-sm font-bold text-green-400">${appointment.totalAmount || 0}</p>
+                  <p className="text-sm font-bold text-green-400">{formatCurrency(appointment.totalAmount || 0)}</p>
                 </div>
               </div>
             </div>

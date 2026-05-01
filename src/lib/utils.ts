@@ -154,6 +154,16 @@ export function cleanAddress(address: string | undefined | null): string {
   return address.replace(/,\s*(USA|United States)$/i, "").trim();
 }
 
+export function formatPercentage(value: number | undefined | null): string {
+  if (value === undefined || value === null) return "0%";
+  return `${value}%`;
+}
+
+export function formatDistance(value: number | undefined | null): string {
+  if (value === undefined || value === null) return "0.0 mi";
+  return `${value.toFixed(1)} mi`;
+}
+
 export function formatCurrency(value: number | undefined | null): string {
   if (value === undefined || value === null) return "$0.00";
   return new Intl.NumberFormat('en-US', {

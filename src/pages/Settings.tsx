@@ -23,10 +23,11 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
-import { resizeImage } from "../lib/utils";
+import { resizeImage, cn } from "../lib/utils";
 import { StableInput } from "../components/StableInput";
 import { StableTextarea } from "../components/StableTextarea";
 import { formatPhoneNumber } from "../lib/utils";
+import { NumberInput } from "../components/NumberInput";
 import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon } from "../types";
 import { migrateDataToClients } from "../services/clientService";
 import { processFollowUps } from "../services/automationService";
@@ -148,16 +149,17 @@ export default function Settings() {
 
       try {
         const docRef = doc(db, "settings", "business");
-        const docSnap = await getDoc(docRef);
+        const snap = await getDoc(docRef).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"));
+        if (!snap) return;
         
         const intRef = doc(db, "settings", "integrations");
-        const intSnap = await getDoc(intRef);
+        const intSnap = await getDoc(intRef).catch(e => handleFirestoreError(e, OperationType.GET, "settings/integrations"));
         
         let data: BusinessSettings | null = null;
         
-        if (docSnap.exists()) {
-          data = docSnap.data() as BusinessSettings;
-          if (intSnap.exists()) {
+        if (snap.exists()) {
+          data = snap.data() as BusinessSettings;
+          if (intSnap && intSnap.exists()) {
             data = { ...data, ...intSnap.data() };
           }
           setSettings(data);
@@ -990,7 +992,7 @@ export default function Settings() {
               value="calendar" 
               className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
             >
-              <Calendar className="w-4 h-4" /> Calendar Settings
+              <Calendar className="w-4 h-4" /> Calendar Service Colors
             </TabsTrigger>
             <TabsTrigger 
               value="integrations" 
@@ -1300,13 +1302,11 @@ export default function Settings() {
                 </div>
                 <div className="space-y-2">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Default Tax Rate (%)</Label>
-                  <StableInput 
+                  <NumberInput 
                     id="taxRate" 
-                    type="text"
-                    inputMode="decimal"
                     className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
-                    value={settings?.taxRate?.toString() || "0"} 
-                    onValueChange={(val) => setSettings(prev => prev ? { ...prev, taxRate: parseFloat(val) || 0 } : null)}
+                    value={settings?.taxRate || 0} 
+                    onValueChange={(num) => setSettings(prev => prev ? { ...prev, taxRate: num } : null)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -1324,13 +1324,11 @@ export default function Settings() {
                 </div>
                 <div className="space-y-2">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Default Technician Commission (%)</Label>
-                  <StableInput 
+                  <NumberInput 
                     id="commissionRate" 
-                    type="text"
-                    inputMode="decimal"
                     className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
-                    value={settings?.commissionRate?.toString() || ""} 
-                    onValueChange={(val) => setSettings(prev => prev ? { ...prev, commissionRate: parseFloat(val) || 0 } : null)}
+                    value={settings?.commissionRate || 0} 
+                    onValueChange={(num) => setSettings(prev => prev ? { ...prev, commissionRate: num } : null)}
                   />
                 </div>
               </div>
@@ -1437,14 +1435,13 @@ export default function Settings() {
                     <div className="pt-4 grid grid-cols-1 gap-6 animate-in fade-in slide-in-from-top-2">
                       <div className="space-y-2">
                         <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">After-Hours Fee Amount ($)</Label>
-                        <StableInput 
+                        <NumberInput 
                           id="afterHoursFeeAmount" 
-                          type="number"
                           className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
-                          value={settings?.businessHours?.afterHoursFeeAmount?.toString() || "0"} 
-                          onValueChange={(val) => setSettings(prev => prev ? { 
+                          value={settings?.businessHours?.afterHoursFeeAmount || 0} 
+                          onValueChange={(num) => setSettings(prev => prev ? { 
                             ...prev, 
-                            businessHours: { ...(prev.businessHours as any), afterHoursFeeAmount: parseFloat(val) || 0 } 
+                            businessHours: { ...(prev.businessHours as any), afterHoursFeeAmount: num } 
                           } : null)}
                         />
                       </div>
@@ -1544,68 +1541,64 @@ export default function Settings() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 col-span-2 animate-in fade-in slide-in-from-top-2 duration-300">
                       <div className="space-y-2">
                         <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Rate Per Mile ($)</Label>
-                        <StableInput 
+                        <NumberInput 
                           id="pricePerMile" 
-                          type="text" 
-                          inputMode="decimal"
                           placeholder="e.g. 1.50"
                           className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
                           value={travelPricingInputs.pricePerMile} 
-                          onValueChange={(val) => {
+                          onValueChange={(num) => {
+                            const val = num.toString();
                             setTravelPricingInputs(prev => ({ ...prev, pricePerMile: val }));
                             if (settings) {
-                              handleSaveSettings({ travelPricing: { ...settings.travelPricing, pricePerMile: parseFloat(val) || 0 } });
+                              handleSaveSettings({ travelPricing: { ...settings.travelPricing, pricePerMile: num } });
                             }
                           }}
                         />
                       </div>
                       <div className="space-y-2">
                         <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Free Range Threshold (One Way Miles)</Label>
-                        <StableInput 
+                        <NumberInput 
                           id="freeMilesThreshold" 
-                          type="text" 
-                          inputMode="decimal"
                           placeholder="e.g. 10"
                           className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
                           value={travelPricingInputs.freeMilesThreshold} 
-                          onValueChange={(val) => {
+                          onValueChange={(num) => {
+                            const val = num.toString();
                             setTravelPricingInputs(prev => ({ ...prev, freeMilesThreshold: val }));
                             if (settings) {
-                              handleSaveSettings({ travelPricing: { ...settings.travelPricing, freeMilesThreshold: parseFloat(val) || 0 } });
+                              handleSaveSettings({ travelPricing: { ...settings.travelPricing, freeMilesThreshold: num } });
                             }
                           }}
                         />
                       </div>
                       <div className="space-y-2">
                         <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Floor Travel Fee ($)</Label>
-                        <StableInput 
+                        <NumberInput 
                           id="minTravelFee" 
-                          type="text" 
-                          inputMode="decimal"
                           placeholder="e.g. 0"
                           className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
                           value={travelPricingInputs.minTravelFee} 
-                          onValueChange={(val) => {
+                          onValueChange={(num) => {
+                            const val = num.toString();
                             setTravelPricingInputs(prev => ({ ...prev, minTravelFee: val }));
                             if (settings) {
-                              handleSaveSettings({ travelPricing: { ...settings.travelPricing, minTravelFee: parseFloat(val) || 0 } });
+                              handleSaveSettings({ travelPricing: { ...settings.travelPricing, minTravelFee: num } });
                             }
                           }}
                         />
                       </div>
                       <div className="space-y-2">
                         <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Ceiling Travel Fee ($)</Label>
-                        <StableInput 
+                        <NumberInput 
                           id="maxTravelFee" 
-                          type="text" 
-                          inputMode="decimal"
                           placeholder="e.g. 100"
                           className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
                           value={travelPricingInputs.maxTravelFee} 
-                          onValueChange={(val) => {
+                          onValueChange={(num) => {
+                            const val = num.toString();
                             setTravelPricingInputs(prev => ({ ...prev, maxTravelFee: val }));
                             if (settings) {
-                              handleSaveSettings({ travelPricing: { ...settings.travelPricing, maxTravelFee: parseFloat(val) || 0 } });
+                              handleSaveSettings({ travelPricing: { ...settings.travelPricing, maxTravelFee: num } });
                             }
                           }}
                         />
@@ -2128,13 +2121,11 @@ export default function Settings() {
                     </div>
                     <div className="space-y-3">
                       <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Base Financial Value ($)</Label>
-                      <StableInput 
-                        type="text"
-                        inputMode="decimal"
-                        value={editingService?.basePrice?.toString() || ""} 
-                        onValueChange={val => setEditingService(prev => ({ ...prev!, basePrice: parseFloat(val) || 0 }))}
-                        required
+                      <NumberInput 
+                        value={editingService?.basePrice || 0}
+                        onValueChange={val => setEditingService(prev => ({ ...prev!, basePrice: val }))}
                         className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        required
                       />
                     </div>
                   </div>
@@ -2219,11 +2210,9 @@ export default function Settings() {
                       </div>
                       <div className="space-y-3">
                         <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Deposit Amount</Label>
-                        <StableInput 
-                          type="text"
-                          inputMode="numeric"
-                          value={editingService?.depositAmount?.toString() || ""} 
-                          onValueChange={val => setEditingService(prev => ({ ...prev!, depositAmount: parseFloat(val) || 0 }))}
+                        <NumberInput 
+                          value={editingService?.depositAmount || 0}
+                          onValueChange={val => setEditingService(prev => ({ ...prev!, depositAmount: val }))}
                           className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
                         />
                       </div>
@@ -2448,11 +2437,9 @@ export default function Settings() {
                     </div>
                     <div className="space-y-3">
                       <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Financial Value ($)</Label>
-                      <StableInput 
-                        type="text"
-                        inputMode="decimal"
-                        value={editingAddon?.price?.toString() || ""} 
-                        onValueChange={val => setEditingAddon(prev => ({ ...prev!, price: parseFloat(val) || 0 }))}
+                      <NumberInput 
+                        value={editingAddon.price || 0}
+                        onValueChange={val => setEditingAddon(prev => ({ ...prev!, price: val }))}
                         required
                         className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
                       />
@@ -2461,11 +2448,9 @@ export default function Settings() {
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
                       <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Duration (Minutes)</Label>
-                      <StableInput 
-                        type="text"
-                        inputMode="numeric"
-                        value={editingAddon?.estimatedDuration?.toString() || ""} 
-                        onValueChange={val => setEditingAddon(prev => ({ ...prev!, estimatedDuration: parseInt(val) || 0 }))}
+                      <NumberInput 
+                        value={editingAddon.estimatedDuration || 0}
+                        onValueChange={val => setEditingAddon(prev => ({ ...prev!, estimatedDuration: val }))}
                         required
                         className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
                       />
@@ -3428,6 +3413,86 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
+              
+              {/* Automated Client Communication Section */}
+              <div className="pt-10 border-t border-white/5 space-y-10">
+                <div className="flex items-center justify-between p-6 bg-primary/5 rounded-2xl border border-primary/10">
+                  <div className="space-y-1">
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading flex items-center gap-3">
+                      <Bell className="w-6 h-6 text-primary" />
+                      Automated Client Communication
+                    </h3>
+                    <p className="text-xs text-white/60 font-medium leading-relaxed">System-wide control for scheduled transactional messaging.</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Master Trigger</Label>
+                    <Switch 
+                      checked={settings?.communicationAutomation?.enabled ?? false} 
+                      onCheckedChange={(val) => setSettings(prev => prev ? { 
+                        ...prev,
+                        communicationAutomation: { ...(prev.communicationAutomation || { enabled: false, bookingConfirmation: true, reminder24h: true, reminder2h: true }), enabled: val } 
+                      } : null)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+                </div>
+
+                <div className={cn(
+                  "grid grid-cols-1 md:grid-cols-3 gap-6 transition-all duration-500",
+                  !(settings?.communicationAutomation?.enabled) && "opacity-50 pointer-events-none grayscale"
+                )}>
+                  <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-black text-white uppercase tracking-tight">Booking Confirmation</Label>
+                      <p className="text-[9px] text-white/40 font-black uppercase tracking-widest">
+                        {settings?.communicationAutomation?.bookingConfirmation ? "Automated" : "Manual Only"}
+                      </p>
+                    </div>
+                    <Switch 
+                      checked={settings?.communicationAutomation?.bookingConfirmation ?? true}
+                      onCheckedChange={(val) => setSettings(prev => prev ? { 
+                        ...prev,
+                        communicationAutomation: { ...prev.communicationAutomation!, bookingConfirmation: val } 
+                      } : null)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-black text-white uppercase tracking-tight">24-Hour Reminder</Label>
+                      <p className="text-[9px] text-white/40 font-black uppercase tracking-widest">
+                        {settings?.communicationAutomation?.reminder24h ? "Automated" : "Manual Only"}
+                      </p>
+                    </div>
+                    <Switch 
+                      checked={settings?.communicationAutomation?.reminder24h ?? true}
+                      onCheckedChange={(val) => setSettings(prev => prev ? { 
+                        ...prev,
+                        communicationAutomation: { ...prev.communicationAutomation!, reminder24h: val } 
+                      } : null)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-black text-white uppercase tracking-tight">2-Hour Reminder</Label>
+                      <p className="text-[9px] text-white/40 font-black uppercase tracking-widest">
+                        {settings?.communicationAutomation?.reminder2h ? "Automated" : "Manual Only"}
+                      </p>
+                    </div>
+                    <Switch 
+                      checked={settings?.communicationAutomation?.reminder2h ?? true}
+                      onCheckedChange={(val) => setSettings(prev => prev ? { 
+                        ...prev,
+                        communicationAutomation: { ...prev.communicationAutomation!, reminder2h: val } 
+                      } : null)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+                </div>
+              </div>
 
               {/* Weather Intelligence Section */}
               <div className="pt-10 border-t border-white/5 space-y-10">
@@ -3936,6 +4001,52 @@ export default function Settings() {
                     </div>
                   </div>
                 ))}
+              </CardContent>
+            </Card>
+
+            <Card className="border-none bg-black/40 shadow-2xl overflow-hidden rounded-3xl">
+              <CardHeader className="bg-primary/5 border-b border-primary/20 p-8">
+                <CardTitle className="font-black text-xl text-primary tracking-tighter uppercase flex items-center gap-3">
+                  <Zap className="w-5 h-5" /> Calendar Service Colors
+                </CardTitle>
+                <CardDescription className="text-white/60">Configure outer rings and shadows based on service type keywords.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-8 space-y-6">
+                <div className="grid grid-cols-1 gap-4">
+                  {[
+                    { key: 'Exterior', label: 'Basic / Exterior', default: 'shadow-[0_0_12px_rgba(59,130,246,0.3)] border-blue-500/40' },
+                    { key: 'Interior', label: 'Interior', default: 'shadow-[0_0_12px_rgba(168,85,247,0.3)] border-purple-500/40' },
+                    { key: 'Ceramic', label: 'Ceramic / Protection / Coating', default: 'shadow-[0_0_12px_rgba(234,179,8,0.3)] border-yellow-500/40' },
+                    { key: 'Mold', label: 'Mold / Biohazard', default: 'shadow-[0_0_12px_rgba(239,68,68,0.3)] border-red-500/40' },
+                    { key: 'Fleet', label: 'Fleet / Commercial / Vendor', default: 'shadow-[0_0_12px_rgba(34,197,94,0.3)] border-green-500/40' },
+                  ].map(({ key, label, default: def }) => (
+                    <div key={key} className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
+                      <div>
+                        <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
+                        <p className="text-[10px] text-white/50 font-mono mt-1">{settings?.serviceColors?.[key] || def}</p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className={cn("px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border", settings?.serviceColors?.[key] || def)}>
+                          Preview
+                        </div>
+                        <Input 
+                          value={settings?.serviceColors?.[key] || ""}
+                          onChange={(e) => handleSaveSettings({ serviceColors: { ...(settings?.serviceColors || {}), [key]: e.target.value } })}
+                          placeholder="CSS Classes (e.g., shadow-... border-...)"
+                          className="w-[300px] bg-black/40 border-white/10 text-white font-mono text-xs rounded-xl"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="pt-6 border-t border-white/5">
+                  <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.2em]">Deployment Protocol Tip</p>
+                  <p className="text-xs text-white/50 mt-1 leading-relaxed">
+                    Keyword overrides will match against appointment service names. 
+                    If multiple services are present, the first detected color will be applied. 
+                    Empty inputs will fall back to system defaults.
+                  </p>
+                </div>
               </CardContent>
             </Card>
           </div>

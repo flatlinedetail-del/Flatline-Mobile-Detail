@@ -19,6 +19,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { Category } from "../types";
 import { StableInput } from "../components/StableInput";
 import { SearchableSelector } from "../components/SearchableSelector";
+import { NumberInput } from "../components/NumberInput";
 import { handleFirestoreError, OperationType } from "../firebase";
 import { analyzeReceipt } from "../services/gemini";
 
@@ -344,12 +345,9 @@ export default function Expenses() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-3">
                       <Label htmlFor="amount" className="font-black uppercase tracking-widest text-[10px] text-white/70">Financial Value ($)</Label>
-                      <StableInput 
-                        id="amount" 
+                      <NumberInput 
                         value={newExpense.amount}
-                        onValueChange={val => setNewExpense(prev => ({ ...prev, amount: val }))}
-                        type="text" 
-                        inputMode="decimal" 
+                        onValueChange={val => setNewExpense(prev => ({ ...prev, amount: val.toString() }))}
                         placeholder="0.00" 
                         required 
                         className="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white" 

@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, query, where, getDocs, updateDoc, doc, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import { getFirestore, collection, query, where, getDocs, updateDoc, doc, addDoc, serverTimestamp, Timestamp, limit } from "firebase/firestore";
 import twilio from "twilio";
 import fs from "fs";
 import path from "path";
@@ -84,27 +84,41 @@ async function processReminders(db: any) {
       let needsUpdate = false;
 
       if (diffHours <= 24 && diffHours > 2 && !reminders.twentyFourHour) {
-        const result = await sendSmsAndLog(
-          db, 
-          job, 
-          docSnap.id, 
-          "reminder_24h", 
-          `Hi ${job.customerName}, reminder: your Flatline Mobile Detail appointment is tomorrow at ${formatTime(scheduledDate)}.`
-        );
-        updatedReminders.twentyFourHour = result.status;
-        needsUpdate = true;
+        // Double check logs to be absolutely sure no duplicate was sent (deduplication logic)
+        const alreadySent = await checkAlreadySent(db, docSnap.id, "reminder_24h", job.scheduledAt);
+        if (!alreadySent) {
+          const result = await sendSmsAndLog(
+            db, 
+            job, 
+            docSnap.id, 
+            "reminder_24h", 
+            `Hi ${job.customerName}, reminder: your Flatline Mobile Detail appointment is tomorrow at ${formatTime(scheduledDate)}.`
+          );
+          updatedReminders.twentyFourHour = result.status;
+          needsUpdate = true;
+        } else {
+          // Sync state if it was already sent but not reflected in appointment doc
+          updatedReminders.twentyFourHour = "sent";
+          needsUpdate = true;
+        }
       }
 
       if (diffHours <= 2 && diffHours > 0 && !reminders.twoHour) {
-        const result = await sendSmsAndLog(
-          db, 
-          job, 
-          docSnap.id, 
-          "reminder_2h", 
-          `Hi ${job.customerName}, Flatline Mobile Detail will see you in about 2 hours for your appointment at ${formatTime(scheduledDate)}.`
-        );
-        updatedReminders.twoHour = result.status;
-        needsUpdate = true;
+        const alreadySent = await checkAlreadySent(db, docSnap.id, "reminder_2h", job.scheduledAt);
+        if (!alreadySent) {
+          const result = await sendSmsAndLog(
+            db, 
+            job, 
+            docSnap.id, 
+            "reminder_2h", 
+            `Hi ${job.customerName}, Flatline Mobile Detail will see you in about 2 hours for your appointment at ${formatTime(scheduledDate)}.`
+          );
+          updatedReminders.twoHour = result.status;
+          needsUpdate = true;
+        } else {
+          updatedReminders.twoHour = "sent";
+          needsUpdate = true;
+        }
       }
 
       if (needsUpdate) {
@@ -128,7 +142,7 @@ async function sendSmsAndLog(db: any, job: any, appointmentId: string, type: str
   if (!twilioClient) return { status: 'failed', error: 'Twilio not configured' };
   
   if (!job.customerPhone) {
-    await logCommunication(db, job.clientId || null, appointmentId, type, message, "failed", "No customer phone provided");
+    await logCommunication(db, job.clientId || null, appointmentId, type, message, "failed", "No customer phone provided", job.scheduledAt);
     return { status: "failed", error: "No customer phone" };
   }
 
@@ -138,7 +152,7 @@ async function sendSmsAndLog(db: any, job: any, appointmentId: string, type: str
       from: twilioPhone,
       to: job.customerPhone,
     });
-    await logCommunication(db, job.clientId || null, appointmentId, type, message, "sent", twilioRes.sid);
+    await logCommunication(db, job.clientId || null, appointmentId, type, message, "sent", twilioRes.sid, job.scheduledAt);
     return { status: "sent" };
     } catch (err: any) {
       let errMsg = err.message;
@@ -146,12 +160,30 @@ async function sendSmsAndLog(db: any, job: any, appointmentId: string, type: str
          errMsg = "Twilio blocked this message because A2P 10DLC registration is incomplete. (" + err.message + ")";
       }
       console.error(`SMS Failed for appt ${appointmentId}:`, err.message);
-      await logCommunication(db, job.clientId || null, appointmentId, type, message, "failed", errMsg);
+      await logCommunication(db, job.clientId || null, appointmentId, type, message, "failed", errMsg, job.scheduledAt);
       return { status: "failed", error: errMsg };
     }
   }
 
-async function logCommunication(db: any, clientId: string | null, appointmentId: string, type: string, content: string, status: string, detail: string) {
+async function checkAlreadySent(db: any, appointmentId: string, type: string, scheduledAt: any) {
+  try {
+    const q = query(
+      collection(db, "communication_logs"),
+      where("appointmentId", "==", appointmentId),
+      where("type", "==", type),
+      where("status", "==", "sent"),
+      where("reminderTimestamp", "==", scheduledAt),
+      limit(1)
+    );
+    const snap = await getDocs(q);
+    return !snap.empty;
+  } catch (e) {
+    console.error("Error checking for duplicate reminder:", e);
+    return false;
+  }
+}
+
+async function logCommunication(db: any, clientId: string | null, appointmentId: string, type: string, content: string, status: string, detail: string, reminderTimestamp?: any) {
   try {
     await addDoc(collection(db, "communication_logs"), {
       clientId: clientId || "walk-in",
@@ -161,6 +193,7 @@ async function logCommunication(db: any, clientId: string | null, appointmentId:
       status,
       errorDetail: status === "failed" ? detail : "",
       messageId: status === "sent" ? detail : "",
+      reminderTimestamp: reminderTimestamp || null,
       createdAt: serverTimestamp()
     });
   } catch(e) {

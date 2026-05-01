@@ -35,7 +35,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn, getClientDisplayName, formatCurrency } from "@/lib/utils";
+import { NumberInput } from "../components/NumberInput";
+import { cn, getClientDisplayName, formatCurrency, formatDistance } from "@/lib/utils";
 
 import { SearchableSelector } from "../components/SearchableSelector";
 import VehicleSelector from "../components/VehicleSelector";
@@ -1783,7 +1784,7 @@ export default function BookAppointment() {
                             Route Synergy Detected
                           </p>
                           <p className="text-xs text-white/80">
-                            This job is <span className="font-black text-white">{routeSynergy.distance} miles</span> from {routeSynergy.name} at {routeSynergy.time}.
+                            This job is <span className="font-black text-white">{formatDistance(routeSynergy.distance)}</span> from {routeSynergy.name} at {routeSynergy.time}.
                           </p>
                         </div>
                       </div>
@@ -1808,11 +1809,10 @@ export default function BookAppointment() {
                 </div>
                 <div className="space-y-2">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Manual Price Override (Optional)</Label>
-                  <StableInput 
-                    inputMode="decimal"
+                  <NumberInput
                     placeholder="E.g. 250"
-                    value={baseAmount.toString()}
-                    onValueChange={(val) => setBaseAmount(parseFloat(val) || 0)}
+                    value={baseAmount}
+                    onValueChange={(val) => setBaseAmount(val)}
                     className="bg-black/50 border border-white/10 rounded-xl px-4 py-6 text-white font-bold focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
@@ -1927,19 +1927,13 @@ export default function BookAppointment() {
                             </Select>
                             
                             <div className="relative w-full sm:w-[120px]">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 font-bold">$</span>
-                              <Input
-                                type="number"
-                                step="0.01"
+                              <NumberInput
                                 value={activeDepositAmount}
-                                onChange={e => setActiveDepositAmount(e.target.value)}
-                                onBlur={(e) => {
-                                  const val = parseFloat(e.target.value);
-                                  setActiveDepositAmount(isNaN(val) ? "0.00" : val.toFixed(2));
-                                }}
+                                onValueChange={(num) => setActiveDepositAmount(num)}
                                 className="bg-black border-white/10 text-white font-bold h-10 pl-7 w-full"
                                 placeholder="0.00"
                               />
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 font-bold">$</span>
                             </div>
                             
                             <Button

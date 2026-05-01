@@ -94,8 +94,8 @@ export default function Invoices() {
           setSettings(JSON.parse(cachedSettings));
         } else {
           // If settings missing, fetch them
-          const settingsSnap = await getDoc(doc(db, "settings", "business"));
-          if (settingsSnap.exists()) {
+          const settingsSnap = await getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"));
+          if (settingsSnap && settingsSnap.exists()) {
             const sData = settingsSnap.data() as BusinessSettings;
             setSettings(sData);
             sessionStorage.setItem('business_settings_cache', JSON.stringify(sData));
@@ -108,7 +108,8 @@ export default function Invoices() {
     if (showToast) toast.loading("Syncing Ledger...", { id: "sync-invoices" });
     try {
       const queryRef = query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(50));
-      const snap = await getDocs(queryRef);
+      const snap = await getDocs(queryRef).catch(e => handleFirestoreError(e, OperationType.LIST, "invoices"));
+      if (!snap) return;
       const invoicesData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
       setInvoices(invoicesData);
       
@@ -116,8 +117,8 @@ export default function Invoices() {
       sessionStorage.setItem('invoices_cache', JSON.stringify(invoicesData));
       sessionStorage.setItem('invoices_cache_time', Date.now().toString());
       
-      const settingsSnap = await getDoc(doc(db, "settings", "business"));
-      if (settingsSnap.exists()) {
+      const settingsSnap = await getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"));
+      if (settingsSnap && settingsSnap.exists()) {
         const sData = settingsSnap.data() as BusinessSettings;
         setSettings(sData);
         sessionStorage.setItem('business_settings_cache', JSON.stringify(sData));
@@ -474,7 +475,7 @@ export default function Invoices() {
                     </TableCell>
                     <TableCell className="px-8 py-6">
                       <Badge className={cn(
-                        "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border-none",
+                        "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border-none whitespace-nowrap",
                         inv.status === "voided" ? "bg-red-500/10 text-red-500" :
                         inv.status === "paid" ? "bg-green-500/10 text-green-400 group-hover:text-green-600" :
                         inv.status === "sent" ? "bg-blue-500/10 text-blue-400 group-hover:text-blue-600" :
