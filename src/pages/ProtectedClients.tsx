@@ -57,27 +57,35 @@ export default function ProtectedClients() {
   });
 
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, "protected_clients"), orderBy("createdAt", "desc")), (snap) => {
-      setProtectedClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient)));
-    });
-    
-    const unsubClients = onSnapshot(collection(db, "clients"), (snap) => {
-      setAllClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-    });
-    return () => {
-      unsub();
-      unsubClients();
+    const fetchData = async () => {
+      try {
+        const qRules = query(collection(db, "protected_clients"), orderBy("createdAt", "desc"));
+        const snapRules = await getDocs(qRules);
+        setProtectedClients(snapRules.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient)));
+        
+        const snapClients = await getDocs(collection(db, "clients"));
+        setAllClients(snapClients.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+      } catch (error: any) {
+        if (error.message?.includes("quota")) {
+          toast.error("Database quota reached. Historical data may be unavailable.");
+        }
+      }
     };
+
+    fetchData();
   }, []);
 
-  const autofillClient = (client: Client) => {
+  const autofillClient = (client: any) => {
+    const riskVal = client.riskLevel || client.risk_level || client.riskStatus || client.clientRiskLevel || client.riskManagement?.level;
     setFormData(prev => ({
       ...prev,
       fullName: client.name || "",
       phone: client.phone || "",
       email: client.email || "",
       address: client.address || "",
-      linkedClientId: client.id
+      linkedClientId: client.id,
+      protectionLevel: (riskVal as any) || prev.protectionLevel,
+      riskReason: client.riskReason || prev.riskReason || ""
     }));
   };
 

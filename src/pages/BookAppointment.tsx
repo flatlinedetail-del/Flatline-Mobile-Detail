@@ -6,7 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 import { toast } from "sonner";
 import { 
   Building2, CalendarIcon, Car, Clock, CreditCard, DollarSign, 
-  MapPin, Plus, Search, Check, ChevronLeft, Trash2,
+  MapPin, Plus, Search, Check, ChevronLeft, Trash2, X,
   AlertTriangle, Globe, Sparkles, Loader2, Star, RefreshCw,
   Bell, Info, AlertCircle, Wrench, ShieldCheck, Droplets,
   ChevronDown, ChevronUp
@@ -101,6 +101,27 @@ export default function BookAppointment() {
   const [travelInfo, setTravelInfo] = useState<any>(null);
   const [afterHoursFeeDisplay, setAfterHoursFeeDisplay] = useState(0);
   const [isAfterHoursDisplay, setIsAfterHoursDisplay] = useState(false);
+  const [riskyDepositAmount, setRiskyDepositAmount] = useState(0);
+  const [isRiskyClient, setIsRiskyClient] = useState(false);
+  const [recordedDeposit, setRecordedDeposit] = useState<{amount: number, method: string, timestamp: Date} | null>(null);
+  const [activeDepositMethod, setActiveDepositMethod] = useState("Cash");
+  const [activeDepositAmount, setActiveDepositAmount] = useState<number | string>(0);
+
+  useEffect(() => {
+    const client = clients.find(c => c.id === selectedCustomerId);
+    const riskVal = client?.riskLevel || client?.risk_level || client?.riskStatus || client?.clientRiskLevel || client?.riskManagement?.level;
+    const isRisky = Boolean(riskVal);
+    setIsRiskyClient(isRisky);
+    
+    if (isRisky) {
+      const deposit = (baseAmount + travelFee + afterHoursFeeDisplay) * 0.25;
+      setRiskyDepositAmount(deposit);
+      setActiveDepositAmount(deposit);
+    } else {
+      setRiskyDepositAmount(0);
+      setActiveDepositAmount(0);
+    }
+  }, [clients, selectedCustomerId, baseAmount, travelFee, afterHoursFeeDisplay]);
 
   const [timingRecommendations, setTimingRecommendations] = useState<ServiceTimingOutput[]>([]);
   const [fetchingTiming, setFetchingTiming] = useState(false);
@@ -114,6 +135,9 @@ export default function BookAppointment() {
   const [smartRecommendations, setSmartRecommendations] = useState<SmartRecommendation[]>([]);
   const [isGeneratingSmartSlots, setIsGeneratingSmartSlots] = useState(false);
   const [smartBookingError, setSmartBookingError] = useState("");
+  const [nextAvailableSlot, setNextAvailableSlot] = useState<SmartRecommendation | null>(null);
+  const [isSmartBookingCollapsed, setIsSmartBookingCollapsed] = useState(false);
+  const [selectedSmartSlot, setSelectedSmartSlot] = useState<SmartRecommendation | null>(null);
 
   // Validation Checklist for Smart Booking
   const smartBookingValidation = [
@@ -142,6 +166,9 @@ export default function BookAppointment() {
     setIsGeneratingSmartSlots(true);
     setSmartBookingError("");
     setSmartRecommendations([]);
+    setNextAvailableSlot(null);
+    setIsSmartBookingCollapsed(false);
+    setSelectedSmartSlot(null);
 
     try {
       const baseDate = new Date(scheduledAtValue.split("T")[0] + "T12:00:00");
@@ -162,6 +189,34 @@ export default function BookAppointment() {
 
       if (result.length === 0) {
         setSmartBookingError("No available time slots found for this date. Please try another day.");
+        
+        // AUTO-SEARCH FOR NEXT AVAILABLE DATE (UP TO 7 DAYS)
+        let found = false;
+        for (let i = 1; i <= 7; i++) {
+          const nextDate = new Date(baseDate);
+          nextDate.setDate(baseDate.getDate() + i);
+          
+          const nextResult = await generateSmartRecommendations({
+            baseDate: nextDate,
+            addressLat: appointmentAddress.lat,
+            addressLng: appointmentAddress.lng,
+            durationMinutes: duration > 0 ? duration : 120,
+            rainThreshold,
+            businessHours: settings?.businessHours
+          });
+          
+          if (nextResult.length > 0) {
+            // Find the first "Best" or first available
+            const suggestion = nextResult.find(r => r.rank === "Best") || nextResult[0];
+            setNextAvailableSlot(suggestion);
+            found = true;
+            break;
+          }
+        }
+        
+        if (!found) {
+          setSmartBookingError("No available time slots found for this date. No availability within the next 7 days. Please select a different date.");
+        }
       } else {
         setSmartRecommendations(result);
         toast.success("Recommendations Updated");
@@ -995,7 +1050,8 @@ export default function BookAppointment() {
           confirmation: "pending"
         },
         notes,
-        leadId: prefillLeadId || null
+        leadId: prefillLeadId || null,
+        depositRecord: recordedDeposit || null
       };
 
       const docRef = await addDoc(collection(db, "appointments"), appointmentData);
@@ -1499,7 +1555,7 @@ export default function BookAppointment() {
                     {isGeneratingSmartSlots && (
                       <Loader2 className="w-5 h-5 text-white/40 animate-spin" />
                     )}
-                    {!isGeneratingSmartSlots && smartRecommendations.length > 0 && (
+                    {!isGeneratingSmartSlots && smartRecommendations.length > 0 && !isSmartBookingCollapsed && (
                       <>
                         <Button 
                           type="button" 
@@ -1508,6 +1564,8 @@ export default function BookAppointment() {
                             if (best) {
                               const formatted = format(best.startTime, "yyyy-MM-dd'T'HH:mm");
                               setScheduledAtValue(formatted);
+                              setSelectedSmartSlot(best);
+                              setIsSmartBookingCollapsed(true);
                               toast.success("Applied best slot!");
                             }
                           }}
@@ -1531,7 +1589,33 @@ export default function BookAppointment() {
                 </div>
 
                 <div className="p-4">
-                  {missingSmartItems.length > 0 ? (
+                  {isSmartBookingCollapsed && selectedSmartSlot ? (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center justify-between p-4 bg-primary/5 rounded-xl border border-primary/20"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                          <Check className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-black text-white uppercase tracking-widest">Applied Optimized Time</p>
+                          <p className="text-sm font-bold text-white/80">
+                            {format(selectedSmartSlot.startTime, "h:mm a")} - {format(selectedSmartSlot.endTime, "h:mm a")}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setIsSmartBookingCollapsed(false)}
+                        className="text-[10px] font-black uppercase tracking-widest text-primary hover:text-primary/80 hover:bg-primary/5"
+                      >
+                        View Time Options
+                      </Button>
+                    </motion.div>
+                  ) : missingSmartItems.length > 0 ? (
                     <div className="space-y-4">
                       <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
                         <AlertCircle className="w-5 h-5 shrink-0" />
@@ -1568,6 +1652,43 @@ export default function BookAppointment() {
                             : smartBookingError}
                         </p>
                       </div>
+
+                      {nextAvailableSlot && (
+                        <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl space-y-3">
+                          <div className="flex items-center gap-2 text-primary">
+                            <CalendarIcon className="w-4 h-4" />
+                            <span className="text-xs font-black uppercase tracking-widest">Next Available Suggestion</span>
+                          </div>
+                          
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-1">
+                              <p className="text-sm font-black text-white">
+                                {format(nextAvailableSlot.startTime, "MMMM d, yyyy")}
+                              </p>
+                              <p className="text-xs font-bold text-white/60 uppercase tracking-widest">
+                                {format(nextAvailableSlot.startTime, "h:mm a")}
+                              </p>
+                            </div>
+                            
+                            <Button
+                              type="button"
+                              onClick={() => {
+                                const year = nextAvailableSlot.startTime.getFullYear();
+                                const month = String(nextAvailableSlot.startTime.getMonth() + 1).padStart(2, '0');
+                                const day = String(nextAvailableSlot.startTime.getDate()).padStart(2, '0');
+                                const hours = String(nextAvailableSlot.startTime.getHours()).padStart(2, '0');
+                                const minutes = String(nextAvailableSlot.startTime.getMinutes()).padStart(2, '0');
+                                const formatted = `${year}-${month}-${day}T${hours}:${minutes}`;
+                                setScheduledAtValue(formatted);
+                                // The useEffect for smart booking will re-trigger the generation for this new date
+                              }}
+                              className="bg-primary text-white font-black uppercase tracking-widest text-[10px] h-8"
+                            >
+                              Use Suggested Time
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : isGeneratingSmartSlots ? (
                     <div className="flex flex-col items-center justify-center p-6 space-y-3">
@@ -1605,6 +1726,8 @@ export default function BookAppointment() {
                               // yyyy-MM-ddThh:mm format required for datetime-local
                               const formatted = format(rec.startTime, "yyyy-MM-dd'T'HH:mm");
                               setScheduledAtValue(formatted);
+                              setSelectedSmartSlot(rec);
+                              setIsSmartBookingCollapsed(true);
                             }}
                             className={cn(
                               "text-xs font-bold shrink-0",
@@ -1762,6 +1885,99 @@ export default function BookAppointment() {
                   <span className="text-white/60 font-bold uppercase tracking-wider text-[10px]">Travel Fee</span>
                   <span className="text-white font-black">{travelFee > 0 ? formatCurrency(travelFee) : (appointmentAddress.lat ? "Waived / Included" : "$0.00")}</span>
                 </div>
+                {isRiskyClient && (
+                  <div className="flex flex-col gap-3 mt-4 p-4 border border-primary/20 bg-primary/5 rounded-xl">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-primary font-bold uppercase tracking-wider text-[10px]">Deposit Required</span>
+                      <span className="text-primary font-black">{formatCurrency(riskyDepositAmount)}</span>
+                    </div>
+
+                    {!recordedDeposit ? (
+                      <div className="space-y-4 pt-3 border-t border-primary/10">
+                        <div className="space-y-1">
+                          <Label className="uppercase tracking-widest text-[10px] text-white/60">Collect Deposit</Label>
+                          <Button
+                            type="button"
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold h-10"
+                            onClick={() => {
+                              // TODO: Implement Stripe/Square logic
+                              toast.info("Card processing integration pending.");
+                            }}
+                          >
+                            Run Credit / Debit Card
+                          </Button>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          <Label className="uppercase tracking-widest text-[10px] text-white/60">Record Other Payment</Label>
+                          <div className="flex flex-col sm:flex-row gap-3">
+                            <Select value={activeDepositMethod} onValueChange={setActiveDepositMethod}>
+                              <SelectTrigger className="bg-black border-white/10 text-white font-bold h-10 w-full sm:w-[150px]">
+                                <SelectValue placeholder="Method" />
+                              </SelectTrigger>
+                              <SelectContent className="bg-zinc-900 border-white/10 text-white">
+                                <SelectItem value="Cash">Cash</SelectItem>
+                                <SelectItem value="Cash App">Cash App</SelectItem>
+                                <SelectItem value="Zelle">Zelle</SelectItem>
+                                <SelectItem value="Apple Pay">Apple Pay</SelectItem>
+                                <SelectItem value="Google Pay">Google Pay</SelectItem>
+                                <SelectItem value="PayPal">PayPal</SelectItem>
+                                <SelectItem value="Other">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            
+                            <div className="relative w-full sm:w-[120px]">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 font-bold">$</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={activeDepositAmount}
+                                onChange={e => setActiveDepositAmount(e.target.value)}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  setActiveDepositAmount(isNaN(val) ? "0.00" : val.toFixed(2));
+                                }}
+                                className="bg-black border-white/10 text-white font-bold h-10 pl-7 w-full"
+                                placeholder="0.00"
+                              />
+                            </div>
+                            
+                            <Button
+                              type="button"
+                              className="bg-green-600 hover:bg-green-700 text-white font-bold h-10 px-4 whitespace-nowrap"
+                              onClick={() => {
+                                const amt = typeof activeDepositAmount === "string" ? parseFloat(activeDepositAmount) : activeDepositAmount;
+                                if (!amt || amt <= 0) return toast.error("Enter a valid deposit amount.");
+                                setRecordedDeposit({
+                                  amount: amt,
+                                  method: activeDepositMethod,
+                                  timestamp: new Date()
+                                });
+                                toast.success("Deposit recorded successfully.");
+                              }}
+                            >
+                              Record Deposit Payment
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between items-center text-sm pt-3 border-t border-primary/10">
+                        <span className="text-green-500 font-bold uppercase tracking-wider text-[10px]">Deposit Collected ({recordedDeposit.method})</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-green-500 font-black">{formatCurrency(recordedDeposit.amount)}</span>
+                          <button
+                            type="button"
+                            className="text-white/40 hover:text-white"
+                            onClick={() => setRecordedDeposit(null)}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {isAfterHoursDisplay && (
                   <div className="flex justify-between items-center text-sm pt-2">
                     <span className="text-yellow-500 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1">

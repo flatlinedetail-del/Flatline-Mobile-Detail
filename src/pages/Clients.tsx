@@ -56,6 +56,7 @@ import {
   ExternalLink,
   Crown,
   ShieldAlert,
+  AlertTriangle,
   Truck,
   FileText,
   Receipt,
@@ -67,7 +68,8 @@ import {
   CheckCircle2,
   Brain,
   MessageSquare,
-  RefreshCcw
+  RefreshCcw,
+  Zap
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -78,7 +80,8 @@ import {
   formatPhoneNumber, 
   getClientDisplayName,
   cleanAddress,
-  formatCurrency 
+  formatCurrency,
+  convertToDate 
 } from "../lib/utils";
 import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote } from "../types";
 import AddressInput from "../components/AddressInput";
@@ -851,6 +854,15 @@ export default function Clients() {
                               <span className="font-black text-white tracking-tight uppercase text-sm">{getClientDisplayName(client)}</span>
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
                               {(() => {
+                                const risk = (client as any).riskLevel || (client as any).risk_level || (client as any).riskStatus || (client as any).clientRiskLevel || (client as any).riskManagement?.level;
+                                if (!risk) return null;
+                                return (
+                                  <Badge variant="outline" className="bg-red-500/10 text-destructive border-destructive/20 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest">
+                                    {risk}
+                                  </Badge>
+                                );
+                              })()}
+                              {(() => {
                                 if (!searchTerm) return null;
                                 const matchingVehicle = allVehicles.find(v => {
                                   if (v.clientId !== client.id) return false;
@@ -978,7 +990,7 @@ export default function Clients() {
       {/* Client Details Dialog */}
       {selectedClient && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-          <DialogContent className="sm:max-w-[850px] w-[95vw] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[90vh] flex flex-col">
+          <DialogContent className="sm:max-w-6xl w-[95vw] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[90vh] flex flex-col">
             <div className="bg-gradient-to-br from-primary via-primary to-red-700 p-8 text-white shrink-0 relative overflow-hidden">
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
               <div className="relative z-10 flex justify-between items-start">
@@ -1033,11 +1045,13 @@ export default function Clients() {
               </div>
             </div>
 
-            <Tabs defaultValue="profile" className="w-full flex-1 flex flex-col overflow-hidden bg-card">
+            <Tabs defaultValue="overview" className="w-full flex-1 flex flex-col overflow-hidden bg-card">
               <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-14 shrink-0 gap-6">
+                <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Overview</TabsTrigger>
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Profile</TabsTrigger>
                 <TabsTrigger value="appointments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Appointments ({clientHistory.length})</TabsTrigger>
                 <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Vehicles ({clientVehicles.length})</TabsTrigger>
+                <TabsTrigger value="forms" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Forms ({signedForms.length})</TabsTrigger>
                 {selectedClient.isVIP && (
                   <TabsTrigger value="vip-pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-yellow-500">VIP Pricing</TabsTrigger>
                 )}
@@ -1058,6 +1072,178 @@ export default function Clients() {
               </TabsList>
 
               <div className="flex-1 overflow-y-auto p-8 bg-card custom-scrollbar">
+                <TabsContent value="overview" className="mt-0 space-y-8 outline-none">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Status Summary */}
+                    <div className="lg:col-span-2 space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Financial Standing</span>
+                            <Receipt className="w-4 h-4 text-primary" />
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="text-3xl font-black text-white tracking-tighter">
+                              {formatCurrency(clientHistory.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0))}
+                            </h4>
+                            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Lifetime Value</p>
+                          </div>
+                          <div className="pt-4 border-t border-white/5">
+                            {(() => {
+                              const pendingAmount = clientInvoices
+                                .filter(i => i.status !== "paid")
+                                .reduce((acc, curr) => acc + (curr.total || 0), 0);
+                              return (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-orange-400">Outstanding</span>
+                                  <span className="text-sm font-black text-white">{formatCurrency(pendingAmount)}</span>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+
+                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Service Activity</span>
+                            <History className="w-4 h-4 text-emerald-400" />
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="text-3xl font-black text-white tracking-tighter">
+                              {clientHistory.length}
+                            </h4>
+                            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Total Services</p>
+                          </div>
+                          <div className="pt-4 border-t border-white/5">
+                            {(() => {
+                              const lastService = clientHistory[0];
+                              return (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Last Service</span>
+                                  <span className="text-[10px] font-black text-white uppercase tracking-widest">
+                                    {lastService ? format(convertToDate(lastService.scheduledAt), "MMM d") : "None"}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Timeline/Recent */}
+                      <div className="p-8 bg-white/5 rounded-[2.5rem] border border-white/5">
+                        <div className="flex items-center justify-between mb-8">
+                          <h4 className="text-sm font-black uppercase tracking-[0.2em] text-white">Recent Dossier Activity</h4>
+                          <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Client History Timeline</span>
+                        </div>
+                        <div className="space-y-6">
+                          {clientHistory.length === 0 && clientInvoices.length === 0 && clientQuotes.length === 0 ? (
+                            <div className="text-center py-10 opacity-30 italic text-sm">No recent activity detected.</div>
+                          ) : (
+                            [...clientHistory, ...clientInvoices, ...clientQuotes, ...signedForms]
+                              .sort((a, b) => {
+                                const dateA = convertToDate(a.scheduledAt || a.createdAt || a.signedAt).getTime();
+                                const dateB = convertToDate(b.scheduledAt || b.createdAt || b.signedAt).getTime();
+                                return dateB - dateA;
+                              })
+                              .slice(0, 5)
+                              .map((item, idx) => (
+                                <div key={idx} className="flex gap-6 items-start group/item">
+                                  <div className="relative flex flex-col items-center shrink-0">
+                                    <div className={cn(
+                                      "w-10 h-10 rounded-2xl flex items-center justify-center border transition-all duration-300 group-hover/item:scale-110",
+                                      item.status === "paid" || item.status === "completed" ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" :
+                                      item.status === "pending" || item.status === "sent" ? "bg-orange-500/10 border-orange-500/20 text-orange-400" :
+                                      "bg-white/5 border-white/10 text-white/40"
+                                    )}>
+                                      {item.status === "paid" || item.status === "completed" ? <CheckCircle2 className="w-5 h-5" /> :
+                                       item.status === "pending" || item.status === "sent" ? <Clock className="w-5 h-5" /> :
+                                       <FileText className="w-5 h-5" />}
+                                    </div>
+                                    {idx !== 4 && <div className="w-px h-12 bg-white/5 mt-2" />}
+                                  </div>
+                                  <div className="flex-1 pt-1">
+                                    <div className="flex justify-between items-start mb-1">
+                                      <p className="text-xs font-black text-white uppercase tracking-tight">
+                                        {(item as any).serviceNames ? "Service Appointment" : 
+                                         (item as any).items ? "Invoiced Service" :
+                                         (item as any).formName ? "Signed Document" : "Financial Quote"}
+                                      </p>
+                                      <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest">
+                                        {format(convertToDate(item.scheduledAt || item.createdAt || item.signedAt), "MMM d, yyyy")}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide">
+                                      {(item as any).vehicleInfo || (item as any).formName || "General Account Entry"}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Pending Actions & Details */}
+                    <div className="space-y-6">
+                      <div className="p-6 bg-primary rounded-[2rem] shadow-xl shadow-primary/20 space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-white/20 rounded-2xl flex items-center justify-center">
+                            <Zap className="w-5 h-5 text-white" />
+                          </div>
+                          <p className="text-sm font-black text-white uppercase tracking-widest">Active Alerts</p>
+                        </div>
+                        <div className="space-y-3">
+                          {clientInvoices.some(i => i.status !== "paid") && (
+                            <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
+                              <AlertTriangle className="w-4 h-4 text-white" />
+                              <span className="text-[10px] font-black uppercase text-white tracking-widest">Unpaid Invoices Present</span>
+                            </div>
+                          )}
+                          {clientQuotes.some(q => q.status === "sent") && (
+                            <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
+                              <FileText className="w-4 h-4 text-white" />
+                              <span className="text-[10px] font-black uppercase text-white tracking-widest">Pending Quotes Active</span>
+                            </div>
+                          )}
+                          {!selectedClient.loyaltyPoints && (
+                            <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
+                              <Star className="w-4 h-4 text-white" />
+                              <span className="text-[10px] font-black uppercase text-white tracking-widest">Register Loyalty Profile</span>
+                            </div>
+                          )}
+                          {clientHistory.length === 0 && (
+                            <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
+                              <Calendar className="w-4 h-4 text-white" />
+                              <span className="text-[10px] font-black uppercase text-white tracking-widest">No Service History</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-6">
+                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Engagement Analysis</h4>
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-white/40">Signed Documents</span>
+                            <span className="text-white font-black">{signedForms.length}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-white/40">Active Assets</span>
+                            <span className="text-white font-black">{clientVehicles.length}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-white/40">Avg. Order Value</span>
+                            <span className="text-white font-black">
+                              {formatCurrency(clientHistory.length ? clientHistory.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0) / clientHistory.length : 0)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+
                 <TabsContent value="profile" className="mt-0 space-y-8 outline-none">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-6">
@@ -1212,7 +1398,7 @@ export default function Clients() {
                           <span className="text-xs font-bold uppercase tracking-wider">Follow-up Sent</span>
                         </div>
                         <p className="text-xs text-blue-600">
-                          Last follow-up sent on {format(selectedClient.followUpStatus.lastSentAt?.toDate() || new Date(), "MMM d, yyyy")} via {selectedClient.followUpStatus.channel}.
+                          Last follow-up sent on {format(convertToDate(selectedClient.followUpStatus.lastSentAt), "MMM d, yyyy")} via {selectedClient.followUpStatus.channel}.
                         </p>
                       </div>
                     )}
@@ -1476,9 +1662,9 @@ export default function Clients() {
                                 </Badge>
                               </div>
                               <div className="flex items-center gap-4 text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                                <span className="flex items-center gap-1.5"><Calendar className="w-3 h-3" /> {format(app.scheduledAt.toDate(), "MMM d, yyyy")}</span>
+                                <span className="flex items-center gap-1.5"><Calendar className="w-3 h-3" /> {format(convertToDate(app.scheduledAt), "MMM d, yyyy")}</span>
                                 <span className="opacity-30">|</span>
-                                <span className="flex items-center gap-1.5"><Clock className="w-3 h-3" /> {format(app.scheduledAt.toDate(), "h:mm a")}</span>
+                                <span className="flex items-center gap-1.5"><Clock className="w-3 h-3" /> {format(convertToDate(app.scheduledAt), "h:mm a")}</span>
                                 <span className="opacity-30">|</span>
                                 <span className="text-white font-black">{formatCurrency(app.totalAmount)}</span>
                               </div>
@@ -1507,7 +1693,7 @@ export default function Clients() {
                                 </Button>
                               }
                               title="Delete Appointment?"
-                              itemName={`Appointment on ${format(app.scheduledAt.toDate(), "MMM d")}`}
+                              itemName={`Appointment on ${format(convertToDate(app.scheduledAt), "MMM d")}`}
                               onConfirm={async () => {
                                 try {
                                   await deleteDoc(doc(db, "appointments", app.id));
@@ -1809,7 +1995,7 @@ export default function Clients() {
                                 <div>
                                   <p className="font-black text-white uppercase tracking-tight text-xs">INV-{inv.id.slice(-6).toUpperCase()}</p>
                                   <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
-                                    {inv.createdAt ? format((inv.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}
+                                    {inv.createdAt ? format(convertToDate(inv.createdAt), "MMM d, yyyy") : "Pending"}
                                   </p>
                                 </div>
                               </div>
@@ -1856,7 +2042,7 @@ export default function Clients() {
                                 <div>
                                   <p className="font-black text-white uppercase tracking-tight text-xs">QUOTE-{q.id.slice(-6).toUpperCase()}</p>
                                   <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
-                                    {q.createdAt ? format((q.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}
+                                    {q.createdAt ? format(convertToDate(q.createdAt), "MMM d, yyyy") : "Pending"}
                                   </p>
                                 </div>
                               </div>
@@ -1886,6 +2072,69 @@ export default function Clients() {
                       </div>
                     </div>
                   </div>
+                </TabsContent>
+
+                 <TabsContent value="forms" className="mt-0 space-y-8 outline-none">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Document <span className="text-primary italic">Vault</span></h3>
+                    <Button 
+                      size="sm" 
+                      className="bg-primary hover:bg-red-700 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+                      onClick={() => navigate("/forms-builder")}
+                    >
+                      <Plus className="w-4 h-4 mr-2" /> Send New Form
+                    </Button>
+                  </div>
+                  {signedForms.length === 0 ? (
+                    <div className="text-center py-20 bg-white/5 rounded-3xl border border-white/5">
+                      <FileText className="w-12 h-12 text-white/20 mx-auto mb-4" />
+                      <p className="text-white/40 font-black uppercase tracking-widest text-[10px]">No signed documents detected.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {signedForms.map(form => (
+                        <div key={form.id} className="p-5 rounded-3xl border border-white/5 bg-white/5 space-y-4 group/form transition-all duration-300 hover:bg-white/[0.08]">
+                          <div className="flex justify-between items-start gap-4">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-black/40 rounded-2xl flex items-center justify-center text-primary border border-white/10 shadow-xl">
+                                <FileText className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <h4 className="font-black text-white uppercase tracking-tight text-xs">{form.formName}</h4>
+                                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
+                                  Signed: {format(convertToDate(form.signedAt), "MMM d, yyyy")}
+                                </p>
+                              </div>
+                            </div>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-10 w-10 text-white hover:text-primary hover:bg-primary/5 rounded-xl border border-white/5"
+                              onClick={() => {
+                                if (form.signatureUrl) window.open(form.signatureUrl, '_blank');
+                              }}
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </Button>
+                          </div>
+                          
+                          {form.vehicleInfo && (
+                            <div className="p-3 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Car className="w-3.5 h-3.5 text-white/40" />
+                                <span className="text-[10px] font-black uppercase text-white/60 tracking-tight">{form.vehicleInfo}</span>
+                              </div>
+                            </div>
+                          )}
+                          
+                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-[0.2em] text-white/20">
+                            <span>ID: {form.id.slice(0, 8)}</span>
+                            <span className="text-emerald-500/60 flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3" /> Legally Bound</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="photos" className="mt-0 space-y-6">

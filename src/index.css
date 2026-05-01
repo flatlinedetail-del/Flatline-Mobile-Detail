@@ -255,3 +255,22 @@
 .rbc-toolbar-label {
   @apply text-lg sm:text-2xl font-black uppercase tracking-tighter text-white flex-1 text-center md:text-left;
 }
+
+/* Show more link styling */
+.rbc-show-more {
+  @apply text-[10px] font-black uppercase tracking-widest text-primary hover:text-white transition-all p-1 pl-2;
+  background: transparent !important;
+}
+
+/* Overlay (Popup) styling */
+.rbc-overlay {
+  @apply bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl z-[100] min-w-[280px];
+}
+
+.rbc-overlay-header {
+  @apply border-b border-white/10 pb-3 mb-3 text-xs font-black uppercase tracking-[0.2em] text-gray-500 text-center;
+}
+
+.rbc-overlay .rbc-event {
+  @apply mb-2 last:mb-0;
+}

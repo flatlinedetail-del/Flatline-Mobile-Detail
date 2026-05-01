@@ -163,3 +163,15 @@ export function formatCurrency(value: number | undefined | null): string {
     maximumFractionDigits: 2
   }).format(value);
 }
+
+export function convertToDate(timestamp: any): Date {
+  if (!timestamp) return new Date();
+  if (timestamp instanceof Date) return timestamp;
+  if (typeof timestamp.toDate === 'function') return timestamp.toDate();
+  if (timestamp.seconds !== undefined) return new Date(timestamp.seconds * 1000);
+  if (typeof timestamp === 'string' || typeof timestamp === 'number') {
+    const d = new Date(timestamp);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }
+  return new Date();
+}

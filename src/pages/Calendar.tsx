@@ -13,10 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, RefreshCcw, AlertTriangle, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe, Navigation2, Play, Check, X, Map } from "lucide-react";
+import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, RefreshCcw, AlertTriangle, ShieldAlert, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe, Navigation2, Play, Check, X, Map } from "lucide-react";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import "react-big-calendar/lib/css/react-big-calendar.css";
-import { format, startOfDay, endOfDay, isSameDay, addDays, subDays, addHours, addWeeks, addMonths, subMonths, startOfMonth, endOfMonth, isBefore, parseISO, parse, startOfWeek, getDay, addMinutes } from "date-fns";
+import { format, startOfDay, endOfDay, isSameDay, isSameMonth, addDays, subDays, addHours, addWeeks, addMonths, subMonths, startOfMonth, endOfMonth, isBefore, parseISO, parse, startOfWeek, getDay, addMinutes } from "date-fns";
 import { calculateDistance, calculateTravelFee } from "../services/travelService";
 import { messagingService } from "../services/messagingService";
 import { enUS } from "date-fns/locale";
@@ -86,15 +86,23 @@ export default function Calendar() {
 
   const events = useMemo(() => {
     const appEvents = appointments.map((app: any) => {
+      const client = clients.find(c => c.id === (app.clientId || app.customerId));
       const start = app.scheduledAt?.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
       const duration = app.estimatedDuration || 120;
       const end = addMinutes(start, duration + (app.overrideBufferTimeMinutes || 0));
+      
+      // Determine risk level from client data
+      const riskLevel = client?.riskLevel || client?.risk_level || client?.riskStatus || client?.clientRiskLevel || client?.riskManagement?.level;
+
       return {
         id: app.id,
-        title: `${getClientDisplayName(clients.find(c => c.id === (app.clientId || app.customerId)) || app)}`,
+        title: `${getClientDisplayName(client || app)}`,
         start,
         end,
-        resource: app,
+        resource: {
+          ...app,
+          clientRiskLevel: riskLevel
+        },
         type: "appointment",
         status: app.status
       };
@@ -559,6 +567,7 @@ export default function Calendar() {
         setDiscount(editingAppointment.discountAmount || 0);
         setRedeemedPoints(editingAppointment.redeemedPoints || 0);
         setAppointmentStatus(editingAppointment.status || "scheduled");
+        setRecordedDeposit(editingAppointment.depositRecord || null);
         
         if (editingAppointment.scheduledAt) {
           const date = editingAppointment.scheduledAt.toDate ? editingAppointment.scheduledAt.toDate() : new Date(editingAppointment.scheduledAt);
@@ -608,6 +617,7 @@ export default function Calendar() {
         setAppointmentStatus("scheduled");
         setActiveLeadId(null);
         setEditingAppointment(null);
+        setRecordedDeposit(null);
       }, 300); // clear after close animation
     }
 
@@ -617,6 +627,10 @@ export default function Calendar() {
   }, [showAddDialog, editingAppointment, settings]);
 
   const [calculatedDeposit, setCalculatedDeposit] = useState(0);
+  const [isRiskyClient, setIsRiskyClient] = useState(false);
+  const [recordedDeposit, setRecordedDeposit] = useState<{amount: number, method: string, timestamp: Date} | null>(null);
+  const [activeDepositMethod, setActiveDepositMethod] = useState("Cash");
+  const [activeDepositAmount, setActiveDepositAmount] = useState<number | string>(0);
 
   useEffect(() => {
     let total = 0;
@@ -624,6 +638,9 @@ export default function Calendar() {
     const client = clients.find(c => c.id === selectedCustomerId);
     const isVIP = client?.isVIP;
     const vipSettings = client?.vipSettings;
+
+    const riskVal = client?.riskLevel || client?.risk_level || client?.riskStatus || client?.clientRiskLevel || client?.riskManagement?.level;
+    setIsRiskyClient(Boolean(riskVal));
 
     // If no vehicles are selected, we still want to calculate for at least one "virtual" vehicle 
     // using the manual vehicle size selection.
@@ -678,7 +695,13 @@ export default function Calendar() {
     });
     
     setBaseAmount(total);
-    setCalculatedDeposit(depositTotal);
+    
+    let finalDeposit = depositTotal;
+    if (Boolean(riskVal) && depositTotal === 0) {
+      finalDeposit = total * 0.25;
+    }
+    setCalculatedDeposit(finalDeposit);
+    setActiveDepositAmount(finalDeposit);
   }, [selectedServices, selectedAddons, appointment.vehicleSize, services, addons, selectedCustomerId, clients, selectedVehicleIds, availableVehicles]);
 
   // After Hours Fee Calculation Display
@@ -1068,7 +1091,8 @@ export default function Calendar() {
         afterHoursFee,
         afterHoursReason: "Time selected falls outside standard operating hours.",
         businessHoursSnapshot: settings?.businessHours || null
-      } : null
+      } : null,
+      depositRecord: recordedDeposit || null
     };
 
     // Helper to sync with Google Calendar
@@ -1502,12 +1526,16 @@ export default function Calendar() {
       if ((optimizedStops[appStopIndex + 1].travelTimeFromPrevious || 0) / 60 > 20) travelWarning = true;
     }
 
+    const isRecurring = app.isRecurring || app.recurringInfo || app.recurringParentId;
+    const riskLevel = app.clientRiskLevel;
+
     return (
       <div 
         className={cn(
           "h-full flex flex-col p-2.5 overflow-hidden transition-all duration-300 relative group rounded-xl border-l-[3px] border-l-primary bg-zinc-900/95 shadow-2xl backdrop-blur-md",
           "hover:bg-zinc-800/95 hover:scale-[1.01] active:scale-[0.98]",
           "border border-white/5",
+          riskLevel && "ring-1 ring-red-500/30",
           isDayView ? "gap-2" : "gap-1"
         )}
       >
@@ -1516,13 +1544,22 @@ export default function Calendar() {
           "flex items-start justify-between gap-2 overflow-hidden",
           !isDayView && "flex-col"
         )}>
-          <span className={cn(
-            "text-[10px] sm:text-[11px] font-black uppercase text-white tracking-tight leading-tight flex items-center gap-1.5",
-            !isDayView && "truncate w-full"
-          )}>
-            {travelWarning && <AlertTriangle className="w-3.5 h-3.5 text-primary shrink-0" />}
-            {event.title}
-          </span>
+          <div className="flex flex-col gap-0.5 overflow-hidden w-full">
+            <span className={cn(
+              "text-[10px] sm:text-[11px] font-black uppercase text-white tracking-tight leading-tight flex items-center gap-1.5",
+              !isDayView && "truncate"
+            )}>
+              {travelWarning && <AlertTriangle className="w-3.5 h-3.5 text-primary shrink-0" />}
+              {isRecurring && <Repeat className="w-3 h-3 text-blue-400 shrink-0" />}
+              {riskLevel && <ShieldAlert className="w-3 h-3 text-red-500 shrink-0" />}
+              <span className="truncate">{event.title}</span>
+            </span>
+            {riskLevel && (
+              <span className="text-[7px] font-black uppercase tracking-widest text-red-500/80">
+                High Risk Profile
+              </span>
+            )}
+          </div>
           
           <Badge className={cn(
             "text-[7px] font-black px-1.5 py-0 border-none uppercase tracking-widest shrink-0 whitespace-nowrap", 
@@ -1713,6 +1750,32 @@ export default function Calendar() {
     }
   };
 
+  const displayEvents = useMemo(() => {
+    if (calendarView !== "month") return events;
+    const currentMonth = date || new Date();
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
+    return events.filter(event => (new Date(event.start) <= monthEnd && new Date(event.end) >= monthStart));
+  }, [events, calendarView, date]);
+
+  const monthDayPropGetter = (day: Date) => {
+    if (calendarView === "month" && !isSameMonth(day, date || new Date())) {
+      return {
+        className: "opacity-0 pointer-events-none",
+        style: {
+          backgroundColor: 'transparent',
+          border: 'none'
+        }
+      };
+    }
+    return {};
+  };
+
+  const MonthDateHeader = ({ label, date: dayDate }: any) => {
+    if (!isSameMonth(dayDate, date || new Date())) return null;
+    return <span className="rbc-button-link">{label}</span>;
+  };
+
   return (
     <div className="w-full space-y-10 pb-24">
       <PageHeader 
@@ -1722,51 +1785,6 @@ export default function Calendar() {
         actions={
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 bg-card p-1.5 rounded-2xl border border-white/5 shadow-xl overflow-x-auto no-scrollbar max-w-full">
-              <Button 
-                variant={calendarView === "month" ? "secondary" : "ghost"} 
-                size="sm" 
-                onClick={() => setCalendarView("month")}
-                className={cn(
-                  "h-10 px-4 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all shrink-0", 
-                  calendarView === "month" ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-white/40 hover:text-white"
-                )}
-              >
-                Month
-              </Button>
-              <Button 
-                variant={calendarView === "week" ? "secondary" : "ghost"} 
-                size="sm" 
-                onClick={() => setCalendarView("week")}
-                className={cn(
-                  "h-10 px-4 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all shrink-0", 
-                  calendarView === "week" ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-white/40 hover:text-white"
-                )}
-              >
-                Week
-              </Button>
-              <Button 
-                variant={calendarView === "day" ? "secondary" : "ghost"} 
-                size="sm" 
-                onClick={() => setCalendarView("day")}
-                className={cn(
-                  "h-10 px-4 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all shrink-0", 
-                  calendarView === "day" ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-white/40 hover:text-white"
-                )}
-              >
-                Day
-              </Button>
-              <Button 
-                variant={calendarView === "agenda" ? "secondary" : "ghost"} 
-                size="sm" 
-                onClick={() => setCalendarView("agenda")}
-                className={cn(
-                  "h-10 px-4 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all shrink-0", 
-                  calendarView === "agenda" ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-white/40 hover:text-white"
-                )}
-              >
-                Agenda
-              </Button>
-              <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
               <Button 
                 variant={calendarView === "tactical" ? "secondary" : "ghost"} 
                 size="sm" 
@@ -1874,13 +1892,17 @@ export default function Calendar() {
         </AlertDialog>
 
         {calendarView === "month" || calendarView === "week" || calendarView === "day" || calendarView === "agenda" ? (
-          <Card className="lg:col-span-12 border-none shadow-xl bg-card rounded-[2.5rem] overflow-hidden p-6 h-[850px] transition-all duration-500 animate-in fade-in zoom-in-95">
+          <Card className="lg:col-span-12 border-none shadow-xl bg-card rounded-[2.5rem] overflow-visible p-6 h-[850px] transition-all duration-500 animate-in fade-in zoom-in-95">
             <BigCalendar
               localizer={localizer}
-              events={events}
+              events={displayEvents}
               startAccessor="start"
               endAccessor="end"
               className="h-full font-sans"
+              popup={true}
+              // @ts-ignore
+              maxEvents={1}
+              dayPropGetter={monthDayPropGetter}
               onSelectEvent={(event: any) => {
                 if (event.type === 'appointment') {
                   setSelectedDetailedApp(event.resource);
@@ -1905,6 +1927,9 @@ export default function Calendar() {
               eventPropGetter={eventPropGetter}
               components={{
                 event: CalendarEvent,
+                month: {
+                  dateHeader: MonthDateHeader
+                },
                 agenda: {
                   event: AgendaEvent,
                   date: AgendaDate,
@@ -2840,28 +2865,105 @@ export default function Calendar() {
                                   <span className="font-bold text-primary">-{formatCurrency(redeemedPoints)}</span>
                                 </div>
                               )}
+                              {isRiskyClient && (
+                                <div className="flex flex-col gap-3 mt-4 p-4 border border-primary/20 bg-primary/5 rounded-xl">
+                                  <div className="flex justify-between items-center text-sm">
+                                    <span className="text-primary font-bold uppercase tracking-wider text-[10px]">Deposit Required</span>
+                                    <span className="text-primary font-black">{formatCurrency(calculatedDeposit)}</span>
+                                  </div>
+
+                                  {!recordedDeposit ? (
+                                    <div className="space-y-4 pt-3 border-t border-primary/10">
+                                      <div className="space-y-1">
+                                        <Label className="uppercase tracking-widest text-[10px] text-white/60">Collect Deposit</Label>
+                                        <Button
+                                          type="button"
+                                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold h-10"
+                                          onClick={() => {
+                                            // TODO: Implement Stripe/Square logic
+                                            toast.info("Card processing integration pending.");
+                                          }}
+                                        >
+                                          Run Credit / Debit Card
+                                        </Button>
+                                      </div>
+                                      
+                                      <div className="space-y-3">
+                                        <Label className="uppercase tracking-widest text-[10px] text-white/60">Record Other Payment</Label>
+                                        <div className="flex flex-col sm:flex-row gap-3">
+                                          <Select value={activeDepositMethod} onValueChange={setActiveDepositMethod}>
+                                            <SelectTrigger className="bg-black border-white/10 text-white font-bold h-10 w-full sm:w-[150px]">
+                                              <SelectValue placeholder="Method" />
+                                            </SelectTrigger>
+                                            <SelectContent className="bg-zinc-900 border-white/10 text-white">
+                                              <SelectItem value="Cash">Cash</SelectItem>
+                                              <SelectItem value="Cash App">Cash App</SelectItem>
+                                              <SelectItem value="Zelle">Zelle</SelectItem>
+                                              <SelectItem value="Apple Pay">Apple Pay</SelectItem>
+                                              <SelectItem value="Google Pay">Google Pay</SelectItem>
+                                              <SelectItem value="PayPal">PayPal</SelectItem>
+                                              <SelectItem value="Other">Other</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                          
+                                          <div className="relative w-full sm:w-[120px]">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 font-bold">$</span>
+                                            <Input
+                                              type="number"
+                                              step="0.01"
+                                              value={activeDepositAmount}
+                                              onChange={e => setActiveDepositAmount(e.target.value)}
+                                              onBlur={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                setActiveDepositAmount(isNaN(val) ? "0.00" : val.toFixed(2));
+                                              }}
+                                              className="bg-black border-white/10 text-white font-bold h-10 pl-7 w-full"
+                                              placeholder="0.00"
+                                            />
+                                          </div>
+                                          
+                                          <Button
+                                            type="button"
+                                            className="bg-green-600 hover:bg-green-700 text-white font-bold h-10 px-4 whitespace-nowrap"
+                                            onClick={() => {
+                                              const amt = typeof activeDepositAmount === "string" ? parseFloat(activeDepositAmount) : activeDepositAmount;
+                                              if (!amt || amt <= 0) return toast.error("Enter a valid deposit amount.");
+                                              setRecordedDeposit({
+                                                amount: amt,
+                                                method: activeDepositMethod,
+                                                timestamp: new Date()
+                                              });
+                                              toast.success("Deposit recorded successfully.");
+                                            }}
+                                          >
+                                            Record Deposit Payment
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex justify-between items-center text-sm pt-3 border-t border-primary/10">
+                                      <span className="text-green-500 font-bold uppercase tracking-wider text-[10px]">Deposit Collected ({recordedDeposit.method})</span>
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-green-500 font-black">{formatCurrency(recordedDeposit.amount)}</span>
+                                        <button
+                                          type="button"
+                                          className="text-white/40 hover:text-white"
+                                          onClick={() => setRecordedDeposit(null)}
+                                        >
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               <div className="pt-2 border-t border-white/10 flex justify-between items-center">
                                 <span className="font-black text-white uppercase tracking-tighter">Final Total</span>
                                 <span className="text-xl font-black text-white">
                                   {formatCurrency(baseAmount + travelFee - discount - redeemedPoints)}
                                 </span>
                               </div>
-                              {calculatedDeposit > 0 && (
-                                <>
-                                  <div className="pt-2 border-t border-white/10 flex justify-between items-center">
-                                    <span className="font-black text-primary uppercase tracking-tighter">Deposit Due</span>
-                                    <span className="text-lg font-black text-primary">
-                                      {formatCurrency(calculatedDeposit)}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between items-center">
-                                    <span className="font-black text-white/60 uppercase tracking-tighter text-xs">Remaining Balance</span>
-                                    <span className="text-sm font-black text-white/60">
-                                      {formatCurrency((baseAmount - discount - redeemedPoints) - calculatedDeposit)}
-                                    </span>
-                                  </div>
-                                </>
-                              )}
                             </div>
                           </div>
                         </div>

@@ -163,6 +163,7 @@ export default function PublicBooking() {
   const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
 
   const [protectedClients, setProtectedClients] = useState<any[]>([]);
+  const [allClients, setAllClients] = useState<any[]>([]);
   const [matchedRiskRule, setMatchedRiskRule] = useState<any | null>(null);
 
   useEffect(() => {
@@ -181,8 +182,34 @@ export default function PublicBooking() {
       )
     );
 
-    setMatchedRiskRule(match || null);
-  }, [clientInfo.email, clientInfo.phone, protectedClients]);
+    const registeredClient = allClients.find(c => 
+      (email && c.email?.toLowerCase().trim() === email) ||
+      (phone && c.phone?.replace(/\D/g, "") === phone)
+    );
+
+    const inherentRisk = registeredClient ? (
+      registeredClient.riskLevel || 
+      registeredClient.risk_level || 
+      registeredClient.riskStatus || 
+      registeredClient.clientRiskLevel || 
+      registeredClient.riskManagement?.level
+    ) : null;
+
+    if (match) {
+      setMatchedRiskRule(match);
+    } else if (inherentRisk) {
+      setMatchedRiskRule({
+        id: 'client-risk-' + registeredClient.id,
+        isActive: true,
+        protectionLevel: inherentRisk,
+        riskReason: "Risk level detected on client profile.",
+        requiredDepositValue: 25,
+        requiredDepositType: "percentage"
+      });
+    } else {
+      setMatchedRiskRule(null);
+    }
+  }, [clientInfo.email, clientInfo.phone, protectedClients, allClients]);
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -309,6 +336,9 @@ export default function PublicBooking() {
 
         const protectedSnap = await getDocs(collection(db, "protected_clients"));
         setProtectedClients(protectedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        const clientsSnap = await getDocs(collection(db, "clients"));
+        setAllClients(clientsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (error) {
         console.error("Error fetching data for booking:", error);
         toast.error("Failed to load booking information.");
@@ -1233,7 +1263,7 @@ export default function PublicBooking() {
                             <div className="text-right">
                               {depositInfo.isRequired && (
                                 <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
-                                  Deposit Due: {formatCurrency(depositInfo.amount)}
+                                  Deposit Required: {formatCurrency(depositInfo.amount)}
                                 </p>
                               )}
                               <span className="text-3xl font-black text-primary">${totalPrice}</span>
@@ -1449,7 +1479,7 @@ export default function PublicBooking() {
                            <div className="text-right">
                              {depositInfo.isRequired && (
                                <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
-                                 Deposit Due: {formatCurrency(depositInfo.amount)}
+                                 Deposit Required: {formatCurrency(depositInfo.amount)}
                                </p>
                              )}
                              <span className="text-3xl font-black text-primary">${totalPrice}</span>
