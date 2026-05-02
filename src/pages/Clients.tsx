@@ -1,3 +1,4 @@
+import Papa from "papaparse";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { 
   collection, 
@@ -58,6 +59,7 @@ import {
   Crown,
   ShieldAlert,
   AlertTriangle,
+  AlertOctagon,
   Truck,
   FileText,
   Receipt,
@@ -82,9 +84,12 @@ import {
   getClientDisplayName,
   cleanAddress,
   formatCurrency,
-  convertToDate 
+  convertToDate,
+  normalizePhone,
+  normalizeEmail
 } from "../lib/utils";
-import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote } from "../types";
+import { StandardInput } from "../components/StandardInput";
+import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote, BusinessSettings } from "../types";
 import AddressInput from "../components/AddressInput";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
@@ -112,10 +117,10 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       year: vData.year,
       make: vData.make,
       model: vData.model,
-      color: formData.get("color"),
+      color: formData.get("color")?.toString().trim(),
       size: formData.get("size"),
-      vin: formData.get("vin"),
-      roNumber: formData.get("roNumber") || null,
+      vin: formData.get("vin")?.toString().trim().toUpperCase(),
+      roNumber: formData.get("roNumber")?.toString().trim() || null,
       createdAt: serverTimestamp(),
     };
 
@@ -139,17 +144,17 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Color</Label>
+          <Label className="text-[10px] font-black uppercase tracking-widest text-white">Color</Label>
           <Input name="color" placeholder="Color" className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
         </div>
         <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">VIN</Label>
+          <Label className="text-[10px] font-black uppercase tracking-widest text-white">VIN</Label>
           <Input name="vin" placeholder="VIN (Optional)" className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Vehicle Size</Label>
+          <Label className="text-[10px] font-black uppercase tracking-widest text-white">Vehicle Size</Label>
           <Select name="size" defaultValue="medium">
             <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12">
               <SelectValue placeholder="Vehicle Size" />
@@ -164,7 +169,7 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
         </div>
         {isCollisionCenter && (
           <div className="space-y-2">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">RO Number</Label>
+            <Label className="text-[10px] font-black uppercase tracking-widest text-white">RO Number</Label>
             <Input name="roNumber" placeholder="Repair Order #" required className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
           </div>
         )}
@@ -175,7 +180,7 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
 }
 
 export default function Clients() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, isQuotaExceeded } = useAuth();
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
   const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
@@ -188,12 +193,109 @@ export default function Clients() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importData, setImportData] = useState<any[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const data = results.data as any[];
+        const errors: string[] = [];
+        
+        // Basic normalization and validation
+        const normalizedData = data.map((row, index) => {
+          const email = row.Email || row.email || "";
+          const phone = row.Phone || row.phone || row.Mobile || "";
+          const firstName = row.FirstName || row["First Name"] || row.first_name || "";
+          const lastName = row.LastName || row["Last Name"] || row.last_name || "";
+          const name = row.Name || row.name || (`${firstName} ${lastName}`).trim();
+
+          if (!name) errors.push(`Row ${index + 1}: Name is required`);
+          
+          return {
+            ...row,
+            name,
+            firstName: firstName || name.split(" ")[0],
+            lastName: lastName || name.split(" ").slice(1).join(" "),
+            email: normalizeEmail(email),
+            phone: normalizePhone(phone),
+            address: row.Address || row.address || "",
+            notes: row.Notes || row.notes || "",
+          };
+        });
+
+        if (errors.length > 0) {
+          setImportErrors(errors);
+        } else {
+          setImportErrors([]);
+          setImportData(normalizedData);
+        }
+      },
+      error: (error) => {
+        toast.error("Error parsing CSV: " + error.message);
+      }
+    });
+  };
+
+  const processBulkImport = async () => {
+    if (importData.length === 0) return;
+    setIsImporting(true);
+    let successCount = 0;
+    let duplicateCount = 0;
+
+    try {
+      const batch = writeBatch(db);
+      
+      for (const client of importData) {
+        // Check for duplicate by email or phone
+        const isDuplicate = clients.some(c => 
+          (client.email && c.email === client.email) || 
+          (client.phone && c.phone === client.phone)
+        );
+
+        if (isDuplicate) {
+          duplicateCount++;
+          continue;
+        }
+
+        const newClientRef = doc(collection(db, "clients"));
+        batch.set(newClientRef, {
+          ...client,
+          ownerId: profile?.uid,
+          isActive: true,
+          clientType: "Retail", // Default
+          category: "Residential", // Default
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        successCount++;
+      }
+
+      await batch.commit();
+      toast.success(`Imported ${successCount} clients. ${duplicateCount} duplicates skipped.`);
+      setIsImportOpen(false);
+      setImportData([]);
+    } catch (err) {
+      console.error("Import error:", err);
+      toast.error("Failed to import clients.");
+    } finally {
+      setIsImporting(false);
+    }
+  };
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [clientVehicles, setClientVehicles] = useState<Vehicle[]>([]);
   const [clientHistory, setClientHistory] = useState<Appointment[]>([]);
   const [clientInvoices, setClientInvoices] = useState<Invoice[]>([]);
   const [clientQuotes, setClientQuotes] = useState<Quote[]>([]);
   const [signedForms, setSignedForms] = useState<any[]>([]);
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
   
   const serviceTiming = useMemo(() => {
     if (!selectedClient || clientVehicles.length === 0 || clientHistory.length === 0 || services.length === 0) return [];
@@ -208,6 +310,15 @@ export default function Clients() {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "settings", "business"), (doc) => {
+      if (doc.exists()) {
+        setBusinessSettings(doc.data() as BusinessSettings);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   // Keep selectedClient in sync with the clients list
   useEffect(() => {
@@ -236,7 +347,7 @@ export default function Clients() {
   }, [clients, selectedClient]);
 
   const defaultStatusColors: Record<string, string> = {
-    scheduled: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+    scheduled: "bg-[#0A4DFF]/20 text-[#0A4DFF] border border-[#0A4DFF]/30",
     confirmed: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
     en_route: "bg-primary/20 text-primary border border-primary/30",
     in_progress: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
@@ -249,7 +360,7 @@ export default function Clients() {
   };
 
   const getStatusColor = (status: string, isVip?: boolean) => {
-    let baseColor = defaultStatusColors[status] || "bg-white/5 text-white/40 border border-white/5";
+    let baseColor = defaultStatusColors[status] || "bg-white/5 text-white/60 border border-white/5";
     if (isVip) {
       baseColor += " border-amber-500/50";
     }
@@ -257,13 +368,20 @@ export default function Clients() {
   };
 
   const fetchClientsData = async (showToast = false) => {
-    // Check cache first if not performing a manual sync
+    if (isQuotaExceeded) {
+      const cached = sessionStorage.getItem('clients_registry_cache');
+      if (cached) setClients(JSON.parse(cached));
+      setLoading(false);
+      return;
+    }
+
+    // Check cache first if not performing a manual sync (10 min cache)
     if (!showToast) {
       const cached = sessionStorage.getItem('clients_registry_cache');
       const cacheTime = sessionStorage.getItem('clients_registry_cache_time');
       const now = Date.now();
       
-      if (cached && cacheTime && now - Number(cacheTime) < 5 * 60 * 1000) { // 5 min cache
+      if (cached && cacheTime && now - Number(cacheTime) < 10 * 60 * 1000) { 
         setClients(JSON.parse(cached));
         setLoading(false);
         return;
@@ -463,19 +581,43 @@ export default function Clients() {
       firstName,
       lastName,
       businessName,
-      contactPerson: formData.get("contactPerson") as string,
-      phone: formData.get("phone") as string,
-      email: formData.get("email") as string,
+      contactPerson: (formData.get("contactPerson") as string)?.trim(),
+      phone: normalizePhone(formData.get("phone") as string),
+      email: normalizeEmail(formData.get("email") as string),
       address: newClientAddress.address,
       latitude: newClientAddress.lat,
       longitude: newClientAddress.lng,
       clientTypeId,
+      riskLevel: formData.get("riskLevel") as any || "low",
       isVIP: formData.get("isVIP") === "on",
       isOneTime: formData.get("isOneTime") === "on",
-      notes: formData.get("notes") as string,
+      notes: (formData.get("notes") as string)?.trim(),
     };
 
+    // Duplicate check
     try {
+      if (!editingClient) {
+        const clientsRef = collection(db, "clients");
+        let duplicateFound = false;
+
+        if (clientData.phone) {
+          const qPhone = query(clientsRef, where("phone", "==", clientData.phone), limit(1));
+          const snapPhone = await getDocs(qPhone);
+          if (!snapPhone.empty) duplicateFound = true;
+        }
+
+        if (!duplicateFound && clientData.email) {
+          const qEmail = query(clientsRef, where("email", "==", clientData.email), limit(1));
+          const snapEmail = await getDocs(qEmail);
+          if (!snapEmail.empty) duplicateFound = true;
+        }
+
+        if (duplicateFound) {
+          toast.error("Duplicate Protocol Triggered: A client with this contact record already exists in the registry.");
+          return;
+        }
+      }
+
       if (editingClient) {
         await updateDoc(doc(db, "clients", editingClient.id), clientData);
         toast.success("Client profile updated");
@@ -682,6 +824,86 @@ export default function Clients() {
               <Settings2 className="w-4 h-4 mr-2 text-primary" />
               Manage Types
             </Button>
+            <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
+              <DialogTrigger render={
+                <Button variant="outline" className="border-white/10 bg-white/5 text-white font-black h-12 px-6 rounded-xl uppercase tracking-widest text-[10px] hover:bg-white/10 mr-2">
+                  Import Clients
+                </Button>
+              } />
+              <DialogContent className="max-w-2xl bg-card border-white/10 text-white rounded-[2.5rem]">
+                <DialogHeader>
+                  <DialogTitle className="text-2xl font-black uppercase tracking-tighter">Batch Import Logic</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-6 py-4">
+                  <div className="p-8 border-2 border-dashed border-white/10 rounded-3xl text-center space-y-4 bg-white/5">
+                    <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center text-primary mx-auto">
+                      <Zap className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className="font-black uppercase tracking-widest text-sm">Upload CSV Resource</h3>
+                      <p className="text-[10px] text-white/60 font-medium uppercase tracking-tight mt-1">Headers required: Name, Email, Phone, Address, Notes</p>
+                    </div>
+                    <Input 
+                      type="file" 
+                      accept=".csv" 
+                      onChange={handleFileUpload}
+                      className="bg-black/40 border-white/10 text-white rounded-xl h-12 cursor-pointer pt-2"
+                    />
+                  </div>
+
+                  {importErrors.length > 0 && (
+                    <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl space-y-2">
+                      <Label className="text-[10px] font-black uppercase text-red-500">Normalization Failures</Label>
+                      <ul className="text-[10px] text-white/80 space-y-1 max-h-32 overflow-y-auto font-medium">
+                        {importErrors.map((err, i) => <li key={i}>{err}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  {importData.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Import Preview ({importData.length} Records)</Label>
+                        <Badge className="bg-emerald-600 text-white font-black text-[9px] uppercase tracking-widest">Valid</Badge>
+                      </div>
+                      <div className="border border-white/10 rounded-2xl overflow-hidden">
+                        <Table>
+                          <TableHeader className="bg-black/40">
+                            <TableRow className="border-white/5">
+                              <TableHead className="text-[9px] font-black uppercase text-white h-10">Name</TableHead>
+                              <TableHead className="text-[9px] font-black uppercase text-white h-10">Email</TableHead>
+                              <TableHead className="text-[9px] font-black uppercase text-white h-10">Phone</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {importData.slice(0, 5).map((row, i) => (
+                              <TableRow key={i} className="border-white/5 bg-white/5">
+                                <TableCell className="text-[10px] text-white font-bold h-10">{row.name}</TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10">{row.email}</TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10">{row.phone}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                        {importData.length > 5 && (
+                          <div className="p-3 text-center bg-black/40 text-[9px] font-black text-white/40 uppercase tracking-widest border-t border-white/5">
+                            + {importData.length - 5} more records
+                          </div>
+                        )}
+                      </div>
+                      <Button 
+                        className="w-full bg-primary text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-[11px]"
+                        onClick={processBulkImport}
+                        disabled={isImporting}
+                      >
+                        {isImporting ? "Injecting Data..." : `Confirm & Import ${importData.length} Clients`}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+
             <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
                 if (!open) {
                   setIsAddDialogOpen(false);
@@ -704,23 +926,44 @@ export default function Clients() {
                 <form key={editingClient?.id || "new"} onSubmit={handleAddClient} className="p-10 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
                   <div className="space-y-6">
                     <div className="space-y-2">
-                      <Label htmlFor="businessName" className="font-black uppercase tracking-widest text-[10px] text-white/60">Business Name (Optional)</Label>
-                      <Input id="businessName" name="businessName" defaultValue={editingClient?.businessName || ""} placeholder="Elite Collision or Austin Vehicles" className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" />
+                      <Label htmlFor="businessName" className="font-black uppercase tracking-widest text-[10px] text-white">Business Name (Optional)</Label>
+                      <StandardInput 
+                        id="businessName" 
+                        name="businessName" 
+                        defaultValue={editingClient?.businessName || ""} 
+                        placeholder="Elite Collision or Austin Vehicles" 
+                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
+                        onValueChange={() => {}}
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="firstName" className="font-black uppercase tracking-widest text-[10px] text-white/60">First Name</Label>
-                        <Input id="firstName" name="firstName" defaultValue={editingClient?.firstName || ""} placeholder="John" className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" />
+                        <Label htmlFor="firstName" className="font-black uppercase tracking-widest text-[10px] text-white">First Name</Label>
+                        <StandardInput 
+                          id="firstName" 
+                          name="firstName" 
+                          defaultValue={editingClient?.firstName || ""} 
+                          placeholder="John" 
+                          className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
+                          onValueChange={() => {}}
+                        />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="lastName" className="font-black uppercase tracking-widest text-[10px] text-white/60">Last Name</Label>
-                        <Input id="lastName" name="lastName" defaultValue={editingClient?.lastName || ""} placeholder="Doe" className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" />
+                        <Label htmlFor="lastName" className="font-black uppercase tracking-widest text-[10px] text-white">Last Name</Label>
+                        <StandardInput 
+                          id="lastName" 
+                          name="lastName" 
+                          defaultValue={editingClient?.lastName || ""} 
+                          placeholder="Doe" 
+                          className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
+                          onValueChange={() => {}}
+                        />
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="clientTypeId" className="font-black uppercase tracking-widest text-[10px] text-white/60">Client Type</Label>
+                      <Label htmlFor="clientTypeId" className="font-black uppercase tracking-widest text-[10px] text-white">Client Type</Label>
                       <Select name="clientTypeId" defaultValue={editingClient?.clientTypeId || ""} required>
                         <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12">
                           <SelectValue placeholder="Select type" />
@@ -733,32 +976,46 @@ export default function Clients() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="contactPerson" className="font-black uppercase tracking-widest text-[10px] text-white/60">Contact Person (Optional)</Label>
-                      <Input id="contactPerson" name="contactPerson" defaultValue={editingClient?.contactPerson || ""} placeholder="Jane Smith" className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" />
+                      <Label htmlFor="contactPerson" className="font-black uppercase tracking-widest text-[10px] text-white">Contact Person (Optional)</Label>
+                      <StandardInput 
+                        id="contactPerson" 
+                        name="contactPerson" 
+                        defaultValue={editingClient?.contactPerson || ""} 
+                        placeholder="Jane Smith" 
+                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
+                        onValueChange={() => {}}
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="phone" className="font-black uppercase tracking-widest text-[10px] text-white/60">Phone Number</Label>
-                      <Input 
+                      <Label htmlFor="phone" className="font-black uppercase tracking-widest text-[10px] text-white">Phone Number</Label>
+                      <StandardInput 
                         id="phone" 
                         name="phone" 
+                        variant="phone"
                         placeholder="(555) 000-0000" 
                         defaultValue={editingClient?.phone || ""}
                         required 
+                        onValueChange={() => {}}
                         className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
-                        onChange={(e) => {
-                          e.target.value = formatPhoneNumber(e.target.value);
-                        }}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="email" className="font-black uppercase tracking-widest text-[10px] text-white/60">Email Address</Label>
-                      <Input id="email" name="email" type="email" defaultValue={editingClient?.email || ""} placeholder="client@example.com" className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" />
+                      <Label htmlFor="email" className="font-black uppercase tracking-widest text-[10px] text-white">Email Address</Label>
+                      <StandardInput 
+                        id="email" 
+                        name="email" 
+                        variant="email"
+                        defaultValue={editingClient?.email || ""} 
+                        placeholder="client@example.com" 
+                        onValueChange={() => {}}
+                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
+                      />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="address" className="font-black uppercase tracking-widest text-[10px] text-white/60">Address</Label>
+                    <Label htmlFor="address" className="font-black uppercase tracking-widest text-[10px] text-white">Address</Label>
                     <AddressInput 
                       defaultValue={editingClient?.address || ""}
                       onAddressSelect={(address, lat, lng) => setNewClientAddress({ address, lat, lng })}
@@ -766,18 +1023,31 @@ export default function Clients() {
                       className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <Label className="font-black text-[10px] uppercase tracking-widest text-white/60">VIP Status</Label>
+                      <Label className="font-black text-[10px] uppercase tracking-widest text-white">VIP Status</Label>
                       <Switch name="isVIP" defaultChecked={editingClient?.isVIP || false} />
                     </div>
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <Label className="font-black text-[10px] uppercase tracking-widest text-white/60">One-time Client</Label>
+                      <Label className="font-black text-[10px] uppercase tracking-widest text-white">One-time</Label>
                       <Switch name="isOneTime" defaultChecked={editingClient?.isOneTime || false} />
+                    </div>
+                    <div className="flex flex-col gap-2 p-3 bg-white/5 rounded-2xl border border-white/10">
+                      <Label className="font-black text-[10px] uppercase tracking-widest text-white">Risk Profile</Label>
+                      <Select name="riskLevel" defaultValue={editingClient?.riskLevel || "low"}>
+                        <SelectTrigger className="bg-transparent border-none p-0 h-auto font-black text-xs uppercase text-primary focus:ring-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-gray-900 border-white/10 text-white font-black uppercase text-[10px] tracking-widest">
+                          <SelectItem value="low">Low Risk</SelectItem>
+                          <SelectItem value="medium">Medium Risk</SelectItem>
+                          <SelectItem value="high">High Risk</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="notes" className="font-black uppercase tracking-widest text-[10px] text-white/60">Internal Notes</Label>
+                    <Label htmlFor="notes" className="font-black uppercase tracking-widest text-[10px] text-white">Internal Notes</Label>
                     <Textarea id="notes" name="notes" defaultValue={editingClient?.notes || ""} placeholder="Any special instructions..." className="bg-white/5 border-white/10 text-white rounded-xl min-h-[100px]" />
                   </div>
                   <Button type="submit" className="w-full bg-primary text-white hover:bg-[#2A6CFF] font-black h-14 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105">
@@ -794,7 +1064,7 @@ export default function Clients() {
         <CardHeader className="p-8 border-b border-white/5 bg-black/40">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div className="relative flex-1 max-w-xl">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white" />
               <Input 
                 placeholder="Search registry by name, phone, or vehicle..." 
                 className="pl-12 bg-white/5 border-white/10 text-white font-bold rounded-2xl h-14 focus:ring-primary/50"
@@ -851,11 +1121,11 @@ export default function Clients() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-20 text-gray-400 uppercase tracking-widest text-[10px] font-black">Synchronizing database...</TableCell>
+                  <TableCell colSpan={5} className="text-center py-20 text-white uppercase tracking-widest text-[10px] font-black">Synchronizing database...</TableCell>
                 </TableRow>
               ) : filteredClients.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-20 text-gray-400 uppercase tracking-widest text-[10px] font-black">No matching records found.</TableCell>
+                  <TableCell colSpan={5} className="text-center py-20 text-white uppercase tracking-widest text-[10px] font-black">No matching records found.</TableCell>
                 </TableRow>
               ) : (
                 filteredClients.map((client) => {
@@ -879,10 +1149,18 @@ export default function Clients() {
                               <span className="font-black text-white tracking-tight uppercase text-sm">{getClientDisplayName(client)}</span>
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
                               {(() => {
-                                const risk = (client as any).riskLevel || (client as any).risk_level || (client as any).riskStatus || (client as any).clientRiskLevel || (client as any).riskManagement?.level;
+                                const risk = client.riskLevel;
                                 if (!risk) return null;
                                 return (
-                                  <Badge variant="outline" className="bg-red-500/10 text-destructive border-destructive/20 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest">
+                                  <Badge 
+                                    variant="outline" 
+                                    className={cn(
+                                      "text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest border-none ml-1",
+                                      risk === "high" ? "bg-red-500/20 text-red-500" :
+                                      risk === "medium" ? "bg-orange-500/20 text-orange-400" :
+                                      "bg-emerald-500/20 text-emerald-400"
+                                    )}
+                                  >
                                     {risk}
                                   </Badge>
                                 );
@@ -1015,40 +1293,96 @@ export default function Clients() {
       {/* Client Details Dialog */}
       {selectedClient && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-          <DialogContent className="sm:max-w-6xl w-[95vw] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[90vh] flex flex-col">
-            <div className="bg-gradient-to-br from-primary via-primary to-red-700 p-8 text-white shrink-0 relative overflow-hidden">
-              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
+          <DialogContent className="max-w-[98vw] w-[98vw] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[96vh] flex flex-col">
+            <div className="bg-gradient-to-r from-primary via-primary/80 to-white/40 p-8 text-white shrink-0 relative overflow-hidden font-sans border-b border-white/10">
+              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-5"></div>
+              
+              {/* WATERMARK LAYER */}
+              <div 
+                className={cn(
+                  "absolute inset-0 flex items-center pointer-events-none transition-all duration-700 z-0",
+                  businessSettings?.watermarkSettings?.size === "full" ? "p-0" : "p-12",
+                  businessSettings?.watermarkSettings?.position === "left" ? "justify-start text-left" :
+                  businessSettings?.watermarkSettings?.position === "right" ? "justify-end text-right" : "justify-center text-center"
+                )}
+                style={{ 
+                  opacity: typeof businessSettings?.watermarkSettings?.opacity === 'number' 
+                    ? businessSettings.watermarkSettings.opacity 
+                    : 0.10 
+                }}
+              >
+                {businessSettings?.watermarkSettings?.logoUrl ? (
+                  <img 
+                    src={businessSettings.watermarkSettings.logoUrl} 
+                    alt="Watermark" 
+                    className={cn(
+                      "object-contain grayscale brightness-200 transition-all duration-700",
+                      businessSettings.watermarkSettings.position === "left" ? "object-left" :
+                      businessSettings.watermarkSettings.position === "right" ? "object-right" : "object-center",
+                      businessSettings.watermarkSettings.size === "small" ? "max-h-[25%] max-w-[25%]" :
+                      businessSettings.watermarkSettings.size === "large" ? "max-h-[90%] max-w-[90%]" :
+                      businessSettings.watermarkSettings.size === "full" ? "w-full h-full" :
+                      "max-h-[60%] max-w-[60%]" // Default Medium
+                    )}
+                  />
+                ) : (
+                  <h1 
+                    className={cn(
+                      "font-black text-white italic tracking-tighter uppercase select-none transition-all duration-700 w-full",
+                      businessSettings?.watermarkSettings?.size === "small" ? "text-[5vw]" :
+                      businessSettings?.watermarkSettings?.size === "large" ? "text-[15vw]" :
+                      businessSettings?.watermarkSettings?.size === "full" ? "text-[35vw] leading-none" :
+                      "text-[10vw]"
+                    )}
+                  >
+                    DETAILFLOW
+                  </h1>
+                )}
+              </div>
+
               <div className="relative z-10 flex justify-between items-start">
                 <div className="flex items-center gap-6">
-                  <div className="w-24 h-24 bg-white/20 rounded-[2rem] flex items-center justify-center text-white font-black text-3xl backdrop-blur-md border border-white/20 shadow-xl shrink-0">
+                  <div className="w-24 h-24 bg-primary/20 rounded-[2rem] flex items-center justify-center text-white font-black text-3xl backdrop-blur-md border border-white/20 shadow-xl shrink-0">
                     {getClientDisplayName(selectedClient).charAt(0)}
                   </div>
                   <div>
                     <div className="flex items-center gap-4 mb-2 flex-wrap">
-                      <h2 className="text-3xl font-black tracking-tighter font-heading uppercase leading-none">{getClientDisplayName(selectedClient)}</h2>
+                      <h2 className="text-3xl font-black tracking-tighter uppercase leading-none text-white drop-shadow-md">{getClientDisplayName(selectedClient)}</h2>
                       {selectedClient.isVIP && <Crown className="w-6 h-6 text-yellow-400 fill-yellow-400 drop-shadow-lg" />}
                     </div>
-                    <div className="text-white/80 flex items-center gap-8 mt-3 font-bold uppercase tracking-widest text-xs flex-wrap">
-                      <a href={`tel:${selectedClient.phone}`} className="flex items-center gap-2.5 hover:text-white transition-all duration-300">
-                        <Phone className="w-5 h-5 text-white" /> {formatPhoneNumber(selectedClient.phone)}
+                    <div className="text-white flex items-center gap-8 mt-3 font-bold uppercase tracking-widest text-xs flex-wrap drop-shadow-sm">
+                      <a href={`tel:${selectedClient.phone}`} className="flex items-center gap-2.5 hover:opacity-80 transition-all duration-300">
+                        <Phone className="w-5 h-5" /> {formatPhoneNumber(selectedClient.phone)}
                       </a>
                       <span className="opacity-30 hidden sm:block">|</span>
-                      <a href={`mailto:${selectedClient.email}`} className="flex items-center gap-2.5 hover:text-white transition-all duration-300">
-                        <Mail className="w-5 h-5 text-white" /> {selectedClient.email}
+                      <a href={`mailto:${selectedClient.email}`} className="flex items-center gap-2.5 hover:opacity-80 transition-all duration-300">
+                        <Mail className="w-5 h-5" /> {selectedClient.email}
                       </a>
                     </div>
                   </div>
                 </div>
                 <div className="text-right flex flex-col items-end gap-4">
-                  <Badge className="bg-white/10 text-white border border-white/20 font-black uppercase tracking-widest text-[10px] px-5 py-2 rounded-full backdrop-blur-md">
-                    {clientTypes.find(t => t.id === selectedClient.clientTypeId)?.name || "CLIENT"}
-                  </Badge>
+                  <div className="flex items-center gap-3 bg-black/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/10">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">DETAIL</span>
+                    {selectedClient.riskLevel && (
+                      <Badge 
+                        className={cn(
+                          "border-none font-black uppercase tracking-widest text-[9px] px-3 py-1 rounded-full shadow-lg",
+                          selectedClient.riskLevel === "high" ? "bg-red-500 text-white" :
+                          selectedClient.riskLevel === "medium" ? "bg-orange-500 text-white" :
+                          "bg-emerald-500 text-white"
+                        )}
+                      >
+                        {selectedClient.riskLevel} RISK
+                      </Badge>
+                    )}
+                  </div>
                   <div className="flex flex-col items-end">
-                    <p className="text-4xl font-black tracking-tighter font-heading leading-none">{selectedClient.loyaltyPoints || 0} <span className="text-sm uppercase tracking-widest opacity-60 ml-1">Credits</span></p>
+                    <p className="text-4xl font-black tracking-tighter leading-none text-primary drop-shadow-sm">{selectedClient.loyaltyPoints || 0} <span className="text-sm uppercase tracking-widest opacity-100 ml-1 text-primary/60">Credits</span></p>
                     <div className="flex items-center gap-3 mt-4">
                       <Button 
                         size="lg" 
-                        className="bg-white text-primary hover:bg-red-50 font-black shadow-xl rounded-2xl h-12 px-8 uppercase tracking-widest text-xs"
+                        className="bg-primary text-white hover:bg-primary/90 font-black shadow-glow-blue rounded-2xl h-12 px-8 uppercase tracking-widest text-xs border border-white/20 transition-all hover:scale-105"
                         onClick={() => {
                           toast.success("Book Appointment Clicked");
                           setIsDetailOpen(false);
@@ -1071,7 +1405,7 @@ export default function Clients() {
             </div>
 
             <Tabs defaultValue="overview" className="w-full flex-1 flex flex-col overflow-hidden bg-card">
-              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-14 shrink-0 gap-6">
+              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-14 shrink-0 gap-4 overflow-x-auto no-scrollbar scroll-smooth">
                 <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Overview</TabsTrigger>
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Profile</TabsTrigger>
                 <TabsTrigger value="appointments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Appointments ({clientHistory.length})</TabsTrigger>
@@ -1098,7 +1432,21 @@ export default function Clients() {
 
               <div className="flex-1 overflow-y-auto p-8 bg-card custom-scrollbar">
                 <TabsContent value="overview" className="mt-0 space-y-8 outline-none">
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {selectedClient.riskLevel === 'high' && (
+                    <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-[2rem] flex items-center gap-6 animate-in fade-in slide-in-from-top-4">
+                      <div className="w-16 h-16 bg-red-500/20 rounded-2xl flex items-center justify-center text-red-500 shrink-0 shadow-glow-red">
+                        <AlertOctagon className="w-8 h-8" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-black text-red-500 uppercase tracking-tighter">Critical Risk Profile Detected</h3>
+                        <p className="text-xs text-white/70 font-medium mt-1 leading-relaxed">
+                          This client has been flagged as HEAVILY UNRELIABLE. Previous operations show pattern of NO-SHOWS or PAYMENT FAILURE. 
+                          <strong className="text-red-400"> REQUIRED: ALWAYS COLLECT DEPOSIT BEFORE BOOKING.</strong>
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 px-2">
                     {/* Status Summary */}
                     <div className="lg:col-span-2 space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1218,14 +1566,20 @@ export default function Clients() {
 
                     {/* Pending Actions & Details */}
                     <div className="space-y-6">
-                      <div className="p-6 bg-primary rounded-[2rem] shadow-glow-blue space-y-4">
+                      <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-white/20 rounded-2xl flex items-center justify-center">
-                            <Zap className="w-5 h-5 text-white" />
+                          <div className="w-10 h-10 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/20">
+                            <Zap className="w-5 h-5 text-primary" />
                           </div>
                           <p className="text-sm font-black text-white uppercase tracking-widest">Active Alerts</p>
                         </div>
                         <div className="space-y-3">
+                          {selectedClient.riskLevel === 'high' && (
+                            <div className="flex items-center gap-3 p-3 bg-red-600/40 rounded-xl border border-red-500/50 animate-pulse">
+                              <AlertOctagon className="w-4 h-4 text-white" />
+                              <span className="text-[10px] font-black uppercase text-white tracking-widest">CRITICAL RISK WARNING</span>
+                            </div>
+                          )}
                           {clientInvoices.some(i => i.status !== "paid") && (
                             <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
                               <AlertTriangle className="w-4 h-4 text-white" />
@@ -1424,12 +1778,12 @@ export default function Clients() {
                       </div>
                     </div>
                     {selectedClient.followUpStatus && (
-                      <div className="mt-4 p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                        <div className="flex items-center gap-2 text-blue-700 mb-1">
+                      <div className="mt-4 p-4 bg-[#0A4DFF]/5 rounded-2xl border border-[#0A4DFF]/10">
+                        <div className="flex items-center gap-2 text-[#0A4DFF] mb-1">
                           <CheckCircle2 className="w-4 h-4" />
                           <span className="text-xs font-bold uppercase tracking-wider">Follow-up Sent</span>
                         </div>
-                        <p className="text-xs text-blue-600">
+                        <p className="text-xs text-[#0A4DFF]">
                           Last follow-up sent on {format(convertToDate(selectedClient.followUpStatus.lastSentAt), "MMM d, yyyy")} via {selectedClient.followUpStatus.channel}.
                         </p>
                       </div>
@@ -1688,7 +2042,7 @@ export default function Clients() {
                                   "text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
                                   app.status === "completed" ? "bg-green-500/10 text-green-500 border-green-500/20" :
                                   app.status === "canceled" ? "bg-red-500/10 text-red-500 border-red-500/20" :
-                                  "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                                  "bg-[#0A4DFF]/10 text-[#0A4DFF] border-[#0A4DFF]/20"
                                 )}>
                                   {app.status}
                                 </Badge>
@@ -2030,7 +2384,7 @@ export default function Clients() {
                                   <Badge className={cn(
                                     "text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md mt-1",
                                     inv.status === "paid" ? "bg-green-500/10 text-green-500 border-green-500/20" :
-                                    inv.status === "sent" ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
+                                    inv.status === "sent" ? "bg-[#0A4DFF]/10 text-[#0A4DFF] border-[#0A4DFF]/20" :
                                     "bg-white/5 text-white/40 border-white/10"
                                   )}>
                                     {inv.status}
@@ -2077,7 +2431,7 @@ export default function Clients() {
                                   <Badge className={cn(
                                     "text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md mt-1",
                                     q.status === "approved" ? "bg-green-500/10 text-green-500 border-green-500/20" :
-                                    q.status === "sent" ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
+                                    q.status === "sent" ? "bg-[#0A4DFF]/10 text-[#0A4DFF] border-[#0A4DFF]/20" :
                                     "bg-white/5 text-white/40 border-white/10"
                                   )}>
                                     {q.status}

@@ -127,9 +127,9 @@ export default function Communications() {
       case "failed":
         return <Badge className="bg-red-500/10 text-red-500 border-none px-2 py-0.5"><AlertCircle className="w-3 h-3 mr-1" /> Failed</Badge>;
       case "skipped":
-        return <Badge className="bg-gray-500/10 text-gray-500 border-none px-2 py-0.5"><Clock className="w-3 h-3 mr-1" /> Skipped</Badge>;
+        return <Badge className="bg-gray-500/10 text-white border-none px-2 py-0.5"><Clock className="w-3 h-3 mr-1" /> Skipped</Badge>;
       default:
-        return <Badge className="bg-blue-500/10 text-blue-500 border-none px-2 py-0.5">{status}</Badge>;
+        return <Badge className="bg-[#0A4DFF]/10 text-[#0A4DFF] border-none px-2 py-0.5">{status}</Badge>;
     }
   };
 
@@ -143,12 +143,12 @@ export default function Communications() {
 
         <div className="flex items-center gap-4 mt-6">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white" />
             <Input 
               placeholder="Search by client name, phone, or message..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-black/40 border-white/10 pl-10 text-white placeholder:text-white/40 h-10 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+              className="w-full bg-black/40 border-white/10 pl-10 text-white placeholder:text-white h-10 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary transition-all"
             />
           </div>
           <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -198,10 +198,10 @@ export default function Communications() {
         ) : filteredLogs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
-              <MessagesSquare className="w-8 h-8 text-white/40" />
+              <MessagesSquare className="w-8 h-8 text-white" />
             </div>
             <h3 className="text-xl font-bold text-white mb-2">No Messages Found</h3>
-            <p className="text-white/40 max-w-md">Try adjusting your filters or search terms.</p>
+            <p className="text-white max-w-md">Try adjusting your filters or search terms.</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -219,7 +219,7 @@ export default function Communications() {
                     <div className="flex-1 grid grid-cols-5 gap-4 items-center">
                       <div className="col-span-1">
                         <p className="text-sm font-bold text-white truncate">{recipientName}</p>
-                        <p className="text-[10px] text-white/50 truancate">{log.recipient}</p>
+                        <p className="text-[10px] text-white truancate">{log.recipient}</p>
                       </div>
                       <div className="col-span-1">
                         <Badge className="bg-white/10 text-white hover:bg-white/20 border-none font-medium capitalize">
@@ -227,12 +227,12 @@ export default function Communications() {
                         </Badge>
                       </div>
                       <div className="col-span-2">
-                        <p className="text-xs text-white/60 truncate">{log.content}</p>
+                        <p className="text-xs text-white truncate">{log.content}</p>
                       </div>
                       <div className="col-span-1 flex items-center justify-between">
                         {getStatusBadge(log.status)}
                         <div className="flex flex-col items-end gap-1 shrink-0">
-                          <p className="text-[10px] uppercase tracking-widest text-white/40 font-bold">
+                          <p className="text-[10px] uppercase tracking-widest text-white font-bold">
                             {log.createdAt ? format(log.createdAt.toDate(), "MMM d, yyyy h:mm a") : 'Pending'}
                           </p>
                         </div>
@@ -241,9 +241,9 @@ export default function Communications() {
                     
                     <div className="pl-4 border-l border-white/5 shrink-0">
                       {isExpanded ? (
-                        <ChevronUp className="w-4 h-4 text-white/40" />
+                        <ChevronUp className="w-4 h-4 text-white" />
                       ) : (
-                        <ChevronDown className="w-4 h-4 text-white/40" />
+                        <ChevronDown className="w-4 h-4 text-white" />
                       )}
                     </div>
                   </div>
@@ -253,7 +253,7 @@ export default function Communications() {
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-primary">Message Body</label>
                         <div className="bg-black/40 p-4 rounded-xl border border-white/5">
-                          <p className="text-sm text-white/80 whitespace-pre-wrap">{log.content}</p>
+                          <p className="text-sm text-white whitespace-pre-wrap">{log.content}</p>
                         </div>
                       </div>
 
@@ -269,8 +269,8 @@ export default function Communications() {
 
                       {log.status === "sent" && log.messageId && (
                         <div className="flex gap-4 items-center">
-                           <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Message ID:</label>
-                           <p className="text-xs font-mono text-white/60 bg-black/40 px-2 py-1 rounded">{log.messageId}</p>
+                           <label className="text-[10px] font-black uppercase tracking-widest text-white mb-1">Message ID:</label>
+                           <p className="text-xs font-mono text-white bg-black/40 px-2 py-1 rounded">{log.messageId}</p>
                         </div>
                       )}
 

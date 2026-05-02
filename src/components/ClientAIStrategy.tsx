@@ -226,7 +226,7 @@ export function ClientAIStrategy({
           <Brain className="w-10 h-10 text-primary animate-pulse" />
         </div>
         <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-2">Intelligence <span className="text-primary italic">Pending</span></h3>
-        <p className="text-white/40 font-medium text-sm max-w-xs">
+        <p className="text-white/60 font-medium text-sm max-w-xs">
           Not enough client history yet to generate a tailored strategy. Complete at least one engagement to unlock AI insights.
         </p>
       </div>
@@ -252,7 +252,7 @@ export function ClientAIStrategy({
                 {analysis.status.replace("_", " ")}
               </Badge>
             </div>
-            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Lifetime Value</p>
+            <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-1">Lifetime Value</p>
             <p className="text-2xl font-black text-white tracking-tighter">{formatCurrency(analysis.totalSpend)}</p>
           </CardContent>
         </Card>
@@ -260,11 +260,11 @@ export function ClientAIStrategy({
         <Card className="bg-white/5 border-white/5 rounded-[2rem] overflow-hidden">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <div className="w-10 h-10 bg-blue-500/10 rounded-2xl flex items-center justify-center border border-blue-500/20">
-                <Calendar className="w-5 h-5 text-blue-500" />
+              <div className="w-10 h-10 bg-[#0A4DFF]/10 rounded-2xl flex items-center justify-center border border-[#0A4DFF]/20">
+                <Calendar className="w-5 h-5 text-[#0A4DFF]" />
               </div>
             </div>
-            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Avg. Frequency</p>
+            <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-1">Avg. Frequency</p>
             <p className="text-2xl font-black text-white tracking-tighter">
               {analysis.avgDaysBetween > 0 ? `${Math.round(analysis.avgDaysBetween)} Days` : "N/A"}
             </p>
@@ -278,7 +278,7 @@ export function ClientAIStrategy({
                 <Zap className="w-5 h-5 text-purple-500" />
               </div>
             </div>
-            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Avg. Ticket</p>
+            <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-1">Avg. Ticket</p>
             <p className="text-2xl font-black text-white tracking-tighter">{formatCurrency(analysis.avgSpend)}</p>
           </CardContent>
         </Card>
@@ -290,7 +290,7 @@ export function ClientAIStrategy({
                 <Clock className="w-5 h-5 text-orange-500" />
               </div>
             </div>
-            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Last Service</p>
+            <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-1">Last Service</p>
             <p className="text-2xl font-black text-white tracking-tighter">{analysis.daysSinceLast} Days Ago</p>
           </CardContent>
         </Card>
@@ -309,7 +309,7 @@ export function ClientAIStrategy({
               <div key={i} className="p-6 bg-white/5 rounded-[2rem] border border-white/5 flex gap-5 group hover:bg-white/[0.08] transition-all duration-300">
                 <div className={cn(
                   "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border",
-                  rec.type === "maintenance" ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
+                  rec.type === "maintenance" ? "bg-[#0A4DFF]/10 text-[#0A4DFF] border-[#0A4DFF]/20" :
                   rec.type === "upsell" ? "bg-purple-500/10 text-purple-500 border-purple-500/20" :
                   "bg-red-500/10 text-red-500 border-red-500/20"
                 )}>
@@ -322,14 +322,14 @@ export function ClientAIStrategy({
                     <h4 className="font-black text-white uppercase tracking-tight text-sm">{rec.title}</h4>
                     <Badge variant="outline" className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">{rec.type}</Badge>
                   </div>
-                  <p className="text-xs text-white/40 font-medium leading-relaxed">{rec.reason}</p>
+                  <p className="text-xs text-white/60 font-medium leading-relaxed">{rec.reason}</p>
                 </div>
               </div>
             ))}
             {recommendations.length === 0 && (
               <div className="p-8 bg-white/5 rounded-[2rem] border border-white/5 text-center">
                 <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-3 opacity-20" />
-                <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Client is currently on a optimal service cycle.</p>
+                <p className="text-[10px] font-black text-white/60 uppercase tracking-widest">Client is currently on a optimal service cycle.</p>
               </div>
             )}
           </div>
@@ -350,11 +350,11 @@ export function ClientAIStrategy({
               
               <div className="grid grid-cols-2 gap-8 relative z-10">
                 <div>
-                  <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-2">Primary Goal</p>
+                  <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-2">Primary Goal</p>
                   <p className="text-lg font-black text-white tracking-tight uppercase">{marketingStrategy.goal}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-2">Message Angle</p>
+                  <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-2">Message Angle</p>
                   <p className="text-lg font-black text-white tracking-tight uppercase">{marketingStrategy.angle}</p>
                 </div>
               </div>
@@ -365,7 +365,7 @@ export function ClientAIStrategy({
               </div>
 
               <div className="space-y-4 pt-4 relative z-10">
-                <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Suggested Outreach</p>
+                <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em]">Suggested Outreach</p>
                 <div className="grid grid-cols-1 gap-3">
                   <Button 
                     variant="outline" 
@@ -411,7 +411,7 @@ export function ClientAIStrategy({
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5">
-            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-4">Most Used Services</p>
+            <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-4">Most Used Services</p>
             <div className="space-y-3">
               {analysis.topServices.map((s, i) => (
                 <div key={i} className="flex items-center justify-between">
@@ -428,7 +428,7 @@ export function ClientAIStrategy({
           </div>
 
           <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5">
-            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-4">Engagement Pulse</p>
+            <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-4">Engagement Pulse</p>
             <div className="flex items-end gap-2 h-24">
               {Array.from({ length: 12 }).map((_, i) => {
                 const month = subMonths(new Date(), 11 - i);
@@ -454,7 +454,7 @@ export function ClientAIStrategy({
           </div>
 
           <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5">
-            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-4">Asset Coverage</p>
+            <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-4">Asset Coverage</p>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-white uppercase tracking-wide">Profile Type</span>

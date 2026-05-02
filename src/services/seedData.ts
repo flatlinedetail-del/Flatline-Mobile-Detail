@@ -1,4 +1,4 @@
-import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, where, doc, setDoc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, where, doc, setDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { addDays, subDays, subMonths, setHours, setMinutes } from "date-fns";
 import { ensureClientTypes } from "./clientService";
@@ -255,6 +255,136 @@ export async function seedDemoData() {
     return true;
   } catch (error) {
     console.error("Error seeding data:", error);
+    return false;
+  }
+}
+
+export async function importFullServiceSystem() {
+  try {
+    console.log("Starting Official Full Service System Import...");
+
+    // 1. Clear existing services, addons, and categories
+    const collectionsToClear = ["services", "addons", "categories"];
+    for (const colName of collectionsToClear) {
+      const snap = await getDocs(collection(db, colName));
+      for (const docRef of snap.docs) {
+        await deleteDoc(doc(db, colName, docRef.id));
+      }
+    }
+    console.log("Old services, addons, and categories purged.");
+
+    // 2. Define Categories
+    const categoriesRoot = [
+      { id: "maintenance", name: "Maintenance", type: "service", isActive: true, sortOrder: 0 },
+      { id: "protection", name: "Protection", type: "service", isActive: true, sortOrder: 1 },
+      { id: "paint-correction", name: "Paint Correction", type: "service", isActive: true, sortOrder: 2 },
+      { id: "add-ons", name: "Add-Ons", type: "addon", isActive: true, sortOrder: 3 },
+    ];
+
+    for (const cat of categoriesRoot) {
+      await setDoc(doc(db, "categories", cat.id), cat);
+    }
+
+    // 3. Define Services
+    const servicesData = [
+      {
+        id: "xpress-maintenance-detail",
+        name: "Xpress Maintenance Detail",
+        category: "Maintenance",
+        categoryId: "maintenance",
+        description: "Entry-level maintenance service designed for returning clients or regularly maintained vehicles. Includes foam wash, wheels, wells, windows, air blowout, light vacuum, and light wipe down.",
+        basePrice: 80,
+        pricingBySize: {
+          small: 80,
+          medium: 120,
+          large: 150,
+          extra_large: 180
+        },
+        isActive: true,
+        estimatedDuration: 90,
+        bufferTimeMinutes: 15,
+        isTaxable: true,
+        requiresWaiver: false
+      },
+      {
+        id: "clay-seal-protection-detail",
+        name: "Clay & Seal Protection Detail",
+        category: "Protection",
+        categoryId: "protection",
+        description: "Premium protection detail and most popular service. Includes clay bar decontamination, 6-month sealant protection, and gloss enhancement.",
+        basePrice: 180,
+        pricingBySize: {
+          small: 180,
+          medium: 250,
+          large: 320,
+          extra_large: 400
+        },
+        isActive: true,
+        estimatedDuration: 180,
+        bufferTimeMinutes: 30,
+        isTaxable: true,
+        requiresWaiver: false
+      },
+      {
+        id: "paint-enhancement-polish",
+        name: "Paint Enhancement & Polish",
+        category: "Paint Correction",
+        categoryId: "paint-correction",
+        description: "Single-stage machine polish designed to restore gloss and clarity while removing light surface defects.",
+        basePrice: 350,
+        pricingBySize: {
+          small: 350,
+          medium: 500,
+          large: 650,
+          extra_large: 800
+        },
+        isActive: true,
+        estimatedDuration: 300,
+        bufferTimeMinutes: 30,
+        isTaxable: true,
+        requiresWaiver: true
+      },
+      {
+        id: "one-step-paint-correction",
+        name: "One-Step Paint Correction",
+        category: "Paint Correction",
+        categoryId: "paint-correction",
+        description: "Professional machine correction aimed at removing 60-80% of swirl marks and scratches. Significantly improves paint depth and clarity.",
+        basePrice: 600,
+        pricingBySize: {
+          small: 600,
+          medium: 850,
+          large: 1100,
+          extra_large: 1400
+        },
+        isActive: true,
+        estimatedDuration: 480,
+        bufferTimeMinutes: 60,
+        isTaxable: true,
+        requiresWaiver: true
+      }
+    ];
+
+    for (const service of servicesData) {
+      await setDoc(doc(db, "services", service.id), service);
+    }
+
+    // 4. Define Add-Ons
+    const addonsData = [
+      { id: "pet-hair-removal", name: "Pet Hair Removal", price: 50, description: "Professional removal of embedded pet hair.", isActive: true, estimatedDuration: 30, bufferTimeMinutes: 0, isTaxable: true },
+      { id: "engine-bay-detail", name: "Engine Bay Detail", price: 60, description: "Deep cleaning and dressing of engine bay.", isActive: true, estimatedDuration: 30, bufferTimeMinutes: 0, isTaxable: true },
+      { id: "headlight-restoration", name: "Headlight Restoration", price: 85, description: "Restores clarity to oxidized headlights.", isActive: true, estimatedDuration: 60, bufferTimeMinutes: 0, isTaxable: true },
+      { id: "ozone-treatment", name: "Ozone Odor Treatment", price: 100, description: "Eliminates biological and organic odors.", isActive: true, estimatedDuration: 30, bufferTimeMinutes: 0, isTaxable: true }
+    ];
+
+    for (const addon of addonsData) {
+      await setDoc(doc(db, "addons", addon.id), addon);
+    }
+
+    console.log("Official Service Catalog Imported.");
+    return true;
+  } catch (error) {
+    console.error("Error importing service system:", error);
     return false;
   }
 }

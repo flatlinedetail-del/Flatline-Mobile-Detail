@@ -354,7 +354,7 @@ export default function Expenses() {
                       />
                     </div>
                     <div className="space-y-3">
-                      <Label htmlFor="date" className="font-black uppercase tracking-widest text-[10px] text-white/70">Transaction Date</Label>
+                      <Label htmlFor="date" className="font-black uppercase tracking-widest text-[10px] text-white">Transaction Date</Label>
                       <Input 
                         id="date" 
                         type="date" 
@@ -366,7 +366,7 @@ export default function Expenses() {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <Label htmlFor="category" className="font-black uppercase tracking-widest text-[10px] text-white/70">Operational Category</Label>
+                    <Label htmlFor="category" className="font-black uppercase tracking-widest text-[10px] text-white">Operational Category</Label>
                     <Select 
                       value={newExpense.category}
                       onValueChange={val => setNewExpense(prev => ({ ...prev, category: val }))}
@@ -392,7 +392,7 @@ export default function Expenses() {
                     </Select>
                   </div>
                   <div className="space-y-3">
-                    <Label htmlFor="receiptUrl" className="font-black uppercase tracking-widest text-[10px] text-white/70">Digital Receipt URL (Optional)</Label>
+                    <Label htmlFor="receiptUrl" className="font-black uppercase tracking-widest text-[10px] text-white">Digital Receipt URL (Optional)</Label>
                     <StableInput 
                       id="receiptUrl" 
                       value={newExpense.receiptUrl}
@@ -402,7 +402,7 @@ export default function Expenses() {
                     />
                   </div>
                   <div className="space-y-3">
-                    <Label htmlFor="appointmentId" className="font-black uppercase tracking-widest text-[10px] text-white/70">Linked Mission (Optional)</Label>
+                    <Label htmlFor="appointmentId" className="font-black uppercase tracking-widest text-[10px] text-white">Linked Mission (Optional)</Label>
                     <SearchableSelector
                       options={[
                         { value: "none", label: "None" },
@@ -420,7 +420,7 @@ export default function Expenses() {
                 </div>
 
                 <div className="flex items-center gap-4 pt-6 border-t border-white/5">
-                  <Button variant="ghost" type="button" onClick={() => setShowAddDialog(false)} className="flex-1 text-gray-400 hover:text-white font-black uppercase tracking-widest text-[10px] h-14">
+                  <Button variant="ghost" type="button" onClick={() => setShowAddDialog(false)} className="flex-1 text-white hover:text-white font-black uppercase tracking-widest text-[10px] h-14">
                     Abort
                   </Button>
                   <Button type="submit" className="flex-[2] bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105">
@@ -452,12 +452,12 @@ export default function Expenses() {
           <Table>
             <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow className="hover:bg-transparent border-white/5">
-                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Date</TableHead>
-                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Description</TableHead>
-                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Category</TableHead>
-                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Amount</TableHead>
-                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14">Receipt</TableHead>
-                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 h-14 text-right">Actions</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white h-14">Date</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white h-14">Description</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white h-14">Category</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white h-14">Amount</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white h-14">Receipt</TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px] text-white h-14 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -472,7 +472,7 @@ export default function Expenses() {
               ) : (
                 filteredExpenses.map((exp) => (
                   <TableRow key={exp.id} className="hover:bg-white/[0.02] transition-colors border-white/5 group">
-                    <TableCell className="text-xs font-bold text-white/60">
+                    <TableCell className="text-xs font-bold text-white">
                       {exp.date?.toDate ? format(exp.date.toDate(), "MMM d, yyyy") : "---"}
                     </TableCell>
                     <TableCell>
@@ -486,7 +486,7 @@ export default function Expenses() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-[9px] font-black uppercase tracking-wider bg-white/5 border-white/10 text-white/80">
+                      <Badge variant="outline" className="text-[9px] font-black uppercase tracking-wider bg-white/5 border-white/10 text-white">
                         {exp.category}
                       </Badge>
                     </TableCell>
@@ -507,7 +507,7 @@ export default function Expenses() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-9 w-9 text-white/40 hover:text-white hover:bg-white/10 rounded-xl"
+                          className="h-9 w-9 text-white hover:text-white hover:bg-white/10 rounded-xl"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingExpense(exp);
@@ -529,7 +529,7 @@ export default function Expenses() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-9 w-9 text-white/40 hover:text-primary hover:bg-primary/10 rounded-xl"
+                              className="h-9 w-9 text-white hover:text-primary hover:bg-primary/10 rounded-xl"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Trash2 className="w-4 h-4" />

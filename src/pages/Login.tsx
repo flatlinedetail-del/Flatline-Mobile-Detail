@@ -18,7 +18,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
       {/* Background Flow Effect */}
       <div className="absolute inset-0 opacity-20 pointer-events-none">
-        <svg width="100%" height="100%" className="text-blue-500">
+        <svg width="100%" height="100%" className="text-[#0A4DFF]">
           <path d="M0 100 Q 250 50 500 100 T 1000 100 T 1500 100 T 2000 100" fill="none" stroke="currentColor" strokeWidth="1" className="animate-[dash_10s_linear_infinite]" />
           <path d="M0 200 Q 250 150 500 200 T 1000 200 T 1500 200 T 2000 200" fill="none" stroke="currentColor" strokeWidth="1" className="animate-[dash_15s_linear_infinite]" />
           <path d="M0 300 Q 250 250 500 300 T 1000 300 T 1500 300 T 2000 300" fill="none" stroke="currentColor" strokeWidth="1" className="animate-[dash_12s_linear_infinite]" />
@@ -32,7 +32,7 @@ export default function Login() {
         
         <Button 
           onClick={signIn} 
-          className="w-full bg-slate-900 text-white hover:bg-blue-600 h-16 text-lg font-black shadow-2xl flex items-center justify-center gap-4 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] uppercase tracking-tighter"
+          className="w-full bg-slate-900 text-white hover:bg-[#0A4DFF] h-16 text-lg font-black shadow-2xl flex items-center justify-center gap-4 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] uppercase tracking-tighter"
         >
           <img src="https://www.google.com/favicon.ico" alt="Google" className="w-6 h-6 grayscale brightness-200" />
           Authenticate with SSO

@@ -45,8 +45,8 @@ export default function Reports() {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
         <ShieldAlert className="w-16 h-16 text-red-500" />
-        <h2 className="text-2xl font-black text-gray-900">Access Denied</h2>
-        <p className="text-gray-500 font-medium text-center max-w-md">
+        <h2 className="text-2xl font-black text-white">Access Denied</h2>
+        <p className="text-white font-medium text-center max-w-md">
           You do not have permission to access business reports. Please contact an administrator if you believe this is an error.
         </p>
         <Button onClick={() => window.history.back()} variant="outline">Go Back</Button>
@@ -150,12 +150,12 @@ export default function Reports() {
     { name: "Other", value: expenses.filter(e => e.category === "other").reduce((sum, e) => sum + e.amount, 0) },
   ].filter(cat => cat.value > 0);
 
-  const COLORS = ["#E11D48", "#000000", "#10b981", "#f59e0b"];
+  const COLORS = ["#0A4DFF", "#6366f1", "#8b5cf6", "#d946ef"];
 
   return (
     <div className="space-y-6 pb-20">
       <PageHeader 
-        title="Intelligence REPORTS" 
+        title="Business REPORTS" 
         accentWord="REPORTS" 
         subtitle="Performance Analytics & Growth Metrics"
         actions={
@@ -199,7 +199,7 @@ export default function Reports() {
         <ReportCard 
           title="Commissions" 
           value={formatCurrency(totalCommissions)} 
-          icon={<Users className="w-6 h-6 text-primary/60" />}
+          icon={<Users className="w-6 h-6 text-white" />}
           color="blue"
         />
       </div>
@@ -219,19 +219,19 @@ export default function Reports() {
                     dataKey="name" 
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{ fontSize: 10, fontWeight: 600, fill: "#A0A0A0" }}
+                    tick={{ fontSize: 10, fontWeight: 600, fill: "#FFFFFF" }}
                     interval={Math.floor(chartData.length / 7)}
                   />
                   <YAxis 
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{ fontSize: 10, fontWeight: 600, fill: "#A0A0A0" }}
+                    tick={{ fontSize: 10, fontWeight: 600, fill: "#FFFFFF" }}
                     tickFormatter={(value) => formatCurrency(value)}
                   />
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#121212', borderRadius: "12px", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.5)" }}
                     itemStyle={{ color: '#FFFFFF', fontWeight: 'bold' }}
-                    labelStyle={{ color: '#A0A0A0', marginBottom: '4px' }}
+                    labelStyle={{ color: '#FFFFFF', marginBottom: '4px' }}
                     cursor={{ fill: "rgba(255,255,255,0.05)" }}
                   />
                   <Bar dataKey="sales" fill="#0A4DFF" radius={[4, 4, 0, 0]} />
@@ -261,10 +261,10 @@ export default function Reports() {
                     stroke="none"
                   >
                     {[
-                      { name: "Fuel", color: "#0A4DFF" },
-                      { name: "Supplies", color: "#1E90FF" },
-                      { name: "Marketing", color: "#2A6CFF" },
-                      { name: "Other", color: "#3B82F6" }
+                      { name: "Fuel", color: COLORS[0] },
+                      { name: "Supplies", color: COLORS[1] },
+                      { name: "Marketing", color: COLORS[2] },
+                      { name: "Other", color: COLORS[3] }
                     ].map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
@@ -276,17 +276,17 @@ export default function Reports() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="space-y-2 mt-4">
+            <div className="space-y-4 mt-8">
               {[
-                { name: "Fuel", color: "#0A4DFF" },
-                { name: "Supplies", color: "#1E90FF" },
-                { name: "Marketing", color: "#2A6CFF" },
-                { name: "Other", color: "#3B82F6" }
+                { name: "Fuel", color: COLORS[0] },
+                { name: "Supplies", color: COLORS[1] },
+                { name: "Marketing", color: COLORS[2] },
+                { name: "Other", color: COLORS[3] }
               ].filter(c => expenseByCategory.some(eb => eb.name === c.name)).map((cat, idx) => (
                 <div key={cat.name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }} />
-                    <span className="text-sm font-bold text-[#A0A0A0]">{cat.name}</span>
+                    <span className="text-sm font-bold text-white">{cat.name}</span>
                   </div>
                   <span className="text-sm font-black text-white">{formatCurrency(expenseByCategory.find(eb => eb.name === cat.name)?.value || 0)}</span>
                 </div>
@@ -305,10 +305,10 @@ export default function Reports() {
           <Table>
             <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow className="hover:bg-transparent border-none">
-                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Service Name</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Bookings</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Revenue</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Avg. Price</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white uppercase tracking-[0.2em]">Service Name</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white uppercase tracking-[0.2em]">Bookings</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white uppercase tracking-[0.2em]">Revenue</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white uppercase tracking-[0.2em]">Avg. Price</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -324,14 +324,14 @@ export default function Reports() {
               ).map(([name, stats]: [string, any]) => (
                 <TableRow key={name} className="border-white/5 hover:bg-white/5 transition-colors">
                   <TableCell className="px-8 py-6 font-black text-white uppercase tracking-tight text-sm shadow-sm">{name}</TableCell>
-                  <TableCell className="px-8 py-6 text-[#A0A0A0] font-bold">{stats.count}</TableCell>
-                  <TableCell className="px-8 py-6 text-[#A0A0A0] font-bold">{formatCurrency(stats.revenue)}</TableCell>
-                  <TableCell className="px-8 py-6 text-[#A0A0A0] font-bold">{formatCurrency(stats.revenue / stats.count)}</TableCell>
+                  <TableCell className="px-8 py-6 text-white font-bold">{stats.count}</TableCell>
+                  <TableCell className="px-8 py-6 text-white font-bold">{formatCurrency(stats.revenue)}</TableCell>
+                  <TableCell className="px-8 py-6 text-white font-bold">{formatCurrency(stats.revenue / stats.count)}</TableCell>
                 </TableRow>
               ))}
               {appointments.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-20 text-[#A0A0A0] font-black uppercase tracking-widest text-[10px]">No data available for this period.</TableCell>
+                  <TableCell colSpan={4} className="text-center py-20 text-white font-black uppercase tracking-widest text-[10px]">No data available for this period.</TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -359,7 +359,7 @@ function ReportCard({ title, value, icon, color }: any) {
           </div>
         </div>
         <div>
-          <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">{title}</p>
+          <p className="text-[10px] font-black text-white uppercase tracking-widest mb-1">{title}</p>
           <h3 className="text-3xl font-black text-white tracking-tighter drop-shadow-sm">{value}</h3>
         </div>
       </CardContent>

@@ -451,21 +451,21 @@ export default function Vendors() {
           <Table>
             <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow>
-                <TableHead className="w-[300px]">Business</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Billing Cycle</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="w-[300px] text-white">Business</TableHead>
+                <TableHead className="text-white">Contact</TableHead>
+                <TableHead className="text-white">Billing Cycle</TableHead>
+                <TableHead className="text-white">Created</TableHead>
+                <TableHead className="text-right text-white">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-10 text-gray-500">Loading vendors...</TableCell>
+                  <TableCell colSpan={5} className="text-center py-10 text-white font-bold">Loading partners...</TableCell>
                 </TableRow>
               ) : filteredVendors.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-10 text-gray-500">No vendors found.</TableCell>
+                  <TableCell colSpan={5} className="text-center py-10 text-white font-bold">No partners found.</TableCell>
                 </TableRow>
               ) : (
                 filteredVendors.map((vendor) => (
@@ -479,21 +479,21 @@ export default function Vendors() {
                   >
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 group-hover:bg-red-50 group-hover:text-primary transition-colors">
+                        <div className="w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center text-white group-hover:bg-red-50 group-hover:text-primary transition-colors">
                           <Building2 className="w-5 h-5" />
                         </div>
                         <div className="flex flex-col">
-                          <span className="font-bold text-gray-900">{vendor.name}</span>
-                          <span className="text-xs text-gray-500 truncate max-w-[200px]">{vendor.email || "No billing email"}</span>
+                          <span className="font-bold text-white uppercase tracking-tight">{vendor.name}</span>
+                          <span className="text-xs text-white truncate max-w-[200px]">{vendor.email || "No billing email"}</span>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
-                        <span className="text-sm font-bold text-gray-700">{vendor.contactPerson}</span>
+                        <span className="text-sm font-bold text-white uppercase tracking-tighter">{vendor.contactPerson}</span>
                         <a 
                           href={`tel:${vendor.phone}`} 
-                          className="flex items-center gap-2 text-xs text-gray-500 hover:text-primary transition-colors"
+                          className="flex items-center gap-2 text-xs text-white hover:text-primary transition-colors"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <Phone className="w-3 h-3" />
@@ -507,7 +507,7 @@ export default function Vendors() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-white font-medium uppercase tracking-widest">
                         {vendor.createdAt?.toDate ? format(vendor.createdAt.toDate(), "MMM d, yyyy") : "Just now"}
                       </span>
                     </TableCell>
@@ -516,7 +516,7 @@ export default function Vendors() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-gray-500 hover:text-primary transition-colors"
+                          className="h-8 w-8 text-white hover:text-primary transition-colors"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingVendor(vendor);
@@ -530,7 +530,7 @@ export default function Vendors() {
                         >
                           <Edit2 className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-primary">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-white group-hover:text-primary">
                           <ChevronRight className="w-5 h-5" />
                         </Button>
                       </div>
@@ -555,7 +555,7 @@ export default function Vendors() {
                   </div>
                   <div>
                     <h2 className="text-3xl font-black tracking-tighter uppercase">{selectedVendor.name}</h2>
-                    <div className="text-white/60 flex items-center gap-4 mt-1 font-medium">
+                    <div className="text-white flex items-center gap-4 mt-1 font-medium">
                       <a href={`tel:${selectedVendor.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors">
                         <Phone className="w-4 h-4 text-primary" /> {selectedVendor.phone}
                       </a>
@@ -585,11 +585,11 @@ export default function Vendors() {
                       <Calendar className="w-4 h-4 mr-2" />
                       Book Appointment
                     </Button>
-                    <Badge className="bg-white/10 text-white/60 border-none font-black uppercase tracking-widest text-[10px] px-3 py-1">
+                    <Badge className="bg-white/10 text-white border-none font-black uppercase tracking-widest text-[10px] px-3 py-1">
                       {selectedVendor.billingCycle} BILLING
                     </Badge>
                   </div>
-                  <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Contact Person</p>
+                  <p className="text-[10px] text-white font-black uppercase tracking-widest">Contact Person</p>
                   <p className="text-xl font-black text-white">{selectedVendor.contactPerson}</p>
                 </div>
               </div>

@@ -64,7 +64,7 @@
     --secondary: #161616;
     --secondary-foreground: #FFFFFF;
     --muted: #1A1A1A;
-    --muted-foreground: #A0A0A0;
+    --muted-foreground: #FFFFFF;
     --accent: #0A4DFF;
     --accent-foreground: #FFFFFF;
     --destructive: #EF4444;
@@ -94,7 +94,7 @@
     --secondary: #161616;
     --secondary-foreground: #FFFFFF;
     --muted: #1A1A1A;
-    --muted-foreground: #A0A0A0;
+    --muted-foreground: #FFFFFF;
     --accent: #0A4DFF;
     --accent-foreground: #FFFFFF;
     --destructive: #EF4444;
@@ -118,6 +118,78 @@
   body {
     @apply bg-background text-foreground antialiased;
     overflow-x: hidden;
+  }
+
+  /* GLOBAL TEXT COLOR STANDARDIZATION */
+  /* Default all text to white for the dark theme, while respecting explicit color overrides */
+  body {
+    color: #FFFFFF;
+  }
+
+  /* Target common text elements that might inherit or default to dark colors */
+  p:not([class*="text-"]), 
+  span:not(.lucide):not([class*="text-"]), 
+  label:not([class*="text-"]), 
+  li:not([class*="text-"]), 
+  td:not([class*="text-"]), 
+  th:not([class*="text-"]), 
+  dt:not([class*="text-"]), 
+  dd:not([class*="text-"]) {
+    color: #FFFFFF;
+  }
+
+  /* Specific fix for inputs and select triggers to ensure text is white */
+  input:not([class*="text-"]), 
+  textarea:not([class*="text-"]), 
+  select:not([class*="text-"]),
+  [data-radix-collection-item] span {
+    color: #FFFFFF;
+  }
+
+  /* Buttons should usually inherit or have their own text color, but force if needed */
+  button:not([class*="text-"]) {
+    color: #FFFFFF;
+  }
+
+  /* EXCEPTIONS: Content inside white or light containers (like Invoices) must stay dark */
+  [class*="bg-white"] p, 
+  [class*="bg-white"] span:not(.lucide), 
+  [class*="bg-white"] label,
+  [class*="bg-white"] th,
+  [class*="bg-white"] td,
+  [class*="bg-gray-50"] p,
+  [class*="bg-gray-50"] span:not(.lucide),
+  .bg-white p, .bg-white span, .bg-white div {
+    color: inherit;
+  }
+
+  /* Ensure placeholders are clearly visible on dark backgrounds */
+  ::placeholder {
+    color: rgba(255, 255, 255, 0.6) !important;
+    opacity: 1 !important;
+  }
+
+  /* Disabled states visibility */
+  button:disabled, input:disabled, textarea:disabled, select:disabled {
+    opacity: 0.6 !important;
+    cursor: not-allowed;
+    color: rgba(255, 255, 255, 0.8) !important;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Fix for datetime-local icons in dark mode */
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+    opacity: 1 !important;
+    padding: 2px;
   }
 }
 
@@ -240,7 +312,7 @@
 }
 
 .rbc-agenda-view .rbc-agenda-empty {
-  @apply p-20 text-center text-gray-500 font-bold uppercase tracking-widest text-xs;
+  @apply p-20 text-center text-white font-bold uppercase tracking-widest text-xs;
 }
 
 .rbc-btn-group button {

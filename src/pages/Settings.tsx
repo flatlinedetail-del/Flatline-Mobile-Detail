@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { doc, updateDoc, getDoc, setDoc, collection, query, onSnapshot, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs } from "firebase/firestore";
+import { doc, updateDoc, getDoc, setDoc, collection, query, onSnapshot, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
 import { db, auth, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -18,15 +18,15 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
-import { seedDemoData, seedServiceTimingDemo } from "../services/seedData";
+import { seedDemoData, seedServiceTimingDemo, importFullServiceSystem } from "../services/seedData";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
-import { resizeImage, cn } from "../lib/utils";
+import { resizeImage, cn, formatPhoneNumber, formatCurrency } from "../lib/utils";
+import { StandardInput } from "../components/StandardInput";
 import { StableInput } from "../components/StableInput";
 import { StableTextarea } from "../components/StableTextarea";
-import { formatPhoneNumber } from "../lib/utils";
 import { NumberInput } from "../components/NumberInput";
 import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon } from "../types";
 import { migrateDataToClients } from "../services/clientService";
@@ -72,14 +72,28 @@ const removeUndefined = (obj: any): any => {
 };
 
 export default function Settings() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, isQuotaExceeded } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "profile";
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoAdjustments, setLogoAdjustments] = useState({
+    scale: 1,
+    x: 0,
+    y: 0,
+    rotation: 0,
+    fit: 'contain' as 'contain' | 'cover',
+    background: 'transparent' as 'transparent' | 'dark' | 'light'
+  });
+  const [logoError, setLogoError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [watermarkLogoPreview, setWatermarkLogoPreview] = useState<string | null>(null);
+  const [watermarkLogoFile, setWatermarkLogoFile] = useState<File | null>(null);
+  const watermarkFileInputRef = useRef<HTMLInputElement>(null);
 
   const isAdminOrManager = profile?.role === "admin" || profile?.role === "manager";
 
@@ -107,7 +121,6 @@ export default function Settings() {
   const [isCouponDialogOpen, setIsCouponDialogOpen] = useState(false);
   const [isClientTypeDialogOpen, setIsClientTypeDialogOpen] = useState(false);
   const [isClientCategoryDialogOpen, setIsClientCategoryDialogOpen] = useState(false);
-  const [cloverConfigured, setCloverConfigured] = useState(false);
   const [googleCalendarLinked, setGoogleCalendarLinked] = useState(false);
   const [isLinkingCalendar, setIsLinkingCalendar] = useState(false);
   const [travelPricingInputs, setTravelPricingInputs] = useState({
@@ -118,25 +131,30 @@ export default function Settings() {
   });
 
   useEffect(() => {
-    fetch("/api/clover/status")
-      .then(res => res.json())
-      .then(data => setCloverConfigured(data.configured))
-      .catch(err => console.error("Error checking Clover status:", err));
-
     getGoogleCalendarToken().then(token => setGoogleCalendarLinked(!!token)).catch(() => setGoogleCalendarLinked(false));
   }, []);
 
   useEffect(() => {
-    if (authLoading || !profile) return;
+    if (authLoading || !profile || isQuotaExceeded) return;
 
     const fetchSettings = async () => {
-      // Check cache first (5 min)
+      // Check cache first (10 min)
       const cached = sessionStorage.getItem('business_settings_cache');
       const cacheTime = sessionStorage.getItem('business_settings_cache_time');
       const now = Date.now();
-      if (cached && cacheTime && now - Number(cacheTime) < 5 * 60 * 1000) {
+      if (cached && cacheTime && now - Number(cacheTime) < 10 * 60 * 1000) {
         const parsed = JSON.parse(cached);
         setSettings(parsed);
+        if (parsed) {
+          setLogoAdjustments({
+            scale: parsed.logoSettings?.scale || 1,
+            x: parsed.logoSettings?.x || 0,
+            y: parsed.logoSettings?.y || 0,
+            rotation: parsed.logoSettings?.rotation || 0,
+            fit: parsed.logoSettings?.fit || 'contain',
+            background: 'transparent'
+          });
+        }
         setTravelPricingInputs({
           pricePerMile: (parsed.travelPricing?.pricePerMile || 0).toString(),
           freeMilesThreshold: (parsed.travelPricing?.freeMilesThreshold || 0).toString(),
@@ -163,6 +181,17 @@ export default function Settings() {
             data = { ...data, ...intSnap.data() };
           }
           setSettings(data);
+          
+          if (data) {
+            setLogoAdjustments({
+              scale: data.logoSettings?.scale || 1,
+              x: data.logoSettings?.x || 0,
+              y: data.logoSettings?.y || 0,
+              rotation: data.logoSettings?.rotation || 0,
+              fit: data.logoSettings?.fit || 'contain',
+              background: 'transparent'
+            });
+          }
           
           // Cache settings
           sessionStorage.setItem('business_settings_cache', JSON.stringify(data));
@@ -266,7 +295,7 @@ export default function Settings() {
             getDocs(collection(db, "coupons")),
             getDocs(query(collection(db, "client_types"), orderBy("sortOrder", "asc"))),
             getDocs(query(collection(db, "client_categories"), orderBy("name", "asc"))),
-            getDocs(query(collection(db, "users"), orderBy("displayName", "asc")))
+            getDocs(query(collection(db, "users"), orderBy("displayName", "asc"), limit(50)))
           ]);
 
           const servicesData = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service));
@@ -441,48 +470,54 @@ export default function Settings() {
   };
 
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [isAvatarUploading, setIsAvatarUploading] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [isAvatarRemoved, setIsAvatarRemoved] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !profile?.uid) return;
+    setAvatarError(null);
+    
+    if (!file) return;
 
-    // Reset input so the same file could be selected again if needed
+    // Validate file type
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      setAvatarError("Invalid file type. Please use PNG, JPG, or WEBP.");
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError("File is too large. Maximum size is 5MB.");
+      return;
+    }
+
+    setAvatarFile(file);
+    setIsAvatarRemoved(false);
+
+    // Create local preview
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setAvatarPreview(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    // Reset input
     if (avatarInputRef.current) {
       avatarInputRef.current.value = "";
     }
+  };
 
-    // Local preview and upload
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const dataUrl = event.target?.result as string;
-      setAvatarPreview(dataUrl);
-
-      setIsAvatarUploading(true);
-      const toastId = toast.loading("Uploading signature identity asset...");
-      
-      try {
-        // Resize image and store directly in Firestore since base64 avatars are small enough 
-        // and it avoids Storage configuration/limits errors.
-        const compressedDataUrl = await resizeImage(dataUrl, 200);
-        // Use setDoc with merge to ensure it doesn't fail if the document was missing
-        await setDoc(doc(db, "users", profile.uid), { photoURL: compressedDataUrl }, { merge: true });
-        
-        toast.success("Identity asset updated successfully", { id: toastId });
-      } catch (error) {
-        console.error("Avatar upload failed:", error);
-        toast.error("Failed to update identity asset", { id: toastId });
-        setAvatarPreview(null);
-      } finally {
-        setIsAvatarUploading(false);
-      }
-    };
-    reader.onerror = () => {
-      toast.error("Failed to read the image file");
-      setIsAvatarUploading(false);
-    };
-    reader.readAsDataURL(file);
+  const handleRemoveAvatar = () => {
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    setIsAvatarRemoved(true);
+    setAvatarError(null);
+    if (avatarInputRef.current) {
+      avatarInputRef.current.value = "";
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -501,8 +536,22 @@ export default function Settings() {
       if (profile.role === "admin") {
         updates.role = role;
       }
+
+      // Handle avatar updates
+      if (isAvatarRemoved) {
+        updates.photoURL = null;
+      } else if (avatarPreview && avatarFile) {
+        // Resize and update avatar base64
+        const compressedDataUrl = await resizeImage(avatarPreview, 200);
+        updates.photoURL = compressedDataUrl;
+      }
       
       await updateDoc(doc(db, "users", profile.uid), updates);
+      
+      // Cleanup
+      setAvatarFile(null);
+      setIsAvatarRemoved(false);
+      
       toast.success("Profile updated successfully");
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -855,15 +904,57 @@ export default function Settings() {
     }
   };
 
+  const handleSaveBranding = async () => {
+    if (!settings) return;
+    setIsSaving(true);
+    const toastId = toast.loading("Authorizing branding updates...");
+
+    try {
+      let finalLogoUrl = settings.logoUrl;
+      let finalWatermarkLogoUrl = settings.watermarkSettings?.logoUrl;
+
+      // If a new logo file was selected, we should eventually upload to Storage
+      if (logoPreview && logoFile) {
+        finalLogoUrl = await resizeImage(logoPreview, 800);
+      }
+
+      if (watermarkLogoPreview && watermarkLogoFile) {
+        finalWatermarkLogoUrl = await resizeImage(watermarkLogoPreview, 800);
+      }
+
+      await handleSaveSettings({ 
+        logoUrl: finalLogoUrl,
+        logoSettings: {
+          scale: logoAdjustments.scale,
+          x: logoAdjustments.x,
+          y: logoAdjustments.y,
+          rotation: logoAdjustments.rotation,
+          fit: logoAdjustments.fit
+        },
+        watermarkSettings: {
+          ...settings.watermarkSettings,
+          logoUrl: finalWatermarkLogoUrl,
+          opacity: settings.watermarkSettings?.opacity ?? 0.10,
+          position: settings.watermarkSettings?.position ?? "center",
+          size: settings.watermarkSettings?.size ?? "medium"
+        }
+      });
+
+      toast.success("Branding authorized and deployed.", { id: toastId });
+      setLogoFile(null); // Clear pending file
+      setWatermarkLogoFile(null);
+    } catch (error) {
+      console.error("Branding save failed:", error);
+      toast.error("Logo preview updated locally. Permanent cloud save requires storage connection.", { id: toastId });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !settings) return;
-
-    // Check authentication
-    if (!auth.currentUser) {
-      toast.error("You must be logged in to upload a logo.");
-      return;
-    }
+    setLogoError(null);
+    if (!file) return;
 
     // Check permissions
     if (!isAdminOrManager) {
@@ -872,43 +963,97 @@ export default function Settings() {
     }
 
     // Validate type
-    const validTypes = ["image/png", "image/jpeg", "image/jpg"];
+    const validTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
     if (!validTypes.includes(file.type)) {
-      toast.error("Please upload a valid PNG, JPG, or JPEG file.");
+      setLogoError("Please upload a valid PNG, JPG, or WEBP file.");
       return;
     }
+
+    // Validate size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setLogoError("File is too large. Maximum size is 5MB.");
+      return;
+    }
+
+    setLogoFile(file);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      setLogoPreview(dataUrl);
+    };
+    reader.readAsDataURL(file);
 
     // Reset input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  };
+
+  const handleRemoveLogo = () => {
+    setLogoPreview(null);
+    setLogoFile(null);
+    setLogoError(null);
+    setLogoAdjustments({
+      scale: 1,
+      x: 0,
+      y: 0,
+      rotation: 0,
+      fit: 'contain',
+      background: 'transparent'
+    });
+    setSettings(prev => prev ? { ...prev, logoUrl: "" } : null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleWatermarkLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!isAdminOrManager) {
+      toast.error("Only admins or managers can update branding.");
+      return;
+    }
+
+    const validTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"];
+    if (!validTypes.includes(file.type)) {
+      toast.error("Please upload a valid PNG, JPG, SVG, or WEBP file.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("File is too large. Maximum size is 5MB.");
+      return;
+    }
+
+    setWatermarkLogoFile(file);
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       const dataUrl = event.target?.result as string;
-      setLogoPreview(dataUrl);
-      setIsUploading(true);
-      const toastId = toast.loading("Processing business branding asset...");
-      
-      try {
-        // Use the same resize strategy as avatar for consistency + better performance/reliability
-        const compressedDataUrl = await resizeImage(dataUrl, 500); // Logo slightly larger but still small base64
-        
-        await handleSaveSettings({ logoUrl: compressedDataUrl });
-        toast.success("Business branding updated successfully", { id: toastId });
-      } catch (error) {
-        console.error("Logo upload failed:", error);
-        toast.error("Failed to update branding asset", { id: toastId });
-        setLogoPreview(null);
-      } finally {
-        setIsUploading(false);
-      }
-    };
-    reader.onerror = () => {
-      toast.error("Failed to read the branding asset");
-      setIsUploading(false);
+      setWatermarkLogoPreview(dataUrl);
     };
     reader.readAsDataURL(file);
+
+    if (watermarkFileInputRef.current) {
+      watermarkFileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveWatermarkLogo = () => {
+    setWatermarkLogoPreview(null);
+    setWatermarkLogoFile(null);
+    setSettings(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        watermarkSettings: {
+          ...prev.watermarkSettings,
+          logoUrl: ""
+        }
+      };
+    });
+    if (watermarkFileInputRef.current) watermarkFileInputRef.current.value = "";
   };
 
   const handleTabChange = (value: string) => {
@@ -1019,43 +1164,116 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="p-8">
               <form onSubmit={handleSaveProfile} className="space-y-8">
-                <div className="flex items-center gap-8">
-                  <div className="w-24 h-24 bg-black/40 rounded-3xl overflow-hidden border-2 border-white/10 shadow-xl group relative">
-                    {avatarPreview || profile?.photoURL ? (
-                      <img src={avatarPreview || profile?.photoURL || ""} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white/20">
-                        <User className="w-10 h-10" />
+                <div className="flex flex-col md:flex-row items-center md:items-start gap-10 mb-12">
+                  <div className="relative group">
+                    <div className={cn(
+                      "w-32 h-32 rounded-full overflow-hidden border-4 relative z-10 bg-black/60 shadow-2xl transition-all duration-500",
+                      avatarError ? "border-red-500/50 shadow-red-500/20" : "border-white/5 hover:border-primary/50 shadow-black"
+                    )}>
+                      {avatarPreview || (profile?.photoURL && !isAvatarRemoved) ? (
+                        <img 
+                          src={avatarPreview || profile?.photoURL || ""} 
+                          alt="" 
+                          referrerPolicy="no-referrer" 
+                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-white/5">
+                          <User className="w-12 h-12 mb-1" />
+                          <span className="text-[7px] font-black uppercase tracking-[0.2em]">No Profile Data</span>
+                        </div>
+                      )}
+                      
+                      {/* Interactive Overlay */}
+                      <div 
+                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-all duration-300 backdrop-blur-[2px]"
+                        onClick={() => avatarInputRef.current?.click()}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) {
+                            const mockEvent = { target: { files: [file] } } as any;
+                            handleAvatarUpload(mockEvent);
+                          }
+                        }}
+                      >
+                        <div className="text-center transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+                          <Upload className="w-6 h-6 text-white mx-auto mb-2" />
+                          <p className="text-[8px] font-black text-white uppercase tracking-[0.2em]">Deploy Asset</p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Premium Glow Ring */}
+                    <div className="absolute inset-[-8px] rounded-full border border-primary/20 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+                    <div className="absolute inset-[-12px] rounded-full border border-primary/10 opacity-0 group-hover:opacity-100 transition-opacity duration-1000 delay-100 pointer-events-none" />
+                  </div>
+
+                  <div className="flex-1 space-y-5 text-center md:text-left">
+                    <div className="space-y-1">
+                      <h4 className="text-3xl font-black text-white uppercase tracking-tighter leading-none">
+                        {profile?.displayName || "System Operator"}
+                      </h4>
+                      <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
+                        <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-1 rounded-full">
+                          <ShieldCheck className="w-3 h-3 text-primary" />
+                          <span className="text-primary font-black uppercase tracking-[0.2em] text-[8px]">{profile?.role} Clearance</span>
+                        </div>
+                        <span className="text-white/30 font-bold uppercase tracking-[0.3em] text-[8px] bg-white/5 px-3 py-1 rounded-full">ID: {profile?.uid?.slice(0, 8)}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
+                      <input 
+                        type="file" 
+                        ref={avatarInputRef} 
+                        className="hidden" 
+                        accept="image/png,image/jpeg,image/jpg,image/webp" 
+                        onChange={handleAvatarUpload} 
+                      />
+                      <Button 
+                        variant="outline" 
+                        type="button" 
+                        onClick={() => avatarInputRef.current?.click()}
+                        className="bg-white/5 hover:bg-primary/20 text-white hover:text-primary border-white/10 hover:border-primary/50 rounded-xl h-10 px-6 font-black uppercase tracking-widest text-[10px] transition-all"
+                      >
+                        Upload New Avatar
+                      </Button>
+                      {(avatarPreview || profile?.photoURL) && !isAvatarRemoved && (
+                        <Button 
+                          variant="ghost" 
+                          type="button" 
+                          onClick={handleRemoveAvatar}
+                          className="text-white/20 hover:text-red-400 hover:bg-red-400/10 rounded-xl h-10 px-6 font-black uppercase tracking-widest text-[10px] transition-all"
+                        >
+                          <Trash2 className="w-3 h-3 mr-2" />
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+
+                    {avatarError && (
+                      <div className="bg-red-500/10 border border-red-500/20 p-3 rounded-xl inline-block animate-in fade-in slide-in-from-top-2">
+                        <p className="text-red-400 text-[9px] font-black uppercase tracking-widest flex items-center">
+                          <ShieldAlert className="w-3 h-3 mr-2" />
+                          {avatarError}
+                        </p>
                       </div>
                     )}
-                    <div 
-                      className="absolute inset-0 bg-black/60 opacity-100 flex items-center justify-center cursor-pointer transition-opacity backdrop-blur-[2px]"
-                      onClick={() => !isAvatarUploading && avatarInputRef.current?.click()}
-                    >
-                      <Upload className="w-6 h-6 text-white" />
+                    
+                    <div className="space-y-1">
+                      <p className="text-[9px] text-[#A0A0A0] font-medium uppercase tracking-[0.2em] leading-relaxed">
+                        Required Parameters: PNG | WEBP | JPG (Max 5MB)
+                      </p>
+                      <p className="text-[8px] text-white/20 font-black uppercase tracking-[0.2em] leading-relaxed italic">
+                        * Avatar preview updated locally. Permanent cloud save occurs upon profile authorization.
+                      </p>
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <h4 className="text-white font-black uppercase tracking-tight text-lg">{profile?.displayName || "System User"}</h4>
-                    <p className="text-white font-bold uppercase tracking-widest text-[10px] bg-primary/20 text-primary px-3 py-1 rounded-full w-fit">
-                      {profile?.role} • Authorized Access
-                    </p>
-                    <input 
-                      type="file" 
-                      ref={avatarInputRef} 
-                      className="hidden" 
-                      accept="image/*" 
-                      onChange={handleAvatarUpload} 
-                    />
-                    <Button 
-                      variant="outline" 
-                      type="button" 
-                      disabled={isAvatarUploading}
-                      onClick={() => avatarInputRef.current?.click()}
-                      className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl h-9 px-4 font-bold uppercase tracking-widest text-[10px] mt-2"
-                    >
-                      {isAvatarUploading ? "Processing..." : "Update Avatar"}
-                    </Button>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -1273,40 +1491,54 @@ export default function Settings() {
                 </div>
                 <div className="space-y-2">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Business Name</Label>
-                  <StableInput 
+                  <StandardInput 
                     id="businessName" 
                     className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
+                    placeholder="e.g. Apex Auto Spa"
                     value={settings?.businessName || ""} 
                     onValueChange={(val) => setSettings(prev => prev ? { ...prev, businessName: val } : null)}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Business Email</Label>
-                  <StableInput 
+                  <StandardInput 
                     id="businessEmail" 
-                    type="email"
+                    variant="email"
                     className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
+                    placeholder="contact@business.com"
                     value={settings?.businessEmail || ""} 
                     onValueChange={(val) => setSettings(prev => prev ? { ...prev, businessEmail: val } : null)}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Business Phone</Label>
-                  <StableInput 
+                  <StandardInput 
                     id="businessPhone" 
+                    variant="phone"
                     className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
+                    placeholder="(555) 000-0000"
                     value={settings?.businessPhone || ""} 
                     onValueChange={(val) => setSettings(prev => prev ? { ...prev, businessPhone: val } : null)}
-                    formatOnBlur={formatPhoneNumber}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Tax Rate (%)</Label>
-                  <NumberInput 
+                  <StandardInput 
                     id="taxRate" 
+                    variant="percentage"
                     className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                     value={settings?.taxRate || 0} 
                     onValueChange={(num) => setSettings(prev => prev ? { ...prev, taxRate: num } : null)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Service Fee Naming (Global)</Label>
+                  <StandardInput 
+                    id="serviceFeeLabel" 
+                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
+                    placeholder="e.g. Mobile Service Fee, Distance Fee"
+                    value={settings?.serviceFeeLabel || "Travel Fee"} 
+                    onValueChange={(val) => setSettings(prev => prev ? { ...prev, serviceFeeLabel: val } : null)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -1330,6 +1562,36 @@ export default function Settings() {
                     value={settings?.commissionRate || 0} 
                     onValueChange={(num) => setSettings(prev => prev ? { ...prev, commissionRate: num } : null)}
                   />
+                </div>
+                
+                <div className="space-y-4 col-span-2 pt-8 border-t border-white/5">
+                  <h3 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Cancellation Protocol</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Cancellation Fee Amount</Label>
+                      <NumberInput 
+                        id="cancellationFeeAmount" 
+                        className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
+                        value={settings?.cancellationFeeAmount || 0} 
+                        onValueChange={(num) => setSettings(prev => prev ? { ...prev, cancellationFeeAmount: num } : null)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Fee Calculus (Type)</Label>
+                      <Select 
+                        value={settings?.cancellationFeeType || "flat"} 
+                        onValueChange={(val: any) => setSettings(prev => prev ? { ...prev, cancellationFeeType: val } : null)}
+                      >
+                        <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20">
+                          <SelectValue placeholder="Select Fee Type" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                          <SelectItem value="flat" className="font-bold focus:bg-white/5 focus:text-white">Flat Amount ($)</SelectItem>
+                          <SelectItem value="percentage" className="font-bold focus:bg-white/5 focus:text-white">Percentage of Total (%)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-4 pt-8">
@@ -1419,7 +1681,7 @@ export default function Settings() {
                   <div className="flex items-center justify-between mb-4">
                     <div className="space-y-1">
                       <Label className="text-white font-black uppercase tracking-widest">After-Hours Protocol</Label>
-                      <p className="text-xs text-[#A0A0A0] font-medium tracking-tight">Allow booking outside normal business hours with a conditional fee.</p>
+                      <p className="text-xs text-white font-medium tracking-tight">Allow booking outside normal business hours with a conditional fee.</p>
                     </div>
                     <Switch 
                       checked={settings?.businessHours?.allowAfterHours || false}
@@ -1434,7 +1696,7 @@ export default function Settings() {
                   {settings?.businessHours?.allowAfterHours && (
                     <div className="pt-4 grid grid-cols-1 gap-6 animate-in fade-in slide-in-from-top-2">
                       <div className="space-y-2">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">After-Hours Fee Amount ($)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-white">After-Hours Fee Amount ($)</Label>
                         <NumberInput 
                           id="afterHoursFeeAmount" 
                           className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
@@ -1475,7 +1737,7 @@ export default function Settings() {
           <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
             <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Mileage & <span className="text-primary italic">Travel Logistics</span></CardTitle>
-              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Configure asset logistics and travel premiums</CardDescription>
+              <CardDescription className="text-white font-medium uppercase tracking-widest text-[10px] mt-1">Configure asset logistics and travel premiums</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-12">
               <div className="flex items-center justify-between p-6 bg-primary/5 rounded-2xl border border-primary/10">
@@ -1484,10 +1746,10 @@ export default function Settings() {
                     <Truck className="w-6 h-6 text-primary" />
                     Protocol Status
                   </h3>
-                  <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed">Toggle the entire travel premium architecture on or off.</p>
+                  <p className="text-xs text-white font-medium leading-relaxed">Toggle the entire travel premium architecture on or off.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Status Toggle</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-white">Status Toggle</Label>
                   <Switch 
                     checked={settings?.travelPricing?.enabled ?? true} 
                     onCheckedChange={(checked) => {
@@ -1510,7 +1772,7 @@ export default function Settings() {
                     <div className="flex items-center justify-between">
                       <div className="space-y-1">
                         <Label className="text-white font-black uppercase tracking-widest text-[10px]">Calculation Strategy</Label>
-                        <p className="text-xs text-[#A0A0A0] font-medium">Select the protocol for determining travel premiums.</p>
+                        <p className="text-xs text-white font-medium">Select the protocol for determining travel premiums.</p>
                       </div>
                       <Select 
                         value={settings?.travelPricing?.mode || "mileage"} 
@@ -1537,7 +1799,7 @@ export default function Settings() {
                   </div>
 
                   <div className="space-y-2 col-span-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Internal Tactical Base (Private location for distance logic)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Internal Tactical Base (Private location for distance logic)</Label>
                     <AddressInput 
                       defaultValue={settings?.baseAddress}
                       onAddressSelect={(address, lat, lng) => handleSaveSettings({ baseAddress: address, baseLatitude: lat, baseLongitude: lng })}
@@ -1732,7 +1994,7 @@ export default function Settings() {
                             </CardHeader>
                             <CardContent className="p-4 text-[9px] text-white/30 font-black uppercase tracking-[0.2em]">
                               {zone.type === 'circle' 
-                                ? `${(zone.radius ? (zone.radius / 1609.34).toFixed(2) : 0)} Mile Radius Captured`
+                                ? `${(zone.radius != null ? (zone.radius / 1609.34).toFixed(2) : 0)} Mile Radius Captured`
                                 : `${(zone.paths?.length || 0)} Tactical Vertices Registered`}
                             </CardContent>
                           </Card>
@@ -1791,166 +2053,443 @@ export default function Settings() {
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Visual <span className="text-primary italic">Branding</span></CardTitle>
               <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Manage your business logo and document identity</CardDescription>
             </CardHeader>
-            <CardContent className="p-8 space-y-12">
-              <div className="space-y-6">
-                <Label className="text-white font-black uppercase tracking-widest text-[10px]">Business Logo Asset</Label>
-                <div className="flex gap-8 items-center">
-                  <div className="w-48 h-48 bg-black/40 rounded-[2.5rem] border border-white/10 flex items-center justify-center overflow-hidden shrink-0 shadow-2xl group relative transition-all duration-500 hover:border-primary/50 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]">
-                    {logoPreview || settings?.logoUrl ? (
-                      <div className="relative w-full h-full flex items-center justify-center p-6">
-                        <img 
-                          src={logoPreview || settings?.logoUrl || ""} 
-                          alt="Logo" 
-                          className="w-full h-full object-contain transition-all duration-300" 
-                          style={{
-                            transform: `scale(${settings?.logoSettings?.scale || 1}) translate(${settings?.logoSettings?.x || 0}px, ${settings?.logoSettings?.y || 0}px)`
-                          }}
-                        />
-                      </div>
-                    ) : (
-                      <ImageIcon className="w-12 h-12 text-white/10" />
-                    )}
-                    <div 
-                      className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer backdrop-blur-sm" 
-                      onClick={() => !isUploading && fileInputRef.current?.click()}
-                    >
-                      <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center shadow-glow-blue">
-                        <Upload className="w-6 h-6 text-white" />
+            <CardContent className="p-8 space-y-10">
+              {/* Premium Logo Manager */}
+              <div className="space-y-8">
+                <div className="flex flex-col lg:flex-row gap-10">
+                  {/* Logo Preview Canvas */}
+                  <div className="flex-1 space-y-4">
+                    <Label className="text-white font-black uppercase tracking-widest text-[10px] opacity-40">System Preview Canvas</Label>
+                    <div className={cn(
+                      "relative w-full aspect-square md:aspect-video rounded-[2.5rem] border-2 border-dashed border-white/5 overflow-hidden shadow-2xl transition-all duration-500 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]",
+                      logoAdjustments.background === 'dark' ? "bg-black" : 
+                      logoAdjustments.background === 'light' ? "bg-white" : "bg-black/60"
+                    )}>
+                      {logoPreview || settings?.logoUrl ? (
+                        <div className="absolute inset-0 flex items-center justify-center p-12">
+                          <img 
+                            src={logoPreview || settings?.logoUrl || ""} 
+                            alt="Business Logo" 
+                            className={cn(
+                              "transition-all duration-300",
+                              logoAdjustments.fit === 'cover' ? "w-full h-full object-cover" : "max-w-full max-h-full object-contain"
+                            )}
+                            style={{
+                              transform: `translate(${logoAdjustments.x}px, ${logoAdjustments.y}px) scale(${logoAdjustments.scale}) rotate(${logoAdjustments.rotation}deg)`
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-white/5 space-y-4">
+                          <ImageIcon className="w-16 h-16" />
+                          <span className="text-[8px] font-black uppercase tracking-[0.3em]">No Branding Data Found</span>
+                        </div>
+                      )}
+
+                      {/* Translucency Overlays */}
+                      <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+                      
+                      {/* Interaction Status */}
+                      <div className="absolute bottom-6 left-6 flex items-center gap-3">
+                        <div className="flex items-center gap-2 bg-black/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
+                          <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", (logoPreview || settings?.logoUrl) ? "bg-primary" : "bg-white/20")} />
+                          <span className="text-[8px] font-black text-white uppercase tracking-widest">
+                            {(logoPreview || settings?.logoUrl) ? "Asset Loaded" : "Awaiting Asset"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 bg-black/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
+                          <span className="text-[8px] font-black text-white/40 uppercase tracking-widest">BG:</span>
+                          <span className="text-[8px] font-black text-primary uppercase tracking-widest leading-none">{logoAdjustments.background}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                  <div className="flex-1 space-y-8">
-                    <div className="space-y-2">
-                      <h4 className="text-lg font-black text-white uppercase tracking-tight">Business Logo <span className="text-primary italic">Asset</span></h4>
-                      <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed max-w-md">
-                        This asset will be used across all official documents, invoices, and the public booking interface. 
-                        Adjust the scale and positioning to ensure it fits perfectly in all contexts.
-                      </p>
-                    </div>
-                    
-                    {settings?.logoUrl && (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-left-4 duration-500">
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]/40 italic">Scale Factor</Label>
-                            <span className="text-[10px] font-black text-primary">{(settings?.logoSettings?.scale || 1).toFixed(2)}x</span>
-                          </div>
-                          <Slider 
-                            value={[settings?.logoSettings?.scale || 1]} 
-                            min={0.1} 
-                            max={3} 
-                            step={0.01} 
-                            onValueChange={(vals) => {
-                              const val = vals[0];
-                              setSettings(prev => prev ? { 
-                                ...prev, 
-                                logoSettings: { ...(prev.logoSettings || { scale: 1, x: 0, y: 0 }), scale: val } 
-                              } : null);
-                            }}
-                            className="[&_[role=slider]]:bg-primary"
-                          />
+
+                  {/* Adjustment Suite */}
+                  <div className="w-full lg:w-96 space-y-8 p-8 bg-white/5 rounded-[2.5rem] border border-white/5 backdrop-blur-sm">
+                    <div className="space-y-6">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-white font-black uppercase tracking-widest text-[11px]">Adjustment Suite</h4>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => {
+                            setLogoAdjustments(prev => ({
+                              ...prev,
+                              scale: 1,
+                              x: 0,
+                              y: 0,
+                              rotation: 0
+                            }));
+                          }}
+                          className="h-7 text-[8px] font-black text-white/40 hover:text-white uppercase tracking-widest"
+                        >
+                          <Clock className="w-3 h-3 mr-1" /> Reset
+                        </Button>
+                      </div>
+
+                      {/* Zoom Logic */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-white/40 italic">Optical Scale</Label>
+                          <span className="text-[9px] font-black text-primary">{(logoAdjustments.scale ?? 1).toFixed(2)}x</span>
                         </div>
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]/40 italic">X-Position</Label>
-                            <span className="text-[10px] font-black text-primary">{settings?.logoSettings?.x || 0}px</span>
-                          </div>
-                          <Slider 
-                            value={[settings?.logoSettings?.x || 0]} 
-                            min={-100} 
-                            max={100} 
-                            step={1} 
-                            onValueChange={(vals) => {
-                              const val = vals[0];
-                              setSettings(prev => prev ? { 
-                                ...prev, 
-                                logoSettings: { ...(prev.logoSettings || { scale: 1, x: 0, y: 0 }), x: val } 
-                              } : null);
-                            }}
-                            className="[&_[role=slider]]:bg-primary"
-                          />
+                        <Slider 
+                          value={[logoAdjustments.scale]} 
+                          min={0.1} 
+                          max={3} 
+                          step={0.01} 
+                          onValueChange={(vals) => setLogoAdjustments(prev => ({ ...prev, scale: vals[0] }))}
+                          className="[&_[role=slider]]:bg-primary"
+                        />
+                      </div>
+
+                      {/* X Displacement */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-white/40 italic">X-Axis Offset</Label>
+                          <span className="text-[9px] font-black text-primary">{logoAdjustments.x}px</span>
                         </div>
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]/40 italic">Y-Position</Label>
-                            <span className="text-[10px] font-black text-primary">{settings?.logoSettings?.y || 0}px</span>
+                        <Slider 
+                          value={[logoAdjustments.x]} 
+                          min={-200} 
+                          max={200} 
+                          step={1} 
+                          onValueChange={(vals) => setLogoAdjustments(prev => ({ ...prev, x: vals[0] }))}
+                          className="[&_[role=slider]]:bg-primary"
+                        />
+                      </div>
+
+                      {/* Y Displacement */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-white/40 italic">Y-Axis Offset</Label>
+                          <span className="text-[9px] font-black text-primary">{logoAdjustments.y}px</span>
+                        </div>
+                        <Slider 
+                          value={[logoAdjustments.y]} 
+                          min={-200} 
+                          max={200} 
+                          step={1} 
+                          onValueChange={(vals) => setLogoAdjustments(prev => ({ ...prev, y: vals[0] }))}
+                          className="[&_[role=slider]]:bg-primary"
+                        />
+                      </div>
+
+                      {/* Rotation Suite */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-white/40 italic">Rotational Angle</Label>
+                          <span className="text-[9px] font-black text-primary">{logoAdjustments.rotation}°</span>
+                        </div>
+                        <Slider 
+                          value={[logoAdjustments.rotation]} 
+                          min={-180} 
+                          max={180} 
+                          step={1} 
+                          onValueChange={(vals) => setLogoAdjustments(prev => ({ ...prev, rotation: vals[0] }))}
+                          className="[&_[role=slider]]:bg-primary"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-white/40 italic">Mapping Mode</Label>
+                          <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
+                            <button 
+                              onClick={() => setLogoAdjustments(prev => ({ ...prev, fit: 'contain' }))}
+                              className={cn("flex-1 py-1 rounded text-[8px] font-black uppercase transition-all", logoAdjustments.fit === 'contain' ? "bg-primary text-white" : "text-white/40 hover:text-white")}
+                            >Fit</button>
+                            <button 
+                              onClick={() => setLogoAdjustments(prev => ({ ...prev, fit: 'cover' }))}
+                              className={cn("flex-1 py-1 rounded text-[8px] font-black uppercase transition-all", logoAdjustments.fit === 'cover' ? "bg-primary text-white" : "text-white/40 hover:text-white")}
+                            >Fill</button>
                           </div>
-                          <Slider 
-                            value={[settings?.logoSettings?.y || 0]} 
-                            min={-100} 
-                            max={100} 
-                            step={1} 
-                            onValueChange={(vals) => {
-                              const val = vals[0];
-                              setSettings(prev => prev ? { 
-                                ...prev, 
-                                logoSettings: { ...(prev.logoSettings || { scale: 1, x: 0, y: 0 }), y: val } 
-                              } : null);
-                            }}
-                            className="[&_[role=slider]]:bg-primary"
-                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-white/40 italic">Canvas Env</Label>
+                          <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
+                            <button 
+                              onClick={() => setLogoAdjustments(prev => ({ ...prev, background: 'transparent' }))}
+                              className={cn("flex-1 py-1 rounded flex items-center justify-center transition-all", logoAdjustments.background === 'transparent' ? "bg-primary text-white" : "text-white/40")}
+                            ><Globe className="w-3 h-3" /></button>
+                            <button 
+                              onClick={() => setLogoAdjustments(prev => ({ ...prev, background: 'dark' }))}
+                              className={cn("flex-1 py-1 rounded flex items-center justify-center transition-all", logoAdjustments.background === 'dark' ? "bg-primary text-white" : "text-white/40")}
+                            ><Lock className="w-3 h-3" /></button>
+                            <button 
+                              onClick={() => setLogoAdjustments(prev => ({ ...prev, background: 'light' }))}
+                              className={cn("flex-1 py-1 rounded flex items-center justify-center transition-all", logoAdjustments.background === 'light' ? "bg-primary text-white" : "text-white/40")}
+                            ><Check className="w-3 h-3" /></button>
+                          </div>
                         </div>
                       </div>
-                    )}
+                    </div>
+                  </div>
+                </div>
 
-                    <div className="flex gap-3">
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleLogoUpload}
-                        accept=".png,.jpg,.jpeg"
-                        className="hidden"
-                      />
-                      <Button 
-                        type="button" 
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isUploading}
-                        className="bg-primary hover:opacity-90 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02]"
-                      >
-                        {isUploading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                            Uploading {uploadProgress}%
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-4 h-4 mr-2" />
-                            Upload New Asset
-                          </>
+                <div className="flex flex-wrap items-center gap-4 pt-6">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleLogoUpload}
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    className="hidden"
+                  />
+                  <Button 
+                    type="button" 
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="bg-primary hover:opacity-90 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02] min-w-[200px]"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Deploy New Logo Asset
+                  </Button>
+                  {(logoPreview || settings?.logoUrl) && (
+                    <Button 
+                      type="button" 
+                      variant="outline"
+                      onClick={handleRemoveLogo}
+                      className="border-white/10 bg-white/5 text-white hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/20 rounded-xl h-12 px-8 font-black uppercase tracking-widest text-[10px] transition-all"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Remove Asset
+                    </Button>
+                  )}
+                  <div className="flex-1" />
+                  <Button 
+                    type="button" 
+                    onClick={handleSaveBranding}
+                    disabled={isSaving || isUploading}
+                    className="bg-white text-black hover:bg-gray-200 font-black h-12 px-10 rounded-xl uppercase tracking-widest text-[10px] shadow-xl transition-all hover:scale-[1.02]"
+                  >
+                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                    Authorize & Deploy Branding
+                  </Button>
+                </div>
+
+                {logoError && (
+                  <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl animate-in fade-in slide-in-from-top-2">
+                    <p className="text-red-400 text-[10px] font-black uppercase tracking-widest flex items-center">
+                      <ShieldAlert className="w-4 h-4 mr-3" />
+                      {logoError}
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <p className="text-[#A0A0A0] text-[9px] font-medium uppercase tracking-[0.2em] leading-relaxed">
+                    Requirement Parameters: PNG | WEBP | JPG (MAX 5MB)
+                  </p>
+                  <p className="text-white/20 text-[8px] font-black uppercase tracking-[0.2em] leading-relaxed italic">
+                    * Interactive adjustments are calculated locally. Permanent synchronization with cloud infrastructure requires primary authorization.
+                  </p>
+                </div>
+              </div>
+
+              {/* Advanced Branding Options */}
+              <div className="space-y-10 pt-12 border-t border-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/20">
+                    <Layout className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white uppercase tracking-widest">Client Profile Watermark</h4>
+                    <p className="text-[10px] text-[#A0A0A0] font-medium uppercase tracking-widest">Configure the large background watermark for client headers</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Watermark Asset</Label>
+                      <div className="flex items-center gap-6 p-6 bg-black/40 rounded-[2rem] border border-white/5">
+                        <div className="w-24 h-24 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
+                          {watermarkLogoPreview || settings?.watermarkSettings?.logoUrl ? (
+                            <img 
+                              src={watermarkLogoPreview || settings?.watermarkSettings?.logoUrl} 
+                              alt="Watermark" 
+                              className="max-w-full max-h-full object-contain"
+                            />
+                          ) : (
+                            <ImageIcon className="w-8 h-8 text-white/10" />
+                          )}
+                        </div>
+                        <div className="space-y-3">
+                          <input
+                            type="file"
+                            ref={watermarkFileInputRef}
+                            onChange={handleWatermarkLogoUpload}
+                            accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml"
+                            className="hidden"
+                          />
+                          <Button 
+                            type="button" 
+                            size="sm"
+                            onClick={() => watermarkFileInputRef.current?.click()}
+                            className="bg-primary hover:bg-primary/90 text-white font-black rounded-xl h-10 px-6 uppercase tracking-widest text-[9px] shadow-glow-blue"
+                          >
+                            <Upload className="w-3.5 h-3.5 mr-2" /> Upload Watermark
+                          </Button>
+                          {(watermarkLogoPreview || settings?.watermarkSettings?.logoUrl) && (
+                            <Button 
+                              type="button" 
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleRemoveWatermarkLogo}
+                              className="text-red-500 hover:text-red-400 font-black h-10 px-4 uppercase tracking-widest text-[9px]"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-2" /> Remove
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Watermark Opacity</Label>
+                          <span className="text-[10px] font-black text-primary">{(settings?.watermarkSettings?.opacity || 0.10).toFixed(2)}</span>
+                        </div>
+                        <Slider 
+                          value={[settings?.watermarkSettings?.opacity || 0.10]} 
+                          min={0.05} 
+                          max={0.25} 
+                          step={0.01} 
+                          onValueChange={(vals) => setSettings(prev => prev ? ({
+                            ...prev,
+                            watermarkSettings: {
+                              ...(prev.watermarkSettings || { logoUrl: "", position: "center", size: "medium" }),
+                              opacity: vals[0]
+                            }
+                          }) : null)}
+                          className="[&_[role=slider]]:bg-primary"
+                        />
+                      </div>
+
+                      <div className="space-y-4">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Watermark Position</Label>
+                        <div className="grid grid-cols-3 gap-3">
+                          {["left", "center", "right"].map((pos) => (
+                            <button
+                              key={pos}
+                              type="button"
+                              onClick={() => setSettings(prev => prev ? ({
+                                ...prev,
+                                watermarkSettings: {
+                                  ...(prev.watermarkSettings || { logoUrl: "", opacity: 0.10, size: "medium" }),
+                                  position: pos as any
+                                }
+                              }) : null)}
+                              className={cn(
+                                "py-3 rounded-xl border font-black uppercase tracking-widest text-[9px] transition-all",
+                                (settings?.watermarkSettings?.position || "center") === pos 
+                                  ? "bg-primary border-primary text-white shadow-glow-blue" 
+                                  : "bg-white/5 border-white/10 text-white/40 hover:text-white"
+                              )}
+                            >
+                              {pos}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Watermark Size</Label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {["small", "medium", "large", "full"].map((sz) => (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => setSettings(prev => prev ? ({
+                                ...prev,
+                                watermarkSettings: {
+                                  ...(prev.watermarkSettings || { logoUrl: "", opacity: 0.10, position: "center" }),
+                                  size: sz as any
+                                }
+                              }) : null)}
+                              className={cn(
+                                "py-3 rounded-xl border font-black uppercase tracking-widest text-[9px] transition-all",
+                                (settings?.watermarkSettings?.size || "medium") === sz 
+                                  ? "bg-primary border-primary text-white shadow-glow-blue" 
+                                  : "bg-white/5 border-white/10 text-white/40 hover:text-white"
+                              )}
+                            >
+                              {sz}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Watermark Preview Simulation */}
+                  <div className="space-y-4">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Real-Time Header Simulation</Label>
+                    <div className="relative h-64 rounded-[2rem] bg-gradient-to-r from-primary via-primary/80 to-white/40 border border-white/10 overflow-hidden">
+                      {/* Watermark Logo */}
+                      <div 
+                        className={cn(
+                          "absolute inset-0 flex items-center pointer-events-none transition-all duration-500",
+                          settings?.watermarkSettings?.size === "full" ? "p-0" : "p-8",
+                          (settings?.watermarkSettings?.position || "center") === "left" ? "justify-start text-left" :
+                          (settings?.watermarkSettings?.position || "center") === "right" ? "justify-end text-right" : "justify-center text-center"
                         )}
-                      </Button>
-                      {settings?.logoUrl && (
-                        <Button 
-                          type="button" 
-                          variant="outline"
-                          onClick={() => handleSaveSettings({ logoUrl: "" })}
-                          className="border-white/10 bg-white/5 text-white hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/20 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px] transition-all"
-                        >
-                          Remove
-                        </Button>
-                      )}
-                      {settings?.logoUrl && (
-                        <Button 
-                          type="button" 
-                          onClick={() => handleSaveSettings(settings)}
-                          disabled={isSaving}
-                          className="bg-white text-black hover:bg-gray-200 font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg transition-all hover:scale-[1.02]"
-                        >
-                          {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-                          Save Branding
-                        </Button>
-                      )}
+                        style={{ opacity: settings?.watermarkSettings?.opacity || 0.10 }}
+                      >
+                        {watermarkLogoPreview || settings?.watermarkSettings?.logoUrl ? (
+                          <img 
+                            src={watermarkLogoPreview || settings?.watermarkSettings?.logoUrl} 
+                            alt="Watermark Preview" 
+                            className={cn(
+                              "object-contain grayscale brightness-200 transition-all duration-500",
+                              (settings?.watermarkSettings?.position || "center") === "left" ? "object-left" :
+                              (settings?.watermarkSettings?.position || "center") === "right" ? "object-right" : "object-center",
+                              settings?.watermarkSettings?.size === "small" ? "max-h-[25%] max-w-[25%]" :
+                              settings?.watermarkSettings?.size === "large" ? "max-h-[90%] max-w-[90%]" :
+                              settings?.watermarkSettings?.size === "full" ? "w-full h-full" :
+                              "max-h-[60%] max-w-[60%]" // Default Medium
+                            )}
+                          />
+                        ) : (
+                          <h1 
+                            className={cn(
+                              "font-black text-white italic tracking-tighter uppercase select-none transition-all duration-500 w-full",
+                              settings?.watermarkSettings?.size === "small" ? "text-[2vw]" :
+                              settings?.watermarkSettings?.size === "large" ? "text-[6vw]" :
+                              settings?.watermarkSettings?.size === "full" ? "text-[12vw] leading-none" :
+                              "text-[4vw]"
+                            )}
+                          >
+                            DETAILFLOW
+                          </h1>
+                        )}
+                      </div>
+                      
+                      <div className="relative z-10 p-8 flex justify-between items-start h-full">
+                        <div className="space-y-4">
+                          <div className="w-16 h-16 bg-primary/20 rounded-2xl border border-white/20" />
+                          <div className="space-y-2">
+                            <div className="h-6 w-48 bg-white/40 rounded-lg" />
+                            <div className="h-3 w-32 bg-white/20 rounded-md" />
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-3">
+                          <div className="h-10 w-32 bg-primary/40 rounded-xl" />
+                          <div className="h-6 w-24 bg-white/20 rounded-lg" />
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 text-[9px] font-black uppercase tracking-[0.2em] text-[#A0A0A0]/20">
-                      <span className="flex items-center gap-1.5"><Check className="w-3 h-3 text-green-500" /> PNG/JPG/JPEG</span>
-                      <span className="w-1 h-1 bg-white/10 rounded-full"></span>
-                      <span className="flex items-center gap-1.5"><Check className="w-3 h-3 text-green-500" /> Max 2MB</span>
-                    </div>
+                    <p className="text-[8px] font-medium text-white/20 uppercase tracking-[0.2em] italic">
+                      * This simulation roughly demonstrates how the watermark will interact with the Client Profile header layout.
+                    </p>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-6 pt-12 border-t border-white/5">
+              {/* Advanced UI Elements */}
+              <div className="space-y-10">
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
                   <div className="space-y-1">
                     <Label className="text-white font-black uppercase tracking-widest text-[10px]">Document Logo Visibility</Label>
@@ -1997,8 +2536,13 @@ export default function Settings() {
                 </div>
               </div>
 
-              <Button className="w-full bg-primary hover:opacity-90 text-white font-black uppercase tracking-[0.2em] h-14 rounded-xl text-xs shadow-glow-blue transition-all hover:scale-[1.01]">
-                Authorize Branding Update
+              <Button 
+                onClick={handleSaveBranding}
+                disabled={isSaving}
+                className="w-full bg-primary hover:opacity-90 text-white font-black uppercase tracking-[0.2em] h-14 rounded-xl text-xs shadow-glow-blue transition-all hover:scale-[1.01] mt-12"
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+                Authorize Final Branding Protocol
               </Button>
             </CardContent>
           </Card>
@@ -2403,14 +2947,14 @@ export default function Settings() {
                   </div>
                   <div>
                     <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">{editingAddon?.id ? "Modify Enhancement" : "Initialize Enhancement"}</DialogTitle>
-                    <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">Operational Add-on Definition</p>
+                    <p className="text-[10px] text-white font-black uppercase tracking-[0.2em] mt-1">Operational Add-on Definition</p>
                   </div>
                 </div>
               </DialogHeader>
               <form onSubmit={handleSaveAddon} className="flex-1 overflow-y-auto p-8 space-y-8">
                 <div className="space-y-6">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Enhancement Designation (Name)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Enhancement Designation (Name)</Label>
                     <StableInput 
                       value={editingAddon?.name || ""} 
                       onValueChange={val => setEditingAddon(prev => ({ ...prev!, name: val }))}
@@ -2419,7 +2963,7 @@ export default function Settings() {
                     />
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Enhancement Brief (Description)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Enhancement Brief (Description)</Label>
                     <StableTextarea 
                       value={editingAddon?.description || ""} 
                       onValueChange={val => setEditingAddon(prev => ({ ...prev!, description: val }))}
@@ -2444,27 +2988,53 @@ export default function Settings() {
                       </Select>
                     </div>
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Financial Value ($)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-white">Pricing Model</Label>
+                      <Select 
+                        value={editingAddon?.pricingType || "flat"} 
+                        onValueChange={(val: any) => setEditingAddon(prev => ({ ...prev!, pricingType: val }))}
+                      >
+                        <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20">
+                          <SelectValue placeholder="Select Model" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                          <SelectItem value="flat" className="font-bold focus:bg-white/5 focus:text-white">Flat Fee</SelectItem>
+                          <SelectItem value="hourly" className="font-bold focus:bg-white/5 focus:text-white">Hourly Rate</SelectItem>
+                          <SelectItem value="block30" className="font-bold focus:bg-white/5 focus:text-white">Per 30 Minutes</SelectItem>
+                          <SelectItem value="blockCustom" className="font-bold focus:bg-white/5 focus:text-white">Custom Time Block</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-white">
+                        {editingAddon?.pricingType === "flat" || !editingAddon?.pricingType ? "Flat Price ($)" : "Rate ($)"}
+                      </Label>
                       <NumberInput 
-                        value={editingAddon.price || 0}
-                        onValueChange={val => setEditingAddon(prev => ({ ...prev!, price: val }))}
+                        value={editingAddon?.pricingType === "flat" || !editingAddon?.pricingType ? (editingAddon?.price || 0) : (editingAddon?.rate || 0)}
+                        onValueChange={val => {
+                          if (editingAddon?.pricingType === "flat" || !editingAddon?.pricingType) {
+                            setEditingAddon(prev => ({ ...prev!, price: val }));
+                          } else {
+                            setEditingAddon(prev => ({ ...prev!, rate: val }));
+                          }
+                        }}
                         required
                         className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                       />
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Duration (Minutes)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Est. Duration (Minutes)</Label>
                       <NumberInput 
-                        value={editingAddon.estimatedDuration || 0}
+                        value={editingAddon?.estimatedDuration || 0}
                         onValueChange={val => setEditingAddon(prev => ({ ...prev!, estimatedDuration: val }))}
                         required
                         className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                       />
                     </div>
-                    <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Buffer Time (Minutes)</Label>
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Buffer Time (Minutes)</Label>
                       <StableInput 
                         type="text"
                         inputMode="numeric"
@@ -2544,7 +3114,7 @@ export default function Settings() {
                     
                     return (
                       <div key={type} className="space-y-6">
-                        <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] flex items-center gap-3">
+                        <h3 className="text-[10px] font-black text-white uppercase tracking-[0.2em] flex items-center gap-3">
                           <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
                             <Tag className="w-4 h-4" />
                           </div>
@@ -2740,7 +3310,7 @@ export default function Settings() {
                 </div>
               </div>
 
-              {["Stripe", "Square", "PayPal", "Clover"].map(provider => (
+              {["Stripe", "Square", "PayPal"].map(provider => (
                 <div key={provider} className="p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all space-y-6">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -2752,29 +3322,23 @@ export default function Settings() {
                         <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Payment Gateway Protocol</p>
                       </div>
                     </div>
-                    {provider === "Clover" ? (
-                      <Badge className={cloverConfigured ? "bg-green-500/10 text-green-500 border-green-500/20 uppercase text-[10px] font-black tracking-widest px-3 py-1" : "bg-red-500/10 text-red-500 border-red-500/20 uppercase text-[10px] font-black tracking-widest px-3 py-1"}>
-                        {cloverConfigured ? "Authenticated" : "Unauthorized"}
-                      </Badge>
-                    ) : (
-                      <div className="flex items-center gap-3">
-                        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{settings?.paymentIntegrations?.[provider.toLowerCase() as keyof typeof settings.paymentIntegrations]?.enabled ? "Active" : "Disabled"}</span>
-                        <Switch 
-                          checked={settings?.paymentIntegrations?.[provider.toLowerCase() as keyof typeof settings.paymentIntegrations]?.enabled || false}
-                          onCheckedChange={(val) => setSettings(prev => prev ? { 
-                            ...prev,
-                            paymentIntegrations: { 
-                              ...prev.paymentIntegrations, 
-                              [provider.toLowerCase()]: { 
-                                ...prev.paymentIntegrations?.[provider.toLowerCase() as keyof typeof prev.paymentIntegrations],
-                                enabled: val 
-                              } 
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{settings?.paymentIntegrations?.[provider.toLowerCase() as keyof typeof settings.paymentIntegrations]?.enabled ? "Active" : "Disabled"}</span>
+                      <Switch 
+                        checked={settings?.paymentIntegrations?.[provider.toLowerCase() as keyof typeof settings.paymentIntegrations]?.enabled || false}
+                        onCheckedChange={(val) => setSettings(prev => prev ? { 
+                          ...prev,
+                          paymentIntegrations: { 
+                            ...prev.paymentIntegrations, 
+                            [provider.toLowerCase()]: { 
+                              ...prev.paymentIntegrations?.[provider.toLowerCase() as keyof typeof prev.paymentIntegrations],
+                              enabled: val 
                             } 
-                          } : null)}
-                          className="data-[state=checked]:bg-primary"
-                        />
-                      </div>
-                    )}
+                          } 
+                        } : null)}
+                        className="data-[state=checked]:bg-primary"
+                      />
+                    </div>
                   </div>
                   {settings?.paymentIntegrations?.[provider.toLowerCase() as keyof typeof settings.paymentIntegrations]?.enabled && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-white/5">
@@ -2888,49 +3452,6 @@ export default function Settings() {
                               } : null)}
                               className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-mono text-xs"
                             />
-                          </div>
-                        </>
-                      )}
-                      {provider === "Clover" && (
-                        <>
-                          <div className="space-y-2">
-                            <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Merchant ID</Label>
-                            <StableInput 
-                              value={settings?.paymentIntegrations?.clover?.merchantId || ""}
-                              onValueChange={(val) => setSettings(prev => prev ? { 
-                                ...prev,
-                                paymentIntegrations: { 
-                                  ...prev.paymentIntegrations, 
-                                  clover: { ...prev.paymentIntegrations?.clover!, merchantId: val } 
-                                } 
-                              } : null)}
-                              className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-mono text-xs"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Access Token</Label>
-                            <StableInput 
-                              type="password"
-                              value={settings?.paymentIntegrations?.clover?.accessToken || ""}
-                              onValueChange={(val) => setSettings(prev => prev ? { 
-                                ...prev,
-                                paymentIntegrations: { 
-                                  ...prev.paymentIntegrations, 
-                                  clover: { ...prev.paymentIntegrations?.clover!, accessToken: val } 
-                                } 
-                              } : null)}
-                              className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-mono text-xs"
-                            />
-                          </div>
-                          <div className="col-span-full pt-4">
-                            <Button 
-                              variant="outline" 
-                              className="w-full bg-white/5 border-white/10 text-white hover:bg-white/10 font-black rounded-xl h-12 uppercase tracking-widest text-[10px]"
-                              onClick={() => window.open("/api/clover/auth", "_blank")}
-                            >
-                              <Plug className="w-4 h-4 mr-2 text-primary" />
-                              Re-Authenticate Clover Protocol
-                            </Button>
                           </div>
                         </>
                       )}
@@ -3673,14 +4194,14 @@ export default function Settings() {
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
                   <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500 border border-blue-500/20">
+                      <div className="p-2 bg-[#0A4DFF]/10 rounded-lg text-[#0A4DFF] border border-[#0A4DFF]/20">
                         <ShieldCheck className="w-4 h-4" />
                       </div>
                       <Label className="text-sm font-black text-white uppercase tracking-tight">Audit Logging</Label>
                     </div>
                     <p className="text-[10px] text-[#A0A0A0] font-medium ml-10">Track all administrative actions and data modifications.</p>
                   </div>
-                  <Badge className="bg-blue-500/10 text-blue-500 border-blue-500/20 uppercase text-[8px] font-black tracking-widest px-2 py-1">Active</Badge>
+                  <Badge className="bg-[#0A4DFF]/10 text-[#0A4DFF] border border-[#0A4DFF]/20 uppercase text-[8px] font-black tracking-widest px-2 py-1">Active</Badge>
                 </div>
               </div>
 
@@ -3716,6 +4237,53 @@ export default function Settings() {
                     }}
                   >
                     Run Synthesis
+                  </Button>
+                </div>
+              </div>
+
+              <div className="pt-8 border-t border-white/5">
+                <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-6">Service Architecture Control</h3>
+                <div className="p-6 bg-primary/5 rounded-2xl border border-primary/20 mb-8 flex items-center justify-between">
+                  <div className="flex gap-4">
+                    <div className="p-3 bg-primary/10 rounded-2xl text-primary shrink-0 border border-primary/30 shadow-lg shadow-primary/10">
+                      <Zap className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-black text-white uppercase tracking-tight">Full Service System Import</p>
+                      <p className="text-[10px] text-[#A0A0A0] leading-relaxed font-medium max-w-md">
+                        Import the Official Master Service Catalog. <span className="text-primary font-black uppercase tracking-widest text-[9px]">Caution:</span> This protocol will <span className="text-red-500 font-bold underline">DELETE</span> all existing services, add-ons, and categories before seeding the new architecture.
+                      </p>
+                    </div>
+                  </div>
+                  <Button 
+                    size="sm"
+                    onClick={async () => {
+                      if (isSaving) return;
+                      
+                      const confirmed = window.confirm("WARNING: All current services, add-ons, and categories will be PERMANENTLY DELETED. Proceed with Master Catalog Import?");
+                      if (!confirmed) return;
+
+                      setIsSaving(true);
+                      
+                      toast.promise(importFullServiceSystem(), {
+                        loading: "Overwriting Service Architecture with Master Catalog...",
+                        success: (data) => {
+                          setIsSaving(true); // Keep it true while we refresh
+                          setTimeout(() => window.location.reload(), 1500);
+                          return "Master System Online. Reloading for Protocol Sync...";
+                        },
+                        error: (err) => {
+                          setIsSaving(false);
+                          console.error("Master Sync failure:", err);
+                          return "Protocol failure during master import.";
+                        },
+                      });
+                    }}
+                    className="bg-primary hover:bg-primary/90 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02]"
+                    disabled={isSaving}
+                  >
+                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DatabaseZap className="w-4 h-4 mr-2" />}
+                    Import Master System
                   </Button>
                 </div>
               </div>
@@ -3820,7 +4388,7 @@ export default function Settings() {
                     <div key={type.id} className="flex items-center justify-between p-4 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center border border-white/10 group-hover:border-primary/30 transition-all">
-                          <Users className="w-5 h-5 text-gray-400 group-hover:text-primary transition-all" />
+                          <Users className="w-5 h-5 text-white group-hover:text-primary transition-all" />
                         </div>
                         <span className="font-black text-white uppercase tracking-tight">{type.name}</span>
                       </div>
@@ -3853,7 +4421,7 @@ export default function Settings() {
                       </div>
                     </div>
                   ))}
-                  {clientTypes.length === 0 && <p className="text-[10px] text-gray-600 font-black uppercase tracking-widest italic text-center py-4">No archetypes defined.</p>}
+                  {clientTypes.length === 0 && <p className="text-[10px] text-white font-black uppercase tracking-widest italic text-center py-4">No archetypes defined.</p>}
                 </div>
               </CardContent>
             </Card>

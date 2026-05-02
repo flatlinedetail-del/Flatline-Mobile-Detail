@@ -70,7 +70,7 @@ function MarketingIntelligence({ data }: { data: any }) {
         </div>
         <div className="space-y-1">
           <h3 className="font-bold text-white text-lg uppercase tracking-tight">Intelligence Offline</h3>
-          <p className="text-zinc-400 text-sm max-w-xs mx-auto font-medium">Not enough data to generate insights. Start adding leads and quotes to unlock your metrics.</p>
+          <p className="text-white text-sm max-w-xs mx-auto font-medium">Not enough data to generate insights. Start adding leads and quotes to unlock your metrics.</p>
         </div>
       </CardContent>
     </Card>
@@ -88,7 +88,7 @@ function MarketingIntelligence({ data }: { data: any }) {
         <Card className="bg-[#121212]/60 border-white/5 backdrop-blur-sm shadow-xl">
           <CardContent className="p-6 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-black uppercase tracking-widest text-[#A0A0A0]">Total Pipeline</p>
+              <p className="text-xs font-black uppercase tracking-widest text-white">Total Pipeline</p>
               <TrendingUp className="w-4 h-4 text-green-500" />
             </div>
             <p className="text-3xl font-black text-white tracking-tighter">${data.totalRevenue.toLocaleString()}</p>
@@ -101,7 +101,7 @@ function MarketingIntelligence({ data }: { data: any }) {
         <Card className="bg-[#121212]/60 border-white/5 backdrop-blur-sm shadow-xl">
           <CardContent className="p-6 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-black uppercase tracking-widest text-[#A0A0A0]">Response Speed</p>
+              <p className="text-xs font-black uppercase tracking-widest text-white">Response Speed</p>
               <Clock className="w-4 h-4 text-primary" />
             </div>
             <p className="text-3xl font-black text-white tracking-tighter">{Math.round(data.avgResponseTime)}m</p>
@@ -127,7 +127,7 @@ function MarketingIntelligence({ data }: { data: any }) {
         <Card className="bg-[#121212]/60 border-white/5 backdrop-blur-sm shadow-xl">
           <CardContent className="p-6 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-black uppercase tracking-widest text-[#A0A0A0]">Top Funnel</p>
+              <p className="text-xs font-black uppercase tracking-widest text-white">Top Funnel</p>
               <Target className="w-4 h-4 text-white" />
             </div>
             <p className="text-xl font-black text-white uppercase tracking-tighter truncate leading-tight py-1">
@@ -144,20 +144,20 @@ function MarketingIntelligence({ data }: { data: any }) {
         <Card className="bg-[#121212]/80 border-white/5 border-none shadow-2xl">
           <CardHeader>
             <CardTitle className="text-white font-black uppercase tracking-tight text-lg">Funnel Accuracy</CardTitle>
-            <CardDescription className="text-[#A0A0A0] text-xs font-medium">Tracking conversion performance from lead to paid revenue.</CardDescription>
+            <CardDescription className="text-white text-xs font-medium">Tracking conversion performance from lead to paid revenue.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-4">
               {[
                 { label: "Total Leads", value: data.funnel.leads, color: "bg-zinc-700" },
-                { label: "Contacted", value: data.funnel.contacted, color: "bg-blue-600" },
+                { label: "Contacted", value: data.funnel.contacted, color: "bg-[#0A4DFF]" },
                 { label: "Quoted", value: data.funnel.quoted, color: "bg-amber-600" },
                 { label: "Converted", value: data.funnel.converted, color: "bg-green-600" },
                 { label: "Paid", value: data.funnel.paid, color: "bg-primary" }
               ].map((stage, i) => (
                 <div key={i} className="space-y-1">
                   <div className="flex justify-between items-end">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">{stage.label}</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">{stage.label}</span>
                     <span className="text-xs font-black text-white">{stage.value}</span>
                   </div>
                   <div className="h-2.5 w-full bg-white/5 rounded-full overflow-hidden">
@@ -185,17 +185,17 @@ function MarketingIntelligence({ data }: { data: any }) {
         <Card className="bg-[#121212]/80 border-white/5 border-none shadow-2xl overflow-hidden">
           <CardHeader>
             <CardTitle className="text-white font-black uppercase tracking-tight text-lg">Lead Source Intel</CardTitle>
-            <CardDescription className="text-[#A0A0A0] text-xs font-medium">Acquisition performance by generation channel.</CardDescription>
+            <CardDescription className="text-white text-xs font-medium">Acquisition performance by generation channel.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-white/5">
                   <tr>
-                    <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Source</th>
-                    <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Volume</th>
-                    <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">CR%</th>
-                    <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Value</th>
+                    <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-widest text-white">Source</th>
+                    <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-white">Volume</th>
+                    <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-white">CR%</th>
+                    <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-white">Value</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -205,7 +205,7 @@ function MarketingIntelligence({ data }: { data: any }) {
                         <span className="text-sm font-black text-white uppercase tracking-tight truncate block max-w-[140px]">{name}</span>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className="text-xs font-black text-zinc-300">{stats.count}</span>
+                        <span className="text-xs font-black text-white">{stats.count}</span>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <Badge variant="outline" className="text-[10px] font-black text-green-500 border-green-500/20 bg-green-500/5">
@@ -246,12 +246,12 @@ function MarketingIntelligence({ data }: { data: any }) {
           </div>
         </Card>
 
-        <Card className="bg-blue-600/5 border border-blue-600/20 rounded-2xl p-6 relative overflow-hidden group">
+        <Card className="bg-[#0A4DFF]/5 border border-[#0A4DFF]/20 rounded-2xl p-6 relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-            <Zap className="w-12 h-12 text-blue-500" />
+            <Zap className="w-12 h-12 text-[#0A4DFF]" />
           </div>
           <div className="space-y-4">
-            <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
+            <h4 className="text-[10px] font-black text-[#0A4DFF] uppercase tracking-widest flex items-center gap-2">
               <Clock className="w-3 h-3" /> Efficiency Protocol
             </h4>
             <div className="space-y-2">
@@ -756,7 +756,7 @@ export default function Marketing() {
                 <div className="p-8 space-y-6">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Template Name</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-white">Template Name</Label>
                       <Input 
                         value={editingTemplate?.name || ""} 
                         onChange={e => setEditingTemplate(prev => ({ ...prev!, name: e.target.value }))}
@@ -765,7 +765,7 @@ export default function Marketing() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Category</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-white">Category</Label>
                       <Select 
                         value={editingTemplate?.category || "promotional"}
                         onValueChange={val => setEditingTemplate(prev => ({ ...prev!, category: val }))}
@@ -781,7 +781,7 @@ export default function Marketing() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Email Subject</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Email Subject</Label>
                     <Input 
                       value={editingTemplate?.subject || ""} 
                       onChange={e => setEditingTemplate(prev => ({ ...prev!, subject: e.target.value }))}
@@ -790,7 +790,7 @@ export default function Marketing() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Email Body (HTML supported)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Email Body (HTML supported)</Label>
                     <Textarea 
                       value={editingTemplate?.body || ""} 
                       onChange={e => setEditingTemplate(prev => ({ ...prev!, body: e.target.value }))}
@@ -798,7 +798,7 @@ export default function Marketing() {
                       placeholder="Hi {{firstName}}, ..."
                       className="bg-white/5 border-white/10 text-white rounded-xl min-h-[200px]"
                     />
-                    <p className="text-[10px] text-gray-400 font-mono">Variables: {"{{firstName}}, {{businessName}}, {{loyaltyPoints}}"}</p>
+                    <p className="text-[10px] text-white font-mono">Variables: {"{{firstName}}, {{businessName}}, {{loyaltyPoints}}"}</p>
                   </div>
                   <div className="flex gap-3 justify-end pt-4">
                     <Button variant="outline" onClick={() => setIsTemplateDialogOpen(false)} className="rounded-xl h-12 px-6 font-bold uppercase tracking-widest text-[10px]">Cancel</Button>
@@ -825,8 +825,8 @@ export default function Marketing() {
                 </Button>
               } />
               <DialogContent className="max-w-3xl bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black">
-                <DialogHeader className="p-8 border-b border-border bg-muted/30">
-                  <DialogTitle className="font-black text-2xl tracking-tighter text-gray-900 uppercase">
+                <DialogHeader className="p-8 border-b border-white/10 bg-black/40">
+                  <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase header-glow">
                     {editingCampaign?.id ? "Edit Campaign" : "Launch New Campaign"}
                   </DialogTitle>
                 </DialogHeader>
@@ -834,7 +834,7 @@ export default function Marketing() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-6">
                       <div className="space-y-2">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Campaign Name</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-white">Campaign Name</Label>
                         <Input 
                           value={editingCampaign?.name || newCampaign.name || ""} 
                           onChange={e => {
@@ -846,7 +846,7 @@ export default function Marketing() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Select Template</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-white">Select Template</Label>
                         <Select 
                           value={editingCampaign?.templateId || newCampaign.templateId || ""}
                           onValueChange={val => {
@@ -862,19 +862,19 @@ export default function Marketing() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
-                        <div className="flex items-center gap-2 text-blue-700 mb-1">
+                      <div className="p-4 bg-[#0A4DFF]/5 rounded-xl border border-[#0A4DFF]/10">
+                        <div className="flex items-center gap-2 text-[#0A4DFF] mb-1">
                           <Smartphone className="w-4 h-4" />
                           <span className="text-xs font-bold uppercase tracking-wider">SMS Ready</span>
                         </div>
-                        <p className="text-xs text-blue-600 leading-relaxed">
+                        <p className="text-xs text-[#0A4DFF] leading-relaxed">
                           This campaign architecture is ready for SMS integration. You can add SMS templates in the next update.
                         </p>
                       </div>
                     </div>
 
                     <div className="space-y-4">
-                      <Label className="text-sm font-bold uppercase tracking-wider text-gray-400">Audience Filters</Label>
+                      <Label className="text-sm font-bold uppercase tracking-wider text-white">Audience Filters</Label>
                       <div className="space-y-3">
                         <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
                           <div className="flex items-center gap-2">
@@ -910,7 +910,7 @@ export default function Marketing() {
                         </div>
                         <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
                           <div className="flex items-center gap-2">
-                            <Tag className="w-4 h-4 text-blue-500" />
+                            <Tag className="w-4 h-4 text-[#0A4DFF]" />
                             <span className="text-sm font-medium">One-time Clients</span>
                           </div>
                           <input 
@@ -928,7 +928,7 @@ export default function Marketing() {
 
                       <div className="pt-4 border-t border-gray-100">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-500">Estimated Audience:</span>
+                          <span className="text-sm font-medium text-white">Estimated Audience:</span>
                           <Badge variant="secondary" className="font-black text-lg">
                             {getFilteredClients(editingCampaign?.audienceFilters || newCampaign.audienceFilters!).length}
                           </Badge>
@@ -974,7 +974,7 @@ export default function Marketing() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <h2 className="text-3xl font-black uppercase tracking-tighter text-white">Marketing Intelligence</h2>
-                <p className="text-zinc-400 font-medium text-sm">Real-time performance metrics and scaling indicators.</p>
+                <p className="text-white font-medium text-sm">Real-time performance metrics and scaling indicators.</p>
               </div>
               <div className="flex items-center gap-3">
                 <Badge className="bg-primary text-white border-none font-black uppercase text-[10px] px-3 py-1">Direct Insight Engine</Badge>
@@ -987,7 +987,7 @@ export default function Marketing() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Weather Context */}
               {weather && (
-                <Card className="bg-blue-600 border-none text-white shadow-2xl relative overflow-hidden group">
+                <Card className="bg-[#0A4DFF] border-none text-white shadow-2xl relative overflow-hidden group">
                   <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:scale-110 transition-transform">
                     <Cloud className="w-16 h-16" />
                   </div>
@@ -1000,9 +1000,9 @@ export default function Marketing() {
                       />
                     </div>
                     <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-blue-100">Market Conditions</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-white">Market Conditions</p>
                       <h3 className="text-2xl font-black tracking-tight">{weather.current.temp}°F • {weather.current.condition}</h3>
-                      <p className="text-xs font-bold text-blue-100/80 mt-1 line-clamp-1">{weather.businessGuidance}</p>
+                      <p className="text-xs font-bold text-white/60 mt-1 line-clamp-1">{weather.businessGuidance}</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -1012,19 +1012,19 @@ export default function Marketing() {
               <Card className="bg-zinc-900 border-white/10 text-white shadow-xl lg:col-span-2">
                 <CardContent className="p-6 grid grid-cols-2 md:grid-cols-4 gap-6">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Total Audience</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white mb-1">Total Audience</p>
                     <p className="text-xl font-black text-white">{clients.length}</p>
                     <p className="text-[8px] font-bold text-green-500 uppercase mt-0.5">Verified CRM</p>
                   </div>
                   <div className="border-l border-white/5 pl-6">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Active Funnel</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white mb-1">Active Funnel</p>
                     <p className="text-xl font-black text-white">{leads.filter(l => l.status !== "converted" && l.status !== "lost").length}</p>
-                    <p className="text-[8px] font-bold text-blue-500 uppercase mt-0.5">Potential Rev</p>
+                    <p className="text-[8px] font-bold text-[#0A4DFF] uppercase mt-0.5">Potential Rev</p>
                   </div>
                   <div className="border-l border-white/5 pl-6">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Lead Health</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white mb-1">Lead Health</p>
                     <p className="text-xl font-black text-green-500">GOOD</p>
-                    <p className="text-[8px] font-bold text-zinc-400 uppercase mt-0.5">System Status</p>
+                    <p className="text-[8px] font-bold text-white uppercase mt-0.5">System Status</p>
                   </div>
                   <div className="border-l border-white/5 pl-6">
                     <Button 
@@ -1044,7 +1044,7 @@ export default function Marketing() {
             {/* Scaling Insights Section */}
             {growthStrategy?.scalingInsights && (
               <div className="space-y-4 pt-4">
-                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-white flex items-center gap-2">
                   <Sparkles className="w-3 h-3 text-primary" /> AI Scaling Insights
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1052,10 +1052,10 @@ export default function Marketing() {
                     <Card key={i} className="bg-zinc-900/40 border-white/10 hover:border-primary/30 transition-all group shadow-lg">
                       <CardContent className="p-6 space-y-3">
                         <Badge className="bg-primary/10 text-primary border-none text-[8px] font-black uppercase">
-                          Impact: {insight.impact}
+                          <span className="text-xs font-bold text-white/60">Impact: {insight.impact}</span>
                         </Badge>
                         <p className="text-sm font-black text-white leading-tight group-hover:text-primary transition-colors">{insight.finding}</p>
-                        <p className="text-xs text-zinc-400 leading-relaxed font-medium">{insight.recommendation}</p>
+                        <p className="text-xs text-white/70 leading-relaxed font-medium">{insight.recommendation}</p>
                       </CardContent>
                     </Card>
                   ))}
@@ -1072,7 +1072,7 @@ export default function Marketing() {
               </div>
               <div>
                 <h2 className="text-3xl font-black uppercase tracking-tighter text-white">Strategic Actions</h2>
-                <p className="text-zinc-400 font-medium text-sm">Targeted campaigns and high-impact maneuvers.</p>
+                <p className="text-white font-medium text-sm">Targeted campaigns and high-impact maneuvers.</p>
               </div>
             </div>
 
@@ -1092,7 +1092,7 @@ export default function Marketing() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-8">
-                  <div className="prose prose-sm prose-invert max-w-none text-zinc-300 font-medium leading-relaxed">
+                  <div className="prose prose-sm prose-invert max-w-none text-white font-medium leading-relaxed">
                     <ReactMarkdown>{aiChatResponse}</ReactMarkdown>
                   </div>
                 </CardContent>
@@ -1106,7 +1106,7 @@ export default function Marketing() {
                     <CardHeader className="pb-4 bg-white/[0.02] border-b border-white/5">
                       <div className="flex items-start justify-between">
                         <div className="space-y-1">
-                          <Badge className="uppercase text-[9px] font-black border-none text-white bg-primary">
+                            <Badge className="uppercase text-[9px] font-black border-none text-white bg-primary">
                             {campaign.channel} Engine
                           </Badge>
                           <CardTitle className="text-2xl font-black tracking-tight text-white group-hover:text-primary transition-colors">{campaign.title}</CardTitle>
@@ -1122,11 +1122,11 @@ export default function Marketing() {
                     <CardContent className="p-8 space-y-8 flex-1">
                       <div className="grid grid-cols-2 gap-8">
                         <div>
-                          <p className="text-[10px] font-black text-zinc-500 uppercase mb-1 tracking-widest">Audience Segment</p>
+                          <p className="text-[10px] font-black text-white uppercase mb-1 tracking-widest">Audience Segment</p>
                           <p className="text-sm font-black text-white">{campaign.targetAudience}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] font-black text-zinc-500 uppercase mb-1 tracking-widest">Tactical Timing</p>
+                          <p className="text-[10px] font-black text-white uppercase mb-1 tracking-widest">Optimal Timing</p>
                           <p className="text-sm font-black text-white">{campaign.timing}</p>
                         </div>
                       </div>
@@ -1163,12 +1163,12 @@ export default function Marketing() {
 
                           <div className="grid grid-cols-1 gap-4">
                             <div>
-                              <p className="text-[9px] font-black text-zinc-500 uppercase mb-1">Engagement Hook</p>
+                            <p className="text-[9px] font-black text-white/70 uppercase mb-1">Engagement Hook</p>
                               <p className="text-sm font-black text-white">{campaign.socialMedia.hook}</p>
                             </div>
                             <div className="flex flex-wrap gap-1.5 pt-2">
                               {campaign.socialMedia.hashtags.map((tag: string, i: number) => (
-                                <span key={i} className="text-[10px] font-black text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded uppercase tracking-tighter">#{tag}</span>
+                                <span key={i} className="text-[10px] font-black text-[#0A4DFF] bg-[#0A4DFF]/10 px-2 py-0.5 rounded uppercase tracking-tighter">#{tag}</span>
                               ))}
                             </div>
                           </div>
@@ -1177,7 +1177,7 @@ export default function Marketing() {
 
                       <div className="pt-6 border-t border-white/5 mt-auto flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                        <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Objective: {campaign.goal}</span>
+                        <span className="text-[10px] font-black text-white uppercase tracking-widest">Objective: {campaign.goal}</span>
                       </div>
                     </CardContent>
                   </Card>
@@ -1189,7 +1189,7 @@ export default function Marketing() {
                   <Target className="w-8 h-8 text-zinc-600" />
                 </div>
                 <h3 className="text-xl font-black text-white uppercase tracking-tighter">Awaiting Strategy Commands</h3>
-                <p className="text-zinc-400 font-medium max-w-xs mx-auto mt-2 italic">Use the Marketing Director below to generate your next tactical growth campaign.</p>
+                <p className="text-white font-medium max-w-xs mx-auto mt-2 italic">Use the Marketing Director below to generate your next growth campaign.</p>
               </div>
             ) : null}
           </div>
@@ -1207,7 +1207,7 @@ export default function Marketing() {
                 </div>
                 <div>
                   <h2 className="text-4xl font-black uppercase tracking-tighter text-white leading-none">AI Marketing Director</h2>
-                  <p className="text-zinc-400 font-medium mt-4 text-base leading-relaxed">
+                  <p className="text-white font-medium mt-4 text-base leading-relaxed">
                     Access high-level strategy, generate cross-platform campaigns, and scale your operations with machine intelligence.
                   </p>
                 </div>
@@ -1235,7 +1235,7 @@ export default function Marketing() {
                 </div>
 
                 <div className="space-y-4">
-                  <p className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Tactical Presets</p>
+                  <p className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Quick Presets</p>
                   <div className="flex flex-wrap gap-2">
                     {[
                       { label: "Existing Clients", query: "Generate a campaign for my existing clients" },
@@ -1286,12 +1286,12 @@ export default function Marketing() {
                               "uppercase text-[10px] font-black",
                               campaign.status === "sent" ? "bg-green-500 text-white" : 
                               campaign.status === "sending" ? "border-primary text-primary" : 
-                              "bg-white/10 text-gray-300"
+                              "bg-white/10 text-white"
                             )}>
                               {campaign.status}
                             </Badge>
                             {campaign.sentAt && (
-                              <span className="text-[10px] text-gray-400 font-medium">
+                              <span className="text-[10px] text-white font-medium">
                                 {campaign.sentAt && format(campaign.sentAt.toDate(), "MMM d, h:mm a")}
                               </span>
                             )}
@@ -1303,7 +1303,7 @@ export default function Marketing() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="text-gray-400 hover:text-primary hover:bg-white/5"
+                              className="text-white hover:text-primary hover:bg-white/5"
                               onClick={() => {
                                 setEditingCampaign(campaign);
                                 setIsCampaignDialogOpen(true);
@@ -1336,7 +1336,7 @@ export default function Marketing() {
                     <CardContent className="space-y-6">
                       <div className="grid grid-cols-3 gap-4">
                         <div className="text-center p-2 bg-white/5 rounded-lg border border-white/10">
-                          <p className="text-[10px] text-gray-500 font-bold uppercase">Audience</p>
+                          <p className="text-[10px] text-white font-bold uppercase">Audience</p>
                           <p className="text-lg font-black text-white">{campaign.stats.targetCount}</p>
                         </div>
                         <div className="text-center p-2 bg-green-500/10 rounded-lg border border-green-500/20">
@@ -1350,7 +1350,7 @@ export default function Marketing() {
                       </div>
 
                       <div className="flex items-center justify-between pt-4 border-t border-white/10">
-                        <div className="flex items-center gap-2 text-xs text-gray-400 font-medium">
+                        <div className="flex items-center gap-2 text-xs text-white font-medium">
                           <Mail className="w-3.5 h-3.5" />
                           {templates.find(t => t.id === campaign.templateId)?.name || "Unknown Template"}
                         </div>
@@ -1396,7 +1396,7 @@ export default function Marketing() {
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="text-gray-400 hover:text-primary hover:bg-white/5"
+                            className="text-white hover:text-primary hover:bg-white/5"
                             onClick={() => {
                               setEditingTemplate(template);
                               setIsTemplateDialogOpen(true);
@@ -1426,10 +1426,10 @@ export default function Marketing() {
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Subject</p>
-                      <p className="text-sm font-medium text-gray-200 line-clamp-2">{template.subject}</p>
+                      <p className="text-xs font-bold text-white uppercase tracking-widest">Subject</p>
+                      <p className="text-sm font-medium text-white line-clamp-2">{template.subject}</p>
                       <div className="pt-4 border-t border-white/10 flex items-center justify-between">
-                        <span className="text-[10px] text-gray-500 font-medium">
+                        <span className="text-[10px] text-white/60 font-medium">
                           Last updated {template.updatedAt && typeof template.updatedAt.toDate === 'function' ? format(template.updatedAt.toDate(), "MMM d, yyyy") : "Just now"}
                         </span>
                         <Button 
@@ -1457,7 +1457,7 @@ export default function Marketing() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl font-black uppercase tracking-tight text-white">Active Coupons</h3>
-              <p className="text-sm text-gray-400 font-medium">Manage your auto-generated and manual discount codes.</p>
+              <p className="text-sm text-white font-medium">Manage your auto-generated and manual discount codes.</p>
             </div>
             <Dialog open={isCouponDialogOpen} onOpenChange={(open) => {
               setIsCouponDialogOpen(open);
@@ -1469,41 +1469,41 @@ export default function Marketing() {
                 </Button>
               } />
               <DialogContent className="max-w-xl bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black">
-                <DialogHeader className="p-8 border-b border-border bg-muted/30">
-                  <DialogTitle className="font-black text-2xl tracking-tighter text-gray-900 uppercase">
+                <DialogHeader className="p-8 border-b border-white/10 bg-black/40">
+                  <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase header-glow">
                     {editingCoupon?.id ? "Edit Coupon" : "Create Manual Coupon"}
                   </DialogTitle>
                 </DialogHeader>
                 <div className="p-8 space-y-6">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Coupon Code</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-white">Coupon Code</Label>
                       <Input 
                         value={editingCoupon?.code || ""} 
                         onChange={e => setEditingCoupon(prev => ({ ...prev!, code: e.target.value }))}
                         placeholder="e.g., SUMMER20"
-                        className="bg-muted border-border text-gray-900 rounded-xl h-12 uppercase font-mono"
+                        className="bg-white/5 border-white/10 text-white rounded-xl h-12 uppercase font-mono"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Title</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-white">Title</Label>
                       <Input 
                         value={editingCoupon?.title || ""} 
                         onChange={e => setEditingCoupon(prev => ({ ...prev!, title: e.target.value }))}
                         placeholder="e.g., Summer Special"
-                        className="bg-muted border-border text-gray-900 rounded-xl h-12"
+                        className="bg-white/5 border-white/10 text-white rounded-xl h-12"
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Discount Type</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-white">Discount Type</Label>
                       <Select 
                         value={editingCoupon?.discountType || "percentage"}
                         onValueChange={val => setEditingCoupon(prev => ({ ...prev!, discountType: val as any }))}
                       >
-                        <SelectTrigger className="bg-muted border-border text-gray-900 rounded-xl h-12"><SelectValue /></SelectTrigger>
-                        <SelectContent className="bg-card border-border text-gray-900">
+                        <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12"><SelectValue /></SelectTrigger>
+                        <SelectContent className="bg-zinc-900 border-white/10 text-white">
                           <SelectItem value="percentage">Percentage (%)</SelectItem>
                           <SelectItem value="fixed">Fixed Amount ($)</SelectItem>
                           <SelectItem value="free_addon">Free Add-on</SelectItem>
@@ -1511,24 +1511,24 @@ export default function Marketing() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Value</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-white">Value</Label>
                       <Input 
                         type="number"
                         value={editingCoupon?.discountValue || ""} 
                         onChange={e => setEditingCoupon(prev => ({ ...prev!, discountValue: Number(e.target.value) }))}
                         placeholder="e.g., 20"
-                        className="bg-muted border-border text-gray-900 rounded-xl h-12"
+                        className="bg-white/5 border-white/10 text-white rounded-xl h-12"
                       />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Description</Label>
-                    <Textarea 
-                      value={editingCoupon?.description || ""} 
-                      onChange={e => setEditingCoupon(prev => ({ ...prev!, description: e.target.value }))}
-                      placeholder="e.g., Valid for all full details in July"
-                      className="bg-muted border-border text-gray-900 rounded-xl min-h-[100px]"
-                    />
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Description</Label>
+                      <Textarea 
+                        value={editingCoupon?.description || ""} 
+                        onChange={e => setEditingCoupon(prev => ({ ...prev!, description: e.target.value }))}
+                        placeholder="e.g., Valid for all full details in July"
+                        className="bg-white/5 border-white/10 text-white rounded-xl min-h-[100px]"
+                      />
                   </div>
                   <div className="flex gap-3 justify-end pt-4">
                     <Button variant="outline" onClick={() => setIsCouponDialogOpen(false)} className="rounded-xl h-12 px-6 font-bold uppercase tracking-widest text-[10px]">Cancel</Button>
@@ -1556,12 +1556,12 @@ export default function Marketing() {
                           <div className="flex items-center gap-2">
                             <Badge variant={coupon.isActive ? "default" : "secondary"} className={cn(
                               "uppercase text-[10px] font-black",
-                              coupon.isActive ? "bg-green-500 text-white" : "bg-white/10 text-gray-400"
+                              coupon.isActive ? "bg-green-500 text-white" : "bg-white/10 text-white/70"
                             )}>
                               {coupon.isActive ? "Active" : "Inactive"}
                             </Badge>
                             {coupon.expiryDate && coupon.expiryDate instanceof Timestamp && (
-                              <span className="text-[10px] text-gray-500 font-medium">
+                              <span className="text-[10px] text-white/60 font-medium">
                                 Expires {format(coupon.expiryDate.toDate(), "MMM d")}
                               </span>
                             )}
@@ -1572,7 +1572,7 @@ export default function Marketing() {
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="text-gray-400 hover:text-primary hover:bg-white/5"
+                            className="text-white/40 hover:text-primary hover:bg-white/5"
                             onClick={() => {
                               setEditingCoupon(coupon);
                               setIsCouponDialogOpen(true);
@@ -1583,7 +1583,7 @@ export default function Marketing() {
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="text-gray-400 hover:text-primary hover:bg-white/5"
+                            className="text-white/40 hover:text-primary hover:bg-white/5"
                             onClick={() => {
                               navigator.clipboard.writeText(coupon.code);
                               toast.success("Code copied to clipboard");
@@ -1596,13 +1596,13 @@ export default function Marketing() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div>
-                        <p className="text-[10px] font-black text-gray-500 uppercase mb-1">Campaign / Title</p>
+                        <p className="text-[10px] font-black text-white uppercase mb-1">Campaign / Title</p>
                         <p className="text-sm font-bold text-white">{coupon.title || "General Discount"}</p>
                       </div>
                       
                       <div className="grid grid-cols-2 gap-4">
                         <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                          <p className="text-[10px] font-black text-gray-500 uppercase mb-1">Discount</p>
+                          <p className="text-[10px] font-black text-white uppercase mb-1">Discount</p>
                           <p className="text-lg font-black text-white">
                             {coupon.discountType === "percentage" ? `${coupon.discountValue}%` : 
                              coupon.discountType === "fixed" ? `$${coupon.discountValue}` : 
@@ -1610,7 +1610,7 @@ export default function Marketing() {
                           </p>
                         </div>
                         <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                          <p className="text-[10px] font-black text-gray-500 uppercase mb-1">Redemptions</p>
+                          <p className="text-[10px] font-black text-white uppercase mb-1">Redemptions</p>
                           <p className="text-lg font-black text-white">{coupon.usageCount}</p>
                         </div>
                       </div>
@@ -1660,12 +1660,12 @@ export default function Marketing() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-white">Audience Segments</CardTitle>
-                  <CardDescription className="text-gray-400">View and manage your client segments for targeted marketing.</CardDescription>
+                  <CardDescription className="text-white">View and manage your client segments for targeted marketing.</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <Input className="pl-10 w-64 bg-white/5 border-white/10 text-white placeholder:text-gray-500" placeholder="Search clients..." />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white" />
+                    <Input className="pl-10 w-64 bg-white/5 border-white/10 text-white placeholder:text-white" placeholder="Search clients..." />
                   </div>
                   <Button variant="outline" size="icon" className="border-white/10 bg-white/5 text-white hover:bg-white/10">
                     <Filter className="w-4 h-4" />
@@ -1690,18 +1690,18 @@ export default function Marketing() {
                   </div>
                 </div>
 
-                <div className="p-6 bg-blue-500/10 rounded-3xl border border-blue-500/20">
+                <div className="p-6 bg-[#0A4DFF]/5 rounded-3xl border border-[#0A4DFF]/10">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 bg-blue-500 rounded-2xl flex items-center justify-center text-white shadow-sm">
+                    <div className="w-10 h-10 bg-[#0A4DFF] rounded-2xl flex items-center justify-center text-white shadow-sm">
                       <UserCheck className="w-6 h-6" />
                     </div>
                     <div>
-                      <p className="text-[10px] font-black text-blue-500 uppercase tracking-wider">Active</p>
+                      <p className="text-[10px] font-black text-[#0A4DFF] uppercase tracking-wider">Active</p>
                       <p className="text-2xl font-black text-white">{clients.length}</p>
                     </div>
                   </div>
                   <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-blue-500 h-full" style={{ width: "100%" }} />
+                    <div className="bg-[#0A4DFF] h-full" style={{ width: "100%" }} />
                   </div>
                 </div>
 
@@ -1740,10 +1740,10 @@ export default function Marketing() {
                 <table className="w-full text-left">
                   <thead className="bg-white/5 border-b border-white/10">
                     <tr>
-                      <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-wider">Client</th>
-                      <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-wider">Type</th>
-                      <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-white uppercase tracking-wider">Client</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-white uppercase tracking-wider">Type</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-white uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-white uppercase tracking-wider text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 bg-transparent">
@@ -1751,17 +1751,17 @@ export default function Marketing() {
                       <tr key={client.id} className="hover:bg-white/5 transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center font-bold text-gray-500 text-xs">
+                            <div className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center font-bold text-white text-xs">
                               {client.firstName?.[0]}{client.lastName?.[0]}
                             </div>
                             <div>
                               <p className="text-sm font-bold text-white">{getClientDisplayName(client)}</p>
-                              <p className="text-[10px] text-gray-500 font-medium">{client.email}</p>
+                              <p className="text-[10px] text-white/60 font-medium">{client.email}</p>
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <Badge variant="outline" className="text-[10px] font-bold text-gray-400 border-white/10">
+                          <Badge variant="outline" className="text-[10px] font-bold text-white border-white/10">
                             {clientTypes.find(t => t.id === client.clientTypeId)?.name || "Retail"}
                           </Badge>
                         </td>
@@ -1772,7 +1772,7 @@ export default function Marketing() {
                           </div>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-500 hover:text-primary">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-white hover:text-primary">
                             <ChevronRight className="w-4 h-4" />
                           </Button>
                         </td>

@@ -27,7 +27,7 @@ export function PageHeader({ title, accentWord, subtitle, actions, className }: 
           )}
         </h1>
         {subtitle && (
-          <p className="text-[11px] md:text-xs font-black text-white/50 uppercase tracking-[0.25em] flex items-center gap-2.5 ml-1">
+          <p className="text-[11px] md:text-xs font-black text-white uppercase tracking-[0.25em] flex items-center gap-2.5 ml-1">
             <span className="flex h-1.5 w-1.5 rounded-full bg-primary shadow-glow-blue animate-pulse"></span>
             {subtitle}
           </p>

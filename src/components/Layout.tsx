@@ -72,7 +72,7 @@ function NotificationBell() {
   
   return (
     <SheetTrigger render={
-      <Button variant="ghost" size="icon" className="text-[#A0A0A0] hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300 relative">
+      <Button variant="ghost" size="icon" className="text-white hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300 relative">
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
           <span className="absolute top-2 right-2 w-2 h-2 bg-[#0A4DFF] rounded-full ring-2 ring-sidebar animate-pulse"></span>
@@ -83,7 +83,7 @@ function NotificationBell() {
 }
 
 export default function Layout() {
-  const { logout, profile } = useAuth();
+  const { logout, profile, isQuotaExceeded } = useAuth();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -120,20 +120,20 @@ export default function Layout() {
         className={cn(
           "flex items-center rounded-xl text-sm font-medium transition-all duration-300 group relative",
           isActive
-            ? "bg-linear-to-r from-[#0A4DFF] to-[#1E90FF] text-white shadow-glow-blue"
+            ? "bg-[#0A4DFF] text-white shadow-glow-blue"
             : isWaitlistGlow
               ? "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
-              : "text-[#A0A0A0] hover:bg-white/5 hover:text-white",
+              : "text-white hover:bg-white/5 hover:text-white",
           isSidebarCollapsed && !isMobile ? "justify-center w-12 h-12 mx-auto" : "gap-3 px-3 py-2.5 w-full",
           isWaitlistGlow && !isActive && "animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.3)] border border-amber-500/20"
         )}
         title={isSidebarCollapsed && !isMobile ? item.name : undefined}
       >
-        <item.icon className={cn("w-5 h-5 transition-transform group-hover:scale-110 shrink-0", isActive ? "text-white" : isWaitlistGlow ? "text-amber-500" : "text-[#A0A0A0]")} />
+        <item.icon className={cn("w-5 h-5 transition-transform group-hover:scale-110 shrink-0", isActive ? "text-white" : isWaitlistGlow ? "text-amber-500" : "text-white")} />
         {(!isSidebarCollapsed || isMobile) && (
           <span className={cn(
             "tracking-tight font-bold truncate flex-1",
-            isActive ? "text-white" : isWaitlistGlow ? "text-amber-500" : "text-[#A0A0A0] group-hover:text-white"
+            isActive ? "text-white" : isWaitlistGlow ? "text-amber-500" : "text-white group-hover:text-white"
           )}>
             {item.name}
           </span>
@@ -148,101 +148,115 @@ export default function Layout() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex font-sans selection:bg-primary selection:text-white">
-      {/* Sidebar for Desktop */}
-      <aside className={cn(
-        "hidden md:flex flex-col bg-sidebar border-r border-sidebar-border sticky top-0 h-screen shrink-0 z-20 transition-[width] duration-300 ease-in-out",
-        isSidebarCollapsed ? "w-20" : "w-64"
-      )}>
-        <div className={cn("py-6 flex transition-all duration-300", isSidebarCollapsed ? "justify-center w-full" : "px-8 w-full justify-start")}>
-          <Link to="/" className="flex items-center justify-center">
-            <Logo variant={isSidebarCollapsed ? "icon" : "full"} color="white" />
-          </Link>
+    <div className="min-h-screen bg-background flex flex-col font-sans selection:bg-primary selection:text-white">
+      {/* Quota Exhausted Banner */}
+      {isQuotaExceeded && (
+        <div className="bg-red-600 text-white px-6 py-2 flex items-center justify-center gap-3 animate-in fade-in slide-in-from-top duration-500 sticky top-0 z-[100] shadow-lg">
+          <ShieldAlert className="w-4 h-4 animate-pulse" />
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-center">
+            System Alert: Firestore Daily Quota Exhausted • Database operations restricted until reset • System using cached data
+          </p>
         </div>
-        <nav className={cn("flex-1 space-y-6 overflow-y-auto custom-scrollbar pb-6 transition-all duration-300", isSidebarCollapsed ? "px-2" : "px-4")}>
-          {navigationGroups.map((group) => {
-            const hasVisibleItems = group.items.some(item => !item.adminOnly || isAdminOrManager);
-            if (!hasVisibleItems) return null;
-            return (
-              <div key={group.title} className={cn("space-y-2", isSidebarCollapsed && "flex flex-col items-center")}>
-                {!isSidebarCollapsed && (
-                  <h3 className="px-3 text-[10px] font-black text-white/40 uppercase tracking-widest">
-                    {group.title}
-                  </h3>
-                )}
-                <div className={cn("space-y-2", isSidebarCollapsed && "w-full space-y-2")}>
-                  {group.items.map((item) => renderNavItem(item))}
-                </div>
-              </div>
-            );
-          })}
-        </nav>
-        <div className="p-4 border-t border-sidebar-border bg-black/20">
-          {!isSidebarCollapsed ? (
-            <div className="flex items-center gap-4 mb-6 px-2">
-              <div className="relative group shrink-0">
-                <div className="w-10 h-10 bg-[#0A4DFF]/20 rounded-xl overflow-hidden ring-2 ring-[#0A4DFF]/20 group-hover:ring-[#0A4DFF]/50 transition-all duration-300">
-                  {profile?.photoURL ? (
-                    <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[#0A4DFF] font-bold">
-                      {profile?.displayName?.charAt(0)}
-                    </div>
+      )}
+      
+      <div className="flex-1 flex min-w-0 h-full">
+        {/* Sidebar for Desktop */}
+        <aside className={cn(
+          "hidden md:flex flex-col bg-sidebar border-r border-sidebar-border sticky top-0 h-screen shrink-0 z-20 transition-[width] duration-300 ease-in-out",
+          isSidebarCollapsed ? "w-20" : "w-64"
+        )}>
+          <div className={cn("py-6 flex transition-all duration-300", isSidebarCollapsed ? "justify-center w-full" : "px-8 w-full justify-start")}>
+            <Link to="/" className="flex items-center justify-center">
+              <Logo variant={isSidebarCollapsed ? "icon" : "full"} color="white" />
+            </Link>
+          </div>
+          <nav className={cn("flex-1 space-y-6 overflow-y-auto custom-scrollbar pb-6 transition-all duration-300", isSidebarCollapsed ? "px-2" : "px-4")}>
+            {navigationGroups.map((group) => {
+              const hasVisibleItems = group.items.some(item => !item.adminOnly || isAdminOrManager);
+              if (!hasVisibleItems) return null;
+              return (
+                <div key={group.title} className={cn("space-y-2", isSidebarCollapsed && "flex flex-col items-center")}>
+                  {!isSidebarCollapsed && (
+                    <h3 className="px-3 text-[10px] font-black text-white uppercase tracking-widest">
+                      {group.title}
+                    </h3>
                   )}
+                  <div className={cn("space-y-2", isSidebarCollapsed && "w-full space-y-2")}>
+                    {group.items.map((item) => renderNavItem(item))}
+                  </div>
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-sidebar rounded-full shadow-sm"></div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-white truncate tracking-tight">{profile?.displayName}</p>
-                <p className="text-[10px] text-[#0A4DFF] truncate uppercase tracking-widest font-black">{profile?.role}</p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex justify-center mb-6">
-              <div className="relative group shrink-0">
-                <div className="w-10 h-10 bg-[#0A4DFF]/20 rounded-xl overflow-hidden ring-2 ring-[#0A4DFF]/20 group-hover:ring-[#0A4DFF]/50">
-                  {profile?.photoURL ? (
-                    <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[#0A4DFF] font-bold">
-                      {profile?.displayName?.charAt(0)}
-                    </div>
-                  )}
+              );
+            })}
+          </nav>
+          <div className="p-4 border-t border-sidebar-border bg-black/20">
+            {!isSidebarCollapsed ? (
+              <div className="flex items-center gap-4 mb-6 px-2">
+                <div className="relative group shrink-0">
+                  <div className="w-10 h-10 bg-[#0A4DFF]/20 rounded-xl overflow-hidden ring-2 ring-[#0A4DFF]/20 group-hover:ring-[#0A4DFF]/50 transition-all duration-300">
+                    {profile?.photoURL ? (
+                      <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[#0A4DFF] font-bold">
+                        {profile?.displayName?.charAt(0)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-sidebar rounded-full shadow-sm"></div>
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-sidebar rounded-full shadow-sm"></div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-white truncate tracking-tight">{profile?.displayName}</p>
+                  <p className="text-[10px] text-[#0A4DFF] truncate uppercase tracking-widest font-black">{profile?.role}</p>
+                </div>
               </div>
-            </div>
-          )}
-          
-          <Button 
-            variant="ghost" 
-            className={cn(
-              "text-gray-400 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-300 group",
-              isSidebarCollapsed ? "w-12 h-12 mx-auto justify-center px-0 flex" : "w-full justify-start"
-            )} 
-            onClick={logout}
-            title={isSidebarCollapsed ? "Sign Out" : undefined}
-          >
-            <LogOut className={cn("w-5 h-5 transition-transform shrink-0", !isSidebarCollapsed && "mr-3", isSidebarCollapsed && "group-hover:scale-110")} />
-            {!isSidebarCollapsed && (
-              <span className="font-bold text-xs uppercase tracking-widest">
-                Sign Out
-              </span>
+            ) : (
+              <div className="flex justify-center mb-6">
+                <div className="relative group shrink-0">
+                  <div className="w-10 h-10 bg-[#0A4DFF]/20 rounded-xl overflow-hidden ring-2 ring-[#0A4DFF]/20 group-hover:ring-[#0A4DFF]/50">
+                    {profile?.photoURL ? (
+                      <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[#0A4DFF] font-bold">
+                        {profile?.displayName?.charAt(0)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-sidebar rounded-full shadow-sm"></div>
+                </div>
+              </div>
             )}
-          </Button>
-        </div>
-      </aside>
+            
+            <Button 
+              variant="ghost" 
+              className={cn(
+                "text-white hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-300 group",
+                isSidebarCollapsed ? "w-12 h-12 mx-auto justify-center px-0 flex" : "w-full justify-start"
+              )} 
+              onClick={logout}
+              title={isSidebarCollapsed ? "Sign Out" : undefined}
+            >
+              <LogOut className={cn("w-5 h-5 transition-transform shrink-0", !isSidebarCollapsed && "mr-3", isSidebarCollapsed && "group-hover:scale-110")} />
+              {!isSidebarCollapsed && (
+                <span className="font-bold text-xs uppercase tracking-widest">
+                  Sign Out
+                </span>
+              )}
+            </Button>
+          </div>
+        </aside>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden transition-all duration-300 ease-in-out">
-        {/* Top Header */}
-        <header className="bg-sidebar/95 backdrop-blur-xl border-b border-white/5 px-6 md:px-10 py-4 flex items-center justify-between sticky top-0 z-10 h-20">
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden transition-all duration-300 ease-in-out">
+          {/* Top Header */}
+          <header className={cn(
+            "bg-sidebar/95 backdrop-blur-xl border-b border-white/5 px-6 md:px-10 py-4 flex items-center justify-between sticky z-10 h-20",
+            isQuotaExceeded ? "top-0" : "top-0"
+          )}>
           <div className="flex items-center gap-6 flex-1">
             <Button 
               variant="ghost" 
               size="icon" 
               onClick={toggleSidebar}
-              className="hidden md:flex text-[#A0A0A0] hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300"
+              className="hidden md:flex text-white hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300"
             >
               {isSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
             </Button>
@@ -269,7 +283,7 @@ export default function Layout() {
                 variant="ghost" 
                 size="icon" 
                 onClick={() => setIsAIAssistantOpen(true)}
-                className="text-[#A0A0A0] hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300"
+                className="text-white hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300"
               >
                 <MessageSquare className="w-5 h-5" />
               </Button>
@@ -295,7 +309,7 @@ export default function Layout() {
                     if (!hasVisibleItems) return null;
                     return (
                       <div key={group.title} className="space-y-2">
-                        <h3 className="px-3 text-[10px] font-black text-white/40 uppercase tracking-widest">{group.title}</h3>
+                        <h3 className="px-3 text-[10px] font-black text-white uppercase tracking-widest">{group.title}</h3>
                         <div className="space-y-1">
                           {group.items.map((item) => renderNavItem(item, true))}
                         </div>
@@ -306,7 +320,7 @@ export default function Layout() {
                 <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-white/5 bg-black/40">
                   <Button 
                     variant="ghost" 
-                    className="w-full justify-start text-[#A0A0A0] hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300" 
+                    className="w-full justify-start text-white hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300" 
                     onClick={logout}
                   >
                     <LogOut className="w-5 h-5 mr-3" />
@@ -329,12 +343,13 @@ export default function Layout() {
           </div>
         </main>
       </div>
-
-      <AIAssistant 
-        context={{ profile }} 
-        isOpen={isAIAssistantOpen} 
-        onOpenChange={setIsAIAssistantOpen} 
-      />
     </div>
-  );
+
+    <AIAssistant 
+      context={{ profile }} 
+      isOpen={isAIAssistantOpen} 
+      onOpenChange={setIsAIAssistantOpen} 
+    />
+  </div>
+);
 }

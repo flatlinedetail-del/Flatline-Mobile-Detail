@@ -1,5 +1,22 @@
 {
   "entities": {
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment record for fees or services",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string" },
+        "appointmentId": { "type": "string" },
+        "amount": { "type": "number" },
+        "provider": { "type": "string" },
+        "transactionId": { "type": "string" },
+        "paymentType": { "type": "string", "enum": ["service", "cancellation_fee", "deposit"] },
+        "status": { "type": "string", "enum": ["paid", "failed", "waived", "pending"] },
+        "failureReason": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["clientId", "amount", "status", "timestamp"]
+    },
     "User": {
       "title": "User",
       "description": "App user (Admin or Technician)",
@@ -35,6 +52,8 @@
         "billingCycle": { "type": "string" },
         "customRates": { "type": "object" },
         "notes": { "type": "string" },
+        "outstandingCancellationFee": { "type": "number" },
+        "hasSavedPaymentMethod": { "type": "boolean" },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" },
         "legacyId": { "type": "string" },
@@ -129,7 +148,7 @@
         "vehicleId": { "type": "string" },
         "serviceIds": { "type": "array", "items": { "type": "string" } },
         "addOnIds": { "type": "array", "items": { "type": "string" } },
-        "status": { "type": "string", "enum": ["scheduled", "confirmed", "en_route", "in_progress", "completed", "paid", "canceled", "no_show"] },
+        "status": { "type": "string", "enum": ["scheduled", "confirmed", "en_route", "in_progress", "completed", "paid", "canceled", "no_show", "missed"] },
         "scheduledAt": { "type": "string" },
         "address": { "type": "string" },
         "totalAmount": { "type": "number" },
@@ -138,6 +157,7 @@
         "notes": { "type": "string" },
         "vin": { "type": "string" },
         "roNumber": { "type": "string" },
+        "cancellationFeeProcessed": { "type": "boolean" },
         "recurringInfo": { "type": "object" }
       }
     },
@@ -193,6 +213,8 @@
         "name": { "type": "string" },
         "description": { "type": "string" },
         "price": { "type": "number" },
+        "pricingType": { "type": "string", "enum": ["flat", "hourly", "block30", "blockCustom"] },
+        "rate": { "type": "number" },
         "isTaxable": { "type": "boolean" },
         "estimatedDuration": { "type": "number" },
         "isActive": { "type": "boolean" }
@@ -210,6 +232,8 @@
         "timezone": { "type": "string" },
         "commissionRate": { "type": "number" },
         "commissionType": { "type": "string" },
+        "cancellationFeeAmount": { "type": "number" },
+        "cancellationFeeType": { "type": "string", "enum": ["flat", "percentage"] },
         "baseAddress": { "type": "string" },
         "baseLatitude": { "type": "number" },
         "baseLongitude": { "type": "number" },
@@ -366,6 +390,7 @@
     }
   },
   "firestore": {
+    "/payments/{paymentId}": { "schema": "Payment", "description": "Payment records" },
     "/users/{uid}": { "schema": "User", "description": "User profiles" },
     "/clients/{clientId}": { "schema": "Client", "description": "Unified clients" },
     "/client_types/{typeId}": { "schema": "ClientType", "description": "Client types" },

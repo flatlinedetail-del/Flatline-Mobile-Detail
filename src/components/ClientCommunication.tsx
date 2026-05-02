@@ -123,7 +123,7 @@ export function ClientCommunication({ client }: ClientCommunicationProps) {
   const getLogIcon = (type: string) => {
     switch (type) {
       case "sms": return <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />;
-      case "email": return <Mail className="w-3.5 h-3.5 text-blue-500" />;
+      case "email": return <Mail className="w-3.5 h-3.5 text-[#0A4DFF]" />;
       case "note": return <Plus className="w-3.5 h-3.5 text-amber-500" />;
       case "alert": return <AlertCircle className="w-3.5 h-3.5 text-primary outline-dashed scale-110" />;
       default: return <History className="w-3.5 h-3.5 text-gray-400" />;
@@ -253,7 +253,7 @@ export function ClientCommunication({ client }: ClientCommunicationProps) {
                   </div>
                   <div className="space-y-1">
                     <p className="text-[10px] font-black uppercase tracking-widest text-white">Tactical Routing Enabled</p>
-                    <p className="text-xs text-zinc-500 font-medium">
+                    <p className="text-xs text-white/50 font-medium">
                       {type === "email" ? `Transmitting via secure SMTP to ${client.email}` : 
                        type === "sms" ? `Transmitting via cellular gateway to ${client.phone}` : 
                        "Recording internal memorandum."}

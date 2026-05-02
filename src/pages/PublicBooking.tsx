@@ -15,7 +15,7 @@ import { createNotification } from "../services/notificationService";
 import { cn, formatCurrency, formatPhoneNumber } from "@/lib/utils";
 import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { checkAvailability as checkAvailabilityService, generateSmartRecommendations } from "../services/smartBookingService";
+import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtils";
 import Logo from "../components/Logo";
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
@@ -152,6 +152,7 @@ export default function PublicBooking() {
   const [isAfterHours, setIsAfterHours] = useState(false);
   const [afterHoursFee, setAfterHoursFee] = useState(0);
   const [appointments, setAppointments] = useState<any[]>([]);
+  const [blockedDates, setBlockedDates] = useState<any[]>([]);
   const [isTimeAvailable, setIsTimeAvailable] = useState<boolean | null>(null);
   
   const [backupScheduledAt, setBackupScheduledAt] = useState("");
@@ -252,35 +253,25 @@ export default function PublicBooking() {
       setAfterHoursFee(0);
     }
     
-    const checkAsync = async () => {
-      try {
-        const reqAvail = await checkAvailabilityService({
-          targetDate: startAt,
-          durationMinutes: totalDuration,
-          businessHours: settings.businessHours
-        });
-        
-        setIsTimeAvailable(reqAvail.isAvailable);
-        
-        if (!reqAvail.isAvailable) {
-          const recs = await generateSmartRecommendations({
-            baseDate: startAt,
-            addressLat: 0,
-            addressLng: 0,
-            durationMinutes: totalDuration,
-            rainThreshold: 60,
-            businessHours: settings.businessHours
-          });
-          setAlternativeTimes(recs.map(r => r.startTime));
-        } else {
-          setAlternativeTimes([]);
-        }
-      } catch (err) {
-        console.error("Failed to check availability", err);
-      }
-    };
-    checkAsync();
-  }, [scheduledAt, selectedServices, services, settings?.businessHours, appointments]);
+    const reqAvail = checkLocalAvailability({
+      targetDate: startAt,
+      durationMinutes: totalDuration,
+      cache: { appointments, blockedDates, businessHours: settings.businessHours }
+    });
+    
+    setIsTimeAvailable(reqAvail.isAvailable);
+    
+    if (!reqAvail.isAvailable) {
+      const recs = findLocalBackupSlots(startAt, totalDuration, {
+        appointments,
+        blockedDates,
+        businessHours: settings.businessHours
+      }, 5);
+      setAlternativeTimes(recs);
+    } else {
+      setAlternativeTimes([]);
+    }
+  }, [scheduledAt, selectedServices, services, settings?.businessHours, appointments, blockedDates]);
 
   useEffect(() => {
     if (!backupScheduledAt || isTimeAvailable !== false || !settings?.businessHours) {
@@ -288,26 +279,19 @@ export default function PublicBooking() {
       return;
     }
 
-    const checkBackupAsync = async () => {
-      try {
-        const startAt = new Date(backupScheduledAt);
-        const totalDuration = selectedServices.reduce((acc, id) => {
-          const service = services.find(srv => srv.id === id);
-          return acc + (service?.estimatedDuration || 120);
-        }, 0);
+    const startAt = new Date(backupScheduledAt);
+    const totalDuration = selectedServices.reduce((acc, id) => {
+      const service = services.find(srv => srv.id === id);
+      return acc + (service?.estimatedDuration || 120);
+    }, 0);
 
-        const checkAvail = await checkAvailabilityService({
-          targetDate: startAt,
-          durationMinutes: totalDuration,
-          businessHours: settings.businessHours
-        });
-        setIsBackupAvailable(checkAvail.isAvailable);
-      } catch (err) {
-        console.error("Backup check failed", err);
-      }
-    };
-    checkBackupAsync();
-  }, [backupScheduledAt, selectedServices, services, settings?.businessHours, isTimeAvailable]);
+    const checkAvail = checkLocalAvailability({
+      targetDate: startAt,
+      durationMinutes: totalDuration,
+      cache: { appointments, blockedDates, businessHours: settings.businessHours }
+    });
+    setIsBackupAvailable(checkAvail.isAvailable);
+  }, [backupScheduledAt, selectedServices, services, settings?.businessHours, isTimeAvailable, appointments, blockedDates]);
 
   const handleAcceptRecommendation = () => {
     if (recommendedChoice.recommendedService) {
@@ -333,6 +317,9 @@ export default function PublicBooking() {
 
          const apptsSnap = await getDocs(query(collection(db, "appointments"), where("scheduledAt", ">=", new Date())));
         setAppointments(apptsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        const blockedSnap = await getDocs(query(collection(db, "blocked_dates"), where("start", ">=", new Date())));
+        setBlockedDates(blockedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
         const protectedSnap = await getDocs(collection(db, "protected_clients"));
         setProtectedClients(protectedSnap.docs.map(d => ({ id: d.id, ...d.data() })));

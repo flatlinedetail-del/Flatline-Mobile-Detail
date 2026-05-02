@@ -2,12 +2,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFoo
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { Calendar, User, Clock, MapPin, Truck, HelpCircle, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
-import { updateDoc, doc, getDoc, collection, query, getDocs, orderBy, limit } from "firebase/firestore";
+import { updateDoc, doc, getDoc, collection, query, getDocs, orderBy, limit, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { checkAvailability, generateSmartRecommendations, SmartRecommendation } from "../services/smartBookingService";
+import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtils";
 import { cn, formatPhoneNumber, formatCurrency } from "@/lib/utils";
 
 export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComplete }: { appointment: any, isOpen: boolean, onClose: () => void, onActionComplete?: () => void }) {
@@ -15,8 +15,8 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
   const [requestedStatus, setRequestedStatus] = useState<{isAvailable: boolean, reason: string} | null>(null);
   const [backupStatus, setBackupStatus] = useState<{isAvailable: boolean, reason: string} | null>(null);
   const [evaluating, setEvaluating] = useState(false);
-  const [recommendations, setRecommendations] = useState<SmartRecommendation[]>([]);
-  const [selectedRec, setSelectedRec] = useState<SmartRecommendation | null>(null);
+  const [recommendations, setRecommendations] = useState<Date[]>([]);
+  const [selectedRec, setSelectedRec] = useState<Date | null>(null);
 
   useEffect(() => {
     if (!isOpen || !appointment) return;
@@ -30,11 +30,17 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
         const reqDate = appointment.scheduledAt?.toDate ? appointment.scheduledAt.toDate() : new Date(appointment.scheduledAt);
         const duration = appointment.estimatedDuration || 120;
 
-        const reqCheck = await checkAvailability({
+        const apptsSnap = await getDocs(query(collection(db, "appointments"), where("scheduledAt", ">=", new Date())));
+        const blockedSnap = await getDocs(query(collection(db, "blocked_dates"), where("start", ">=", new Date())));
+        const appointmentsCache = apptsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const blockedDatesCache = blockedSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const cache = { appointments: appointmentsCache, blockedDates: blockedDatesCache, businessHours: businessSettings?.businessHours };
+
+        const reqCheck = checkLocalAvailability({
           targetDate: reqDate,
           durationMinutes: duration,
           ignoreAppointmentId: appointment.id,
-          businessHours: businessSettings?.businessHours
+          cache
         });
         setRequestedStatus(reqCheck);
 
@@ -44,11 +50,11 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
 
         let bakCheck = null;
         if (backupDate) {
-          bakCheck = await checkAvailability({
+          bakCheck = checkLocalAvailability({
             targetDate: backupDate,
             durationMinutes: duration,
             ignoreAppointmentId: appointment.id,
-            businessHours: businessSettings?.businessHours
+            cache
           });
           setBackupStatus(bakCheck);
         } else {
@@ -57,14 +63,7 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
 
         // Generate recommendations if both requested and backup are unavailable
         if (!reqCheck.isAvailable && (!bakCheck || !bakCheck.isAvailable)) {
-           const recs = await generateSmartRecommendations({
-             baseDate: backupDate || reqDate,
-             addressLat: appointment.latitude || 0,
-             addressLng: appointment.longitude || 0,
-             durationMinutes: duration,
-             rainThreshold: 60,
-             businessHours: businessSettings?.businessHours
-           });
+           const recs = findLocalBackupSlots(backupDate || reqDate, duration, cache, 4);
            setRecommendations(recs);
         } else {
            setRecommendations([]);
@@ -143,7 +142,7 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
     try {
       const newJobNum = appointment.jobNum || await generateJobNum();
       await updateDoc(doc(db, "appointments", appointment.id), {
-        scheduledAt: selectedRec.startTime,
+        scheduledAt: selectedRec,
         status: "scheduled",
         jobNum: newJobNum,
         "waitlistInfo.status": "accepted_suggestion"
@@ -226,7 +225,7 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
               <div>
                 <h4 className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1 mb-1">Vehicle</h4>
                 <p className="text-sm font-bold flex items-center gap-2 text-white/80">
-                  <Truck className="w-4 h-4 text-blue-400" /> {appointment.vehicleInfo}
+                  <Truck className="w-4 h-4 text-[#0A4DFF]" /> {appointment.vehicleInfo}
                 </p>
               </div>
               <div>
@@ -354,17 +353,17 @@ export function WaitlistDetailModal({ appointment, isOpen, onClose, onActionComp
                   <Calendar className="w-3 h-3 text-primary" /> Generated Alternate Options
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {recommendations.map(rec => (
+                  {recommendations.map((rec, i) => (
                      <div 
-                       key={rec.id} 
+                       key={i} 
                        onClick={() => setSelectedRec(rec)}
                        className={cn(
                          "p-3 rounded-lg border text-left cursor-pointer transition-colors",
-                         selectedRec?.id === rec.id ? "bg-primary/20 border-primary" : "bg-white/5 border-white/10 hover:bg-white/10"
+                         selectedRec?.getTime() === rec.getTime() ? "bg-primary/20 border-primary" : "bg-white/5 border-white/10 hover:bg-white/10"
                        )}
                      >
-                       <p className="text-sm font-bold text-white">{format(rec.startTime, "MMM d, h:mm a")}</p>
-                       <p className="text-[10px] text-white/50 mt-1 line-clamp-1">{rec.reasons[0]}</p>
+                       <p className="text-sm font-bold text-white">{format(rec, "MMM d, h:mm a")}</p>
+                       <p className="text-[10px] text-white/50 mt-1 line-clamp-1">Locally verified slot</p>
                      </div>
                   ))}
                 </div>

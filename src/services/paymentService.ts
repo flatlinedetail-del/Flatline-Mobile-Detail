@@ -64,6 +64,42 @@ class PaymentService {
     }
   }
 
+  /**
+   * Charge a saved payment method for a client
+   */
+  public async chargeSavedCard(params: {
+    clientId: string;
+    amount: number;
+    description: string;
+    provider?: PaymentProvider;
+    config?: any;
+  }): Promise<PaymentResult & { provider?: PaymentProvider }> {
+    console.log(`Attempting to charge saved card for client ${params.clientId}: ${params.amount}...`);
+    
+    // In a real implementation, this would call Stripe/Square API to charge a saved customer/card
+    // For now, we simulate a successful charge if a mock provider is enabled
+    
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        // Simulation logic
+        const success = Math.random() > 0.1; // 90% success rate for simulation
+        if (success) {
+          resolve({ 
+            success: true, 
+            transactionId: `ch_${Math.random().toString(36).substr(2, 9)}`,
+            provider: params.provider || "stripe"
+          });
+        } else {
+          resolve({ 
+            success: false, 
+            error: "The saved card was declined. Please update payment method.",
+            provider: params.provider || "stripe"
+          });
+        }
+      }, 2000);
+    });
+  }
+
   private async processStripe(invoice: Invoice, config: any): Promise<PaymentResult> {
     return { success: false, error: "Payment system not configured" };
   }

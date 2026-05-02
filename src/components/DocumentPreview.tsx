@@ -47,10 +47,12 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
   const subtotal = document.subtotal ?? (document.lineItems?.reduce((acc: number, item: any) => acc + ((item.price || 0) * (item.quantity || 1)), 0) || 0);
   const discountAmount = document.discountAmount ?? 0;
   const travelFeeAmount = (document as any).travelFeeAmount ?? 0;
+  const customFees = (document as any).customFees || [];
+  const customFeesTotal = customFees.reduce((acc: number, f: any) => acc + (f.amount || 0), 0);
   const afterHoursFeeAmount = (document as any).afterHoursFeeAmount ?? 0;
   // Make sure tax calculation uses standard subtotal, but here we'll just use the total logic if we don't handle tax yet explicitly
   const taxAmount = ((subtotal - discountAmount) * (settings?.taxRate || 0)) / 100;
-  const total = document.total ?? (subtotal - discountAmount + travelFeeAmount + afterHoursFeeAmount + taxAmount);
+  const total = document.total ?? (subtotal - discountAmount + travelFeeAmount + afterHoursFeeAmount + customFeesTotal + taxAmount);
 
   const businessAddress = isInvoice ? "1 AMB Dr NW, Atlanta, GA 30313" : (settings?.invoiceAddress || settings?.baseAddress);
   // Ensure we NEVER use business address as service address
@@ -75,7 +77,7 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
                   />
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-blue-600">
+                <div className="flex items-center gap-2 text-[#0A4DFF]">
                   <span className="text-2xl font-black tracking-tighter uppercase italic">
                     DETAIL<span className="text-slate-900">FLOW</span>
                   </span>
@@ -328,10 +330,16 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
                 )}
                 {travelFeeAmount > 0 && (
                   <div className="flex justify-between text-sm font-bold text-black">
-                    <span>Travel Fee</span>
+                    <span>{settings?.serviceFeeLabel || "Travel Fee"}</span>
                     <span>{formatCurrency(travelFeeAmount)}</span>
                   </div>
                 )}
+                {customFees.length > 0 && customFees.map((fee: any, idx: number) => (
+                  <div key={`doc-fee-${idx}`} className="flex justify-between text-sm font-bold text-black">
+                    <span>{fee.label}</span>
+                    <span>{formatCurrency(fee.amount)}</span>
+                  </div>
+                ))}
                 {afterHoursFeeAmount > 0 && (
                   <div className="flex justify-between text-sm font-bold text-amber-600">
                     <span>After-Hours Fee</span>
@@ -381,7 +389,7 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
               </div>
               <div className="flex flex-col justify-end items-end">
                 <p className="text-sm font-black text-slate-900 uppercase tracking-tighter">Powered by</p>
-                <p className="text-lg font-black text-blue-600 uppercase tracking-tighter font-heading italic">DETAILFLOW</p>
+                <p className="text-lg font-black text-[#0A4DFF] uppercase tracking-tighter font-heading italic">DETAILFLOW</p>
               </div>
             </div>
           </div>

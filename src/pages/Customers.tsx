@@ -347,7 +347,7 @@ export default function Customers() {
                           "text-[9px] font-black uppercase tracking-widest px-2.5 py-1 border-none",
                           customer.membershipLevel === "platinum" ? "bg-purple-500/20 text-purple-400" :
                           customer.membershipLevel === "gold" ? "bg-yellow-500/20 text-yellow-400" :
-                          customer.membershipLevel === "silver" ? "bg-blue-500/20 text-blue-400" :
+                          customer.membershipLevel === "silver" ? "bg-[#0A4DFF]/20 text-[#0A4DFF]" :
                           "bg-white/5 text-white/40"
                         )}>
                           {customer.membershipLevel || "NONE"}
@@ -398,7 +398,7 @@ export default function Customers() {
                         VIP ELITE
                       </Badge>
                     )}
-                    <Badge className="bg-white/10 text-white/60 border-none font-black uppercase tracking-widest text-[10px] px-3 py-1">
+                    <Badge className="bg-white/10 text-white border-none font-black uppercase tracking-widest text-[10px] px-3 py-1">
                       {selectedCustomer.membershipLevel} MEMBER
                     </Badge>
                   </div>
@@ -502,7 +502,7 @@ export default function Customers() {
                           </div>
                           <div>
                             <Label className="text-lg font-black uppercase tracking-tighter text-white">VIP Status</Label>
-                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Premium Client Access</p>
+                            <p className="text-[10px] text-white font-bold uppercase tracking-widest">Premium Client Access</p>
                           </div>
                         </div>
                         <Switch 
@@ -516,7 +516,7 @@ export default function Customers() {
                           <div className="flex items-center justify-between">
                             <div className="space-y-1">
                               <Label className="text-sm font-bold text-white">Waive Travel Fee</Label>
-                              <p className="text-[10px] text-white/40 font-medium">Always $0 travel fee regardless of distance.</p>
+                              <p className="text-[10px] text-white font-medium">Always $0 travel fee regardless of distance.</p>
                             </div>
                             <Switch 
                               checked={selectedCustomer.vipSettings?.waiveTravelFee || false}
@@ -528,7 +528,7 @@ export default function Customers() {
                           <div className="flex items-center justify-between">
                             <div className="space-y-1">
                               <Label className="text-sm font-bold text-white">Exempt from Fees</Label>
-                              <p className="text-[10px] text-white/40 font-medium">No deposits, cancellation, or late fees.</p>
+                              <p className="text-[10px] text-white font-medium">No deposits, cancellation, or late fees.</p>
                             </div>
                             <Switch 
                               checked={selectedCustomer.vipSettings?.exemptFromFees || false}
@@ -581,7 +581,7 @@ export default function Customers() {
                       <AlertDialogContent className="bg-popover border border-white/10 shadow-2xl rounded-3xl">
                         <AlertDialogHeader>
                           <AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter text-white">Are you absolutely sure?</AlertDialogTitle>
-                          <AlertDialogDescription className="text-white/60 font-medium">
+                          <AlertDialogDescription className="text-white font-medium">
                             This action cannot be undone. This will permanently delete the customer profile
                             and all associated records.
                           </AlertDialogDescription>

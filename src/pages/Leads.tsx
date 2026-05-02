@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Badge } from "../components/ui/badge";
 import { Textarea } from "../components/ui/textarea";
 import { cn, formatPhoneNumber, cleanAddress } from "../lib/utils";
+import { StandardInput } from "../components/StandardInput";
 import { 
   UserPlus, 
   Search, 
@@ -241,7 +242,7 @@ export default function Leads() {
   );
 
   const statusColors: Record<string, string> = {
-    new: "bg-white/5 text-[#A0A0A0] border-white/10",
+    new: "bg-white/10 text-white border-white/10",
     contacted: "bg-primary/10 text-primary border-primary/20",
     quoted: "bg-amber-500/10 text-amber-500 border-amber-500/20",
     converted: "bg-green-500/10 text-green-500 border-green-500/20",
@@ -296,7 +297,7 @@ export default function Leads() {
                 </div>
                 <div>
                   <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase header-glow">{editingLead ? "Modify Opportunity" : "New Opportunity Acquisition"}</DialogTitle>
-                  <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">Strategic Lead Intake Protocol</p>
+                  <p className="text-[10px] text-white font-black uppercase tracking-[0.2em] mt-1">Strategic Lead Intake Protocol</p>
                 </div>
               </div>
             </DialogHeader>
@@ -304,30 +305,45 @@ export default function Leads() {
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Target Full Name</Label>
-                    <Input id="name" name="name" defaultValue={editingLead?.name || ""} placeholder="John Doe" required className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" />
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Target Full Name</Label>
+                    <StandardInput 
+                      id="name" 
+                      name="name" 
+                      value={editingLead?.name || ""} 
+                      placeholder="John Doe" 
+                      required 
+                      onValueChange={() => {}} // Internal state handles it, or I should make it more robust
+                      className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" 
+                    />
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Contact Frequency (Phone)</Label>
-                    <Input 
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Contact Frequency (Phone)</Label>
+                    <StandardInput 
                       id="phone" 
                       name="phone" 
-                      defaultValue={editingLead?.phone || ""}
+                      variant="phone"
+                      value={editingLead?.phone || ""}
                       placeholder="(555) 000-0000" 
                       required 
+                      onValueChange={() => {}}
                       className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold"
-                      onChange={(e) => {
-                        e.target.value = formatPhoneNumber(e.target.value);
-                      }}
                     />
                   </div>
                 </div>
                 <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Digital Identity (Email)</Label>
-                  <Input id="email" name="email" type="email" defaultValue={editingLead?.email || ""} placeholder="john@example.com" className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" />
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">Digital Identity (Email)</Label>
+                  <StandardInput 
+                    id="email" 
+                    name="email" 
+                    variant="email"
+                    value={editingLead?.email || ""} 
+                    placeholder="john@example.com" 
+                    onValueChange={() => {}}
+                    className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" 
+                  />
                 </div>
                 <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Mission Coordinates (Address)</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">Mission Coordinates (Address)</Label>
                   <AddressInput 
                     defaultValue={editingLead?.address || ""}
                     onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({ 
@@ -344,7 +360,7 @@ export default function Leads() {
                   />
                 </div>
                 <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Asset Profile (Vehicle)</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">Asset Profile (Vehicle)</Label>
                   <VehicleSelector 
                     onSelect={setNewVehicleData}
                     initialValues={editingLead?.vehicleInfo ? {
@@ -356,11 +372,18 @@ export default function Leads() {
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Requested Protocol (Service)</Label>
-                    <Input id="requestedService" name="requestedService" defaultValue={editingLead?.requestedService || ""} placeholder="Full Detail" className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" />
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Requested Protocol (Service)</Label>
+                    <StandardInput 
+                      id="requestedService" 
+                      name="requestedService" 
+                      value={editingLead?.requestedService || ""} 
+                      placeholder="Full Detail" 
+                      onValueChange={() => {}}
+                      className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" 
+                    />
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Priority Designation</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Priority Designation</Label>
                     <Select name="priority" defaultValue={editingLead?.priority || "medium"}>
                       <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold">
                         <SelectValue placeholder="Select priority" />
@@ -374,8 +397,15 @@ export default function Leads() {
                     </Select>
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Acquisition Source</Label>
-                    <Input id="source" name="source" defaultValue={editingLead?.source || ""} placeholder="Google, FB, Referral" className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" />
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Acquisition Source</Label>
+                    <StandardInput 
+                      id="source" 
+                      name="source" 
+                      value={editingLead?.source || ""} 
+                      placeholder="Google, FB, Referral" 
+                      onValueChange={() => {}}
+                      className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" 
+                    />
                   </div>
                 </div>
               </div>
@@ -384,7 +414,7 @@ export default function Leads() {
                   type="button" 
                   variant="ghost" 
                   onClick={() => setIsAddDialogOpen(false)}
-                  className="flex-1 text-[#A0A0A0] hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
+                  className="flex-1 text-white hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
                 >
                   Abort
                 </Button>
@@ -429,21 +459,21 @@ export default function Leads() {
           <Table>
             <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow className="hover:bg-transparent border-none">
-                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Customer Entity</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Asset & Service</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Status</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Next Engagement</TableHead>
-                <TableHead className="px-8 py-5 text-right text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Tactical Actions</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white uppercase tracking-[0.2em]">Customer Entity</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white uppercase tracking-[0.2em]">Asset & Service</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white uppercase tracking-[0.2em]">Status</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-white uppercase tracking-[0.2em]">Next Engagement</TableHead>
+                <TableHead className="px-8 py-5 text-right text-[10px] font-black text-white uppercase tracking-[0.2em]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow className="hover:bg-transparent border-none">
-                  <TableCell colSpan={5} className="text-center py-20 text-[#A0A0A0] font-black uppercase tracking-widest text-[10px] animate-pulse">Scanning Pipeline...</TableCell>
+                  <TableCell colSpan={5} className="text-center py-20 text-white font-black uppercase tracking-widest text-[10px] animate-pulse">Scanning Pipeline...</TableCell>
                 </TableRow>
               ) : filteredLeads.length === 0 ? (
                 <TableRow className="hover:bg-transparent border-none">
-                  <TableCell colSpan={5} className="text-center py-20 text-[#A0A0A0] font-black uppercase tracking-widest text-[10px]">No opportunities detected.</TableCell>
+                  <TableCell colSpan={5} className="text-center py-20 text-white font-black uppercase tracking-widest text-[10px]">No opportunities detected.</TableCell>
                 </TableRow>
               ) : (
                 filteredLeads.map((lead) => (
@@ -458,7 +488,7 @@ export default function Leads() {
                     <TableCell className="px-8 py-6">
                       <div className="flex flex-col">
                         <span className="font-black text-white uppercase tracking-tight text-sm">{lead.name}</span>
-                        <div className="flex items-center gap-2 text-[10px] text-[#A0A0A0] font-bold uppercase tracking-widest mt-1">
+                        <div className="flex items-center gap-2 text-[10px] text-white font-bold uppercase tracking-widest mt-1">
                           <Phone className="w-3 h-3 text-primary" />
                           {formatPhoneNumber(lead.phone)}
                         </div>
@@ -466,17 +496,17 @@ export default function Leads() {
                     </TableCell>
                     <TableCell className="px-8 py-6">
                       <div className="flex flex-col">
-                        <span className="text-sm font-bold text-white/80">{lead.vehicleInfo}</span>
-                        <span className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-0.5">{lead.requestedService}</span>
+                        <span className="text-sm font-bold text-white">{lead.vehicleInfo}</span>
+                        <span className="text-[10px] text-white font-black uppercase tracking-widest mt-0.5">{lead.requestedService}</span>
                       </div>
                     </TableCell>
                     <TableCell className="px-8 py-6">
                       <Badge variant="outline" className={cn(
                         "text-[9px] uppercase font-black tracking-widest px-2.5 py-1 rounded-md border-none",
-                        lead.status === "new" ? "bg-white/10 text-[#A0A0A0]" :
+                        lead.status === "new" ? "bg-white/10 text-white" :
                         lead.status === "contacted" ? "bg-primary/10 text-primary" :
                         lead.status === "converted" ? "bg-green-500/10 text-green-400" :
-                        "bg-white/10 text-[#A0A0A0]/40"
+                        "bg-white/10 text-white"
                       )}>
                         {lead.status?.replace("_", " ")}
                       </Badge>
@@ -485,7 +515,7 @@ export default function Leads() {
                       <div className="flex flex-col">
                         <span className={cn(
                           "text-[10px] font-black uppercase tracking-widest",
-                          lead.nextFollowUpAt && lead.nextFollowUpAt.toDate() < new Date() ? "text-primary" : "text-[#A0A0A0]"
+                          lead.nextFollowUpAt && lead.nextFollowUpAt.toDate() < new Date() ? "text-primary" : "text-white"
                         )}>
                           {lead.nextFollowUpAt ? format(lead.nextFollowUpAt.toDate(), "MMM d, yyyy") : "TBD"}
                         </span>
@@ -499,7 +529,7 @@ export default function Leads() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-9 w-9 text-[#A0A0A0] hover:text-white hover:bg-white/10 rounded-xl transition-all"
+                          className="h-9 w-9 text-white hover:text-white hover:bg-white/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingLead(lead);
@@ -520,7 +550,7 @@ export default function Leads() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-9 w-9 text-[#A0A0A0] hover:text-white hover:bg-white/10 rounded-xl transition-all"
+                          className="h-9 w-9 text-white hover:text-white hover:bg-white/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
                             window.location.href = `tel:${lead.phone}`;
@@ -531,7 +561,7 @@ export default function Leads() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-9 w-9 text-[#A0A0A0] hover:text-green-400 hover:bg-green-500/10 rounded-xl transition-all"
+                          className="h-9 w-9 text-white hover:text-green-400 hover:bg-green-500/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
                           navigate(`/book-appointment?leadId=${lead.id}`);
@@ -544,7 +574,7 @@ export default function Leads() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-9 w-9 text-[#A0A0A0] hover:text-red-500 hover:bg-red-500/20 bg-white/5 rounded-xl transition-all"
+                              className="h-9 w-9 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 rounded-xl transition-all"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -577,17 +607,17 @@ export default function Leads() {
                   </Badge>
                   <h2 className="text-4xl font-black tracking-tighter uppercase font-heading">{selectedLead.name}</h2>
                   <div className="flex items-center gap-4 mt-3">
-                    <p className="text-red-100 flex items-center gap-2 text-sm font-bold">
+                    <p className="text-white flex items-center gap-2 text-sm font-bold">
                       <Phone className="w-4 h-4" /> {formatPhoneNumber(selectedLead.phone)}
                     </p>
                     <span className="w-1 h-1 bg-white/30 rounded-full"></span>
-                    <p className="text-red-100 flex items-center gap-2 text-sm font-bold">
+                    <p className="text-white flex items-center gap-2 text-sm font-bold">
                       <Mail className="w-4 h-4" /> {selectedLead.email}
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] text-red-200 font-black uppercase tracking-widest mb-1">Priority</p>
+                  <p className="text-[10px] text-white/70 font-black uppercase tracking-widest mb-1">Priority</p>
                   <p className="text-2xl font-black capitalize tracking-tighter">{selectedLead.priority}</p>
                 </div>
               </div>
@@ -596,17 +626,17 @@ export default function Leads() {
             <div key={selectedLead.id} className="p-8 space-y-8 bg-[#0B0B0B]">
               <div className="grid grid-cols-2 gap-8">
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Target Asset</p>
+                  <p className="text-[10px] font-black text-white uppercase tracking-widest">Target Asset</p>
                   <p className="text-lg font-black text-white uppercase tracking-tight">{selectedLead.vehicleInfo}</p>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Requested Protocol</p>
+                  <p className="text-[10px] font-black text-white uppercase tracking-widest">Requested Protocol</p>
                   <p className="text-lg font-black text-white uppercase tracking-tight">{selectedLead.requestedService}</p>
                 </div>
               </div>
 
               <div className="space-y-3">
-                <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Intelligence Notes</p>
+                <p className="text-[10px] font-black text-white uppercase tracking-widest">Intelligence Notes</p>
                 <Textarea 
                   defaultValue={selectedLead.notes}
                   placeholder="Add details about the inquiry..."
@@ -663,7 +693,7 @@ export default function Leads() {
                 />
               </div>
 
-              <div className="pt-6 border-t border-white/5 flex items-center justify-between text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest">
+              <div className="pt-6 border-t border-white/5 flex items-center justify-between text-[10px] text-white font-black uppercase tracking-widest">
                 <p>Captured: {format(selectedLead.createdAt.toDate(), "MMM d, yyyy h:mm a")}</p>
                 <p>Source: {selectedLead.source}</p>
               </div>

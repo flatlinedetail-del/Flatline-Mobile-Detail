@@ -1,7 +1,7 @@
 import { collection, query, where, getDocs, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { getAppointmentWeather } from "./weatherService";
-import { startOfDay, endOfDay, addMinutes, isAfter } from "date-fns";
+import { startOfDay, endOfDay, addMinutes, isAfter, parse, isValid } from "date-fns";
 
 export interface SmartRecommendation {
   id: string;
@@ -9,7 +9,39 @@ export interface SmartRecommendation {
   endTime: Date;
   rank: "Best" | "Good" | "Avoid";
   reasons: string[];
+  isSelectedTime?: boolean;
 }
+
+export function parseFlexibleDate(dateInput: any): Date | null {
+  if (!dateInput) return null;
+  if (dateInput instanceof Date) return isValid(dateInput) ? dateInput : null;
+  if (typeof dateInput === 'string') {
+    // Try ISO
+    const iso = new Date(dateInput);
+    if (isValid(iso)) return iso;
+
+    // Try MM/DD/YYYY, hh:mm AM/PM
+    try {
+      const parsed = parse(dateInput, "MM/dd/yyyy, hh:mm a", new Date());
+      if (isValid(parsed)) return parsed;
+    } catch (e) {}
+
+    // Try other common formats if needed
+  }
+  return null;
+}
+
+const DEFAULT_BUSINESS_HOURS = {
+  monday: { isOpen: true, openTime: "08:00", closeTime: "18:00" },
+  tuesday: { isOpen: true, openTime: "08:00", closeTime: "18:00" },
+  wednesday: { isOpen: true, openTime: "08:00", closeTime: "18:00" },
+  thursday: { isOpen: true, openTime: "08:00", closeTime: "18:00" },
+  friday: { isOpen: true, openTime: "08:00", closeTime: "18:00" },
+  saturday: { isOpen: true, openTime: "08:00", closeTime: "18:00" },
+  sunday: { isOpen: false, openTime: "08:00", closeTime: "18:00" },
+  allowAfterHours: false,
+  afterHoursFeeAmount: 50
+};
 
 export async function checkAvailability(input: {
   targetDate: Date;
@@ -17,7 +49,8 @@ export async function checkAvailability(input: {
   ignoreAppointmentId?: string;
   businessHours?: any;
 }): Promise<{ isAvailable: boolean; reason: string }> {
-  const { targetDate, durationMinutes, ignoreAppointmentId, businessHours } = input;
+  const { targetDate, durationMinutes, ignoreAppointmentId, businessHours: bHoursRaw } = input;
+  const businessHours = bHoursRaw || DEFAULT_BUSINESS_HOURS;
   
   const start = startOfDay(targetDate);
   const end = endOfDay(targetDate);
@@ -85,32 +118,30 @@ export async function checkAvailability(input: {
   }
 
   // Check business hours
-  if (businessHours) {
-    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const dayName = daysOfWeek[targetDate.getDay()];
-    const daySettings = businessHours[dayName];
+  const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const dayName = daysOfWeek[targetDate.getDay()];
+  const daySettings = businessHours[dayName];
+  
+  if (daySettings) {
+    if (!daySettings.isOpen) {
+      return { isAvailable: false, reason: "Business is closed on this day." };
+    }
     
-    if (daySettings) {
-      if (!daySettings.isOpen) {
-        return { isAvailable: false, reason: "Business is closed on this day." };
-      }
-      
-      const [openH, openM] = daySettings.openTime.split(":").map(Number);
-      const [closeH, closeM] = daySettings.closeTime.split(":").map(Number);
-      
-      const workingStart = openH * 60 + (openM || 0);
-      const workingEnd = closeH * 60 + (closeM || 0);
-      
-      const slotStartMin = slotStart.getHours() * 60 + slotStart.getMinutes();
-      const slotEndMin = slotEnd.getHours() * 60 + slotEnd.getMinutes();
+    const [openH, openM] = (daySettings.openTime || "08:00").split(":").map(Number);
+    const [closeH, closeM] = (daySettings.closeTime || "18:00").split(":").map(Number);
+    
+    const workingStart = openH * 60 + (openM || 0);
+    const workingEnd = closeH * 60 + (closeM || 0);
+    
+    const slotStartMin = slotStart.getHours() * 60 + slotStart.getMinutes();
+    const slotEndMin = slotEnd.getHours() * 60 + slotEnd.getMinutes();
 
-      if ((slotStartMin < workingStart || slotEndMin > workingEnd) && !businessHours.allowAfterHours) {
-        return { isAvailable: false, reason: "Time slot is outside of normal business hours." };
-      }
+    if ((slotStartMin < workingStart || slotEndMin > workingEnd) && !businessHours.allowAfterHours) {
+      return { isAvailable: false, reason: "Outside of business hours." };
     }
   }
 
-  return { isAvailable: true, reason: "Time slot is open and has enough service duration + buffer time." };
+  return { isAvailable: true, reason: "Available" };
 }
 
 export async function generateSmartRecommendations(input: {
@@ -120,8 +151,10 @@ export async function generateSmartRecommendations(input: {
   durationMinutes: number;
   rainThreshold: number;
   businessHours?: any;
+  selectedTime?: Date;
 }): Promise<SmartRecommendation[]> {
-  const { baseDate, addressLat, addressLng, durationMinutes, rainThreshold, businessHours } = input;
+  const { baseDate, addressLat, addressLng, durationMinutes, rainThreshold, businessHours: bHoursRaw, selectedTime } = input;
+  const businessHours = bHoursRaw || DEFAULT_BUSINESS_HOURS;
   
   const start = startOfDay(baseDate);
   const end = endOfDay(baseDate);
@@ -148,9 +181,11 @@ export async function generateSmartRecommendations(input: {
   appsSnap.forEach(d => {
     const app = d.data();
     if (!app.scheduledAt) return;
+    if (app.status === "canceled" || app.status === "waitlisted" || app.status === "pending_waitlist") return;
+    
     const evtStart = app.scheduledAt.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
     const evtDur = app.estimatedDuration || 120;
-    const evtEnd = addMinutes(evtStart, evtDur + (app.overrideBufferTimeMinutes || 0));
+    const evtEnd = addMinutes(evtStart, evtDur + (app.overrideBufferTimeMinutes || 30));
     existingEvents.push({ start: evtStart, end: evtEnd, lat: app.latitude, lng: app.longitude, type: "appointment" });
   });
 
@@ -173,36 +208,40 @@ export async function generateSmartRecommendations(input: {
   let isClosed = false;
   let allowAfterHours = false;
 
-  if (businessHours) {
-    allowAfterHours = businessHours.allowAfterHours;
-    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const dayName = daysOfWeek[start.getDay()];
-    const daySettings = businessHours[dayName];
-    
-    if (daySettings) {
-      if (!daySettings.isOpen) {
-        isClosed = true;
-      } else {
-        const [openH, openM] = daySettings.openTime.split(":").map(Number);
-        const [closeH, closeM] = daySettings.closeTime.split(":").map(Number);
-        workingStartHour = openH;
-        workingStartMin = openM || 0;
-        workingEndHour = closeH;
-        workingEndMin = closeM || 0;
-      }
+  allowAfterHours = businessHours.allowAfterHours;
+  const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const dayName = daysOfWeek[start.getDay()];
+  const daySettings = businessHours[dayName];
+  
+  if (daySettings) {
+    if (!daySettings.isOpen) {
+      isClosed = true;
+    } else {
+      const [openH, openM] = (daySettings.openTime || "08:00").split(":").map(Number);
+      const [closeH, closeM] = (daySettings.closeTime || "18:00").split(":").map(Number);
+      workingStartHour = openH;
+      workingStartMin = openM || 0;
+      workingEndHour = closeH;
+      workingEndMin = closeM || 0;
     }
   }
 
-  // If closed entirely, skip unless allowAfterHours is true (if true, we could theoretically still allow slots, but typically "closed implies no normal slots". For now, if closed and no after hours, return [])
+  // If closed entirely, return empty unless allowAfterHours is true
   if (isClosed && !allowAfterHours) return [];
 
-  // If after hours allowed or not closed, generate slots
-  // Generate slots from 6AM to 10PM to look for available spots
+  // Generate potential slots
   const scanStartHour = allowAfterHours ? 6 : workingStartHour;
   const scanEndHour = allowAfterHours ? 22 : workingEndHour;
 
-  const potentialSlots: { startTime: Date, endTime: Date }[] = [];
+  const potentialSlots: { startTime: Date, endTime: Date, isSelected?: boolean }[] = [];
   
+  // Include specifically selected time if it's within business hours OR after hours allowed
+  if (selectedTime) {
+    const selStart = new Date(selectedTime);
+    const selEnd = addMinutes(selStart, durationMinutes);
+    potentialSlots.push({ startTime: selStart, endTime: selEnd, isSelected: true });
+  }
+
   let currentSlotTime = new Date(start);
   currentSlotTime.setHours(scanStartHour, allowAfterHours ? 0 : workingStartMin, 0, 0);
   
@@ -216,7 +255,10 @@ export async function generateSmartRecommendations(input: {
     const slotEnd = addMinutes(slotStart, durationMinutes);
     
     if (slotEnd <= scanLimitTime && isAfter(slotStart, now)) {
-      potentialSlots.push({ startTime: slotStart, endTime: slotEnd });
+      // Avoid adding duplicate of selected time if it's already there
+      if (!selectedTime || Math.abs(selectedTime.getTime() - slotStart.getTime()) > 5 * 60000) {
+        potentialSlots.push({ startTime: slotStart, endTime: slotEnd });
+      }
     }
     currentSlotTime = addMinutes(currentSlotTime, 60);
   }
@@ -224,7 +266,6 @@ export async function generateSmartRecommendations(input: {
   // Filter overlapping slots
   const availableSlots = potentialSlots.filter(slot => {
     return !existingEvents.some(evt => {
-      // Overlap logic: slot.start < evt.end && slot.end > evt.start
       return slot.startTime < evt.end && slot.endTime > evt.start;
     });
   });
@@ -238,7 +279,7 @@ export async function generateSmartRecommendations(input: {
     let rank: "Best" | "Good" | "Avoid" = "Good";
     const reasons: string[] = [];
     
-    // Routing check: previous and next appointments
+    // Routing check
     const prevEvent = existingEvents.slice().reverse().find(e => e.end <= slot.startTime);
     const nextEvent = existingEvents.find(e => e.start >= slot.endTime);
     
@@ -250,9 +291,7 @@ export async function generateSmartRecommendations(input: {
           const lngDiff = Math.abs(prevEvent.lng - addressLng);
           if (latDiff < 0.05 && lngDiff < 0.05) {
               travelBonus = true;
-              reasons.push("Clustered with nearby appointment (High Route Efficiency)");
-          } else if (latDiff > 0.5 || lngDiff > 0.5) {
-              reasons.push("Long travel distance from previous appointment");
+              reasons.push("Nearby previous appointment (Route Sync)");
           }
       }
 
@@ -261,7 +300,7 @@ export async function generateSmartRecommendations(input: {
           const lngDiff = Math.abs(nextEvent.lng - addressLng);
           if (latDiff < 0.05 && lngDiff < 0.05) {
               travelBonus = true;
-              reasons.push("Clustered with next appointment (High Route Efficiency)");
+              reasons.push("Nearby next appointment (Route Sync)");
           }
       }
     }
@@ -271,8 +310,8 @@ export async function generateSmartRecommendations(input: {
       const gapStart = prevEvent.end;
       const gapEnd = nextEvent.start;
       const gapMinutes = (gapEnd.getTime() - gapStart.getTime()) / 60000;
-      if (gapMinutes >= durationMinutes && gapMinutes <= durationMinutes + 60) {
-        reasons.push("Perfect schedule fit (Reduces idle time)");
+      if (gapMinutes >= durationMinutes && gapMinutes <= durationMinutes + 45) {
+        reasons.push("Perfect schedule overlap (Zero idle time)");
         rank = "Best";
       }
     } else if (travelBonus) {
@@ -286,30 +325,28 @@ export async function generateSmartRecommendations(input: {
       
     if (isSlotAfterHours) {
       rank = "Avoid";
-      reasons.push(`After-hours fee applies ($${businessHours?.afterHoursFeeAmount || 0})`);
+      reasons.push("After-hours window");
     }
 
-    // Weather check per slot
+    // Weather check
     let weatherData = null;
     try {
       if (addressLat && addressLng) {
         weatherData = await getAppointmentWeather(addressLat, addressLng, slot.startTime.getTime());
       }
-    } catch (err) {
-      console.warn("Weather fetch failed for slot", err);
-    }
+    } catch (err) {}
     
     if (weatherData) {
       if (weatherData.rainProbability >= rainThreshold) {
         rank = "Avoid";
         reasons.push(`High rain risk (${weatherData.rainProbability}%)`);
       } else if (weatherData.rainProbability === 0) {
-        reasons.push("Clear weather conditions verified");
+        reasons.push("Clear sky conditions verified");
       }
     }
 
     if (reasons.length === 0) {
-      reasons.push("Standard available time slot");
+      reasons.push("Verified available slot");
     }
 
     recommendations.push({
@@ -317,15 +354,19 @@ export async function generateSmartRecommendations(input: {
       startTime: slot.startTime,
       endTime: slot.endTime,
       rank,
-      reasons
+      reasons,
+      isSelectedTime: slot.isSelected
     });
   }
 
   const rankVal = { "Best": 1, "Good": 2, "Avoid": 3 };
   recommendations.sort((a, b) => {
+    if (a.isSelectedTime && a.rank !== "Avoid") return -1;
+    if (b.isSelectedTime && b.rank !== "Avoid") return 1;
     if (rankVal[a.rank] !== rankVal[b.rank]) return rankVal[a.rank] - rankVal[b.rank];
     return a.startTime.getTime() - b.startTime.getTime();
   });
 
-  return recommendations.slice(0, 4); // return up to 4 best slots
+  return recommendations.slice(0, 4);
 }
+

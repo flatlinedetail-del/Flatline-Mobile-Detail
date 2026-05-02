@@ -84,7 +84,7 @@ export function OperationsFeed({ notifications, onClose }: OperationsFeedProps) 
   const getPriorityColor = (priority?: string) => {
     if (priority === "high") return "bg-red-500";
     if (priority === "medium") return "bg-orange-500";
-    return "bg-blue-500";
+    return "bg-[#0A4DFF]";
   };
 
   return (
@@ -95,8 +95,8 @@ export function OperationsFeed({ notifications, onClose }: OperationsFeedProps) 
             <Activity className="w-5 h-5 text-primary" />
             Operations Feed
           </h2>
-          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
-            Mission Control Log
+          <p className="text-[10px] text-white font-bold uppercase tracking-widest mt-0.5">
+            Operations Log
           </p>
         </div>
         <div>
@@ -117,11 +117,11 @@ export function OperationsFeed({ notifications, onClose }: OperationsFeedProps) 
         <div className="p-4 space-y-6">
           {notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center px-8">
-              <div className="w-16 h-16 bg-white/5 rounded-3xl flex items-center justify-center text-white/10 mb-6">
+              <div className="w-16 h-16 bg-white/5 rounded-3xl flex items-center justify-center text-white mb-6">
                 <Bell className="w-8 h-8" />
               </div>
               <h3 className="text-white font-black uppercase tracking-tight mb-2">No new updates</h3>
-              <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.1em] leading-relaxed max-w-[240px]">
+              <p className="text-[10px] text-white font-black uppercase tracking-[0.1em] leading-relaxed max-w-[240px]">
                 Operations feed is clear
               </p>
             </div>
@@ -139,7 +139,7 @@ export function OperationsFeed({ notifications, onClose }: OperationsFeedProps) 
                     className="flex items-center justify-between px-2 cursor-pointer group"
                     onClick={() => toggleCategory(category)}
                   >
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-white/70 flex items-center gap-2 group-hover:text-white transition-colors">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2 group-hover:text-white transition-colors">
                       {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                       {category} 
                       {unreadCatCount > 0 && (
@@ -169,15 +169,15 @@ export function OperationsFeed({ notifications, onClose }: OperationsFeedProps) 
                             <div className="flex justify-between items-start mb-1">
                               <p className={cn(
                                 "text-sm font-black uppercase tracking-tight",
-                                n.read ? "text-white/60" : "text-white"
+                                n.read ? "text-white" : "text-white"
                               )}>
                                 {n.title}
                               </p>
-                              <span className="text-[9px] text-zinc-500 font-bold whitespace-nowrap ml-3">
+                              <span className="text-[9px] text-white font-bold whitespace-nowrap ml-3">
                                 {(n.createdAt as any)?.toDate ? format((n.createdAt as any).toDate(), "MMM d, h:mm a") : "Just now"}
                               </span>
                             </div>
-                            <p className="text-xs text-white/50 leading-relaxed font-medium mb-3">
+                            <p className="text-xs text-white leading-relaxed font-medium mb-3">
                               {n.message}
                             </p>
                             

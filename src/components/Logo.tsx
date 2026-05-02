@@ -105,7 +105,7 @@ export default function Logo({
           <span className={cn("font-black tracking-tighter text-2xl font-heading uppercase italic", color === "white" ? "text-white" : "text-slate-900")}>
             DETAIL<span className="text-[#0A4DFF]">FLOW</span>
           </span>
-          <span className={cn("font-bold text-[9px] uppercase tracking-[0.4em] font-sans text-[#A0A0A0] mt-0.5")}>
+          <span className={cn("font-bold text-[9px] uppercase tracking-[0.4em] font-sans mt-0.5", color === "white" ? "text-white" : "text-slate-500")}>
             OPERATIONS OS
           </span>
         </div>

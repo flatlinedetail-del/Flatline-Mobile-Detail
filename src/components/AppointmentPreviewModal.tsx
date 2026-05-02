@@ -67,7 +67,7 @@ export function AppointmentPreviewModal({ appointment, isOpen, onClose }: { appo
               <div>
                 <h4 className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">Vehicle</h4>
                 <p className="text-sm font-bold flex items-center gap-2 text-white/80">
-                  <Truck className="w-4 h-4 text-blue-400" /> {appointment.vehicleInfo}
+                  <Truck className="w-4 h-4 text-[#0A4DFF]" /> {appointment.vehicleInfo}
                 </p>
               </div>
               <div>

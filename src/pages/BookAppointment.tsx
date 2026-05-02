@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { collection, query, getDocs, doc, addDoc, updateDoc, serverTimestamp, orderBy, limit, where, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
@@ -35,14 +35,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { NumberInput } from "../components/NumberInput";
-import { cn, getClientDisplayName, formatCurrency, formatDistance } from "@/lib/utils";
-
+import { 
+  cn, 
+  formatCurrency, 
+  getClientDisplayName, 
+  formatPhoneNumber,
+  formatDistance 
+} from "@/lib/utils";
 import { SearchableSelector } from "../components/SearchableSelector";
-import VehicleSelector from "../components/VehicleSelector";
 import AddressInput from "../components/AddressInput";
-import { StableInput } from "../components/StableInput";
-import { generateSmartRecommendations, SmartRecommendation } from "../services/smartBookingService";
+import VehicleSelector from "../components/VehicleSelector";
+import { NumberInput } from "../components/NumberInput";
+import { StandardInput } from "../components/StandardInput";
+import { CustomFeesEditor } from "../components/CustomFeesEditor";
+import { CustomFee } from "../types";
+import { generateSmartRecommendations, SmartRecommendation, parseFlexibleDate } from "../services/smartBookingService";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
 import { geocodeAddress } from "../services/geocodingService";
 import { calculateDistance, calculateTravelFee } from "../services/travelService";
@@ -76,6 +83,8 @@ export default function BookAppointment() {
   const [selectedServices, setSelectedServices] = useState<{ id: string; qty: number; vehicleId?: string; tempVehicleSize?: string; dealPrice?: number; isBundleItem?: boolean }[]>([]);
   const [selectedAddons, setSelectedAddons] = useState<{ id: string; qty: number }[]>([]);
   
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [blockedDates, setBlockedDates] = useState<any[]>([]);
   const [serviceSearch, setServiceSearch] = useState("");
   const [addonSearch, setAddonSearch] = useState("");
 
@@ -98,7 +107,69 @@ export default function BookAppointment() {
   const [lead, setLead] = useState<any>(null);
   
   const [baseAmount, setBaseAmount] = useState(0);
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+
+  // Calculate discount based on applied coupon
+  useEffect(() => {
+    if (!appliedCoupon) {
+      setDiscountAmount(0);
+      return;
+    }
+
+    let discount = 0;
+    if (appliedCoupon.discountType === "percentage") {
+      discount = (baseAmount * (appliedCoupon.discountValue || 0)) / 100;
+    } else {
+      discount = appliedCoupon.discountValue || 0;
+    }
+    
+    // Cap discount at baseAmount
+    setDiscountAmount(Math.min(discount, baseAmount));
+  }, [appliedCoupon, baseAmount]);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setIsValidatingCoupon(true);
+    try {
+      const q = query(collection(db, "coupons"), where("code", "==", couponCode.trim().toUpperCase()), where("isActive", "==", true));
+      const snap = await getDocs(q);
+      
+      if (snap.empty) {
+        toast.error("Invalid or inactive coupon code.");
+        setAppliedCoupon(null);
+        setDiscountAmount(0);
+        return;
+      }
+
+      const coupon = { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
+
+      if (coupon.expiryDate) {
+        const expiry = new Date(coupon.expiryDate);
+        if (expiry < new Date()) {
+          toast.error("This coupon has expired.");
+          return;
+        }
+      }
+
+      if (coupon.usageLimit && (coupon.usageCount || 0) >= coupon.usageLimit) {
+        toast.error("Coupon usage limit reached.");
+        return;
+      }
+
+      setAppliedCoupon(coupon);
+      toast.success(`Coupon "${coupon.code}" applied!`);
+    } catch (err) {
+      console.error("Error validating coupon:", err);
+      toast.error("Failed to validate coupon.");
+    } finally {
+      setIsValidatingCoupon(false);
+    }
+  };
   const [travelFee, setTravelFee] = useState(0);
+  const [customFees, setCustomFees] = useState<CustomFee[]>([]);
   const [travelInfo, setTravelInfo] = useState<any>(null);
   const [afterHoursFeeDisplay, setAfterHoursFeeDisplay] = useState(0);
   const [isAfterHoursDisplay, setIsAfterHoursDisplay] = useState(false);
@@ -115,14 +186,15 @@ export default function BookAppointment() {
     setIsRiskyClient(isRisky);
     
     if (isRisky) {
-      const deposit = (baseAmount + travelFee + afterHoursFeeDisplay) * 0.25;
+      const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
+      const deposit = (baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal) * 0.25;
       setRiskyDepositAmount(deposit);
       setActiveDepositAmount(deposit);
     } else {
       setRiskyDepositAmount(0);
       setActiveDepositAmount(0);
     }
-  }, [clients, selectedCustomerId, baseAmount, travelFee, afterHoursFeeDisplay]);
+  }, [clients, selectedCustomerId, baseAmount, travelFee, afterHoursFeeDisplay, customFees]);
 
   const [timingRecommendations, setTimingRecommendations] = useState<ServiceTimingOutput[]>([]);
   const [fetchingTiming, setFetchingTiming] = useState(false);
@@ -139,6 +211,13 @@ export default function BookAppointment() {
   const [nextAvailableSlot, setNextAvailableSlot] = useState<SmartRecommendation | null>(null);
   const [isSmartBookingCollapsed, setIsSmartBookingCollapsed] = useState(false);
   const [selectedSmartSlot, setSelectedSmartSlot] = useState<SmartRecommendation | null>(null);
+  const [suggestionAccepted, setSuggestionAccepted] = useState(false);
+  const suggestionAcceptedRef = useRef(false);
+
+  const updateSuggestionAccepted = (val: boolean) => {
+    setSuggestionAccepted(val);
+    suggestionAcceptedRef.current = val;
+  };
 
   // Validation Checklist for Smart Booking
   const smartBookingValidation = [
@@ -161,18 +240,16 @@ export default function BookAppointment() {
     }
   };
 
-  const handleGenerateSmartSlots = async () => {
-    if (selectedServices.length === 0 || !appointmentAddress.lat || !scheduledAtValue || !selectedCustomerId) return;
+  const handleGenerateSmartSlots = async (forceOpen = false) => {
+    const parsedDate = parseFlexibleDate(scheduledAtValue);
+    if (selectedServices.length === 0 || !appointmentAddress.lat || !parsedDate || !selectedCustomerId) return;
     
     setIsGeneratingSmartSlots(true);
     setSmartBookingError("");
     setSmartRecommendations([]);
     setNextAvailableSlot(null);
-    setIsSmartBookingCollapsed(false);
-    setSelectedSmartSlot(null);
-
+    
     try {
-      const baseDate = new Date(scheduledAtValue.split("T")[0] + "T12:00:00");
       const rainThreshold = settings?.weatherAutomation?.rainProbabilityThreshold || 40;
       const duration = selectedServices.reduce((acc, s) => {
         const srv = services.find(x => x.id === s.id);
@@ -180,22 +257,35 @@ export default function BookAppointment() {
       }, 0);
 
       const result = await generateSmartRecommendations({
-        baseDate,
+        baseDate: parsedDate,
         addressLat: appointmentAddress.lat,
         addressLng: appointmentAddress.lng,
         durationMinutes: duration > 0 ? duration : 120,
         rainThreshold,
-        businessHours: settings?.businessHours
+        businessHours: settings?.businessHours,
+        selectedTime: parsedDate
       });
 
+      // Determine if the selected time is valid and available
+      const selectedRec = result.find(r => r.isSelectedTime);
+      const isSelectedTimeAvailable = selectedRec && selectedRec.rank !== "Avoid";
+      
+      // Only force open if:
+      // 1. Explicitly requested (e.g. manual refresh or dependency change)
+      // 2. We haven't just accepted a suggestion
+      // 3. OR the currently selected time has become unavailable (conflict)
+      if (forceOpen || !suggestionAcceptedRef.current || !isSelectedTimeAvailable) {
+        setIsSmartBookingCollapsed(false);
+      }
+
       if (result.length === 0) {
-        setSmartBookingError("No available time slots found for this date. Please try another day.");
+        setSmartBookingError("No available slots found for this date. Try a different date or adjust service duration/business hours.");
         
         // AUTO-SEARCH FOR NEXT AVAILABLE DATE (UP TO 7 DAYS)
         let found = false;
         for (let i = 1; i <= 7; i++) {
-          const nextDate = new Date(baseDate);
-          nextDate.setDate(baseDate.getDate() + i);
+          const nextDate = new Date(parsedDate);
+          nextDate.setDate(parsedDate.getDate() + i);
           
           const nextResult = await generateSmartRecommendations({
             baseDate: nextDate,
@@ -207,62 +297,67 @@ export default function BookAppointment() {
           });
           
           if (nextResult.length > 0) {
-            // Find the first "Best" or first available
             const suggestion = nextResult.find(r => r.rank === "Best") || nextResult[0];
             setNextAvailableSlot(suggestion);
             found = true;
             break;
           }
         }
-        
-        if (!found) {
-          setSmartBookingError("No available time slots found for this date. No availability within the next 7 days. Please select a different date.");
-        }
       } else {
         setSmartRecommendations(result);
-        toast.success("Recommendations Updated");
+        
+        // Check if selected time is the first recommendation and if it's "available"
+        const topSlot = result[0];
+        if (topSlot.isSelectedTime && topSlot.rank !== "Avoid") {
+          // Selected time is available
+        } else if (topSlot.isSelectedTime && topSlot.rank === "Avoid") {
+          // Selected time is "available" but recommended to avoid
+        }
       }
     } catch (err: any) {
       setSmartBookingError(err.message || "Failed to generate slots.");
-      toast.error(err.message || "Failed to generate slots");
-      if (profile?.id) {
-        createNotification({
-          userId: profile.id,
-          title: "Smart Booking Error",
-          message: `Strategic intelligence failure: ${err.message || "Failed to analyze time grid."}`,
-          type: "system",
-          relatedId: selectedCustomerId,
-          relatedType: "client"
-        });
-      }
+      console.error("[SmartBooking] Error:", err);
     } finally {
       setIsGeneratingSmartSlots(false);
     }
   };
 
-  // Auto-trigger for Smart Booking slots
+  // Auto-trigger Smart Booking Engine
   useEffect(() => {
-    const targetDateStr = scheduledAtValue ? scheduledAtValue.split("T")[0] : "";
-    if (selectedServices.length === 0 || !appointmentAddress.lat || !targetDateStr || !selectedCustomerId) {
-      if (smartRecommendations.length > 0 || smartBookingError || isGeneratingSmartSlots) {
-        setSmartRecommendations([]);
-        setSmartBookingError("");
-      }
-      return; 
-    }
-
     const timer = setTimeout(() => {
-      handleGenerateSmartSlots();
-    }, 800);
-
+      // If other inputs change, we might want to force reopen
+      handleGenerateSmartSlots(true);
+    }, 500); // Small debounce
     return () => clearTimeout(timer);
   }, [
-    selectedServices.length,
-    selectedServices.map(s => `${s.id}-${s.qty}`).join(','),
+    selectedCustomerId, 
+    selectedVehicleIds, 
+    selectedServices, 
+    appointmentAddress.lat, 
+    appointmentAddress.lng, 
+    settings?.businessHours,
+    appointments.length
+  ]);
+
+  // Handle scheduledAtValue separately
+  useEffect(() => {
+    if (suggestionAcceptedRef.current) return; // Skip if we just set it via suggestion
+
+    const timer = setTimeout(() => {
+      handleGenerateSmartSlots(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [scheduledAtValue]);
+
+  // Reset suggestionAccepted if manual inputs change significantly
+  useEffect(() => {
+    updateSuggestionAccepted(false);
+  }, [
+    selectedCustomerId,
+    selectedServices,
     appointmentAddress.lat,
     appointmentAddress.lng,
-    scheduledAtValue ? scheduledAtValue.split("T")[0] : "",
-    settings?.weatherAutomation?.rainProbabilityThreshold
+    selectedVehicleIds
   ]);
 
   // Route Synergy Check
@@ -275,27 +370,24 @@ export default function BookAppointment() {
     const checkSynergy = async () => {
       try {
         const targetDateStr = scheduledAtValue.split("T")[0];
-        // Only check if full datetime is reasonably picked, but we search by day
-        const startOfDay = new Date(`${targetDateStr}T00:00:00`);
-        const endOfDay = new Date(`${targetDateStr}T23:59:59`);
+        const startOfDayTime = new Date(`${targetDateStr}T00:00:00`).getTime();
+        const endOfDayTime = new Date(`${targetDateStr}T23:59:59`).getTime();
         
         const currentDuration = selectedServices.reduce((acc, s) => {
           const srv = services.find(x => x.id === s.id);
           return acc + (srv?.estimatedDuration || 120) * s.qty;
         }, 0);
-        
-        const q = query(
-          collection(db, "appointments"),
-          where("scheduledAt", ">=", startOfDay),
-          where("scheduledAt", "<=", endOfDay)
-        );
-        const snapshot = await getDocs(q);
+
         let bestSynergy = null;
         let minDistance = 5;
 
-        snapshot.docs.forEach((docSnap: any) => {
-          const app = docSnap.data();
-          if (app.latitude && app.longitude && app.customerId !== selectedCustomerId && app.status !== "cancelled") {
+        appointments.forEach((app: any) => {
+          if (!app.scheduledAt) return;
+          const appTimeObj = app.scheduledAt?.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
+          const appTime = appTimeObj.getTime();
+          
+          if (appTime >= startOfDayTime && appTime <= endOfDayTime) {
+            if (app.latitude && app.longitude && app.customerId !== selectedCustomerId && app.status !== "cancelled" && app.status !== "canceled") {
              const dist = calculateDistance(appointmentAddress.lat, appointmentAddress.lng, app.latitude, app.longitude);
              if (dist <= 5 && dist < minDistance) {
                 minDistance = dist;
@@ -322,6 +414,7 @@ export default function BookAppointment() {
                 };
              }
           }
+        }
         });
 
         setRouteSynergy(bestSynergy);
@@ -356,14 +449,18 @@ export default function BookAppointment() {
           }
         }
         
-        const [servicesSnap, addonsSnap, settingsSnap] = await Promise.all([
+        const [servicesSnap, addonsSnap, settingsSnap, apptsSnap, blockedSnap] = await Promise.all([
           getDocs(collection(db, "services")),
           getDocs(collection(db, "addons")),
-          getDocs(collection(db, "settings"))
+          getDocs(collection(db, "settings")),
+          getDocs(query(collection(db, "appointments"), where("scheduledAt", ">=", new Date()))),
+          getDocs(query(collection(db, "blocked_dates"), where("start", ">=", new Date())))
         ]);
         
         setServices(servicesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setAddons(addonsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setAppointments(apptsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setBlockedDates(blockedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         
         let fetchedSettings: any = null;
         settingsSnap.docs.forEach((doc) => {
@@ -917,7 +1014,8 @@ export default function BookAppointment() {
         afterHoursFee = settings?.businessHours?.afterHoursFeeAmount || 0;
       }
 
-      const finalAmount = baseAmount + travelFee + afterHoursFee;
+      const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
+      const finalAmount = baseAmount + travelFee + afterHoursFee + customFeesTotal - discountAmount;
       
       const serviceSelections = selectedServices.map(s => {
         const service = services.find(srv => srv.id === s.id);
@@ -1020,6 +1118,8 @@ export default function BookAppointment() {
         jobNum: finalJobNum,
         baseAmount: baseAmount,
         travelFee: travelFee,
+        discountAmount: discountAmount,
+        couponCode: appliedCoupon?.code || "",
         travelFeeBreakdown: travelInfo ? {
           miles: travelInfo.miles,
           rate: travelInfo.rate,
@@ -1027,6 +1127,7 @@ export default function BookAppointment() {
           isRoundTrip: travelInfo.isRoundTrip
         } : null,
         totalAmount: finalAmount,
+        customFees: customFees,
         serviceIds: [...new Set(selectedServices.map(s => s.id))],
         serviceNames: [...new Set(selectedServices.map(s => services.find(srv => srv.id === s.id)?.name).filter(Boolean))],
         serviceSelections,
@@ -1262,7 +1363,7 @@ export default function BookAppointment() {
                                 <span className="truncate">{v.year} {v.make} {v.model}</span>
                                 <div className="flex gap-1 shrink-0">
                                   {hasDue && <Badge className="bg-red-600 text-white text-[7px] h-3.5 font-black uppercase px-1 border-none flex items-center gap-0.5"><AlertCircle size={8}/> Due</Badge>}
-                                  {hasRec && <Badge className="bg-blue-600 text-white text-[7px] h-3.5 font-black uppercase px-1 border-none flex items-center gap-0.5"><Info size={8}/> Recommended</Badge>}
+                                  {hasRec && <Badge className="bg-[#0A4DFF] text-white text-[7px] h-3.5 font-black uppercase px-1 border-none flex items-center gap-0.5"><Info size={8}/> Recommended</Badge>}
                                 </div>
                               </Label>
                             </div>
@@ -1576,7 +1677,7 @@ export default function BookAppointment() {
                         </Button>
                         <Button 
                           type="button" 
-                          onClick={handleGenerateSmartSlots}
+                          onClick={() => handleGenerateSmartSlots(true)}
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-white/50 hover:text-white"
@@ -1681,7 +1782,9 @@ export default function BookAppointment() {
                                 const minutes = String(nextAvailableSlot.startTime.getMinutes()).padStart(2, '0');
                                 const formatted = `${year}-${month}-${day}T${hours}:${minutes}`;
                                 setScheduledAtValue(formatted);
-                                // The useEffect for smart booking will re-trigger the generation for this new date
+                                setIsSmartBookingCollapsed(true);
+                                setSmartBookingError("");
+                                toast.success("Job window synchronized to next available slot.");
                               }}
                               className="bg-primary text-white font-black uppercase tracking-widest text-[10px] h-8"
                             >
@@ -1692,76 +1795,171 @@ export default function BookAppointment() {
                       )}
                     </div>
                   ) : isGeneratingSmartSlots ? (
-                    <div className="flex flex-col items-center justify-center p-6 space-y-3">
-                      <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                      <p className="text-xs text-white/50 font-bold tracking-widest uppercase animate-pulse">Running AI Optimization...</p>
+                    <div className="flex flex-col items-center justify-center p-8 bg-black/20 rounded-2xl border border-white/5 space-y-4">
+                      <div className="relative">
+                        <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Sparkles className="w-4 h-4 text-primary animate-pulse" />
+                        </div>
+                      </div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Loading available slots...</p>
                     </div>
                   ) : smartRecommendations.length > 0 ? (
-                    <div className="space-y-3">
-                      {smartRecommendations.map((rec) => (
-                        <div 
-                          key={rec.id}
-                          className="flex items-center justify-between p-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              {rec.rank === "Best" && <Badge className="bg-green-500 text-white font-black text-[9px] uppercase hover:bg-green-600">Best</Badge>}
-                              {rec.rank === "Good" && <Badge className="bg-blue-500 text-white font-black text-[9px] uppercase hover:bg-blue-600">Good</Badge>}
-                              {rec.rank === "Avoid" && <Badge className="bg-red-500 text-white font-black text-[9px] uppercase hover:bg-red-600">Avoid</Badge>}
-                              <span className="font-bold text-white text-sm">
-                                {format(rec.startTime, "h:mm a")} - {format(rec.endTime, "h:mm a")}
-                              </span>
+                    <div className="space-y-4">
+                      {(() => {
+                        const selectedSlot = smartRecommendations.find(r => r.isSelectedTime);
+                        if (selectedSlot && selectedSlot.rank !== "Avoid") {
+                          return (
+                            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-top-2">
+                              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-500">
+                                <Check className="w-5 h-5" />
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-xs font-black text-emerald-400 uppercase tracking-widest">Selected time is available</p>
+                                <p className="text-[10px] text-white/60 font-medium tracking-tight">This booking window complies with all scheduling constraints.</p>
+                              </div>
+                              {isSmartBookingCollapsed && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  onClick={() => setIsSmartBookingCollapsed(false)}
+                                  className="text-[10px] font-black uppercase tracking-widest text-emerald-400/60 hover:text-emerald-400 hover:bg-emerald-500/10"
+                                >
+                                  Refine Slot
+                                </Button>
+                              )}
                             </div>
-                            <div className="flex flex-col gap-0.5">
-                              {rec.reasons.map((r, idx) => (
-                                <p key={idx} className="text-[10px] text-white/60 font-medium flex items-center gap-1.5">
-                                  <Check className="w-3 h-3 text-white/20" /> {r}
-                                </p>
-                              ))}
+                          );
+                        } else if (scheduledAtValue) {
+                           return (
+                            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-top-2">
+                              <div className="p-2 rounded-xl bg-red-500/20 text-red-500">
+                                <X className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <p className="text-xs font-black text-red-400 uppercase tracking-widest">Selected time is unavailable</p>
+                                <p className="text-[10px] text-white/60 font-medium tracking-tight">Scheduling conflict or business hours restriction. Showing alternatives.</p>
+                              </div>
                             </div>
-                          </div>
-                          <Button 
-                            type="button"
-                            size="sm"
-                            onClick={() => {
-                              // yyyy-MM-ddThh:mm format required for datetime-local
-                              const formatted = format(rec.startTime, "yyyy-MM-dd'T'HH:mm");
-                              setScheduledAtValue(formatted);
-                              setSelectedSmartSlot(rec);
-                              setIsSmartBookingCollapsed(true);
-                            }}
-                            className={cn(
-                              "text-xs font-bold shrink-0",
-                              rec.rank === "Best" 
-                                ? "bg-primary text-white hover:bg-primary/90" 
-                                : "bg-white/10 text-white hover:bg-white/20"
-                            )}
-                          >
-                            {rec.rank === "Best" ? "Use Best Slot" : "Select Slot"}
-                          </Button>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      {!isSmartBookingCollapsed && (
+                        <div className="space-y-3 animate-in fade-in slide-in-from-top-4">
+                          {smartRecommendations.map((rec) => (
+                            <div 
+                              key={rec.id}
+                              className={cn(
+                                "flex items-center justify-between p-4 rounded-2xl border transition-all",
+                                rec.isSelectedTime && rec.rank !== "Avoid" ? "bg-emerald-500/5 border-emerald-500/20" :
+                                rec.rank === "Best" ? "bg-primary/10 border-primary/20" : 
+                                "bg-white/5 border-white/10 hover:bg-white/10"
+                              )}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className={cn(
+                                  "p-2.5 rounded-xl shrink-0 h-12 w-12 flex items-center justify-center",
+                                  rec.rank === "Best" ? "bg-primary/20 text-primary shadow-glow-blue" : 
+                                  rec.rank === "Avoid" ? "bg-red-500/20 text-red-400" :
+                                  "bg-white/10 text-white/60"
+                                )}>
+                                  <Clock className="w-6 h-6" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-black text-white text-sm">
+                                      {format(rec.startTime, "h:mm a")}
+                                    </span>
+                                    <Badge className={cn(
+                                      "font-black text-[8px] uppercase px-1.5 py-0 h-4 border-none",
+                                      rec.rank === "Best" ? "bg-primary text-white" :
+                                      rec.rank === "Good" ? "bg-white/20 text-white/60" :
+                                      "bg-red-500/50 text-white"
+                                    )}>
+                                      {rec.rank}
+                                    </Badge>
+                                  </div>
+                                  <div className="flex flex-col gap-0.5 mt-1">
+                                    {rec.reasons.map((r, idx) => (
+                                      <p key={idx} className="text-[10px] text-white/40 font-medium flex items-center gap-1.5">
+                                        {r}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                              <Button 
+                                type="button"
+                                size="sm"
+                                disabled={rec.isSelectedTime && rec.rank !== "Avoid"}
+                                onClick={() => {
+                                  const formatted = format(rec.startTime, "yyyy-MM-dd'T'HH:mm");
+                                  updateSuggestionAccepted(true);
+                                  setScheduledAtValue(formatted);
+                                  setSelectedSmartSlot(rec);
+                                  setIsSmartBookingCollapsed(true);
+                                  setSmartBookingError("");
+                                  toast.success("Job window synchronized.");
+                                }}
+                                className={cn(
+                                  "text-[10px] font-black uppercase tracking-widest h-10 px-4 rounded-xl shrink-0 transition-all",
+                                  rec.isSelectedTime && rec.rank !== "Avoid"
+                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                    : rec.rank === "Best"
+                                      ? "bg-primary text-white hover:bg-primary/90 shadow-glow-blue" 
+                                      : "bg-white/10 text-white hover:bg-white/20"
+                                )}
+                              >
+                                {rec.isSelectedTime && rec.rank !== "Avoid" ? "Selected" : "Select Slot"}
+                              </Button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center p-6 space-y-3">
-                      <AlertTriangle className="w-6 h-6 text-yellow-500" />
-                      <p className="text-xs text-white/50 font-medium">No valid slots found for this date layout.</p>
+                  ) : !isSmartBookingCollapsed ? (
+                    <div className="flex flex-col items-center justify-center p-8 space-y-3 bg-black/20 rounded-2xl border border-white/5 text-center">
+                      <AlertTriangle className="w-8 h-8 text-yellow-500/50" />
+                      <div>
+                        <p className="text-xs font-black text-white/60 uppercase tracking-widest">No available slots found for this date</p>
+                        <p className="text-[10px] text-white/30 font-medium mt-1">Try a different date or adjust service duration/business hours.</p>
+                      </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Date & Time *</Label>
-                  <Input 
-                    id="datetime-input"
-                    type="datetime-local"
-                    required
-                    value={scheduledAtValue}
-                    onChange={(e) => setScheduledAtValue(e.target.value)}
-                    className="bg-black/50 border border-white/10 rounded-xl px-4 py-6 text-white font-bold focus:ring-2 focus:ring-primary/50"
-                  />
+                  <div className="relative group">
+                    <Input 
+                      id="datetime-input"
+                      type="datetime-local"
+                      required
+                      value={scheduledAtValue}
+                      onChange={(e) => {
+                        updateSuggestionAccepted(false);
+                        setScheduledAtValue(e.target.value);
+                      }}
+                      className="bg-black/50 border border-white/10 rounded-xl px-4 py-6 text-white font-bold focus:ring-2 focus:ring-primary/50 relative z-10"
+                    />
+                    <div 
+                      className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer z-20 text-white/40 group-focus-within:text-primary transition-colors"
+                      onClick={() => {
+                        const el = document.getElementById('datetime-input') as HTMLInputElement;
+                        if (el && 'showPicker' in el) {
+                          (el as any).showPicker();
+                        } else {
+                          el?.focus();
+                        }
+                      }}
+                    >
+                      <CalendarIcon className="w-5 h-5" />
+                    </div>
+                  </div>
                   {isAfterHoursDisplay && (
                     <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
@@ -1882,9 +2080,58 @@ export default function BookAppointment() {
                   <span className="text-white font-black">{formatCurrency(baseAmount)}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm opacity-80">
-                  <span className="text-white/60 font-bold uppercase tracking-wider text-[10px]">Travel Fee</span>
+                  <span className="text-white/60 font-bold uppercase tracking-wider text-[10px]">{settings?.serviceFeeLabel || "Travel Fee"}</span>
                   <span className="text-white font-black">{travelFee > 0 ? formatCurrency(travelFee) : (appointmentAddress.lat ? "Waived / Included" : "$0.00")}</span>
                 </div>
+                
+                <CustomFeesEditor 
+                  fees={customFees} 
+                  onChange={setCustomFees}
+                  serviceFeeLabel={settings?.serviceFeeLabel}
+                  onTravelFeeChange={setTravelFee}
+                  travelFeeAmount={travelFee}
+                />
+
+                <div className="space-y-2 pt-3 border-t border-white/5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        placeholder="COUPON CODE"
+                        className="bg-black/40 border-white/10 text-white font-black uppercase tracking-widest text-[10px] h-10 pr-10"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                      />
+                      <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500/50" />
+                    </div>
+                    <Button 
+                      type="button"
+                      variant="outline"
+                      className="border-white/10 bg-white/5 text-white font-black h-10 px-4 uppercase tracking-widest text-[9px] hover:bg-white/10"
+                      onClick={handleApplyCoupon}
+                      disabled={isValidatingCoupon}
+                    >
+                      {isValidatingCoupon ? <Loader2 className="w-3 h-3 animate-spin" /> : "Apply"}
+                    </Button>
+                  </div>
+                  {appliedCoupon && (
+                    <div className="flex justify-between items-center px-1">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-black text-[8px] uppercase tracking-widest">
+                          {appliedCoupon.code} Active
+                        </Badge>
+                        <button 
+                          type="button"
+                          onClick={() => { setAppliedCoupon(null); setCouponCode(""); }}
+                          className="text-white/40 hover:text-white transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <span className="text-emerald-500 font-bold text-xs">-{formatCurrency(discountAmount)}</span>
+                    </div>
+                  )}
+                </div>
+
                 {isRiskyClient && (
                   <div className="flex flex-col gap-3 mt-4 p-4 border border-primary/20 bg-primary/5 rounded-xl">
                     <div className="flex justify-between items-center text-sm">
@@ -1898,7 +2145,7 @@ export default function BookAppointment() {
                           <Label className="uppercase tracking-widest text-[10px] text-white/60">Collect Deposit</Label>
                           <Button
                             type="button"
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold h-10"
+                            className="w-full bg-[#0A4DFF] hover:opacity-90 text-white font-bold h-10"
                             onClick={() => {
                               // TODO: Implement Stripe/Square logic
                               toast.info("Card processing integration pending.");
@@ -1982,7 +2229,12 @@ export default function BookAppointment() {
                 )}
                 <div className="pt-3 border-t border-white/10 flex justify-between items-center">
                   <span className="text-primary font-black uppercase tracking-widest text-xs">Projected Total</span>
-                  <span className="text-2xl font-black text-white tracking-tighter">{formatCurrency(baseAmount + travelFee + afterHoursFeeDisplay)}</span>
+                  <span className="text-2xl font-black text-white tracking-tighter">
+                    {(() => {
+                      const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
+                      return formatCurrency(baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal);
+                    })()}
+                  </span>
                 </div>
               </div>
             </div>
@@ -2068,7 +2320,7 @@ export default function BookAppointment() {
 
                                 {recs.length > 0 && (
                                     <div className="space-y-3">
-                                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 flex items-center gap-2 border-b border-blue-500/20 pb-2">
+                                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#0A4DFF] flex items-center gap-2 border-b border-[#0A4DFF]/20 pb-2">
                                             <Info size={14} /> Suggested Enhancement
                                         </h4>
                                         <div className="space-y-2">
@@ -2277,15 +2529,15 @@ export default function BookAppointment() {
                   {/* Header / Banner area */}
                   <div className={cn(
                     "p-8 border-b border-white/10",
-                    isOverdue ? "bg-red-500/10" : isDue ? "bg-orange-500/10" : "bg-blue-500/10"
+                    isOverdue ? "bg-red-500/10" : isDue ? "bg-orange-500/10" : "bg-[#0A4DFF]/5"
                   )}>
                     <div className="flex items-center gap-2 mb-4">
                       {isOverdue ? <AlertCircle className="w-5 h-5 text-red-500" /> : 
                        isDue ? <Clock className="w-5 h-5 text-orange-500" /> : 
-                       <Info className="w-5 h-5 text-blue-500" />}
+                       <Info className="w-5 h-5 text-[#0A4DFF]" />}
                       <span className={cn(
                         "text-[10px] font-black uppercase tracking-[0.2em]",
-                        isOverdue ? "text-red-500" : isDue ? "text-orange-500" : "text-blue-500"
+                        isOverdue ? "text-red-500" : isDue ? "text-orange-500" : "text-[#0A4DFF]"
                       )}>
                         {selectedRecDetail.dueStatus} Asset Maintenance
                       </span>
@@ -2325,7 +2577,7 @@ export default function BookAppointment() {
                           </p>
                           {selectedRecDetail.lastCompletedDate && (
                             <div className="mt-3 pt-3 border-t border-white/5">
-                              <p className="text-[10px] text-white/30 uppercase tracking-widest font-black">Last Deployment</p>
+                              <p className="text-[10px] text-white/30 uppercase tracking-widest font-black">Last Booking</p>
                               <p className="text-xs text-white/60 font-black italic">{format(selectedRecDetail.lastCompletedDate, "MMMM d, yyyy")}</p>
                             </div>
                           )}
@@ -2356,12 +2608,12 @@ export default function BookAppointment() {
                       <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] flex items-center gap-2">
                         <Droplets size={14} /> Specialized Equipment
                       </h4>
-                      <div className="p-4 bg-blue-500/5 border border-blue-500/10 rounded-xl flex items-center gap-4">
-                        <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center shrink-0">
-                          <Droplets className="w-5 h-5 text-blue-400" />
+                      <div className="p-4 bg-[#0A4DFF]/5 border border-[#0A4DFF]/10 rounded-xl flex items-center gap-4">
+                        <div className="w-10 h-10 bg-[#0A4DFF]/10 rounded-lg flex items-center justify-center shrink-0">
+                          <Droplets className="w-5 h-5 text-[#0A4DFF]" />
                         </div>
                         <div>
-                          <p className="text-xs text-blue-200/60 font-bold leading-tight italic">
+                          <p className="text-xs text-[#0A4DFF]/60 font-bold leading-tight italic">
                             Premium chemicals and specialized tools will be deployed to ensure maximum protection and precision during this protocol.
                           </p>
                         </div>
@@ -2448,7 +2700,7 @@ export default function BookAppointment() {
                     </h4>
                     <div className="p-5 rounded-2xl bg-black border border-white/10 space-y-4">
                        <div className="flex justify-between items-center text-xs font-bold text-white/40 uppercase tracking-widest">
-                          <span>Standard Deployment Cost:</span>
+                          <span>Standard Booking Cost:</span>
                           <span className="line-through">{formatCurrency(selectedBundleDetail.originalPrice)}</span>
                        </div>
                        <div className="flex justify-between items-center text-sm font-black text-green-500 uppercase tracking-widest bg-green-500/5 p-3 rounded-lg border border-green-500/10">

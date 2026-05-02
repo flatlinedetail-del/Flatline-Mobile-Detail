@@ -8,6 +8,7 @@ interface AuthContextType {
   user: User | null;
   profile: any | null;
   loading: boolean;
+  isQuotaExceeded: boolean;
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
   isAdmin: boolean;
@@ -20,6 +21,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
@@ -42,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               }
               setProfile({ ...data, uid: authUser.uid, id: authUser.uid });
               setLoading(false);
+              setIsQuotaExceeded(false);
             } else {
               // Create profile if it doesn't exist
               let initialRole = authUser.email?.toLowerCase() === "flatlinedetail@gmail.com" ? "admin" : "technician";
@@ -63,15 +66,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               await setDoc(userDocRef, newProfile);
               setProfile(newProfile);
               setLoading(false);
+              setIsQuotaExceeded(false);
             }
           } catch (error: any) {
-            if (error?.message?.includes('Missing or insufficient permissions')) {
-              // Silently swallow missing permissions on first load
-            } else {
-              console.error("Error fetching profile:", error);
+            console.error("Auth error:", error);
+            if (error?.message?.includes('Quota limit exceeded') || error?.message?.includes('resource-exhausted')) {
+              setIsQuotaExceeded(true);
+              toast.error("Firestore Daily Quota Exceeded. Systems restricted to cached data.");
             }
-            if (error?.message?.includes('Quota limit exceeded')) {
-              toast.error("Firestore quota exceeded.");
+            if (!error?.message?.includes('Missing or insufficient permissions')) {
+              // Silently handle permissions, but log others
             }
             setLoading(false);
           }
@@ -103,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isTechnician = profile?.role === "technician" || isAdmin;
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, logout, isAdmin, isTechnician }}>
+    <AuthContext.Provider value={{ user, profile, loading, isQuotaExceeded, signIn, logout, isAdmin, isTechnician }}>
       {children}
     </AuthContext.Provider>
   );

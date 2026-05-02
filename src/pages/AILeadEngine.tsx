@@ -106,7 +106,7 @@ export default function AILeadEngine() {
       .map(([city, count]) => ({
         label: city,
         level: Math.round((count / totalClients) * 100),
-        color: count / totalClients > 0.5 ? "bg-primary" : count / totalClients > 0.2 ? "bg-blue-500" : "bg-purple-500"
+        color: count / totalClients > 0.5 ? "bg-primary" : count / totalClients > 0.2 ? "bg-[#0A4DFF]" : "bg-purple-500"
       }))
       .sort((a, b) => b.level - a.level)
       .slice(0, 4);
@@ -391,7 +391,7 @@ export default function AILeadEngine() {
           <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic">
             AI Lead <span className="text-primary">Acquisition</span> Engine
           </h1>
-          <p className="text-gray-500 font-medium mt-1 uppercase tracking-widest text-[10px]">
+          <p className="text-white font-medium mt-1 uppercase tracking-widest text-[10px]">
             Strategic Intelligence & Market Domination System
           </p>
         </div>
@@ -405,7 +405,7 @@ export default function AILeadEngine() {
           />
           <Button 
             variant="outline" 
-            className="bg-white/5 text-gray-400 border-white/10 px-4 h-11 font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-white/10"
+            className="bg-white/5 text-white border-white/10 px-4 h-11 font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-white/10"
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload className="w-4 h-4 mr-2" />
@@ -414,7 +414,7 @@ export default function AILeadEngine() {
           <Badge className="bg-primary/20 text-primary border-primary/20 px-3 py-1 font-black uppercase tracking-widest text-[10px] h-11 flex items-center">
             System Active
           </Badge>
-          <Badge className="bg-white/5 text-gray-400 border-white/10 px-3 py-1 font-black uppercase tracking-widest text-[10px]">
+          <Badge className="bg-white/5 text-white border-white/10 px-3 py-1 font-black uppercase tracking-widest text-[10px]">
             v4.2.0-AI
           </Badge>
         </div>
@@ -442,17 +442,17 @@ export default function AILeadEngine() {
             <Card className="lg:col-span-1 bg-white/5 border-white/10 rounded-3xl overflow-hidden backdrop-blur-xl">
               <CardHeader className="p-8 border-b border-white/5 bg-black/20">
                 <CardTitle className="text-xl font-black uppercase tracking-tighter text-white">Targeting <span className="text-primary">Parameters</span></CardTitle>
-                <CardDescription className="text-gray-500 font-medium">Define your market acquisition zone</CardDescription>
+                <CardDescription className="text-white font-medium">Define your market acquisition zone</CardDescription>
               </CardHeader>
               <CardContent className="p-8 space-y-6">
                 <div className="space-y-4">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Search Source</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-white">Search Source</Label>
                   <div className="grid grid-cols-2 gap-2">
                     <Button 
                       variant={searchType === "internal" ? "default" : "outline"}
                       className={cn(
                         "rounded-xl font-bold uppercase tracking-widest text-[10px] h-12",
-                        searchType === "internal" ? "bg-primary" : "border-white/10 text-gray-400 hover:bg-white/5"
+                        searchType === "internal" ? "bg-primary" : "border-white/10 text-white hover:bg-white/5"
                       )}
                       onClick={() => setSearchType("internal")}
                     >
@@ -463,7 +463,7 @@ export default function AILeadEngine() {
                       variant={searchType !== "internal" ? "default" : "outline"}
                       className={cn(
                         "rounded-xl font-bold uppercase tracking-widest text-[10px] h-12",
-                        searchType !== "internal" ? "bg-primary" : "border-white/10 text-gray-400 hover:bg-white/5"
+                        searchType !== "internal" ? "bg-primary" : "border-white/10 text-white hover:bg-white/5"
                       )}
                       onClick={() => setSearchType("collision_center")}
                     >
@@ -476,7 +476,7 @@ export default function AILeadEngine() {
                 {searchType !== "internal" ? (
                   <>
                     <div className="space-y-4">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Business Target</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-white">Business Target</Label>
                       <div className="grid grid-cols-2 gap-2">
                         {LEAD_TYPES.map((type) => (
                           <button
@@ -486,7 +486,7 @@ export default function AILeadEngine() {
                               "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all duration-300 gap-2",
                               searchType === type.id
                                 ? "bg-primary/10 border-primary text-primary shadow-lg shadow-primary/10"
-                                : "bg-white/5 border-white/10 text-gray-500 hover:border-white/20 hover:bg-white/10"
+                                : "bg-white/5 border-white/10 text-white hover:border-white/20 hover:bg-white/10"
                             )}
                           >
                             <type.icon className="w-5 h-5" />
@@ -497,20 +497,20 @@ export default function AILeadEngine() {
                     </div>
 
                     <div className="space-y-4">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Location Area</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-white">Location Area</Label>
                       <div className="relative group">
                         <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary group-focus-within:scale-110 transition-transform" />
                         <Input 
                           placeholder="City, ZIP, or Address" 
                           value={location}
                           onChange={(e) => setLocation(e.target.value)}
-                          className="pl-12 bg-white/5 border-white/10 rounded-xl h-12 text-sm font-bold text-white placeholder:text-gray-600 focus:ring-primary/20"
+                          className="pl-12 bg-white/5 border-white/10 rounded-xl h-12 text-sm font-bold text-white placeholder:text-white focus:ring-primary/20"
                         />
                       </div>
                     </div>
 
                     <div className="space-y-4">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Search Radius (Miles)</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-white">Search Radius (Miles)</Label>
                       <div className="flex gap-2">
                         {RADIUS_OPTIONS.map((r) => (
                           <button
@@ -520,7 +520,7 @@ export default function AILeadEngine() {
                               "flex-1 py-2 rounded-xl border text-[10px] font-black transition-all duration-300",
                               radius === r.toString()
                                 ? "bg-primary border-primary text-white"
-                                : "bg-white/5 border-white/10 text-gray-500 hover:bg-white/10"
+                                : "bg-white/5 border-white/10 text-white hover:bg-white/10"
                             )}
                           >
                             {r}
@@ -535,7 +535,7 @@ export default function AILeadEngine() {
                       <DatabaseZap className="w-5 h-5" />
                       <span className="font-black uppercase tracking-widest text-xs">Internal Intelligence</span>
                     </div>
-                    <p className="text-xs text-gray-400 leading-relaxed">
+                    <p className="text-xs text-white leading-relaxed">
                       AI will scan your database for inactive clients, unaccepted quotes, and maintenance-due opportunities to generate high-conversion leads.
                     </p>
                   </div>
@@ -567,7 +567,7 @@ export default function AILeadEngine() {
                 <h3 className="text-xl font-black uppercase tracking-tighter text-white italic">
                   Market <span className="text-primary">Intelligence</span> Results
                 </h3>
-                <Badge className="bg-white/5 text-gray-400 border-white/10 font-bold uppercase tracking-widest text-[9px]">
+                <Badge className="bg-white/5 text-white border-white/10 font-bold uppercase tracking-widest text-[9px]">
                   {generatedLeads.length} Potential Opportunities
                 </Badge>
               </div>
@@ -599,11 +599,11 @@ export default function AILeadEngine() {
                                 lead.aiClassification === "High Value Client" ? "bg-green-500/20 text-green-500 border-green-500/20" :
                                 lead.aiClassification === "Reactivation Lead" ? "bg-purple-500/20 text-purple-500 border-purple-500/20" :
                                 lead.aiClassification === "Collision Center" ? "bg-orange-500/20 text-orange-500 border-orange-500/20" :
-                                lead.aiClassification === "Dealership" ? "bg-indigo-500/20 text-indigo-500 border-indigo-500/20" :
-                                lead.aiClassification === "Fleet" ? "bg-cyan-500/20 text-cyan-500 border-cyan-500/20" :
+                                lead.aiClassification === "Dealership" ? "bg-[#0A4DFF]/20 text-[#0A4DFF] border-[#0A4DFF]/20" :
+                                lead.aiClassification === "Fleet" ? "bg-[#0A4DFF]/20 text-[#0A4DFF] border-[#0A4DFF]/20" :
                                 lead.aiClassification === "Commercial Account" ? "bg-amber-500/20 text-amber-500 border-amber-500/20" :
-                                lead.aiClassification === "Retail Client" ? "bg-blue-500/20 text-blue-500 border-blue-500/20" :
-                                "bg-white/10 text-gray-400 border-white/10"
+                                lead.aiClassification === "Retail Client" ? "bg-[#0A4DFF]/20 text-[#0A4DFF] border-[#0A4DFF]/20" :
+                                "bg-white/10 text-white border-white/10"
                               )}>
                                 {lead.aiClassification}
                               </Badge>
@@ -619,7 +619,7 @@ export default function AILeadEngine() {
                                 <CardTitle className="text-base font-black uppercase tracking-tighter text-white truncate max-w-[180px]">
                                   {lead.name}
                                 </CardTitle>
-                                <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest flex items-center gap-1">
+                                <p className="text-[9px] text-white font-bold uppercase tracking-widest flex items-center gap-1">
                                   <MapPin className="w-2 h-2" />
                                   {lead.address?.split(',')[0]}
                                 </p>
@@ -630,11 +630,11 @@ export default function AILeadEngine() {
                           <CardContent className="p-6 pt-2 space-y-4">
                             <div className="p-3 bg-black/40 rounded-2xl border border-white/5 space-y-2">
                               <div className="flex items-center justify-between">
-                                <span className="text-[8px] font-black uppercase tracking-widest text-gray-500">Value Estimate</span>
+                                <span className="text-[8px] font-black uppercase tracking-widest text-white">Value Estimate</span>
                                 <span className="text-xs font-black text-green-500">${lead.aiValueEstimate}</span>
                               </div>
                               <div className="flex items-center justify-between">
-                                <span className="text-[8px] font-black uppercase tracking-widest text-gray-500">Next Action</span>
+                                <span className="text-[8px] font-black uppercase tracking-widest text-white">Next Action</span>
                                 <span className="text-[9px] font-bold text-primary italic">{lead.aiRecommendedAction}</span>
                               </div>
                             </div>
@@ -642,7 +642,7 @@ export default function AILeadEngine() {
                             <div className="flex gap-2">
                               <Button 
                                 variant="outline"
-                                className="flex-1 rounded-xl border-white/10 text-gray-400 hover:bg-white/5 font-bold uppercase tracking-widest text-[9px] h-10"
+                                className="flex-1 rounded-xl border-white/10 text-white hover:bg-white/5 font-bold uppercase tracking-widest text-[9px] h-10"
                                 onClick={() => setSelectedLead(lead)}
                               >
                                 <MessageSquare className="w-3 h-3 mr-2" />
@@ -664,12 +664,12 @@ export default function AILeadEngine() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center p-20 bg-white/5 border border-dashed border-white/10 rounded-[3rem] text-center space-y-6">
-                  <div className="w-20 h-20 rounded-3xl bg-white/5 flex items-center justify-center text-gray-600">
+                  <div className="w-20 h-20 rounded-3xl bg-white/5 flex items-center justify-center text-white">
                     <Search className="w-10 h-10" />
                   </div>
                   <div>
                     <h4 className="text-xl font-black uppercase tracking-tighter text-white">No Results <span className="text-primary italic">Found</span></h4>
-                    <p className="text-sm text-gray-500 font-medium mt-2 max-w-xs mx-auto">
+                    <p className="text-sm text-white font-medium mt-2 max-w-xs mx-auto">
                       Adjust your parameters and run the engine to acquire new market opportunities.
                     </p>
                   </div>
@@ -684,17 +684,17 @@ export default function AILeadEngine() {
             {["new", "contacted", "quoted", "reactivation", "maintenance_due"].map((status) => (
               <div key={status} className="space-y-4">
                 <div className="flex items-center justify-between px-2">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2">
                     <div className={cn(
                       "w-1.5 h-1.5 rounded-full",
-                      status === "new" ? "bg-blue-500" :
+                      status === "new" ? "bg-[#0A4DFF]" :
                       status === "contacted" ? "bg-yellow-500" :
                       status === "quoted" ? "bg-primary" :
                       "bg-purple-500"
                     )} />
                     {status.replace('_', ' ')}
                   </h4>
-                  <Badge className="bg-white/5 text-gray-500 border-white/10 text-[8px] font-black">
+                  <Badge className="bg-white/5 text-white border-white/10 text-[8px] font-black">
                     {pipelineLeads.filter(l => l.status === status).length}
                   </Badge>
                 </div>
@@ -713,8 +713,8 @@ export default function AILeadEngine() {
                         )}
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">{lead.source?.split(':')[0] || "Direct"}</span>
-                        <ChevronRight className="w-3 h-3 text-gray-600 group-hover:text-primary transition-colors" />
+                        <span className="text-[8px] text-white font-bold uppercase tracking-widest">{lead.source?.split(':')[0] || "Direct"}</span>
+                        <ChevronRight className="w-3 h-3 text-white group-hover:text-primary transition-colors" />
                       </div>
                     </Card>
                   ))}
@@ -732,12 +732,12 @@ export default function AILeadEngine() {
               </div>
               <div>
                 <h3 className="text-xl font-black uppercase tracking-tighter text-white italic">Conversion <span className="text-primary">Insights</span></h3>
-                <p className="text-xs text-gray-500 font-medium mt-1 uppercase tracking-widest">Lead Performance Analysis</p>
+                <p className="text-xs text-white font-medium mt-1 uppercase tracking-widest">Lead Performance Analysis</p>
               </div>
               <div className="space-y-4">
                 {intelligenceMetrics.conversionInsights.map((stat) => (
                   <div key={stat.label} className="flex items-center justify-between p-3 bg-black/20 rounded-xl border border-white/5">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{stat.label}</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">{stat.label}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-black text-white">{stat.rate}</span>
                       {stat.trend === "up" ? <TrendingUp className="w-3 h-3 text-green-500" /> : <TrendingUp className="w-3 h-3 text-red-500 rotate-180" />}
@@ -748,18 +748,18 @@ export default function AILeadEngine() {
             </Card>
 
             <Card className="bg-white/5 border-white/10 rounded-3xl p-8 space-y-6">
-              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+              <div className="w-12 h-12 rounded-2xl bg-[#0A4DFF]/10 flex items-center justify-center text-[#0A4DFF]">
                 <Zap className="w-6 h-6" />
               </div>
               <div>
                 <h3 className="text-xl font-black uppercase tracking-tighter text-white italic">Market <span className="text-blue-500">Saturation</span></h3>
-                <p className="text-xs text-gray-500 font-medium mt-1 uppercase tracking-widest">Regional Opportunity Map</p>
+                <p className="text-xs text-white font-medium mt-1 uppercase tracking-widest">Regional Opportunity Map</p>
               </div>
               <div className="space-y-4">
                 {intelligenceMetrics.marketSaturation.map((area) => (
                   <div key={area.label} className="space-y-2">
                     <div className="flex justify-between text-[9px] font-black uppercase tracking-widest">
-                      <span className="text-gray-400">{area.label}</span>
+                      <span className="text-white">{area.label}</span>
                       <span className="text-white">{area.level}%</span>
                     </div>
                     <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
@@ -829,7 +829,7 @@ export default function AILeadEngine() {
                 <p className="text-3xl font-black text-white">
                   {Math.round((clients.length / (clients.length + pipelineLeads.length || 1)) * 100)}%
                 </p>
-                <p className="text-[9px] text-blue-400 font-bold uppercase mt-1">Conversion Efficiency</p>
+                <p className="text-[9px] text-[#0A4DFF] font-bold uppercase mt-1">Conversion Efficiency</p>
               </Card>
             </div>
 
@@ -862,7 +862,7 @@ export default function AILeadEngine() {
                   </p>
                 </div>
                 <div className="flex items-start gap-4">
-                  <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-500 shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-[#0A4DFF]/20 flex items-center justify-center text-[#0A4DFF] shrink-0">
                     <Target className="w-4 h-4" />
                   </div>
                   <p className="text-sm text-gray-300 leading-relaxed">
@@ -936,13 +936,13 @@ export default function AILeadEngine() {
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
-                          <Mail className="w-3 h-3 text-blue-500" />
+                          <Mail className="w-3 h-3 text-[#0A4DFF]" />
                           Email Outreach
                         </Label>
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          className="h-8 text-[9px] font-black uppercase tracking-widest text-blue-500 hover:bg-blue-500/5"
+                          className="h-8 text-[9px] font-black uppercase tracking-widest text-[#0A4DFF] hover:bg-[#0A4DFF]/5"
                           onClick={() => copyToClipboard(selectedLead.aiOutreachDrafts?.email || "", "email")}
                         >
                           {copiedType === "email" ? <Check className="w-3 h-3 mr-2" /> : <Copy className="w-3 h-3 mr-2" />}

@@ -48,10 +48,14 @@ import {
   Target,
   Undo,
   Ban,
-  MessageSquare
+  MessageSquare,
+  Pencil,
 } from "lucide-react";
 import { format } from "date-fns";
-import { cn, cleanAddress, formatCurrency, getClientDisplayName } from "@/lib/utils";
+import { cn, cleanAddress, formatCurrency, getClientDisplayName, formatPhoneNumber } from "@/lib/utils";
+import { StandardInput } from "../components/StandardInput";
+import { CustomFeesEditor } from "../components/CustomFeesEditor";
+import { CustomFee, Service, AddOn, ServiceSelection } from "../types";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import PhotoDocumentation from "../components/PhotoDocumentation";
@@ -228,6 +232,12 @@ export default function JobDetail() {
 
   // Deployment Intelligence State
   const [isAnalyzingDeployment, setIsAnalyzingDeployment] = useState(false);
+  const [isAddingSelection, setIsAddingSelection] = useState(false);
+  const [allServices, setAllServices] = useState<Service[]>([]);
+  const [allAddons, setAllAddons] = useState<AddOn[]>([]);
+  const [selectedNewType, setSelectedNewType] = useState<"service" | "addon">("service");
+  const [selectedNewId, setSelectedNewId] = useState("");
+  const [editingAddonQty, setEditingAddonQty] = useState<{id: string, name: string, qty: number, pricingType?: string} | null>(null);
   const [deploymentInsights, setDeploymentInsights] = useState<DeploymentInsight[]>([]);
   const [selectedDeploymentInsights, setSelectedDeploymentInsights] = useState<DeploymentInsight[]>([]);
   
@@ -243,13 +253,132 @@ export default function JobDetail() {
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [isPaymentSelectionOpen, setIsPaymentSelectionOpen] = useState(false);
   const [currentInvoice, setCurrentInvoice] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchAllOptions = async () => {
+      try {
+        const [sSnap, aSnap] = await Promise.all([
+          getDocs(collection(db, "services")),
+          getDocs(collection(db, "addons"))
+        ]);
+        setAllServices(sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
+        setAllAddons(aSnap.docs.map(d => ({ id: d.id, ...d.data() } as AddOn)));
+      } catch (err) {
+        console.error("Error fetching service options:", err);
+      }
+    };
+    fetchAllOptions();
+  }, []);
+
+  const handleAddLiveItem = async () => {
+    if (!selectedNewId) {
+      toast.error("Please select an item to add.");
+      return;
+    }
+    setIsUpdating(true);
+    try {
+      const item = selectedNewType === "service" 
+        ? allServices.find(s => s.id === selectedNewId)
+        : allAddons.find(a => a.id === selectedNewId);
+      
+      if (!item) return;
+
+      const docRef = doc(db, "appointments", id!);
+      const jobSnap = await getDoc(docRef);
+      const currentData = jobSnap.data();
+
+      const activeVehicle = derivedVehicles.find(v => v.id === activeVehicleId) || derivedVehicles[0];
+
+      if (selectedNewType === "service") {
+        const srv = item as Service;
+        const vSize = job?.vehicleSize || "medium";
+        const price = srv.pricingBySize?.[vSize] || srv.basePrice || 0;
+
+        const newSelection: ServiceSelection = {
+          id: srv.id,
+          name: srv.name,
+          description: srv.description,
+          qty: 1,
+          price: price,
+          total: price,
+          source: "manual",
+          protocolAccepted: true,
+          vehicleId: activeVehicle?.id || undefined,
+          vehicleName: activeVehicle?.name
+        };
+
+        const updatedSelections = [...(currentData?.serviceSelections || []), newSelection];
+        const updatedNames = [...(currentData?.serviceNames || []), srv.name];
+        const updatedIds = [...(currentData?.serviceIds || []), srv.id];
+
+        await updateDoc(docRef, {
+          serviceSelections: updatedSelections,
+          serviceNames: updatedNames,
+          serviceIds: updatedIds,
+          totalAmount: (currentData?.totalAmount || 0) + price,
+          updatedAt: serverTimestamp()
+        });
+
+        setJob(prev => ({
+          ...prev!,
+          serviceSelections: updatedSelections,
+          serviceNames: updatedNames,
+          serviceIds: updatedIds,
+          totalAmount: (prev?.totalAmount || 0) + price
+        }));
+      } else {
+        const addOn = item as AddOn;
+        const price = addOn.price || 0;
+
+        const newSelection: ServiceSelection = {
+          id: addOn.id,
+          name: addOn.name,
+          description: addOn.description,
+          qty: 1,
+          price: price,
+          total: price,
+          source: "manual",
+          protocolAccepted: true,
+          vehicleId: activeVehicle?.id || undefined,
+          vehicleName: activeVehicle?.name
+        };
+
+        const updatedSelections = [...(currentData?.addOnSelections || []), newSelection];
+        const updatedNames = [...(currentData?.addOnNames || []), addOn.name];
+        const updatedIds = [...(currentData?.addOnIds || []), addOn.id];
+
+        await updateDoc(docRef, {
+          addOnSelections: updatedSelections,
+          addOnNames: updatedNames,
+          addOnIds: updatedIds,
+          totalAmount: (currentData?.totalAmount || 0) + price,
+          updatedAt: serverTimestamp()
+        });
+
+        setJob(prev => ({
+          ...prev!,
+          addOnSelections: updatedSelections,
+          addOnNames: updatedNames,
+          addOnIds: updatedIds,
+          totalAmount: (prev?.totalAmount || 0) + price
+        }));
+      }
+
+      toast.success(`${item.name} added to job!`);
+      setIsAddingSelection(false);
+      setSelectedNewId("");
+    } catch (err) {
+      console.error("Error adding live item:", err);
+      toast.error("Failed to add item.");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [communicationLogs, setCommunicationLogs] = useState<any[]>([]);
 
   // Manual Service Addition State
   const [showAddServiceDialog, setShowAddServiceDialog] = useState(false);
-  const [allServices, setAllServices] = useState<any[]>([]);
-  const [allAddons, setAllAddons] = useState<any[]>([]);
   const [selectedVehicleForAdd, setSelectedVehicleForAdd] = useState<string>("");
   const [selectedServiceToAdd, setSelectedServiceToAdd] = useState<string>("");
   const [customServiceName, setCustomServiceName] = useState("");
@@ -402,7 +531,7 @@ export default function JobDetail() {
         serviceSelections: newSelections,
         totalAmount: currentTotal + priceToUse,
         baseAmount: currentBase + priceToUse,
-        internalNotes: (job.internalNotes || "") + `\n\n[REVENUE PROTOCOL] Added ${rec.serviceName} for $${priceToUse.toFixed(2)} at ${new Date().toLocaleString()}.`
+        internalNotes: (job.internalNotes || "") + `\n\n[PRICING PROTOCOL] Added ${rec.serviceName} for $${priceToUse.toFixed(2)} at ${new Date().toLocaleString()}.`
       });
 
       toast.success(`Smart Add-On Applied: ${rec.serviceName}`);
@@ -1293,6 +1422,157 @@ export default function JobDetail() {
     }
   };
 
+  const handleUpdateAddonQty = async (addonId: string, newQty: number) => {
+    if (!job) return;
+    setIsUpdating(true);
+    try {
+      const docRef = doc(db, "appointments", id!);
+      const newAddonSelections = (job.addOnSelections || []).map((a: any) => {
+        if (a.id === addonId) {
+          return { ...a, qty: newQty };
+        }
+        return a;
+      });
+
+      // Recalculate total
+      const totalAddons = newAddonSelections.reduce((sum: number, a: any) => sum + (a.price || 0) * (a.qty || 1), 0);
+      const totalServices = (job.serviceSelections || []).reduce((sum: number, s: any) => sum + (s.price || 0), 0);
+      const totalAdjustments = (job.priceAdjustments || []).reduce((sum: number, adj: any) => sum + adj.amount, 0);
+      const travelFee = job.travelFee || 0;
+      const customFeesTotal = (job.customFees || []).reduce((sum: number, f: any) => sum + f.amount, 0);
+
+      const newTotal = totalAddons + totalServices + totalAdjustments + travelFee + customFeesTotal;
+
+      await updateDoc(docRef, {
+        addOnSelections: newAddonSelections,
+        totalAmount: newTotal,
+        baseAmount: totalAddons + totalServices,
+        updatedAt: serverTimestamp()
+      });
+      
+      toast.success("Time/Quantity updated");
+      setEditingAddonQty(null);
+    } catch (err) {
+      console.error("Update qty error:", err);
+      toast.error("Failed to update quantity");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleMarkAsMissed = async (status: "missed" | "no_show" | "client_missed") => {
+    setIsUpdating(true);
+    try {
+      calculateCancellationFee(); // Ensure it's latest calculation
+      
+      const docRef = doc(db, "appointments", id!);
+      const jobSnap = await getDoc(docRef);
+      const jobData = jobSnap.data();
+      
+      const clientRef = doc(db, "clients", jobData?.clientId || jobData?.customerId);
+      const clientSnap = await getDoc(clientRef);
+      const clientData = clientSnap.data();
+
+      // Get latest settings for fallback
+      const settingsSnap = await getDoc(doc(db, "settings", "business"));
+      const bSettings = settingsSnap.data();
+
+      let feeToCharge = 0;
+      
+      // Calculate fee based on policy
+      const scheduledDate = jobData?.scheduledAt.toDate();
+      const now = new Date();
+      const hoursUntilJob = (scheduledDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+      const afterCutoff = hoursUntilJob < (jobData?.cancellationCutoffHours || bSettings?.cancellationCutoffHours || 0);
+
+      if (afterCutoff) {
+        const feeAmount = jobData?.cancellationFeeAmount || bSettings?.cancellationFeeAmount || 50;
+        const feeType = jobData?.cancellationFeeType || bSettings?.cancellationFeeType || "flat";
+        
+        if (feeType === "percentage") {
+          feeToCharge = ((jobData?.totalAmount || 0) * feeAmount) / 100;
+        } else {
+          feeToCharge = feeAmount;
+        }
+      }
+
+      // Update status
+      await updateDoc(docRef, {
+        status: status,
+        updatedAt: serverTimestamp(),
+        cancellationFeeApplied: feeToCharge,
+        cancellationTimestamp: serverTimestamp(),
+        cancellationStatus: feeToCharge > 0 ? "applied" : "none"
+      });
+
+      if (feeToCharge > 0) {
+        if (clientData?.hasSavedPaymentMethod) {
+          toast.info(`Processing automatic cancellation fee: ${formatCurrency(feeToCharge)}...`);
+          const result = await paymentService.chargeSavedCard({
+            clientId: clientData.id,
+            amount: feeToCharge,
+            description: `Cancellation/No-Show Fee for Job ${id}`,
+            provider: bSettings?.activePaymentProvider || "stripe"
+          });
+
+          if (result.success) {
+            await addDoc(collection(db, "payments"), {
+              clientId: clientData.id,
+              appointmentId: id,
+              amount: feeToCharge,
+              provider: result.provider,
+              transactionId: result.transactionId,
+              paymentType: "cancellation_fee",
+              status: "paid",
+              timestamp: serverTimestamp()
+            });
+            await updateDoc(docRef, { cancellationFeeProcessed: true });
+            toast.success(`Cancellation fee of ${formatCurrency(feeToCharge)} charged successfully.`);
+          } else {
+            // Record failure
+            await addDoc(collection(db, "payments"), {
+              clientId: clientData.id,
+              appointmentId: id,
+              amount: feeToCharge,
+              paymentType: "cancellation_fee",
+              status: "failed",
+              failureReason: result.error,
+              timestamp: serverTimestamp()
+            });
+            
+            await updateDoc(clientRef, {
+              outstandingCancellationFee: (clientData?.outstandingCancellationFee || 0) + feeToCharge
+            });
+            toast.error(`Fee charge failed: ${result.error}. Balance added to client account.`);
+          }
+        } else {
+          // No saved method
+          const currentOutstanding = clientData?.outstandingCancellationFee || 0;
+          await updateDoc(clientRef, {
+            outstandingCancellationFee: currentOutstanding + feeToCharge
+          });
+          toast.warning(`No saved payment method. ${formatCurrency(feeToCharge)} added to client balance.`);
+          
+          await addDoc(collection(db, "payments"), {
+            clientId: clientData?.id || jobData?.clientId || jobData?.customerId,
+            appointmentId: id,
+            amount: feeToCharge,
+            paymentType: "cancellation_fee",
+            status: "pending",
+            timestamp: serverTimestamp()
+          });
+        }
+      } else {
+        toast.success(`Job marked as ${status.replace('_', ' ')}.`);
+      }
+    } catch (err) {
+      console.error("Missed job flow error:", err);
+      toast.error("Failed to process missed job logic.");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const checkRequiredForms = (stage: string) => {
     const applicableTemplates = formTemplates.filter(t => {
       // Check if template is assigned to any of the job's services or addons
@@ -1348,8 +1628,8 @@ export default function JobDetail() {
           getDocs(collection(db, "services")),
           getDocs(collection(db, "addons"))
         ]);
-        setAllServices(servSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setAllAddons(addSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        setAllServices(servSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
+        setAllAddons(addSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AddOn)));
       } catch (err) {
         console.error("Error fetching services:", err);
       }
@@ -1548,7 +1828,7 @@ export default function JobDetail() {
       const newItem = {
         id: `${type}-${Date.now()}`,
         name: originalItem.name,
-        price: Number(originalItem.basePrice || 0),
+        price: Number(type === "service" ? (originalItem as Service).basePrice : (originalItem as AddOn).price || 0),
         qty: 1,
         vehicleName: selectedVehicleForAdd || (job.vehicleNames && job.vehicleNames[0]) || "Main Asset",
         source: "deployment_intelligence",
@@ -1700,7 +1980,7 @@ export default function JobDetail() {
         businessName: businessSettings?.businessName || "DetailFlow"
       };
 
-      if (newStatus === "canceled") {
+      if (newStatus === "canceled" || newStatus === "missed" || newStatus === "no_show") {
          try {
            const { handleWaitlistRouting } = await import("../services/waitlistRouting");
            const { createNotification } = await import("../services/notificationService");
@@ -1709,8 +1989,8 @@ export default function JobDetail() {
            const promises = adminsSnap.docs.map(admin => 
              createNotification({
                userId: admin.id,
-               title: "Appointment Canceled",
-               message: `Appointment for ${job.customerName} was canceled.`,
+               title: "Appointment Cancellation/No-Show",
+               message: `Appointment for ${job.customerName} is now ${newStatus.replace('_', ' ')}.`,
                type: "cancellation",
                category: "Schedule Changes",
                relatedId: id,
@@ -1918,12 +2198,12 @@ export default function JobDetail() {
     scheduled: "bg-white text-black border-black",
     confirmed: "bg-black text-white border-black",
     en_route: "bg-orange-600 text-white border-orange-700",
-    arrived: "bg-blue-600 text-white border-blue-700",
+    arrived: "bg-[#0A4DFF] text-white border-[#0A4DFF]/50",
     in_progress: "bg-primary text-white border-primary border-2",
     completed: "bg-green-600 text-white border-green-700",
     paid: "bg-emerald-600 text-white border-emerald-700",
     canceled: "bg-red-600 text-white border-red-700",
-    suggested: "bg-indigo-600 text-white border-indigo-700",
+    suggested: "bg-[#0A4DFF]/80 text-white border-white/10",
     requested: "bg-orange-600 text-white border-orange-700",
     waitlisted: "bg-purple-600 text-white border-purple-700",
     pending_approval: "bg-orange-600 text-white border-orange-700",
@@ -1948,7 +2228,7 @@ export default function JobDetail() {
           <div>
             <div className="flex items-center gap-4 mb-2">
               <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter uppercase font-heading">
-                Deployment <span className="text-primary italic">Intelligence</span>
+                Booking <span className="text-primary italic">Intelligence</span>
               </h1>
             </div>
             <div className="flex items-center gap-3">
@@ -2014,13 +2294,13 @@ export default function JobDetail() {
                     <DialogHeader className="bg-black/40 border-b border-white/5 p-8 pb-6">
                       <div className="flex flex-col gap-1">
                         <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Information Manager</DialogTitle>
-                        <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest">Update Vehicle & Job Details</p>
+                        <p className="text-[10px] text-white font-black uppercase tracking-widest">Update Vehicle & Job Details</p>
                       </div>
                     </DialogHeader>
                     <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">VIN / Asset ID</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-white">VIN / Asset ID</Label>
                           <div className="flex gap-3">
                             <Input 
                               placeholder="Enter VIN" 
@@ -2050,15 +2330,15 @@ export default function JobDetail() {
 
                         {decodedVin && (
                           <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 grid grid-cols-2 gap-4 text-[10px] font-black uppercase tracking-[0.1em]">
-                            <div className="text-[#A0A0A0]">Make: <span className="text-white">{decodedVin.make}</span></div>
-                            <div className="text-[#A0A0A0]">Model: <span className="text-white">{decodedVin.model}</span></div>
-                            <div className="text-[#A0A0A0]">Year: <span className="text-white">{decodedVin.year}</span></div>
-                            <div className="text-[#A0A0A0]">Type: <span className="text-white">{decodedVin.type}</span></div>
+                            <div className="text-white">Make: <span className="text-white">{decodedVin.make}</span></div>
+                            <div className="text-white">Model: <span className="text-white">{decodedVin.model}</span></div>
+                            <div className="text-white">Year: <span className="text-white">{decodedVin.year}</span></div>
+                            <div className="text-white">Type: <span className="text-white">{decodedVin.type}</span></div>
                           </div>
                         )}
 
                         <div className="space-y-2">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">RO Identifier</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-white">RO Identifier</Label>
                           <Input 
                             placeholder="Repair Order #" 
                             className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-black uppercase tracking-widest text-sm"
@@ -2088,7 +2368,7 @@ export default function JobDetail() {
           </div>
 
           <div className="flex flex-col min-w-[180px] max-w-[300px] hidden md:flex border-r border-white/5 pr-4 shrink-0">
-            <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Job Location</span>
+            <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1">Job Location</span>
             <div className="flex items-center gap-2">
               <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={cleanAddress(job.address)}>
                 {cleanAddress(job.address)}
@@ -2106,7 +2386,7 @@ export default function JobDetail() {
           </div>
 
           <div className="flex flex-col flex-1 min-w-[200px] hidden xl:flex">
-            <span className="text-[9px] text-primary/60 font-black uppercase tracking-[0.2em] mb-1">Active Protocols</span>
+            <span className="text-[9px] text-primary font-black uppercase tracking-[0.2em] mb-1">Active Protocols</span>
             <span className="text-primary font-black text-sm truncate uppercase tracking-tight" title={[...(job.serviceNames || []), ...(job.addOnNames || [])].join(", ") || "No protocols initiated"}>
               {[...(job.serviceNames || []), ...(job.addOnNames || [])].join(", ") || "No protocols initiated"}
             </span>
@@ -2115,7 +2395,7 @@ export default function JobDetail() {
         
         <div className="flex items-center gap-6 shrink-0">
           <div className="flex flex-col min-w-[120px]">
-            <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Status</span>
+            <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1">Status</span>
             <div className="flex items-center gap-3">
               <Badge className={cn("text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded border-none w-fit shadow-md shrink-0", statusColors[job.status] || "bg-gray-500 text-white")}>
                 {job.status?.replace("_", " ")}
@@ -2161,7 +2441,7 @@ export default function JobDetail() {
                 )}
                 <DropdownMenu>
                   <DropdownMenuTrigger render={
-                    <Button variant="outline" className="border-white/10 bg-white/5 text-white/60 hover:text-white rounded-xl font-black uppercase tracking-widest text-[9px] h-9 px-4 transition-all whitespace-nowrap">
+                    <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:text-white rounded-xl font-black uppercase tracking-widest text-[9px] h-9 px-4 transition-all whitespace-nowrap">
                       Options
                     </Button>
                   } />
@@ -2175,7 +2455,25 @@ export default function JobDetail() {
                       disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid"}
                     >
                       <AlertCircle className="w-4 h-4 mr-2" />
-                      Cancel Appointment
+                      Protocol: Cancel
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem 
+                      onSelect={() => handleMarkAsMissed("missed")} 
+                      className="text-amber-500 font-bold focus:bg-amber-500/10 focus:text-amber-400 rounded-xl cursor-pointer"
+                      disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid" || job.status === "missed"}
+                    >
+                      <Ban className="w-4 h-4 mr-2" />
+                      Mark Missed Job
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem 
+                      onSelect={() => handleMarkAsMissed("no_show")} 
+                      className="text-amber-600 font-bold focus:bg-amber-600/10 focus:text-amber-500 rounded-xl cursor-pointer"
+                      disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid" || job.status === "no_show"}
+                    >
+                      <User className="w-4 h-4 mr-2" />
+                      Mark No-Show
                     </DropdownMenuItem>
                     <DeleteConfirmationDialog
                       isNativeButton={false}
@@ -2195,7 +2493,7 @@ export default function JobDetail() {
             </div>
           </div>
           <div className="flex flex-col min-w-[120px] items-end border-l border-white/10 pl-6 shrink-0 relative">
-            <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Running Total</span>
+            <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1">Running Total</span>
             <span className="text-2xl text-primary font-black leading-none">{formatCurrency(job.totalAmount || 0)}</span>
             
             {/* Real-time Payment Status from Invoice or Job */}
@@ -2237,7 +2535,7 @@ export default function JobDetail() {
                       "h-12 px-6 rounded-2xl font-black uppercase tracking-[0.15em] text-[10px] transition-all duration-300 whitespace-nowrap shrink-0 border",
                       isActive 
                         ? "bg-primary text-white border-primary shadow-xl shadow-primary/40 scale-105 z-10" 
-                        : "bg-black/40 text-gray-500 border-white/5 hover:bg-white/5 hover:text-white"
+                        : "bg-black/40 text-white border-white/5 hover:bg-white/5 hover:text-white"
                     )}
                     onClick={() => {
                       setActiveVehicleId(vehicle.id);
@@ -2292,14 +2590,14 @@ export default function JobDetail() {
                     </div>
                     <div>
                       <CardTitle className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter">Upsell Intelligence</CardTitle>
-                      <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">AI-Powered Revenue Optimization</p>
+                      <p className="text-[10px] text-white font-black uppercase tracking-[0.2em] mt-1">AI-Powered Revenue Optimization</p>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="p-12 space-y-12">
                   <div className="space-y-12">
                     <div className="space-y-6">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Field Assessment</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-white">Job Details</Label>
                       
                       <div className="flex flex-wrap gap-2">
                         {AVAILABLE_TAGS.map(tag => (
@@ -2310,7 +2608,7 @@ export default function JobDetail() {
                               "cursor-pointer uppercase font-black text-[9px] tracking-widest border-white/10 px-3 py-1.5 rounded-lg transition-colors",
                               assessmentTags.includes(tag) 
                                 ? "bg-primary text-white border-primary" 
-                                : "text-white/40 hover:text-white hover:bg-white/5"
+                                : "text-white hover:text-white hover:bg-white/5"
                             )}
                             onClick={() => toggleAssessmentTag(tag)}
                           >
@@ -2341,8 +2639,8 @@ export default function JobDetail() {
                               </div>
                             ))}
                             <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl hover:border-white/40 hover:bg-white/5 transition-colors cursor-pointer">
-                              <ImageIcon className="w-6 h-6 text-white/40 mb-1" />
-                              <span className="text-[8px] uppercase font-bold tracking-widest text-white/40 text-center">Add<br/>Photo</span>
+                              <ImageIcon className="w-6 h-6 text-white mb-1" />
+                              <span className="text-[8px] uppercase font-bold tracking-widest text-white text-center">Add<br/>Photo</span>
                               <input 
                                 type="file" 
                                 accept="image/*" 
@@ -2432,7 +2730,7 @@ export default function JobDetail() {
                           ))}
                           
                           <div className="flex justify-between items-center pt-2 border-t border-white/5">
-                            <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Total Product Cost</span>
+                            <span className="text-[10px] font-black uppercase text-white tracking-widest">Total Product Cost</span>
                             <span className="text-sm font-black text-primary">{formatCurrency(productCosts.reduce((sum, p) => sum + (parseFloat((p.totalCost || 0).toFixed(2))), 0))}</span>
                           </div>
                           
@@ -2446,7 +2744,7 @@ export default function JobDetail() {
                         </div>
                       ) : (
                         <div className="text-center py-4 bg-white/5 rounded-xl border border-dashed border-white/10">
-                          <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">No product costs recorded</p>
+                          <p className="text-[10px] font-bold text-white uppercase tracking-widest">No product costs recorded</p>
                         </div>
                       )}
                     </div>
@@ -2538,10 +2836,10 @@ export default function JobDetail() {
                           try {
                             const response = await analyzeDeployment(job);
                             setDeploymentInsights(response.insights);
-                            toast.success("Deployment Intelligence Generated!");
+                            toast.success("Booking Intelligence Generated!");
                           } catch (err) {
-                            console.error("Deployment Error:", err);
-                            toast.error("Failed to generate deployment intelligence");
+                            console.error("Booking Error:", err);
+                            toast.error("Failed to generate booking intelligence");
                           } finally {
                             setIsAnalyzingDeployment(false);
                           }
@@ -2549,7 +2847,7 @@ export default function JobDetail() {
                         disabled={isAnalyzingDeployment}
                         className="w-full h-14 bg-black border border-white/10 hover:bg-white/5 text-white font-black rounded-xl uppercase tracking-[0.2em] text-[10px]"
                       >
-                        {isAnalyzingDeployment ? <Loader2 className="w-5 h-5 animate-spin" /> : "Initiate Deployment Intelligence"}
+                        {isAnalyzingDeployment ? <Loader2 className="w-5 h-5 animate-spin" /> : "Run Booking Intelligence"}
                       </Button>
                     </div>
                   </div>
@@ -2593,7 +2891,7 @@ export default function JobDetail() {
                               <span className="text-[9px] font-black uppercase text-primary tracking-widest bg-primary/10 w-fit px-2 py-0.5 rounded-sm">Smart Suggestion</span>
                             </div>
                             
-                             <p className="text-xs text-[#A0A0A0] font-medium mb-4 leading-relaxed flex-1">{rec.reason}</p>
+                             <p className="text-xs text-white font-medium mb-4 leading-relaxed flex-1">{rec.reason}</p>
                             
                             {rec.recommendedProduct && (
                               <div className="mb-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
@@ -2602,7 +2900,7 @@ export default function JobDetail() {
                                 </div>
                                 <p className="text-xs font-black text-white mb-1">{rec.recommendedProduct}</p>
                                 {rec.productReason && (
-                                  <p className="text-[10px] text-white/40 leading-tight">{rec.productReason}</p>
+                                  <p className="text-[10px] text-white leading-tight">{rec.productReason}</p>
                                 )}
                               </div>
                             )}
@@ -2616,10 +2914,10 @@ export default function JobDetail() {
 
                             <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/10">
                               <div className="flex flex-col gap-1">
-                                <span className="text-[9px] font-black uppercase text-[#A0A0A0] tracking-widest leading-none">Range: {rec.priceRange}</span>
+                                <span className="text-[9px] font-black uppercase text-white tracking-widest leading-none">Range: {rec.priceRange}</span>
                                 {rec.originalPrice && rec.bundlePrice && rec.originalPrice > rec.bundlePrice && (
                                   <div className="flex items-center gap-1.5 mt-1">
-                                    <span className="text-xs text-[#A0A0A0] line-through">${rec.originalPrice}</span>
+                                    <span className="text-xs text-white line-through">${rec.originalPrice}</span>
                                     <span className="text-[10px] font-black uppercase tracking-widest text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">
                                       Save {formatCurrency(rec.originalPrice - rec.bundlePrice)}
                                     </span>
@@ -2630,7 +2928,7 @@ export default function JobDetail() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-[#A0A0A0]/30 hover:text-red-500 hover:bg-red-500/10 pointer-events-auto"
+                                  className="h-8 w-8 text-white hover:text-red-500 hover:bg-red-500/10 pointer-events-auto"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setRecommendations(recommendations.filter(r => r.serviceName !== rec.serviceName));
@@ -2676,7 +2974,7 @@ export default function JobDetail() {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                          {/* Floor Tier */}
+                           {/* Floor Tier */}
                           <div className={cn(
                             "p-4 rounded-xl border transition-all",
                             pricingAnalysis.floorPrice < pricingAnalysis.totalProductCost * 1.5 
@@ -2684,7 +2982,7 @@ export default function JobDetail() {
                               : "bg-white/5 border-white/10"
                           )}>
                             <div className="flex justify-between items-start mb-2">
-                              <span className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Floor</span>
+                              <span className="text-[10px] font-black text-white uppercase tracking-widest">Floor</span>
                               {pricingAnalysis.floorPrice < pricingAnalysis.totalProductCost * 1.5 && (
                                 <AlertCircle className="w-3 h-3 text-amber-500" />
                               )}
@@ -2714,7 +3012,7 @@ export default function JobDetail() {
 
                           {/* Premium Tier */}
                           <div className="p-4 rounded-xl border bg-white/5 border-white/10">
-                            <span className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest block mb-2">Premium</span>
+                            <span className="text-[10px] font-black text-white uppercase tracking-widest block mb-2">Premium</span>
                             <div className="text-2xl font-black text-white mb-4">{formatCurrency(pricingAnalysis.premiumPrice)}</div>
                             <Button 
                               onClick={() => handleApplyPriceTier('premium')}
@@ -2729,19 +3027,19 @@ export default function JobDetail() {
                         {/* Financial Metrics */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
                           <div>
-                            <p className="text-[9px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Total Job Cost</p>
+                            <p className="text-[9px] font-black text-white uppercase tracking-widest mb-1">Total Job Cost</p>
                             <p className="text-sm font-black text-white">{formatCurrency(pricingAnalysis.totalProductCost)}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Gross Revenue</p>
+                            <p className="text-[9px] font-black text-white uppercase tracking-widest mb-1">Gross Revenue</p>
                             <p className="text-sm font-black text-green-500">{formatCurrency(pricingAnalysis.recommendedPrice)}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Margin Dollars</p>
+                            <p className="text-[9px] font-black text-white uppercase tracking-widest mb-1">Margin Dollars</p>
                             <p className="text-sm font-black text-primary">{formatCurrency(pricingAnalysis.estimatedMarginDollars)}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Margin %</p>
+                            <p className="text-[9px] font-black text-white uppercase tracking-widest mb-1">Margin %</p>
                             <p className="text-sm font-black text-primary">{pricingAnalysis.estimatedMarginPercent.toFixed(1)}%</p>
                           </div>
                         </div>
@@ -2790,8 +3088,8 @@ export default function JobDetail() {
                                     </div>
                                     <span className="text-xs font-black text-primary">${adj.suggestedPrice}</span>
                                   </div>
-                                  <p className="text-[10px] text-white/50 font-bold uppercase tracking-tight mb-2">Target: {adj.targetServiceName}</p>
-                                  <p className="text-[10px] text-white/60 font-medium">{adj.impact}</p>
+                                  <p className="text-[10px] text-white font-bold uppercase tracking-tight mb-2">Target: {adj.targetServiceName}</p>
+                                  <p className="text-[10px] text-white font-medium">{adj.impact}</p>
                                 </div>
                                 </SmallCardWrapper>
                               );
@@ -2851,12 +3149,12 @@ export default function JobDetail() {
                                     </div>
                                     <div className="text-right whitespace-nowrap">
                                       <div className="text-xs font-black text-green-500">{formatCurrency(bundle.discountedPrice)}</div>
-                                      <div className="text-[9px] font-bold text-white/40 tracking-tighter">Save {formatCurrency(bundle.savings)}</div>
+                                      <div className="text-[9px] font-bold text-white tracking-tighter">Save {formatCurrency(bundle.savings)}</div>
                                     </div>
                                   </div>
                                   <div className="flex flex-wrap gap-2 mt-auto">
                                     {bundle.items.map((item, i) => (
-                                      <Badge key={i} variant="outline" className="bg-white/5 border-white/10 text-[9px] font-bold text-white/60 pointer-events-none">{item}</Badge>
+                                      <Badge key={i} variant="outline" className="bg-white/5 border-white/10 text-[9px] font-bold text-white pointer-events-none">{item}</Badge>
                                     ))}
                                   </div>
                                 </div>
@@ -2870,7 +3168,7 @@ export default function JobDetail() {
                       {/* Deployment Insights */}
                       {deploymentInsights.length > 0 && (
                         <div className="space-y-6">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-purple-500">Structured Deployment Intelligence</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-purple-500">Structured Booking Intelligence</Label>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
                             {deploymentInsights.map((insight, idx) => {
                               const isFee = insight.name.toLowerCase().includes("travel") || insight.name.toLowerCase().includes("fee") || insight.name.toLowerCase().includes("surcharge");
@@ -2901,11 +3199,11 @@ export default function JobDetail() {
                                           <span className="text-xs font-black text-white uppercase tracking-tight">{insight.name}</span>
                                           {isSelected && <Badge className="bg-purple-500 text-white text-[8px] h-4 px-1.5 font-bold uppercase tracking-widest">Added</Badge>}
                                         </div>
-                                        <p className="text-[10px] text-white/50 font-bold uppercase tracking-tight">{insight.reason}</p>
+                                        <p className="text-[10px] text-white font-bold uppercase tracking-tight">{insight.reason}</p>
                                       </div>
                                       <div className="text-right">
                                         <div className="text-xs font-black text-purple-500">${insight.price}</div>
-                                        <div className="text-[8px] text-white/30 font-bold uppercase">Calculated Fee</div>
+                                        <div className="text-[8px] text-white font-bold uppercase">Calculated Fee</div>
                                       </div>
                                     </div>
                                   </div>
@@ -2949,8 +3247,8 @@ export default function JobDetail() {
                                       </Button>
                                     </div>
                                   </div>
-                                  <p className="text-[10px] text-white/60 font-medium leading-relaxed">{insight.description}</p>
-                                  <p className="text-[9px] text-white/30 font-bold uppercase mt-2">Detected: {insight.reason}</p>
+                                  <p className="text-[10px] text-white font-medium leading-relaxed">{insight.description}</p>
+                                  <p className="text-[9px] text-white font-bold uppercase mt-2">Detected: {insight.reason}</p>
                                 </div>
                               );
                             })}
@@ -2961,12 +3259,12 @@ export default function JobDetail() {
                       {/* Strategic Suggestions */}
                       {revenueProtocol.customerSpecificSuggestions && revenueProtocol.customerSpecificSuggestions.length > 0 && (
                         <div className="space-y-6">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-blue-500">Client-Specific Strategy</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-[#0A4DFF]">Client-Specific Strategy</Label>
                           <div className="grid grid-cols-1 gap-6">
                             {revenueProtocol.customerSpecificSuggestions.map((sug, idx) => (
                               <div key={idx} className="p-6 rounded-xl bg-white/5 border border-white/10 border-l-4 border-l-blue-500">
                                 <p className="text-xs font-black text-white mb-1 uppercase tracking-tight">{sug.suggestion}</p>
-                                <p className="text-[10px] text-white/60 font-medium italic">Logic: {sug.logic}</p>
+                                <p className="text-[10px] text-white font-medium italic">Logic: {sug.logic}</p>
                               </div>
                             ))}
                           </div>
@@ -3067,7 +3365,7 @@ export default function JobDetail() {
                             addedValue += insight.price;
                           });
 
-                          const protocolNote = revenueProtocol.customerSpecificSuggestions ? `\n\n[CLIENT STRATEGY]\n${revenueProtocol.customerSpecificSuggestions}` : "";
+                          const protocolNote = revenueProtocol.customerSpecificSuggestions ? `\n\n[CLIENT PROFILE]\n${revenueProtocol.customerSpecificSuggestions}` : "";
                           
                           await updateDoc(docRef, {
                             serviceNames: newNames,
@@ -3075,10 +3373,10 @@ export default function JobDetail() {
                             addOnSelections: newAddOnSelections,
                             totalAmount: currentTotal + addedValue,
                             baseAmount: currentBase + addedValue,
-                            internalNotes: (job.internalNotes || "") + `\n\n[REVENUE PROTOCOL] Optimized at ${new Date().toLocaleString()}. Added ${selectedAdjustments.length} adjustments, ${selectedBundles.length} bundles, and ${selectedDeploymentInsights.length} deployment items.${protocolNote}`
+                            internalNotes: (job.internalNotes || "") + `\n\n[PRICING PROTOCOL] Optimized at ${new Date().toLocaleString()}. Added ${selectedAdjustments.length} adjustments, ${selectedBundles.length} bundles, and ${selectedDeploymentInsights.length} booking items.${protocolNote}`
                           });
                           
-                          toast.success("Revenue Protocol Assets Synchronized!");
+                          toast.success("Pricing Protocol Assets Synchronized!");
                           setRecommendations([]);
                           setSelectedRecommendations([]); // Keep for cleanliness
                           setSelectedAdjustments([]);
@@ -3113,7 +3411,7 @@ export default function JobDetail() {
             </TabsContent>
 
             <TabsContent value="checklist" className="mt-6 space-y-12">
-              {/* Live Revenue Intelligence Directives (Restored) */}
+              {/* Live Pricing Insight Directives (Restored) */}
               {(() => {
                 const liveRecommendations = recommendations.map(r => ({
                   id: r.serviceName,
@@ -3138,13 +3436,13 @@ export default function JobDetail() {
                     <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 blur-[80px] -mr-32 -mt-32 rounded-full pointer-events-none"></div>
                     <CardHeader className="bg-black/40 border-b border-primary/20 p-6 flex flex-row items-center gap-3 relative z-10 w-full">
                       <Sparkles className="w-5 h-5 text-primary" />
-                      <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Revenue Intelligence Directives</CardTitle>
+                      <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Pricing Insight Directives</CardTitle>
                     </CardHeader>
                     <CardContent className="p-8 relative z-10">
                       {activeDirectives.length === 0 ? (
                         <div className="text-center py-6">
-                           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#A0A0A0] mb-2">NO ACTIVE DIRECTIVES</p>
-                           <p className="text-xs text-[#A0A0A0]">Run Revenue Optimization in the Revenue Intel tab to generate tactical directives for this deployment.</p>
+                           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white mb-2">NO ACTIVE DIRECTIVES</p>
+                           <p className="text-xs text-white">Run Pricing Optimization in the Pricing Intel tab to generate strategic directives for this booking.</p>
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full items-stretch">
@@ -3153,7 +3451,7 @@ export default function JobDetail() {
                             <div className="p-6 rounded-2xl bg-white/5 border border-white/10 flex flex-col gap-4 w-full relative group h-auto min-h-full">
                               <div className="flex justify-between items-start gap-4">
                                 <div className="space-y-1">
-                                  <span className="text-[9px] font-black uppercase tracking-widest text-primary/70">{item.source === 'deployment_intelligence' ? 'Deployment Insight' : 'Operational Enhancement'}</span>
+                                  <span className="text-[9px] font-black uppercase tracking-widest text-primary/70">{item.source === 'deployment_intelligence' ? 'Booking Insight' : 'Operational Enhancement'}</span>
                                   <h4 className="font-black text-white text-lg tracking-tight uppercase px-4 py-1 bg-white/5 rounded-md w-fit">{item.name}</h4>
                                 </div>
                                 <div className="flex-shrink-0 bg-primary/20 px-3 py-1 rounded-md border border-primary/30">
@@ -3162,8 +3460,8 @@ export default function JobDetail() {
                               </div>
                               
                               <div className="p-4 bg-black/40 rounded-xl border border-white/5 flex-1">
-                                <Label className="text-[9px] font-black uppercase tracking-widest text-[#A0A0A0] mb-2 block">Action Required</Label>
-                                <div className="text-sm font-medium text-white/90 leading-relaxed">
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-white mb-2 block">Action Required</Label>
+                                <div className="text-sm font-medium text-white leading-relaxed">
                                   {item.instruction}
                                 </div>
                               </div>
@@ -3227,8 +3525,8 @@ export default function JobDetail() {
                                         <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.internal}</p>
                                       </div>
                                       <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Customer Explanation</Label>
-                                        <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.customer}</p>
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-white">Customer Explanation</Label>
+                                        <p className="text-sm text-white font-medium leading-relaxed">{explanations?.customer}</p>
                                       </div>
                                     </div>
                                   </DialogContent>
@@ -3236,14 +3534,14 @@ export default function JobDetail() {
                               ) : (
                                 <span className="text-white font-black uppercase tracking-widest text-[9px] leading-none mb-1 truncate">{service.name}</span>
                               )}
-                              <span className="text-[9px] text-[#A0A0A0] font-bold uppercase tracking-tight truncate">{service.vehicleName || "Main Asset"}</span>
+                              <span className="text-[9px] text-white font-bold uppercase tracking-tight truncate">{service.vehicleName || "Main Asset"}</span>
                             </div>
                             <div className="flex items-center gap-3 ml-2">
                               <span className="text-white font-black text-xs font-mono whitespace-nowrap">{formatCurrency(service.price || 0)}</span>
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="h-8 w-8 text-[#A0A0A0] hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
+                                className="h-8 w-8 text-white hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   removeBillableItem(service.id || service.name, "service");
@@ -3279,7 +3577,13 @@ export default function JobDetail() {
                                       className="text-left bg-transparent border-none p-0 group flex flex-col"
                                       onClick={() => toast.success(`${addon.name} Clicked`)}
                                     >
-                                      <span className="text-primary/70 font-black uppercase tracking-widest text-[9px] leading-none mb-1 italic border-b border-dashed border-primary/40 group-hover:border-primary/70 transition-colors inline-block truncate max-w-full">{addon.name} {addon.qty > 1 ? `(x${addon.qty})` : ""}</span>
+                                      <span className="text-primary/70 font-black uppercase tracking-widest text-[9px] leading-none mb-1 italic border-b border-dashed border-primary/40 group-hover:border-primary/70 transition-colors inline-block truncate max-w-full">
+                                        {addon.name} 
+                                        {addon.pricingType === "hourly" ? ` (${addon.qty || 1} hrs)` : 
+                                         addon.pricingType === "block30" ? ` (${addon.qty || 1} x 30m)` :
+                                         addon.pricingType === "blockCustom" ? ` (${addon.qty || 1} blocks)` :
+                                         (addon.qty > 1 ? ` (x${addon.qty})` : "")}
+                                      </span>
                                     </button>
                                   } />
                                   <DialogContent className="max-w-md bg-[#121212] border border-white/10 shadow-2xl p-6 rounded-2xl">
@@ -3292,23 +3596,41 @@ export default function JobDetail() {
                                         <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.internal}</p>
                                       </div>
                                       <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Customer Explanation</Label>
-                                        <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.customer}</p>
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-white">Customer Explanation</Label>
+                                        <p className="text-sm text-white font-medium leading-relaxed">{explanations?.customer}</p>
                                       </div>
                                     </div>
                                   </DialogContent>
                                 </Dialog>
                               ) : (
-                                <span className="text-primary/70 font-black uppercase tracking-widest text-[9px] leading-none mb-1 italic truncate">{addon.name} {addon.qty > 1 ? `(x${addon.qty})` : ""}</span>
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                  <span className="text-primary/70 font-black uppercase tracking-widest text-[9px] leading-none mb-1 italic truncate">
+                                    {addon.name} 
+                                    {addon.pricingType === "hourly" ? ` (${addon.qty || 1} hrs)` : 
+                                     addon.pricingType === "block30" ? ` (${addon.qty || 1} x 30m)` :
+                                     addon.pricingType === "blockCustom" ? ` (${addon.qty || 1} blocks)` :
+                                     (addon.qty > 1 ? ` (x${addon.qty})` : "")}
+                                  </span>
+                                  {addon.pricingType && addon.pricingType !== "flat" && (
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      className="h-5 w-5 h-4 w-4 bg-white/5 rounded-md hover:bg-primary/20"
+                                      onClick={() => setEditingAddonQty({ id: addon.id, name: addon.name, qty: addon.qty || 1, pricingType: addon.pricingType })}
+                                    >
+                                      <Pencil className="w-2.5 h-2.5 text-primary" />
+                                    </Button>
+                                  )}
+                                </div>
                               )}
-                              <span className="text-[9px] text-[#A0A0A0] font-bold uppercase tracking-tight truncate">{addon.vehicleName || "Main Asset"}</span>
+                              <span className="text-[9px] text-white font-bold uppercase tracking-tight truncate">{addon.vehicleName || "Main Asset"}</span>
                             </div>
                             <div className="flex items-center gap-3 ml-2">
                               <span className="text-primary font-black text-xs font-mono whitespace-nowrap">{formatCurrency((addon.price || 0) * (addon.qty || 1))}</span>
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="h-8 w-8 text-[#A0A0A0] hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
+                                className="h-8 w-8 text-white hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   removeBillableItem(addon.id || addon.name, "addon");
@@ -3348,7 +3670,7 @@ export default function JobDetail() {
                                   <Button 
                                     variant="ghost" 
                                     size="icon" 
-                                    className="h-8 w-8 text-[#A0A0A0] hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
+                                    className="h-8 w-8 text-white hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       removeBillableItem(adj.id, "adjustment");
@@ -3358,7 +3680,6 @@ export default function JobDetail() {
                                   </Button>
                                 </div>
                               </div>
-
                               <DialogContent className="max-w-md bg-[#121212] border border-white/10 shadow-2xl p-6 rounded-2xl">
                                 <DialogHeader className="mb-4 text-left">
                                   <DialogTitle className="font-black text-lg tracking-tighter text-white uppercase">{labels.internalLabel}</DialogTitle>
@@ -3367,11 +3688,11 @@ export default function JobDetail() {
                                 <div className="space-y-6">
                                   <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-2">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Internal Explanation</Label>
-                                    <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.internal}</p>
+                                    <p className="text-sm text-white font-medium leading-relaxed">{explanations?.internal}</p>
                                   </div>
                                   <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Customer Explanation</Label>
-                                    <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.customer}</p>
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-white">Customer Explanation</Label>
+                                    <p className="text-sm text-white font-medium leading-relaxed">{explanations?.customer}</p>
                                   </div>
                                 </div>
                               </DialogContent>
@@ -3387,12 +3708,16 @@ export default function JobDetail() {
                       <span className="text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">Base Amount</span>
                       <span className="text-sm font-black text-white/80">{formatCurrency(job.baseAmount || 0)}</span>
                     </div>
-                    {job.travelFee ? (
-                      <div className="flex justify-between items-center px-4 py-1">
-                        <span className="text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">Travel Fee</span>
-                        <span className="text-sm font-black text-white/80">{formatCurrency(job.travelFee)}</span>
+                    <div className="flex justify-between items-center px-4 py-1">
+                      <span className="text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">{businessSettings?.serviceFeeLabel || "Travel Fee"}</span>
+                      <span className="text-sm font-black text-white/80">{job.travelFee ? formatCurrency(job.travelFee) : "$0.00"}</span>
+                    </div>
+                    {job.customFees?.map((fee: CustomFee, idx: number) => (
+                      <div key={`custom-fee-${idx}`} className="flex justify-between items-center px-4 py-1">
+                        <span className="text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">{fee.name}</span>
+                        <span className="text-sm font-black text-white/80">{formatCurrency(fee.amount)}</span>
                       </div>
-                    ) : null}
+                    ))}
                     {job.afterHoursRecord?.afterHoursFee ? (
                       <div className="flex justify-between items-center px-4 py-1">
                         <span className="text-[10px] font-black uppercase text-yellow-500/80 tracking-widest">After-Hours Fee</span>
@@ -3415,6 +3740,69 @@ export default function JobDetail() {
                     <div className="flex justify-between items-center px-4 py-3 bg-black/40 rounded-xl border border-white/5 mt-2">
                       <span className="text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">Calculated Balance</span>
                       <span className="text-xl font-black text-primary">{formatCurrency(job.totalAmount || 0)}</span>
+                    </div>
+
+                    <div className="pt-4 space-y-4">
+                      <Button 
+                        onClick={() => setIsAddingSelection(true)}
+                        className="w-full bg-white text-black font-black h-12 rounded-xl uppercase tracking-widest text-[9px] hover:bg-gray-100 flex items-center justify-center gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Service or Enhancement
+                      </Button>
+
+                      <Dialog open={isAddingSelection} onOpenChange={setIsAddingSelection}>
+                        <DialogContent className="max-w-md bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] shadow-2xl p-0 overflow-hidden">
+                          <DialogHeader className="bg-black/40 border-b border-white/5 p-8 pb-6">
+                            <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Add Protocol</DialogTitle>
+                            <p className="text-[10px] text-white font-black uppercase tracking-widest mt-1">Inject dynamic services or enhancements into active job</p>
+                          </DialogHeader>
+                          <div className="p-8 space-y-6">
+                            <div className="space-y-4">
+                              <div className="flex bg-white/5 p-1 rounded-xl">
+                                <Button 
+                                  variant="ghost" 
+                                  className={cn("flex-1 rounded-lg font-black uppercase tracking-widest text-[9px]", selectedNewType === "service" ? "bg-primary text-white" : "text-white/40")}
+                                  onClick={() => { setSelectedNewType("service"); setSelectedNewId(""); }}
+                                >
+                                  Primary Service
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  className={cn("flex-1 rounded-lg font-black uppercase tracking-widest text-[9px]", selectedNewType === "addon" ? "bg-primary text-white" : "text-white/40")}
+                                  onClick={() => { setSelectedNewType("addon"); setSelectedNewId(""); }}
+                                >
+                                  Enhancement
+                                </Button>
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-white">Select Entity</Label>
+                                <Select value={selectedNewId} onValueChange={setSelectedNewId}>
+                                  <SelectTrigger className="bg-white/40 border-white/10 text-white rounded-xl h-12">
+                                    <SelectValue placeholder={`Select a ${selectedNewType}...`} />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-card border-white/10 text-white">
+                                    {selectedNewType === "service" ? (
+                                      allServices.map(s => <SelectItem key={s.id} value={s.id}>{s.name} - {formatCurrency(s.basePrice || 0)}</SelectItem>)
+                                    ) : (
+                                      allAddons.map(a => <SelectItem key={a.id} value={a.id}>{a.name} - {formatCurrency(a.price || 0)}</SelectItem>)
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <Button 
+                                className="w-full bg-primary text-white font-black h-14 rounded-2xl uppercase tracking-[0.15em] text-[11px] shadow-xl hover:bg-[#2A6CFF] transition-all"
+                                onClick={handleAddLiveItem}
+                                disabled={!selectedNewId || isUpdating}
+                              >
+                                {isUpdating ? "Analyzing..." : "Confirm Protocol Addition"}
+                              </Button>
+                            </div>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   </div>
                 </CardContent>
@@ -3469,7 +3857,7 @@ export default function JobDetail() {
                           onClick={() => setShowFormSigner(t)}
                         >
                           <span className="font-bold">{t.title}</span>
-                          <span className="text-[10px] text-gray-500 capitalize">{t.category} • v{t.version}</span>
+                          <span className="text-[10px] text-white capitalize">{t.category} • v{t.version}</span>
                         </Button>
                       ))}
                     </div>
@@ -3481,9 +3869,9 @@ export default function JobDetail() {
                 <Card className="border-none shadow-sm bg-white">
                   <CardContent className="p-12 text-center space-y-3">
                     <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto">
-                      <FileText className="w-6 h-6 text-gray-300" />
+                      <FileText className="w-6 h-6 text-white" />
                     </div>
-                    <p className="text-sm text-gray-500 font-medium">No forms have been signed for this job yet.</p>
+                    <p className="text-sm text-white font-medium">No forms have been signed for this job yet.</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -3496,8 +3884,8 @@ export default function JobDetail() {
                             <CheckCircle2 className="w-5 h-5" />
                           </div>
                           <div>
-                            <p className="font-bold text-gray-900">{sf.formTitle}</p>
-                            <p className="text-[10px] text-gray-500">Signed on {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
+                            <p className="font-bold text-white">{sf.formTitle}</p>
+                            <p className="text-[10px] text-white">Signed on {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
                           </div>
                         </div>
                         <Dialog>
@@ -3507,7 +3895,7 @@ export default function JobDetail() {
                               <div className="flex justify-between items-start border-b pb-6">
                                 <div>
                                   <h2 className="text-2xl font-black uppercase tracking-tighter">{sf.formTitle}</h2>
-                                  <p className="text-xs text-gray-500">Version {sf.formVersion} • Signed At: {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
+                                  <p className="text-xs text-white">Version {sf.formVersion} • Signed At: {format(new Date(sf.signedAt), "MMM d, yyyy h:mm a")}</p>
                                 </div>
                                 <Badge className="bg-green-100 text-green-700 border-green-200">Verified Signature</Badge>
                               </div>
@@ -3539,7 +3927,7 @@ export default function JobDetail() {
 
                               {sf.signature && (
                                 <div className="space-y-2">
-                                  <Label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Signature</Label>
+                                  <Label className="text-[10px] font-bold uppercase tracking-widest text-white">Signature</Label>
                                   <div className="border rounded-xl p-4 bg-white inline-block">
                                     <img src={sf.signature} alt="Signature" className="h-24" />
                                   </div>
@@ -3586,7 +3974,7 @@ export default function JobDetail() {
                      Offer Original Time
                    </Button>
                    {job.waitlistInfo?.backupScheduledAt && (
-                     <Button onClick={() => handleWaitlistAction("approveBackup")} size="sm" className="bg-blue-600 hover:bg-blue-500 text-white font-bold h-10 w-full" disabled={isUpdating}>
+                     <Button onClick={() => handleWaitlistAction("approveBackup")} size="sm" className="bg-[#0A4DFF] hover:opacity-90 text-white font-bold h-10 w-full" disabled={isUpdating}>
                        Approve Backup Time
                      </Button>
                    )}
@@ -3607,7 +3995,7 @@ export default function JobDetail() {
               <CardHeader className="bg-black/20 border-b border-white/5 p-6 flex flex-row items-center justify-between">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Client Communication</CardTitle>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Automated Client Communication</span>
+                  <span className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Automated Client Communication</span>
                   <Switch 
                     checked={!job.smsAutomationPaused || false}
                     onCheckedChange={toggleSmsAutomation}
@@ -3620,7 +4008,7 @@ export default function JobDetail() {
                   {communicationLogs.length > 0 && (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] uppercase font-black text-white/40 tracking-widest">Recent Messages</span>
+                        <span className="text-[10px] uppercase font-black text-white tracking-widest">Recent Messages</span>
                         <Badge className="bg-white/10 text-white hover:bg-white/20 border-none px-2">{communicationLogs.length}</Badge>
                       </div>
                       <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
@@ -3631,12 +4019,12 @@ export default function JobDetail() {
                               <span className={cn(
                                 "text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded",
                                 log.status === "sent" ? "text-emerald-500 bg-emerald-500/10" : 
-                                log.status === "failed" ? "text-red-500 bg-red-500/10" : "text-blue-500 bg-blue-500/10"
+                                log.status === "failed" ? "text-red-500 bg-red-500/10" : "text-[#0A4DFF] bg-[#0A4DFF]/10"
                               )}>
                                 {log.status}
                               </span>
                             </div>
-                            <p className="text-[10px] text-white/60 truncate">{log.content}</p>
+                            <p className="text-[10px] text-white truncate">{log.content}</p>
                             {log.status === "failed" && job.customerPhone && (
                                 <Button 
                                   variant="ghost" 
@@ -3660,7 +4048,7 @@ export default function JobDetail() {
                   )}
 
                   <div className="space-y-4">
-                    <span className="text-[10px] uppercase font-black text-white/40 tracking-widest pl-1">Scheduled Reminders</span>
+                    <span className="text-[10px] uppercase font-black text-white tracking-widest pl-1">Scheduled Reminders</span>
                     {[
                       { key: "confirmation", prefKey: "bookingConfirmation", label: "Booking Confirmation" },
                       { key: "twentyFourHour", prefKey: "reminder24h", label: "24-Hour Reminder" },
@@ -3679,7 +4067,7 @@ export default function JobDetail() {
                       else if (!globalAutomation) statusLabel = "Disabled (Global)";
                       else if (!globalTypeAutomation || !jobTypeAutomation) statusLabel = "Manual Only";
 
-                      let statusColor = isAutomated ? "text-primary bg-primary/10" : "text-white/30 bg-white/5";
+                      let statusColor = isAutomated ? "text-primary bg-primary/10" : "text-white bg-white/5";
                       
                       if (status === "sent") {
                         statusLabel = "Sent";
@@ -3723,7 +4111,7 @@ export default function JobDetail() {
                               <Button
                                 variant="ghost" 
                                 size="sm"
-                                className="flex-1 text-[10px] uppercase font-black tracking-widest hover:bg-white/10 h-9 bg-black/40 border border-white/5 text-white/60 hover:text-white"
+                                className="flex-1 text-[10px] uppercase font-black tracking-widest hover:bg-white/10 h-9 bg-black/40 border border-white/5 text-white hover:text-white"
                                 onClick={() => handleResendReminder(key === 'confirmation' ? 'confirmation' : (key === 'twentyFourHour' ? 'reminder_24h' : 'reminder_2h'))}
                               >
                                 <Zap className="w-3 h-3 mr-2 text-primary" />
@@ -3773,7 +4161,7 @@ export default function JobDetail() {
                     <Button 
                       onClick={() => handleStatusChangeRequest("arrived")} 
                       disabled={isUpdating} 
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-lg shadow-blue-600/20"
+                      className="w-full bg-[#0A4DFF] hover:opacity-90 text-white font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-lg shadow-[#0A4DFF]/20"
                     >
                       Mark Arrived
                     </Button>
@@ -3839,14 +4227,14 @@ export default function JobDetail() {
                 {/* Status Activity Log */}
                 {(job.statusActivityLog && job.statusActivityLog.length > 0) && (
                   <div className="pt-4 mt-4 border-t border-white/5 space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/50">Status Activity</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Status Activity</Label>
                     <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar pr-2">
                       {[...job.statusActivityLog].reverse().map((log: any, i: number) => (
                         <div key={i} className="flex justify-between items-center text-[10px] bg-white/5 p-2 rounded border border-white/5">
-                          <span className="text-white/60 font-black uppercase tracking-widest">
+                          <span className="text-white font-black uppercase tracking-widest">
                             {formatStatusText(log.oldStatus)} <span className="text-primary mx-1 text-xs leading-none">→</span> {formatStatusText(log.newStatus)}
                           </span>
-                          <span className="text-white/30 font-black tracking-widest">
+                          <span className="text-white font-black tracking-widest">
                             {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
@@ -3898,12 +4286,12 @@ export default function JobDetail() {
         <AlertDialogContent className="bg-card border-white/10 rounded-2xl shadow-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="font-black text-xl text-white uppercase tracking-tight">Confirm Status Correction</AlertDialogTitle>
-            <AlertDialogDescription className="text-white/60 font-medium">
+            <AlertDialogDescription className="text-white font-medium">
               {pendingStatusChange?.actionText}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel className="font-bold border-white/10 text-white/50 hover:bg-white/5 rounded-xl uppercase tracking-widest text-[10px]">Keep Current Status</AlertDialogCancel>
+            <AlertDialogCancel className="font-bold border-white/10 text-white hover:bg-white/5 rounded-xl uppercase tracking-widest text-[10px]">Keep Current Status</AlertDialogCancel>
             <AlertDialogAction 
               onClick={() => {
                 if (pendingStatusChange) {
@@ -3918,6 +4306,35 @@ export default function JobDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog open={!!editingAddonQty} onOpenChange={(open) => !open && setEditingAddonQty(null)}>
+        <DialogContent className="max-w-sm bg-card border-none rounded-3xl shadow-2xl p-8">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black text-white uppercase tracking-tighter">Update {editingAddonQty?.pricingType === 'flat' ? 'Quantity' : 'Time'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 pt-4">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-primary">
+                {editingAddonQty?.name} ({editingAddonQty?.pricingType === 'hourly' ? 'Hours' : editingAddonQty?.pricingType === 'block30' ? '30m Blocks' : 'Units'})
+              </Label>
+              <Input 
+                type="number"
+                step={editingAddonQty?.pricingType === 'hourly' ? "0.25" : "1"}
+                value={editingAddonQty?.qty || 0}
+                onChange={(e) => setEditingAddonQty(prev => prev ? ({ ...prev, qty: parseFloat(e.target.value) || 0 }) : null)}
+                className="bg-black/40 border-white/10 text-white rounded-xl h-12 text-lg font-black font-mono"
+              />
+            </div>
+            <Button 
+              className="w-full bg-primary hover:bg-primary/90 text-white font-black rounded-xl uppercase tracking-widest h-12"
+              onClick={() => editingAddonQty && handleUpdateAddonQty(editingAddonQty.id, editingAddonQty.qty)}
+              disabled={isUpdating}
+            >
+              {isUpdating ? "Updating..." : "Apply Changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <AlertDialogContent className="bg-white rounded-2xl border-none shadow-2xl">
           <AlertDialogHeader>
@@ -3931,7 +4348,7 @@ export default function JobDetail() {
                   isAfterCutoff ? "bg-red-50 border-red-100" : "bg-green-50 border-green-100"
                 )}>
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Policy Status</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white">Policy Status</span>
                     <Badge variant="outline" className={cn(
                       "text-[10px] uppercase font-black",
                       isAfterCutoff ? "bg-red-100 text-red-700 border-red-200" : "bg-green-100 text-green-700 border-green-200"
@@ -3940,12 +4357,12 @@ export default function JobDetail() {
                     </Badge>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="font-bold text-gray-700">Cancellation Fee</span>
+                    <span className="font-bold text-white">Cancellation Fee</span>
                     <span className={cn("text-lg font-black", isAfterCutoff ? "text-red-600" : "text-green-600")}>
                       {formatCurrency(cancellationFee)}
                     </span>
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-2">
+                  <p className="text-[10px] text-white mt-2">
                     Cutoff: {job.cancellationCutoffHours} hours before scheduled time.
                   </p>
                 </div>
@@ -3972,7 +4389,7 @@ export default function JobDetail() {
           </DialogHeader>
           <div className="p-8 space-y-4">
             <div className="flex items-center justify-between">
-              <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Global Services</Label>
+              <Label className="font-black uppercase tracking-widest text-[10px] text-white">Global Services</Label>
               <Button 
                 variant="ghost" 
                 size="sm" 
@@ -3986,7 +4403,7 @@ export default function JobDetail() {
             {isAddingCustom && (
               <Card className="bg-white/5 border-white/10 p-4 space-y-4 animate-in slide-in-from-top-2 duration-300">
                 <div className="space-y-2">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-white/40">Asset Name</Label>
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-white">Asset Name</Label>
                   <Input 
                     placeholder="e.g. Excessive Clay Bar Treatment" 
                     value={customServiceName}
@@ -3995,7 +4412,7 @@ export default function JobDetail() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-white/40">Custom Price ($)</Label>
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-white">Custom Price ($)</Label>
                   <Input 
                     type="number"
                     placeholder="0.00" 
@@ -4090,8 +4507,8 @@ export default function JobDetail() {
             <div className="mt-6 pt-6 border-t border-white/10">
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0] block">Static Catalog</Label>
-                  <p className="text-[9px] text-white/40 mt-1 uppercase tracking-tight">For intelligent suggestions, use AI Revenue Optimization.</p>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white block">Static Catalog</Label>
+                  <p className="text-[9px] text-white mt-1 uppercase tracking-tight">For intelligent suggestions, use AI Revenue Optimization.</p>
                 </div>
                 <Button 
                   variant="outline" 
@@ -4121,6 +4538,8 @@ export default function JobDetail() {
                         id: a.id,
                         name: a.name,
                         price: a.price || 0,
+                        rate: a.rate || 0,
+                        pricingType: a.pricingType || "flat",
                         qty: 1
                       };
                       await updateDoc(docRef, {
@@ -4324,7 +4743,7 @@ export default function JobDetail() {
               <DollarSign className="w-6 h-6 text-green-500" />
               Accept Payment
             </DialogTitle>
-            <p className="text-[#A0A0A0] text-[10px] uppercase tracking-widest font-bold mt-1">Select payment method for {formatCurrency(currentInvoice?.total)}</p>
+            <p className="text-white text-[10px] uppercase tracking-widest font-bold mt-1">Select payment method for {formatCurrency(currentInvoice?.total)}</p>
           </DialogHeader>
           
           <div className="grid grid-cols-1 gap-3 mt-6">
@@ -4338,7 +4757,7 @@ export default function JobDetail() {
                 </div>
                 <div className="text-left">
                   <span className="block font-black uppercase tracking-tight text-sm">Credit / Debit Card</span>
-                  <span className="block text-[9px] text-black/40 font-bold uppercase tracking-widest">Process via Terminal</span>
+                  <span className="block text-[9px] text-black font-bold uppercase tracking-widest">Process via Terminal</span>
                 </div>
               </div>
               <ChevronLeft className="w-4 h-4 rotate-180" />
@@ -4361,7 +4780,7 @@ export default function JobDetail() {
                 className="h-20 flex-col gap-2 bg-[#121212] border-white/10 text-white hover:bg-white/10 rounded-2xl"
                 onClick={() => handleManualPayment(currentInvoice, "Zelle")}
               >
-                <QrCode className="w-5 h-5 text-blue-400" />
+                <QrCode className="w-5 h-5 text-[#0A4DFF]" />
                 <span className="font-black uppercase tracking-widest text-[9px]">Zelle</span>
               </Button>
 

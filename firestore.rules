@@ -106,6 +106,13 @@ service cloud.firestore {
       allow read, write: if isPublic();
     }
 
+    match /payments/{paymentId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
     match /users/{userId} {
       allow read: if isAuthenticated() || (isPublic() && resource.data.role == "admin");
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());

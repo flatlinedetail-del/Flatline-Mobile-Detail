@@ -84,6 +84,8 @@ export interface AddOn {
   name: string;
   description: string;
   price: number;
+  pricingType: "flat" | "hourly" | "block30" | "blockCustom";
+  rate: number;
   isTaxable: boolean;
   estimatedDuration: number; // in minutes
   bufferTimeMinutes: number; // cleanup/wrap-up time
@@ -148,6 +150,8 @@ export interface Client {
   billingCycle?: "weekly" | "biweekly" | "monthly";
   customRates?: Record<string, number>;
   notes?: string;
+  outstandingCancellationFee?: number;
+  hasSavedPaymentMethod?: boolean;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
   legacyId?: string;
@@ -160,6 +164,7 @@ export interface Client {
   marketingTags?: string[];
   isOneTime?: boolean;
   gallery?: string[];
+  riskLevel?: "low" | "medium" | "high";
 }
 
 export interface Vehicle {
@@ -274,6 +279,13 @@ export interface ServiceSelection {
   reason?: string;
 }
 
+export interface CustomFee {
+  id: string;
+  name: string;
+  amount: number;
+  isTaxable?: boolean;
+}
+
 export interface Appointment {
   id: string;
   customerId: string;
@@ -317,6 +329,7 @@ export interface Appointment {
   taxAmount: number;
   totalAmount: number;
   depositAmount: number;
+  customFees?: CustomFee[];
   depositType: "fixed" | "percentage"; // New
   depositPaid: boolean; 
   depositPaidAt?: Timestamp; // New
@@ -373,6 +386,7 @@ export interface Appointment {
   cancellationStatus?: "none" | "applied" | "waived"; // New
   cancellationFeeApplied?: number; // New
   cancellationTimestamp?: Timestamp; // New
+  cancellationFeeProcessed?: boolean; // New: Prevents double charging
   weatherInfo?: {
     temp?: number;
     condition?: string;
@@ -479,6 +493,7 @@ export interface Invoice {
   discountAmount?: number;
   travelFeeAmount?: number;
   unacceptedBundles?: any[];
+  customFees?: CustomFee[];
 }
 
 export interface Quote {
@@ -515,6 +530,7 @@ export interface Quote {
   subtotal?: number;
   discountAmount?: number;
   travelFeeAmount?: number;
+  customFees?: CustomFee[];
 }
 
 export interface MapZone {
@@ -536,17 +552,28 @@ export interface TravelZone {
   fee: number;
 }
 
+export interface WatermarkSettings {
+  logoUrl?: string;
+  opacity: number;
+  position: "center" | "right" | "left";
+  size?: "small" | "medium" | "large" | "full";
+}
+
 export interface BusinessSettings {
   businessName: string;
   businessPhone?: string;
   businessEmail?: string;
   logoUrl?: string;
   showLogoOnDocuments?: boolean;
+  watermarkSettings?: WatermarkSettings;
   taxRate: number;
+  serviceFeeLabel?: string; // New: Display name for the primary service/travel fee
   currency: string;
   timezone: string;
   commissionRate: number;
   commissionType: "percentage" | "flat";
+  cancellationFeeAmount?: number;
+  cancellationFeeType?: "flat" | "percentage";
   marginTargets: {
     floor: number;
     recommended: number;
@@ -556,6 +583,8 @@ export interface BusinessSettings {
     scale: number;
     x: number;
     y: number;
+    rotation?: number;
+    fit?: 'contain' | 'cover';
   };
   // Internal address for distance calculations
   baseAddress: string;
@@ -644,15 +673,24 @@ export interface BusinessSettings {
       clientId: string;
       clientSecret: string;
     };
-    clover?: {
-      enabled: boolean;
-      merchantId: string;
-      accessToken: string;
-    };
   };
+  activePaymentProvider?: "stripe" | "square" | "paypal" | "manual";
   smsTemplates?: Record<string, string>;
   calendarColors?: Record<string, string>;
   serviceColors?: Record<string, string>;
+}
+
+export interface Payment {
+  id: string;
+  clientId: string;
+  appointmentId?: string;
+  amount: number;
+  provider: string;
+  transactionId?: string;
+  paymentType: "service" | "cancellation_fee" | "deposit";
+  status: "paid" | "failed" | "waived" | "pending";
+  failureReason?: string;
+  timestamp: Timestamp | FieldValue;
 }
 
 export interface Expense {

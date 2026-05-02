@@ -385,8 +385,8 @@ export default function Invoices() {
               <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">System Offline</DialogTitle>
             </DialogHeader>
             <div className="py-6">
-              <p className="text-white/60 font-medium italic">"Invoice system is being rebuilt"</p>
-              <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.2em] mt-4">Legacy Address Mapping Offline</p>
+              <p className="text-white font-medium italic">"Invoice system is being rebuilt"</p>
+              <p className="text-[10px] text-white font-black uppercase tracking-[0.2em] mt-4">Legacy Address Mapping Offline</p>
             </div>
             <DialogFooter className="w-full">
               <Button onClick={() => setIsAddDialogOpen(false)} className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl">Acknowledged</Button>
@@ -429,12 +429,12 @@ export default function Invoices() {
           <Table>
             <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow className="hover:bg-transparent border-none">
-                <TableHead className="px-8 py-5 text-[11px] font-black text-white/30 uppercase tracking-[0.25em] h-16">Record ID</TableHead>
-                <TableHead className="px-8 py-5 text-[11px] font-black text-white/30 uppercase tracking-[0.25em] h-16">Client Entity</TableHead>
-                <TableHead className="px-8 py-5 text-[11px] font-black text-white/30 uppercase tracking-[0.25em] h-16">Timestamp</TableHead>
-                <TableHead className="px-8 py-5 text-[11px] font-black text-white/30 uppercase tracking-[0.25em] h-16">Total Value</TableHead>
-                <TableHead className="px-8 py-5 text-[11px] font-black text-white/30 uppercase tracking-[0.25em] h-16">Status</TableHead>
-                <TableHead className="px-8 py-5 text-[11px] font-black text-white/30 uppercase tracking-[0.25em] h-16">Actions</TableHead>
+                <TableHead className="px-8 py-5 text-[11px] font-black text-white uppercase tracking-[0.25em] h-16">Record ID</TableHead>
+                <TableHead className="px-8 py-5 text-[11px] font-black text-white uppercase tracking-[0.25em] h-16">Client Entity</TableHead>
+                <TableHead className="px-8 py-5 text-[11px] font-black text-white uppercase tracking-[0.25em] h-16">Timestamp</TableHead>
+                <TableHead className="px-8 py-5 text-[11px] font-black text-white uppercase tracking-[0.25em] h-16">Total Value</TableHead>
+                <TableHead className="px-8 py-5 text-[11px] font-black text-white uppercase tracking-[0.25em] h-16">Status</TableHead>
+                <TableHead className="px-8 py-5 text-[11px] font-black text-white uppercase tracking-[0.25em] h-16">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -478,8 +478,8 @@ export default function Invoices() {
                         "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border-none whitespace-nowrap",
                         inv.status === "voided" ? "bg-red-500/10 text-red-500" :
                         inv.status === "paid" ? "bg-green-500/10 text-green-400 group-hover:text-green-600" :
-                        inv.status === "sent" ? "bg-blue-500/10 text-blue-400 group-hover:text-blue-600" :
-                        "bg-gray-500/10 text-gray-400 group-hover:text-black"
+                        inv.status === "sent" ? "bg-[#0A4DFF]/10 text-[#0A4DFF] group-hover:text-[#0A4DFF]" :
+                        "bg-gray-500/10 text-white group-hover:text-black"
                       )}>
                         {inv.status?.toUpperCase() || 'DRAFT'}
                       </Badge>

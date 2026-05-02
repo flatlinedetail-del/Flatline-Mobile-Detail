@@ -66,10 +66,10 @@ export default function GlobalSearch() {
   return (
     <div className="relative w-full max-w-md" ref={containerRef}>
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
         <Input
           placeholder="Search VIN, RO, Name, Phone..."
-          className="pl-10 bg-gray-100 border-none focus-visible:ring-blue-500 rounded-full h-10"
+          className="pl-10 bg-gray-100 border-none focus-visible:ring-blue-500 rounded-full h-10 text-gray-900 placeholder:text-gray-500"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -84,7 +84,7 @@ export default function GlobalSearch() {
             className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 hover:bg-transparent"
             onClick={() => setQuery("")}
           >
-            <X className="w-4 h-4 text-gray-400" />
+            <X className="w-4 h-4 text-gray-500" />
           </Button>
         )}
       </div>
@@ -93,12 +93,12 @@ export default function GlobalSearch() {
         <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="max-h-[400px] overflow-y-auto p-2">
             {loading ? (
-              <div className="p-8 flex flex-col items-center justify-center text-gray-400 gap-2">
+              <div className="p-8 flex flex-col items-center justify-center text-gray-500 gap-2">
                 <Loader2 className="w-6 h-6 animate-spin" />
                 <p className="text-xs font-medium">Searching database...</p>
               </div>
             ) : results.length === 0 ? (
-              <div className="p-8 text-center text-gray-400">
+              <div className="p-8 text-center text-gray-500">
                 <p className="text-sm font-medium">No results found for "{query}"</p>
               </div>
             ) : (
@@ -106,12 +106,12 @@ export default function GlobalSearch() {
                 {results.map((result) => (
                   <button
                     key={`${result.type}-${result.id}`}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition-colors text-left group"
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#0A4DFF]/5 transition-colors text-left group"
                     onClick={() => handleSelect(result)}
                   >
                     <div className={cn(
                       "w-10 h-10 rounded-full flex items-center justify-center",
-                      result.type === "appointment" ? "bg-blue-100 text-blue-600" :
+                      result.type === "appointment" ? "bg-[#0A4DFF]/10 text-[#0A4DFF]" :
                       result.type === "customer" ? "bg-green-100 text-green-600" :
                       result.type === "vendor" ? "bg-purple-100 text-purple-600" :
                       "bg-orange-100 text-orange-600"
@@ -125,12 +125,12 @@ export default function GlobalSearch() {
                       <div className="flex items-center justify-between">
                         <p className="font-bold text-gray-900 truncate">{result.title}</p>
                         {result.status && (
-                          <span className="text-[10px] font-black uppercase text-gray-400 group-hover:text-blue-600">
+                          <span className="text-[10px] font-black uppercase text-gray-500 group-hover:text-[#0A4DFF]">
                             {result.status.replace("_", " ")}
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-500 truncate">{result.subtitle}</p>
+                      <p className="text-xs text-gray-600 truncate">{result.subtitle}</p>
                     </div>
                   </button>
                 ))}

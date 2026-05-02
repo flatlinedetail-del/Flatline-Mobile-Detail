@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, RefreshCcw, AlertTriangle, ShieldAlert, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe, Navigation2, Play, Check, X, Map } from "lucide-react";
+import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, RefreshCcw, AlertTriangle, AlertOctagon, ShieldAlert, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe, Navigation2, Play, Check, X, Map } from "lucide-react";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { format, startOfDay, endOfDay, isSameDay, isSameMonth, addDays, subDays, addHours, addWeeks, addMonths, subMonths, startOfMonth, endOfMonth, isBefore, parseISO, parse, startOfWeek, getDay, addMinutes } from "date-fns";
@@ -81,6 +81,7 @@ export default function Calendar() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [optimizedStops, setOptimizedStops] = useState<RouteStop[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [calendarView, setCalendarView] = useState<string>("month");
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [recurringAction, setRecurringAction] = useState<{ type: "edit" | "delete", appointment: any } | null>(null);
@@ -345,33 +346,67 @@ export default function Calendar() {
 
     if (showToast) toast.loading("Syncing Ops...", { id: "sync-cal" });
     setLoading(true);
+    setFetchError(null);
     try {
       const startOfRange = startOfMonth(subMonths(new Date(), 1));
       const endOfRange = endOfMonth(addMonths(new Date(), 2));
 
+      // Fetch each piece individually with its own error handling to be resilient
+      const fetchAppointments = getDocs(query(
+        collection(db, "appointments"), 
+        where("scheduledAt", ">=", Timestamp.fromDate(startOfRange)),
+        where("scheduledAt", "<=", Timestamp.fromDate(endOfRange)),
+        orderBy("scheduledAt", "asc"),
+        limit(500)
+      )).catch(e => {
+        console.error("Failed to fetch appointments:", e);
+        return null;
+      });
+
+      const fetchTimeBlocks = getDocs(query(collection(db, "blocked_dates"), limit(100))).catch(e => {
+        console.error("Failed to fetch time blocks:", e);
+        return null;
+      });
+
+      const fetchClients = getDocs(query(collection(db, "clients"), limit(200))).catch(e => {
+        console.error("Failed to fetch clients:", e);
+        return null;
+      });
+
+      const fetchServices = getDocs(collection(db, "services")).catch(e => {
+        console.error("Failed to fetch services:", e);
+        return null;
+      });
+
+      const fetchAddons = getDocs(collection(db, "addons")).catch(e => {
+        console.error("Failed to fetch addons:", e);
+        return null;
+      });
+
+      const fetchSettings = getDoc(doc(db, "settings", "business")).catch(e => {
+        console.error("Failed to fetch settings:", e);
+        return null;
+      });
+
       const [apptsSnap, tbSnap, clientsSnap, servicesSnap, addonsSnap, settingsSnap] = await Promise.all([
-        getDocs(query(
-          collection(db, "appointments"), 
-          where("scheduledAt", ">=", Timestamp.fromDate(startOfRange)),
-          where("scheduledAt", "<=", Timestamp.fromDate(endOfRange)),
-          orderBy("scheduledAt", "asc"),
-          limit(500)
-        )).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments")),
-        getDocs(query(collection(db, "blocked_dates"), limit(100))).catch(e => handleFirestoreError(e, OperationType.LIST, "blocked_dates")),
-        getDocs(query(collection(db, "clients"), limit(200))).catch(e => handleFirestoreError(e, OperationType.LIST, "clients")),
-        getDocs(collection(db, "services")).catch(e => handleFirestoreError(e, OperationType.LIST, "services")),
-        getDocs(collection(db, "addons")).catch(e => handleFirestoreError(e, OperationType.LIST, "addons")),
-        getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"))
+        fetchAppointments,
+        fetchTimeBlocks,
+        fetchClients,
+        fetchServices,
+        fetchAddons,
+        fetchSettings
       ]);
 
-      if (!apptsSnap || !tbSnap || !clientsSnap || !servicesSnap || !addonsSnap || !settingsSnap) return;
+      const appointmentsData = apptsSnap ? apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
+      const timeBlocksData = tbSnap ? tbSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
+      const clientsData = clientsSnap ? clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
+      const servicesData = servicesSnap ? servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => s.isActive) : [];
+      const addonsData = addonsSnap ? addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((a: any) => a.isActive) : [];
+      const businessSettings = settingsSnap?.exists() ? (settingsSnap.data() as BusinessSettings) : null;
 
-      const appointmentsData = apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const timeBlocksData = tbSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const clientsData = clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const servicesData = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => s.isActive);
-      const addonsData = addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((a: any) => a.isActive);
-      const businessSettings = settingsSnap.exists() ? (settingsSnap.data() as BusinessSettings) : null;
+      if (apptsSnap === null) {
+        setFetchError("Calendar could not load appointments. Showing local schedule view.");
+      }
 
       setAppointments(appointmentsData);
       setTimeBlocks(timeBlocksData);
@@ -392,16 +427,17 @@ export default function Calendar() {
       }));
       sessionStorage.setItem(`${CACHE_KEY}_time`, Date.now().toString());
 
-      setLoading(false);
       if (showToast) toast.success("Ops Synchronized", { id: "sync-cal" });
     } catch (error: any) {
       console.error("Error fetching calendar data:", error);
-      setLoading(false);
       if (error?.message?.includes("Quota limit exceeded")) {
         toast.error("Calendar Sync Failed: Quota exceeded");
+        setFetchError("Firebase quota failure. Showing cached or empty schedule.");
       } else if (showToast) {
         toast.error("Sync Failed", { id: "sync-cal" });
       }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -876,8 +912,8 @@ export default function Calendar() {
     if (isConflict && profile?.id) {
        createNotification({
         userId: profile.id,
-        title: "Tactical Conflict Warning",
-        message: `Deployment for ${client?.firstName || "Customer"} overlaps with an existing mission.`,
+        title: "Booking Conflict Warning",
+        message: `Booking for ${client?.firstName || "Customer"} overlaps with an existing job.`,
         type: "system",
         relatedId: clientId,
         relatedType: "client"
@@ -968,7 +1004,7 @@ export default function Calendar() {
     // Conflict detection logic
     const appointmentStart = new Date(formData.get("scheduledAt") as string);
     if (!isValidDate(appointmentStart)) {
-      toast.error("Please select a valid mission start time.");
+      toast.error("Please select a valid job start time.");
       setIsCreating(false);
       return;
     }
@@ -1021,7 +1057,7 @@ export default function Calendar() {
       toast.error(
         hasTimeBlockConflict ? "Temporal conflict detected with a blocked time." :
         hasGoogleConflict ? "Temporal conflict detected with a Google Calendar event." :
-        "Temporal conflict detected with an existing deployment."
+        "Temporal conflict detected with an existing booking."
       );
       setIsCreating(false);
       return;
@@ -1266,7 +1302,7 @@ export default function Calendar() {
           await createNotification({
             userId: profile!.id,
             title: "Recurring Series Initialized",
-            message: `Created ${occurrences.length} tactical deployments for ${appointmentData.customerName}`,
+            message: `Created ${occurrences.length} bookings for ${appointmentData.customerName}`,
             type: "booking",
             relatedId: appointmentData.clientId || appointmentData.customerId,
             relatedType: "appointment"
@@ -1329,7 +1365,7 @@ export default function Calendar() {
           // Trigger Notification
           await createNotification({
             userId: profile!.id,
-            title: "New Tactical Deployment",
+            title: "New Booking",
             message: `New booking for ${appointmentData.customerName} scheduled for ${safeFormat(startAt, "MMM d, h:mm a")}`,
             type: "booking",
             relatedId: appointmentData.clientId || appointmentData.customerId,
@@ -1383,20 +1419,6 @@ export default function Calendar() {
     const timeB = b.scheduledAt?.toMillis ? b.scheduledAt.toMillis() : (b.scheduledAt as unknown as number) || 0;
     return timeA - timeB;
   });
-
-  useEffect(() => {
-    if (date) {
-      optimizeRoute(date)
-        .then(({ stops, error }) => {
-          setOptimizedStops(stops);
-          if (error) toast.error(error);
-        })
-        .catch(error => {
-          console.error("Error optimizing route in Calendar:", error);
-          toast.error("An unexpected error occurred while optimizing the route.");
-        });
-    }
-  }, [date, appointments]);
 
   const validateCoupon = async (code: string, amount: number) => {
     if (!code) return null;
@@ -1518,13 +1540,13 @@ export default function Calendar() {
   };
 
   const defaultStatusColors: Record<string, string> = {
-    scheduled: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+    scheduled: "bg-[#0A4DFF]/20 text-[#0A4DFF] border border-[#0A4DFF]/30",
     confirmed: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
     en_route: "bg-primary/20 text-primary border border-primary/30",
     in_progress: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
     arrived: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
-    completed: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30",
-    paid: "bg-zinc-400/20 text-zinc-300 border border-zinc-400/30",
+    completed: "bg-zinc-500/20 text-white border border-zinc-500/30",
+    paid: "bg-zinc-400/20 text-white border border-zinc-400/30",
     canceled: "bg-red-500/20 text-red-400 border border-red-500/30",
     no_show: "bg-rose-500/20 text-rose-400 border border-rose-500/30",
     waitlisted: "bg-purple-500/20 text-purple-400 border border-purple-500/30",
@@ -1597,7 +1619,7 @@ export default function Calendar() {
 
     if (event.type === 'block') {
       return (
-        <div className="text-[10px] font-black uppercase tracking-widest p-2 overflow-hidden h-full flex items-center bg-[#121212]/80 text-[#A0A0A0] rounded-xl border border-white/5 backdrop-blur-sm shadow-xl">
+        <div className="text-[10px] font-black uppercase tracking-widest p-2 overflow-hidden h-full flex items-center bg-[#121212]/80 text-white rounded-xl border border-white/5 backdrop-blur-sm shadow-xl">
           <Lock className="w-3 h-3 inline mr-2 shrink-0 text-zinc-500" />
           <span className="truncate">{event.title}</span>
         </div>
@@ -1606,7 +1628,7 @@ export default function Calendar() {
     
     if (event.type === 'google') {
       return (
-        <div className="text-[10px] font-black uppercase tracking-widest p-2 overflow-hidden text-blue-400 bg-blue-500/10 rounded-xl h-full flex items-center border border-blue-500/20 backdrop-blur-sm shadow-xl">
+        <div className="text-[10px] font-black uppercase tracking-widest p-2 overflow-hidden text-[#0A4DFF] bg-[#0A4DFF]/10 rounded-xl h-full flex items-center border border-[#0A4DFF]/20 backdrop-blur-sm shadow-xl">
           <CalendarIcon className="w-3 h-3 inline mr-2 shrink-0" />
           <span className="truncate">{event.title}</span>
         </div>
@@ -1645,7 +1667,7 @@ export default function Calendar() {
               !isDayView && "truncate"
             )}>
               {travelWarning && <AlertTriangle className="w-3.5 h-3.5 text-primary shrink-0" />}
-              {isRecurring && <Repeat className="w-3 h-3 text-blue-400 shrink-0" />}
+              {isRecurring && <Repeat className="w-3 h-3 text-[#0A4DFF] shrink-0" />}
               {riskLevel && <ShieldAlert className="w-3 h-3 text-red-500 shrink-0" />}
               <span className="truncate">{event.title}</span>
             </span>
@@ -1813,7 +1835,7 @@ export default function Calendar() {
       if (profile?.id) {
         await createNotification({
           userId: profile.id,
-          title: "Status Deployment Update",
+          title: "Status Booking Update",
           message: `${selectedDetailedApp.customerName} marked as ${newStatus.toUpperCase()}`,
           type: "booking",
           relatedId: selectedDetailedApp.id,
@@ -1846,7 +1868,7 @@ export default function Calendar() {
 
       if (newStatus === 'arrived') {
         const appId = selectedDetailedApp.id;
-        console.log(`Opening Deployment Intelligence for appointmentId: ${appId}`);
+        console.log(`Opening Booking Intelligence for appointmentId: ${appId}`);
         setSelectedDetailedApp(null);
         navigate(`/calendar/${appId}`);
       }
@@ -1905,7 +1927,8 @@ export default function Calendar() {
   };
 
   const MonthDateHeader = ({ label, date: dayDate }: any) => {
-    if (!isSameMonth(dayDate, date || new Date())) return null;
+    const isToday = isSameDay(dayDate, new Date());
+    if (!isSameMonth(dayDate, date || new Date()) && !isToday) return null;
     
     const dayKey = safeFormat(dayDate, "yyyy-MM-dd");
     const dayEvts = groupedEventsByDay[dayKey] || [];
@@ -1913,7 +1936,7 @@ export default function Calendar() {
 
     return (
       <div className="flex items-center justify-between w-full px-3 py-2">
-        <span className="rbc-button-link text-[11px] font-black text-white/40">{label}</span>
+        <span className={cn("rbc-button-link text-[11px] font-black", isToday ? "text-white text-sm" : "text-white/40")}>{label}</span>
         {moreCount > 0 && (
           <div 
             className="text-[9px] font-black uppercase text-primary bg-primary/10 rounded-md px-2 py-1 cursor-pointer hover:bg-primary/20 transition-all border border-primary/20 flex items-center gap-1.5 leading-none shadow-sm z-50 whitespace-nowrap"
@@ -1933,12 +1956,24 @@ export default function Calendar() {
   return (
     <div className="w-full space-y-10 pb-24">
       <PageHeader 
-        title="Mission SCHEDULE" 
+        title="Job SCHEDULE" 
         accentWord="SCHEDULE" 
-        subtitle="Tactical Route & Deployment Management"
+        subtitle="Route & Booking Management"
         actions={
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 bg-card p-1.5 rounded-2xl border border-white/5 shadow-xl overflow-x-auto no-scrollbar max-w-full">
+              <Button 
+                variant={calendarView === "month" || calendarView === "week" || calendarView === "day" || calendarView === "agenda" ? "secondary" : "ghost"} 
+                size="sm" 
+                onClick={() => setCalendarView("month")}
+                className={cn(
+                  "h-10 px-4 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all shrink-0", 
+                  (calendarView === "month" || calendarView === "week" || calendarView === "day" || calendarView === "agenda") ? "bg-primary text-white shadow-glow-blue" : "text-white/40 hover:text-white"
+                )}
+              >
+                <CalendarIcon className="w-4 h-4 mr-2" />
+                Calendar
+              </Button>
               <Button 
                 variant={calendarView === "tactical" ? "secondary" : "ghost"} 
                 size="sm" 
@@ -1949,7 +1984,7 @@ export default function Calendar() {
                 )}
               >
                 <MapPin className="w-4 h-4 mr-2" />
-                Tactical Route
+                Route View
               </Button>
               <Button 
                 variant={calendarView === "list" ? "secondary" : "ghost"} 
@@ -1964,18 +1999,31 @@ export default function Calendar() {
                 List
               </Button>
             </div>
-            <Button 
-              variant="outline" 
-              className={cn("border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[11px]", loading && "animate-spin")}
-              onClick={() => fetchCalendarData(true)}
-              disabled={loading}
-            >
-              <RefreshCcw className="w-4 h-4 mr-2 text-primary" />
-              Sync Ops
-            </Button>
           </div>
         }
       />
+
+      {loading && appointments.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 animate-pulse">
+          <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
+          <p className="text-xs font-black uppercase tracking-widest text-white/60">Loading calendar…</p>
+        </div>
+      )}
+
+      {fetchError && (
+        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+          <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+          <p className="text-xs font-bold text-red-500 uppercase tracking-widest">{fetchError}</p>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => fetchCalendarData(true)}
+            className="ml-auto h-8 text-[9px] font-black uppercase tracking-widest bg-red-500/20 text-red-500 hover:bg-red-500/30"
+          >
+            Retry Sync
+          </Button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Recurring Action Dialog */}
@@ -1988,20 +2036,20 @@ export default function Calendar() {
                 </div>
                 <div>
                   <AlertDialogTitle className="font-black text-2xl tracking-tighter text-white uppercase">
-                    {recurringAction?.type === "edit" ? "Modify Recurring Sequence" : "Terminate Recurring Protocol"}
+                    {recurringAction?.type === "edit" ? "Modify Recurring Sequence" : "Cancel Recurring Series"}
                   </AlertDialogTitle>
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-1">Temporal Series Management</p>
+                  <p className="text-[10px] text-white font-black uppercase tracking-[0.2em] mt-1">Temporal Series Management</p>
                 </div>
               </div>
             </AlertDialogHeader>
             <div className="p-8 space-y-6">
               <AlertDialogDescription className="text-gray-400 font-bold text-sm leading-relaxed">
-                This deployment is part of a synchronized recurring series. Select the scope of the {recurringAction?.type === "edit" ? "modification" : "termination"} protocol.
+                This booking is part of a synchronized recurring series. Select the scope of the {recurringAction?.type === "edit" ? "modification" : "cancellation"}.
               </AlertDialogDescription>
               
               <div className="grid grid-cols-1 gap-4">
                 <Button 
-                  className="h-16 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-white border border-gray-200 text-gray-900 hover:bg-gray-50 shadow-sm transition-all hover:scale-[1.02]"
+                  className="h-16 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-white text-gray-900 hover:bg-gray-50 shadow-sm transition-all hover:scale-[1.02]"
                   onClick={() => {
                     const app = recurringAction?.appointment;
                     if (recurringAction?.type === "edit") {
@@ -2013,7 +2061,7 @@ export default function Calendar() {
                     setRecurringAction(null);
                   }}
                 >
-                  {recurringAction?.type === "edit" ? "Target This Deployment Only" : "Terminate This Deployment Only"}
+                  {recurringAction?.type === "edit" ? "This Booking Only" : "Cancel This Booking Only"}
                 </Button>
                 <Button 
                   className="h-16 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-primary text-white hover:bg-[#2A6CFF] shadow-glow-blue transition-all hover:scale-[1.02]"
@@ -2028,14 +2076,14 @@ export default function Calendar() {
                     setRecurringAction(null);
                   }}
                 >
-                  {recurringAction?.type === "edit" ? "Target Entire Temporal Series" : "Terminate Entire Temporal Series"}
+                  {recurringAction?.type === "edit" ? "Entire Series" : "Cancel Entire Series"}
                 </Button>
               </div>
 
               <div className="flex justify-center pt-2">
                 <Button 
                   variant="ghost"
-                  className="text-gray-500 hover:text-white font-black uppercase tracking-widest text-[10px] h-10 px-8"
+                  className="text-white hover:text-white font-black uppercase tracking-widest text-[10px] h-10 px-8"
                   onClick={() => setRecurringAction(null)}
                 >
                   Abort Action
@@ -2098,7 +2146,23 @@ export default function Calendar() {
                     color: rgba(255,255,255,0.4) !important;
                   }
                   .rbc-today {
-                    background: rgba(255,255,255,0.02) !important;
+                    background: rgba(42, 108, 255, 0.05) !important;
+                  }
+                  .rbc-month-view .rbc-today {
+                    position: relative;
+                  }
+                  .rbc-month-view .rbc-today::after {
+                    content: '';
+                    position: absolute;
+                    top: 8px;
+                    left: 8px;
+                    right: 8px;
+                    bottom: 8px;
+                    border: 4px solid #2A6CFF;
+                    border-radius: 24px;
+                    box-shadow: 0 0 25px rgba(42, 108, 255, 0.6), inset 0 0 20px rgba(42, 108, 255, 0.4);
+                    pointer-events: none;
+                    z-index: 10;
                   }
                   .rbc-date-cell {
                     padding: 0 !important;
@@ -2154,14 +2218,14 @@ export default function Calendar() {
           </Card>
         ) : calendarView === "tactical" ? (
           <>
-            {/* Tactical Route Column */}
+            {/* Route View Column */}
             <div className="lg:col-span-4 space-y-6 flex flex-col h-[850px]">
               <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden flex-1 flex flex-col">
                 <CardHeader className="bg-black/40 border-b border-white/5 p-6 flex flex-row items-center justify-between shrink-0">
                   <div className="flex items-center gap-4">
                     <div>
-                      <CardTitle className="text-lg font-black text-white tracking-tighter uppercase">Tactical Queue</CardTitle>
-                      <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-0.5">{optimizedStops.length} Deployment Targets</p>
+                      <CardTitle className="text-lg font-black text-white tracking-tighter uppercase">Job Queue</CardTitle>
+                      <p className="text-[10px] text-white font-black uppercase tracking-widest mt-0.5">{optimizedStops.length} Booking Locations</p>
                     </div>
                     <div className="flex items-center bg-black/40 rounded-xl border border-white/5 p-1 ml-4">
                       <Button 
@@ -2199,7 +2263,7 @@ export default function Calendar() {
                       if (date) {
                         const { stops, error } = await optimizeRoute(date);
                         setOptimizedStops(stops);
-                        if (error) toast.error(error); else toast.success("Tactical sync complete");
+                        if (error) toast.error(error); else toast.success("Sync complete");
                       }
                     }}
                   >
@@ -2210,15 +2274,15 @@ export default function Calendar() {
                    {optimizedStops.length === 0 ? (
                      <div className="flex flex-col items-center justify-center h-full text-center p-8 opacity-20">
                        <MapPin className="w-12 h-12 mb-4" />
-                       <p className="text-xs font-black uppercase tracking-widest">No Active Deployments</p>
+                       <p className="text-xs font-black uppercase tracking-widest">No Active Bookings</p>
                      </div>
                    ) : (
                      optimizedStops.map((stop, index) => (
                        <div 
                         key={stop.id} 
                         className={cn(
-                          "p-4 rounded-2xl bg-white border border-border group cursor-pointer transition-all hover:border-primary/50",
-                          selectedStop?.id === stop.id && "border-primary bg-primary/5 shadow-lg"
+                          "p-4 rounded-2xl bg-white/5 border border-white/5 group cursor-pointer transition-all hover:border-primary/50",
+                          selectedStop?.id === stop.id && "border-primary bg-primary/20 shadow-lg"
                         )}
                         onClick={() => setSelectedStop(stop)}
                        >
@@ -2228,10 +2292,10 @@ export default function Calendar() {
                            </div>
                            <div className="min-w-0 flex-1">
                              <div className="flex items-center justify-between gap-2">
-                               <p className="text-xs font-black text-gray-900 uppercase truncate">{stop.customerName}</p>
+                               <p className="text-xs font-black text-white uppercase truncate">{stop.customerName}</p>
                                <span className="text-[9px] font-black text-primary uppercase">{stop.scheduledAt?.toDate ? safeFormat(stop.scheduledAt.toDate(), "h:mm a") : "TBD"}</span>
                              </div>
-                             <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest truncate mt-0.5">{stop.address}</p>
+                             <p className="text-[9px] text-white font-bold uppercase tracking-widest truncate mt-0.5">{stop.address}</p>
                            </div>
                          </div>
                        </div>
@@ -2243,12 +2307,12 @@ export default function Calendar() {
 
             {/* Tactical Map Column */}
             <div className="lg:col-span-8 h-[850px]">
-              <Card className="border-none shadow-xl bg-white rounded-[2.5rem] overflow-hidden h-full relative">
+              <Card className="border-none shadow-xl bg-zinc-950 rounded-[2.5rem] overflow-hidden h-full relative">
                  <div className="absolute inset-0">
                     {!isLoaded ? (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50">
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20">
                         <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
-                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em]">Synchronizing Orbital Assets...</p>
+                        <p className="text-[10px] text-white/60 font-black uppercase tracking-[0.2em]">Synchronizing Orbital Assets...</p>
                       </div>
                     ) : (
                       <GoogleMap
@@ -2337,7 +2401,7 @@ export default function Calendar() {
                         >
                           <div className="p-2 text-black min-w-[150px]">
                             <p className="font-black text-xs uppercase tracking-tight">{selectedStop.customerName}</p>
-                            <p className="text-[10px] text-gray-500 mt-1">{selectedStop.address}</p>
+                            <p className="text-[10px] text-white mt-1">{selectedStop.address}</p>
                             {selectedStop.travelTimeFromPrevious && (
                               <p className="text-[10px] font-bold text-primary mt-1">
                                 Travel: {formatDuration(selectedStop.travelTimeFromPrevious)}
@@ -2367,14 +2431,21 @@ export default function Calendar() {
             {/* Calendar Sidebar */}
             <Card className="lg:col-span-4 border-none shadow-xl bg-card rounded-3xl overflow-hidden h-fit">
           <CardHeader className="bg-black/40 border-b border-white/5 p-6">
-            <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Temporal Selection</CardTitle>
+            <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Temporal Selection</CardTitle>
           </CardHeader>
           <CardContent className="p-6">
             <CalendarUI
               mode="single"
               selected={date}
               onSelect={setDate}
-              className="rounded-2xl border-none w-full bg-white p-4 shadow-inner"
+              className="rounded-2xl border-none w-full bg-black/40 p-4"
+              classNames={{
+                today: "ring-2 ring-primary ring-offset-2 ring-offset-[#0a0a0a] shadow-[0_0_15px_rgba(42,108,255,0.6)] rounded-lg font-black text-white bg-primary/20",
+                day: cn(
+                  "group/day relative aspect-square h-full w-full rounded-lg p-0 text-center select-none text-white/60 hover:text-white"
+                ),
+                selected: "bg-primary text-white font-black rounded-lg"
+              }}
               modifiers={{
                 hasAppointment: (day) => appointments.some(app => {
                   const appDate = app.scheduledAt?.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
@@ -2413,8 +2484,8 @@ export default function Calendar() {
                   {date ? safeFormat(date, "EEEE, MMMM d") : "Select a date"}
                 </CardTitle>
                 <div className="flex items-center gap-2 mt-1">
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">
-                    {dayAppointments.length} Active Deployments
+                  <p className="text-[10px] text-white font-black uppercase tracking-widest">
+                    {dayAppointments.length} Active Bookings
                   </p>
                   {selectedIds.length > 0 && (
                     <Badge className="bg-primary text-white text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md">
@@ -2458,20 +2529,20 @@ export default function Calendar() {
                         }}
                       >
                         <Plus className="w-4 h-4 mr-2" />
-                        New Deployment
+                        New Booking
                       </Button>
                     } />
                     <DialogContent className="max-w-xl bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black flex flex-col max-h-[90vh]">
                       <DialogHeader className="p-8 border-b border-white/5 bg-black/40 shrink-0">
                         <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase">
-                          {editingAppointment ? "Modify Deployment" : "New Tactical Deployment"}
+                          {editingAppointment ? "Modify Booking" : "New Booking"}
                         </DialogTitle>
                       </DialogHeader>
                       <form key={editingAppointment?.id || "new"} onSubmit={handleCreateAppointment} className="flex-1 flex flex-col overflow-hidden">
                         <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
                           <div className="grid grid-cols-2 gap-6">
                             <div className="space-y-2 col-span-2">
-                              <Label htmlFor="customerId" className="font-black uppercase tracking-widest text-[10px] text-white/60">Target Client</Label>
+                              <Label htmlFor="customerId" className="font-black uppercase tracking-widest text-[10px] text-white">Target Client</Label>
                               <SearchableSelector
                                 options={clients.map(c => ({
                                   value: c.id,
@@ -2484,6 +2555,17 @@ export default function Calendar() {
                                 className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
                               />
                             </div>
+                            {clients.find(c => c.id === selectedCustomerId)?.riskLevel === 'high' && (
+                              <div className="col-span-2 p-4 bg-red-500/20 border border-red-500/30 rounded-2xl animate-pulse flex items-center gap-3">
+                                <AlertOctagon className="w-6 h-6 text-red-500 shrink-0" />
+                                <div>
+                                  <p className="text-xs font-black text-red-500 uppercase tracking-widest">CRITICAL RISK ALERT</p>
+                                  <p className="text-[10px] text-white font-bold mt-1 uppercase tracking-tight">
+                                    THIS CLIENT HAS A HISTORY OF NO-SHOWS, CANCELLATIONS, OR PAYMENT ISSUES. PROCEED WITH CAUTION. CONSIDER DEPOSIT REQUIREMENT.
+                                  </p>
+                                </div>
+                              </div>
+                            )}
                             {availableVehicles.length > 0 && (
                               <div className="space-y-2 col-span-2 border p-4 rounded-lg">
                                 <Label>Select Vehicles</Label>
@@ -2926,7 +3008,7 @@ export default function Calendar() {
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <Sparkles className="w-4 h-4 text-primary animate-pulse" />
-                                      <h5 className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Deployment Enhancements</h5>
+                                      <h5 className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Booking Enhancements</h5>
                                     </div>
                                     <div className="space-y-3">
                                       {addons
@@ -2943,7 +3025,7 @@ export default function Calendar() {
                                               onClick={() => setSelectedAddons(prev => [...prev, { id: addon.id, qty: 1 }])}
                                               className="bg-primary hover:bg-[#2A6CFF] text-white font-black text-[9px] h-7 px-3 rounded-lg uppercase tracking-widest shadow-glow-blue"
                                             >
-                                              Add to Mission
+                                              Add to Job
                                             </Button>
                                           </div>
                                         ))}
@@ -3092,7 +3174,7 @@ export default function Calendar() {
                                         <Label className="uppercase tracking-widest text-[10px] text-white/60">Collect Deposit</Label>
                                         <Button
                                           type="button"
-                                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold h-10"
+                                          className="w-full bg-[#0A4DFF] hover:opacity-90 text-white font-bold h-10"
                                           onClick={() => {
                                             // TODO: Implement Stripe/Square logic
                                             toast.info("Card processing integration pending.");
@@ -3193,7 +3275,7 @@ export default function Calendar() {
                                   <Trash2 className="w-5 h-5" />
                                 </Button>
                               }
-                              title="Terminate Deployment?"
+                              title="Cancel Booking?"
                               itemName={editingAppointment.customerName}
                               onConfirm={() => {
                                 handleDeleteAppointment(editingAppointment.id);
@@ -3204,10 +3286,10 @@ export default function Calendar() {
                           <Button 
                             type="button" 
                             variant="outline" 
-                            className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-white/10 hover:bg-white/5 text-gray-400 hover:text-white transition-all"
+                            className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-white/10 hover:bg-white/5 text-white hover:text-white transition-all"
                             onClick={() => setShowAddDialog(false)}
                           >
-                            Abort Mission
+                            Cancel Job
                           </Button>
                           <Button 
                             type="submit" 
@@ -3215,7 +3297,7 @@ export default function Calendar() {
                             disabled={isCreating}
                           >
                             {isCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-                            {editingAppointment ? "Confirm Modification" : "Initiate Deployment"}
+                            {editingAppointment ? "Confirm Modification" : "Start Booking"}
                           </Button>
                         </div>
                       </form>
@@ -3227,14 +3309,14 @@ export default function Calendar() {
           </CardHeader>
             <CardContent className="p-8">
               {loading ? (
-                <div className="text-center py-20 text-gray-400 font-black uppercase tracking-widest text-xs animate-pulse">Synchronizing Schedule...</div>
+                <div className="text-center py-20 text-white font-black uppercase tracking-widest text-xs animate-pulse">Synchronizing Schedule...</div>
               ) : calendarView === "list" ? (
                 <div className="space-y-6">
                   <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
                     <div className="relative flex-1 w-full">
-                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white" />
                       <Input 
-                        placeholder="Search deployments by client, vehicle, VIN, or job #..." 
+                        placeholder="Search bookings by client, vehicle, VIN, or job #..." 
                         className="pl-12 h-14 bg-[#121212] border-white/10 text-white font-bold rounded-2xl shadow-xl focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-white/20"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
@@ -3263,7 +3345,7 @@ export default function Calendar() {
                               className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                             />
                           </TableHead>
-                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5">Deployment Date</TableHead>
+                          <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5">Booking Date</TableHead>
                           <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5">Target Client</TableHead>
                           <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5">Asset Info</TableHead>
                           <TableHead className="font-black uppercase tracking-widest text-[10px] text-white/40 px-6 py-5">Status</TableHead>
@@ -3280,7 +3362,7 @@ export default function Calendar() {
                                   <Search className="w-8 h-8" />
                                 </div>
                                 <div>
-                                  <p className="text-lg font-black text-white uppercase tracking-tight">No Deployments Found</p>
+                                  <p className="text-lg font-black text-white uppercase tracking-tight">No Bookings Found</p>
                                   <p className="text-[10px] text-white/30 font-black uppercase tracking-widest mt-1">Adjust your search parameters and try again.</p>
                                 </div>
                               </div>
@@ -3340,7 +3422,7 @@ export default function Calendar() {
                               </TableCell>
                               <TableCell className="px-6 py-5">
                                 <div className="flex items-center gap-3">
-                                  <Car className="w-4 h-4 text-primary shrink-0 opacity-60" />
+                                  <Car className="w-4 h-4 text-primary shrink-0 opacity-100" />
                                   <div className="min-w-0">
                                     <p className="text-sm font-black text-white tracking-tight truncate max-w-[200px]">
                                       {app.vehicleInfo || "Vehicle N/A"}
@@ -3391,7 +3473,7 @@ export default function Calendar() {
                                         <Trash2 className="w-4 h-4" />
                                       </Button>
                                     }
-                                    title="Terminate Deployment?"
+                                    title="Cancel Booking?"
                                     itemName={app.customerName}
                                     onConfirm={() => handleDeleteAppointment(app.id)}
                                   />
@@ -3406,19 +3488,19 @@ export default function Calendar() {
                 </div>
               ) : (!optimizedStops || optimizedStops.length === 0) ? (
                 <div className="text-center py-20 space-y-6">
-                  <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center text-gray-300 mx-auto shadow-inner">
+                  <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center text-white mx-auto shadow-inner">
                     <CalendarIcon className="w-10 h-10" />
                   </div>
                   <div>
-                    <p className="text-xl font-black text-gray-900 uppercase tracking-tight">No Deployments Scheduled</p>
-                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-2">The field is clear for this temporal window.</p>
+                    <p className="text-xl font-black text-white uppercase tracking-tight">No Bookings Scheduled</p>
+                    <p className="text-[10px] text-white/70 font-black uppercase tracking-widest mt-2">The field is clear for this temporal window.</p>
                   </div>
                   <Button 
                     variant="outline" 
                     className="mt-4 border-border bg-white text-gray-900 hover:bg-gray-50 rounded-xl font-black uppercase tracking-widest text-[10px] h-12 px-8" 
                     onClick={() => setShowAddDialog(true)}
                   >
-                    Initiate Deployment
+                    Start Booking
                   </Button>
                 </div>
               ) : (
@@ -3434,7 +3516,7 @@ export default function Calendar() {
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          <div className="flex items-center gap-3 text-[10px] font-black text-white uppercase tracking-widest">
                             <span className="text-primary">Transit: {formatDuration(app.travelTimeFromPrevious)}</span>
                             <span className="w-1.5 h-1.5 bg-border rounded-full" />
                             <span>{app.distanceFromPrevious} Miles</span>
@@ -3443,7 +3525,7 @@ export default function Calendar() {
                       )}
                       <div 
                         className={cn(
-                          "flex flex-col md:flex-row md:items-center gap-6 p-8 rounded-3xl bg-white border border-border hover:border-primary/30 hover:shadow-2xl hover:shadow-primary/5 transition-all cursor-pointer group relative overflow-hidden",
+                          "flex flex-col md:flex-row md:items-center gap-6 p-8 rounded-3xl bg-white/[0.03] border border-white/5 hover:border-primary/30 hover:shadow-2xl hover:shadow-primary/5 transition-all cursor-pointer group relative overflow-hidden",
                           selectedIds.includes(app.id) && "border-primary bg-primary/5 shadow-lg"
                         )}
                         onClick={() => {
@@ -3474,8 +3556,8 @@ export default function Calendar() {
                           </div>
                         )}
 
-                        <div className="flex-shrink-0 w-24 text-center md:border-r md:border-border md:pr-6">
-                          <p className="text-2xl font-black text-gray-900 tracking-tighter">
+                        <div className="flex-shrink-0 w-24 text-center md:border-r md:border-white/10 md:pr-6">
+                          <p className="text-2xl font-black text-white tracking-tighter">
                             {app.scheduledAt?.toDate ? safeFormat(app.scheduledAt.toDate(), "h:mm") : "TBD"}
                           </p>
                           <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">
@@ -3484,7 +3566,7 @@ export default function Calendar() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-lg font-black text-gray-900 truncate uppercase tracking-tight">{getClientDisplayName(app)}</h3>
+                            <h3 className="text-lg font-black text-white truncate uppercase tracking-tight">{getClientDisplayName(app)}</h3>
                             <Badge variant="outline" className={cn(
                               "text-[9px] font-black uppercase tracking-widest px-3 py-0.5 rounded-full border-none", 
                               getStatusColor(app.status || 'scheduled', app.isVip)
@@ -3493,25 +3575,25 @@ export default function Calendar() {
                             </Badge>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-                            <div className="flex items-center gap-3 text-[10px] font-black text-gray-400 tracking-widest">
+                            <div className="flex items-center gap-3 text-[10px] font-black text-white tracking-widest">
                               <Car className="w-3.5 h-3.5 text-primary" />
                               {app.vehicleInfo || "Asset N/A"}
                             </div>
-                            <div className="flex items-center gap-3 text-[10px] font-black text-gray-400 uppercase tracking-widest truncate">
+                            <div className="flex items-center gap-3 text-[10px] font-black text-white uppercase tracking-widest truncate">
                               <MapPin className="w-3.5 h-3.5 text-primary" />
                               {app.address || "No address provided"}
                             </div>
                           </div>
                         </div>
-                        <div className="flex-shrink-0 text-right md:pl-6 md:border-l md:border-border flex flex-col items-end gap-3">
-                          <p className="text-2xl font-black text-gray-900 tracking-tighter">${app.totalAmount || 0}</p>
+                        <div className="flex-shrink-0 text-right md:pl-6 md:border-l md:border-white/10 flex flex-col items-end gap-3">
+                          <p className="text-2xl font-black text-white tracking-tighter">${app.totalAmount || 0}</p>
                           <div className="flex items-center gap-3">
-                            <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest">Est. {formatDuration(app.estimatedDuration || 120)}</p>
+                            <p className="text-[9px] text-white font-black uppercase tracking-widest">Est. {formatDuration(app.estimatedDuration || 120)}</p>
                             <div className="flex items-center gap-1 transition-all">
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="h-8 w-8 text-gray-600 hover:text-primary hover:bg-primary/10 rounded-lg"
+                                className="h-8 w-8 text-white hover:text-primary hover:bg-primary/10 rounded-lg"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (app.recurringInfo?.seriesId) {
@@ -3548,7 +3630,7 @@ export default function Calendar() {
                                       <Trash2 className="w-4 h-4" />
                                     </Button>
                                   }
-                                  title="Terminate Deployment?"
+                                  title="Cancel Booking?"
                                   itemName={app.customerName}
                                   onConfirm={() => handleDeleteAppointment(app.id)}
                                 />
@@ -3575,7 +3657,7 @@ export default function Calendar() {
                   <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-glow-blue">
                     <MapPin className="w-5 h-5 text-white" />
                   </div>
-                  Tactical Route Optimization
+                  Route Optimization
                 </CardTitle>
                 <Button
                   size="sm"
@@ -3595,8 +3677,8 @@ export default function Calendar() {
               </div>
             </CardHeader>
             <CardContent className="px-8 pb-8 pt-0">
-              <p className="text-gray-400 text-sm mb-6 font-medium leading-relaxed">
-                Your deployment sequence is mathematically optimized for maximum efficiency. 
+              <p className="text-white text-sm mb-6 font-medium leading-relaxed">
+                Your booking sequence is mathematically optimized for maximum efficiency. 
                 Total estimated field time for today: <strong className="text-white font-black">
                   {formatDuration(optimizedStops.reduce((acc, stop) => acc + (stop.travelTimeFromPrevious || 0), 0))}
                 </strong>
@@ -3612,7 +3694,7 @@ export default function Calendar() {
                           <Clock className="w-4 h-4 text-amber-500" />
                           <div>
                             <p className="text-xs font-black text-white uppercase">{block.title}</p>
-                            <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">
+                            <p className="text-[9px] text-white font-bold uppercase tracking-widest">
                               {block.type === 'full_day' ? 'Full Day Block' : `${safeFormat(new Date(`2000-01-01T${block.startTime}`), 'h:mm a')} - ${safeFormat(new Date(`2000-01-01T${block.endTime}`), 'h:mm a')}`}
                             </p>
                           </div>
@@ -3635,13 +3717,13 @@ export default function Calendar() {
 
                 {dayGoogleEvents.length > 0 && (
                   <div className="space-y-3">
-                    <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Google Calendar Sync</p>
+                    <p className="text-[10px] font-black text-[#0A4DFF] uppercase tracking-widest">Google Calendar Sync</p>
                     {dayGoogleEvents.map(event => (
                       <div key={event.id} className="p-4 bg-white/5 rounded-2xl border border-blue-500/10 flex items-center gap-3">
-                        <CalendarIcon className="w-4 h-4 text-blue-500" />
+                        <CalendarIcon className="w-4 h-4 text-[#0A4DFF]" />
                         <div>
                           <p className="text-xs font-black text-white uppercase">{event.summary}</p>
-                          <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest truncate max-w-[150px]">
+                          <p className="text-[9px] text-white font-bold uppercase tracking-widest truncate max-w-[150px]">
                             {safeFormat(new Date(event.start.dateTime || event.start.date), "h:mm a")} - {safeFormat(new Date(event.end.dateTime || event.end.date), "h:mm a")}
                           </p>
                         </div>
@@ -3655,7 +3737,7 @@ export default function Calendar() {
                 className="bg-primary text-white hover:bg-[#2A6CFF] font-black uppercase tracking-[0.2em] text-[10px] w-full h-14 rounded-2xl shadow-glow-blue transition-all"
                 onClick={() => setCalendarView("tactical")}
               >
-                View Tactical Route View
+                View Route
               </Button>
             </CardContent>
           </Card>
@@ -3756,7 +3838,7 @@ export default function Calendar() {
               <Button
                 variant="ghost"
                 onClick={() => setShowTimeBlockDialog(false)}
-                className="text-gray-400 font-bold hover:text-white hover:bg-white/5 rounded-xl h-12 px-6"
+                className="text-white font-bold hover:text-white hover:bg-white/5 rounded-xl h-12 px-6"
               >
                 Cancel
               </Button>
@@ -3895,7 +3977,7 @@ export default function Calendar() {
         )}
       </AnimatePresence>
 
-      {/* Detailed App / Command Center View */}
+      {/* Detailed App / Dashboard View */}
       <Dialog open={!!selectedDetailedApp} onOpenChange={(val) => !val && setSelectedDetailedApp(null)}>
         <DialogContent className="max-w-xl bg-card border-none p-0 overflow-hidden rounded-[2.5rem] shadow-2xl shadow-black flex flex-col">
           {selectedDetailedApp && (() => {
@@ -3932,7 +4014,7 @@ export default function Calendar() {
                       <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase pr-8">
                         {getClientDisplayName(app)}
                       </DialogTitle>
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-2 mt-1">
+                      <p className="text-[10px] text-white font-bold uppercase tracking-widest flex items-center gap-2 mt-1">
                         <Clock className="w-3 h-3" />
                          {app.scheduledAt?.toDate ? safeFormat(app.scheduledAt.toDate(), "MMM do, yyyy • h:mm a") : ""}
                       </p>
@@ -3943,40 +4025,40 @@ export default function Calendar() {
                 <div className="p-8 space-y-8 overflow-y-auto max-h-[60vh] custom-scrollbar">
                   {/* Job Status Timeline */}
                   <div className="space-y-4">
-                    <h3 className="text-[10px] font-black tracking-widest uppercase text-white/50">Mission Status Timeline</h3>
+                    <h3 className="text-[10px] font-black tracking-widest uppercase text-white/50">Job Status Timeline</h3>
                     <div className="relative flex justify-between">
                       <div className="absolute top-1/2 left-4 right-4 h-0.5 bg-white/5 -translate-y-1/2" />
                       <div className={`absolute top-1/2 left-4 h-0.5 bg-primary -translate-y-1/2 transition-all duration-500`} style={{ right: app.status === 'arrived' || isStarted || isCompleted ? '1rem' : isOnWay ? '50%' : 'calc(100% - 2rem)' }} />
                       
                       <div className="relative z-10 flex flex-col items-center gap-2">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 border-card transition-all ${true ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'bg-gray-800 text-gray-500'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 border-card transition-all ${true ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'bg-gray-800 text-white'}`}>
                           <CalendarIcon className="w-3 h-3" />
                         </div>
                         <span className="text-[9px] font-black uppercase tracking-widest text-white">Scheduled</span>
                       </div>
                       
                       <div className="relative z-10 flex flex-col items-center gap-2">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 border-card transition-all ${isOnWay ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'bg-gray-800 text-gray-500'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 border-card transition-all ${isOnWay ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'bg-gray-800 text-white'}`}>
                           <Navigation2 className="w-3 h-3" />
                         </div>
-                        <span className={`text-[9px] font-black uppercase tracking-widest ${isOnWay ? 'text-white' : 'text-gray-500'}`}>On The Way</span>
+                        <span className={`text-[9px] font-black uppercase tracking-widest ${isOnWay ? 'text-white' : 'text-white'}`}>On The Way</span>
                       </div>
                       
                       <div className="relative z-10 flex flex-col items-center gap-2">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 border-card transition-all ${app.status === 'arrived' || isStarted || isCompleted ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'bg-gray-800 text-gray-500'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 border-card transition-all ${app.status === 'arrived' || isStarted || isCompleted ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'bg-gray-800 text-white'}`}>
                           <MapPin className="w-3 h-3" />
                         </div>
-                        <span className={`text-[9px] font-black uppercase tracking-widest ${app.status === 'arrived' || isStarted || isCompleted ? 'text-white' : 'text-gray-500'}`}>Arrived</span>
+                        <span className={`text-[9px] font-black uppercase tracking-widest ${app.status === 'arrived' || isStarted || isCompleted ? 'text-white' : 'text-white'}`}>Arrived</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Travel Awareness */}
                   {nextStop && (
-                    <div className={`p-4 rounded-2xl border ${travelWarning ? 'bg-red-500/10 border-red-500/20' : 'bg-blue-500/10 border-blue-500/20'} flex flex-col gap-2`}>
+                    <div className={`p-4 rounded-2xl border ${travelWarning ? 'bg-red-500/10 border-red-500/20' : 'bg-[#0A4DFF]/5 border-[#0A4DFF]/10'} flex flex-col gap-2`}>
                       <div className="flex items-center gap-2">
-                        <Navigation2 className={`w-4 h-4 ${travelWarning ? 'text-red-400' : 'text-blue-400'}`} />
-                        <h4 className={`text-xs font-black uppercase tracking-widest ${travelWarning ? 'text-red-400' : 'text-blue-400'}`}>Travel to Next Job</h4>
+                        <Navigation2 className={`w-4 h-4 ${travelWarning ? 'text-red-400' : 'text-[#0A4DFF]'}`} />
+                        <h4 className={`text-xs font-black uppercase tracking-widest ${travelWarning ? 'text-red-400' : 'text-[#0A4DFF]'}`}>Travel to Next Job</h4>
                       </div>
                       <p className="text-white text-sm font-bold">
                          {travelTimeMins} mins estimated distance.
@@ -3991,13 +4073,13 @@ export default function Calendar() {
 
                   {/* Details */}
                    <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-1 mb-4">
-                     <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Location</p>
+                     <p className="text-[9px] text-white font-bold uppercase tracking-widest">Location</p>
                      <p className="text-sm font-bold text-white truncate">{app.address || "No address"}</p>
                    </div>
 
                      {/* Vehicles Section */}
                      <div className="space-y-3 mb-4">
-                       <h3 className="text-[10px] text-gray-500 font-bold uppercase tracking-widest px-1">VEHICLE(S) BEING SERVICED</h3>
+                       <h3 className="text-[10px] text-white font-bold uppercase tracking-widest px-1">VEHICLE(S) BEING SERVICED</h3>
                        {(app.vehicleIds?.length > 0) ? (
                          <div className="space-y-3">
                            {app.vehicleIds.map((vId: string) => {
@@ -4011,7 +4093,7 @@ export default function Calendar() {
                                return (
                                  <div key={vId} className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-1">
                                    <p className="text-sm font-bold text-white">Loading vehicle data...</p>
-                                   <p className="text-[10px] text-gray-400 capitalize">{serviceNames.join(", ") || "No services assigned"}</p>
+                                   <p className="text-[10px] text-white capitalize">{serviceNames.join(", ") || "No services assigned"}</p>
                                  </div>
                                );
                              }
@@ -4023,7 +4105,7 @@ export default function Calendar() {
                                  </div>
                                  <div>
                                    <p className="text-base font-black text-white">{vData.year} {vData.make} {vData.model}</p>
-                                   <p className="text-xs text-gray-400 font-medium">
+                                   <p className="text-xs text-white font-medium">
                                      {vData.type || vData.size || "Standard"} • {vData.color || "No color"}
                                      {vData.licensePlate && ` • LXP: ${vData.licensePlate}`}
                                    </p>
@@ -4047,7 +4129,7 @@ export default function Calendar() {
                            <div>
                              <p className="text-base font-black text-white">{app.vehicleInfo || app.vehicleNames?.join(", ")}</p>
                              {app.vehicleSize && (
-                                <p className="text-xs text-gray-400 font-medium capitalize">
+                                <p className="text-xs text-white font-medium capitalize">
                                   {app.vehicleSize}
                                 </p>
                              )}
@@ -4062,7 +4144,7 @@ export default function Calendar() {
                          </div>
                        ) : (
                          <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex flex-col gap-1 text-center items-center justify-center py-6">
-                           <p className="text-sm font-bold text-gray-400">No vehicle assigned</p>
+                           <p className="text-sm font-bold text-white">No vehicle assigned</p>
                          </div>
                        )}
                      </div>
@@ -4119,14 +4201,14 @@ export default function Calendar() {
               </div>
               <div>
                 <p className="text-white font-black uppercase tracking-widest text-[10px]">Jobs Selected</p>
-                <p className="text-gray-400 text-[9px] font-bold uppercase tracking-widest">Bulk Tactical Actions Available</p>
+                <p className="text-white text-[9px] font-bold uppercase tracking-widest">Bulk Actions Available</p>
               </div>
             </div>
             
             <div className="flex items-center gap-2">
               <Button 
                 variant="ghost" 
-                className="text-gray-400 hover:text-white font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl"
+                className="text-white hover:text-white font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl"
                 onClick={() => {
                   setSelectedIds([]);
                   setIsSelectionMode(false);
@@ -4152,17 +4234,17 @@ export default function Calendar() {
                       </div>
                       <div>
                         <AlertDialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Mass Termination</AlertDialogTitle>
-                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-1">Destructive Protocol Authorization</p>
+                        <p className="text-[10px] text-white font-black uppercase tracking-[0.2em] mt-1">Destructive Protocol Authorization</p>
                       </div>
                     </div>
                   </AlertDialogHeader>
                   <div className="p-8 space-y-6">
-                    <AlertDialogDescription className="text-gray-400 font-bold text-sm leading-relaxed">
-                      You are about to terminate <span className="text-primary font-black">{selectedIds.length}</span> tactical deployments. This action is irreversible and will purge all associated mission data from the primary log.
+                    <AlertDialogDescription className="text-white font-bold text-sm leading-relaxed">
+                      You are about to cancel <span className="text-primary font-black">{selectedIds.length}</span> bookings. This action is irreversible and will remove all associated job data from the primary log.
                     </AlertDialogDescription>
                     
                     <div className="flex items-center gap-4 pt-4">
-                      <AlertDialogCancel className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-white/10 hover:bg-white/5 text-gray-400 hover:text-white transition-all">
+                      <AlertDialogCancel className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-white/10 hover:bg-white/5 text-white hover:text-white transition-all">
                         Abort Protocol
                       </AlertDialogCancel>
                       <AlertDialogAction 
@@ -4186,7 +4268,7 @@ export default function Calendar() {
         <DialogContent className="max-w-md bg-zinc-950 border-white/5 rounded-3xl p-0 overflow-hidden shadow-2xl">
           <DialogHeader className="p-6 border-b border-white/5 bg-black/40">
             <DialogTitle className="text-xl font-black text-white uppercase tracking-tighter">
-              Day Deployments: {selectedDayEvents?.day ? safeFormat(selectedDayEvents.day, "MMM d, yyyy") : ""}
+              Day Bookings: {selectedDayEvents?.day ? safeFormat(selectedDayEvents.day, "MMM d, yyyy") : ""}
             </DialogTitle>
           </DialogHeader>
           <div className="p-6 space-y-3 max-h-[60vh] overflow-y-auto no-scrollbar">

@@ -98,7 +98,7 @@ export default function AIAssistant({
               <MessageSquare className="w-5 h-5 text-primary" />
               AI Assistant
             </CardTitle>
-            <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="text-white/50 hover:text-white hover:bg-white/10 h-8 w-8">
+            <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="text-white hover:text-white hover:bg-white/10 h-8 w-8">
               <X className="w-5 h-5" />
             </Button>
           </CardHeader>
@@ -110,7 +110,7 @@ export default function AIAssistant({
                     <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm font-medium ${
                       msg.role === "user" 
                         ? "bg-primary text-white rounded-tr-none" 
-                        : "bg-gray-100 text-gray-800 rounded-tl-none"
+                        : "bg-white/10 text-white rounded-tl-none border border-white/5"
                     }`}>
                       <div className="markdown-body">
                         <Markdown>{msg.content}</Markdown>
@@ -120,7 +120,7 @@ export default function AIAssistant({
                 ))}
                 {isLoading && (
                   <div className="flex justify-start">
-                    <div className="bg-gray-100 text-gray-800 rounded-2xl rounded-tl-none px-4 py-2 text-sm flex items-center gap-2 font-medium">
+                    <div className="bg-white/10 text-white rounded-2xl rounded-tl-none px-4 py-2 text-sm flex items-center gap-2 font-medium border border-white/5">
                       <Loader2 className="w-4 h-4 animate-spin text-primary" />
                       Thinking...
                     </div>
@@ -128,13 +128,13 @@ export default function AIAssistant({
                 )}
               </div>
             </ScrollArea>
-            <div className="p-4 border-t border-gray-100 bg-gray-50">
+            <div className="p-4 border-t border-white/5 bg-black/40">
               <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-2">
                 <Input 
                   placeholder="Ask anything..." 
                   value={input} 
                   onChange={(e) => setInput(e.target.value)}
-                  className="bg-white border-gray-200"
+                  className="bg-white/5 border-white/10 text-white placeholder:text-white/30"
                 />
                 <Button type="submit" disabled={isLoading} className="bg-primary hover:bg-[#2A6CFF] text-white font-black shadow-glow-blue transition-all hover:scale-105">
                   <Send className="w-4 h-4" />

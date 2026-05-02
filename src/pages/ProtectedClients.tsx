@@ -267,8 +267,8 @@ export default function ProtectedClients() {
               <TableRow key={row.id} className="border-white/5 hover:bg-white/5">
                 <TableCell className="px-8 py-4">
                   <div className="flex items-center gap-3">
-                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0", row.isRuleOnly ? "bg-red-500/20" : "bg-blue-500/20")}>
-                      {row.isRuleOnly ? <Shield className="w-4 h-4 text-red-500" /> : <User className="w-4 h-4 text-blue-500" />}
+                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0", row.isRuleOnly ? "bg-red-500/20" : "bg-[#0A4DFF]/20")}>
+                      {row.isRuleOnly ? <Shield className="w-4 h-4 text-red-500" /> : <User className="w-4 h-4 text-[#0A4DFF]" />}
                     </div>
                     <div>
                       <p className="font-bold text-white leading-none">{row.fullName}</p>

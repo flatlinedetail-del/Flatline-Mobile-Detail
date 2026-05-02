@@ -92,7 +92,7 @@ export default function Waitlist() {
   }, [waitlistRecords]);
 
   if (loading) {
-    return <div className="p-8 flex justify-center items-center h-full text-white/50">Loading Waitlist...</div>;
+    return <div className="p-8 flex justify-center items-center h-full text-white">Loading Waitlist...</div>;
   }
 
   return (
@@ -100,7 +100,7 @@ export default function Waitlist() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-4xl font-black text-white uppercase tracking-tight">Waitlist Queue</h1>
-          <p className="text-white/60 mt-2 font-medium">Real-time backup requests and estimated wait times</p>
+          <p className="text-white mt-2 font-medium">Real-time backup requests and estimated wait times</p>
         </div>
       </div>
 
@@ -109,7 +109,7 @@ export default function Waitlist() {
           <div className="text-center py-20 bg-white/5 rounded-3xl border border-white/5">
             <Clock className="w-12 h-12 text-white/20 mx-auto mb-4" />
             <h3 className="text-xl font-black text-white uppercase tracking-tight">No active waitlist</h3>
-            <p className="text-white/50 text-sm mt-2">Waitlist is clear.</p>
+            <p className="text-white text-sm mt-2">Waitlist is clear.</p>
           </div>
         ) : (
           waitlistWithStats.map((record, idx) => (
@@ -125,9 +125,9 @@ export default function Waitlist() {
                 <div className="flex flex-col lg:flex-row gap-8">
                   {/* Queue Position Indicator */}
                   <div className="flex flex-col items-center justify-center bg-black/40 rounded-2xl p-6 border border-white/5 min-w-[140px] shrink-0">
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 mb-1">Queue Position</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white mb-1">Queue Position</span>
                     <span className="text-4xl font-black text-primary leading-tight">#{idx + 1}</span>
-                    <div className="mt-4 flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 text-[10px] font-bold text-white/60 uppercase">
+                    <div className="mt-4 flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 text-[10px] font-bold text-white uppercase">
                       <User className="w-3 h-3" />
                       {record.jobsAhead} Ahead
                     </div>
@@ -140,13 +140,13 @@ export default function Waitlist() {
                            <Clock className="w-3 h-3" />
                            {record.status.replace("_", " ")}
                         </div>
-                        <span className="text-white/40 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                        <span className="text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
                           <FileText className="w-3 h-3" />
                           ID: {record.id.slice(0, 6)}
                         </span>
                       </div>
                       <div className="text-right">
-                        <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Est. Start Time</p>
+                        <p className="text-[10px] font-black text-white uppercase tracking-widest">Est. Start Time</p>
                         <p className="text-sm font-bold text-primary">{format(record.estStartTime, "h:mm a")}</p>
                       </div>
                     </div>
@@ -155,23 +155,23 @@ export default function Waitlist() {
                       <h3 className="text-lg font-black text-white uppercase tracking-tight mb-1 flex items-center gap-2">
                          {record.customerName}
                       </h3>
-                      <p className="text-white/60 font-medium">
+                      <p className="text-white font-medium">
                          {record.vehicleInfo} • {record.serviceNames?.join(", ")}
                       </p>
                     </div>
 
                     {/* Stage Estimates */}
                     <div className="pt-4 border-t border-white/5">
-                      <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-4">Estimated Stage Completion</p>
+                      <p className="text-[10px] font-black text-white uppercase tracking-[0.2em] mb-4">Estimated Stage Completion</p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         {record.stages.map((stage: any, sIdx: number) => (
                           <div key={sIdx} className="relative bg-black/20 rounded-xl p-3 border border-white/5">
                             <div className="flex justify-between items-start mb-2">
-                              <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">{stage.name}</span>
+                              <span className="text-[9px] font-black text-white uppercase tracking-widest">{stage.name}</span>
                               <Timer className="w-3 h-3 text-primary/40" />
                             </div>
                             <p className="text-xs font-bold text-white mb-0.5">{format(stage.endTime, "h:mm a")}</p>
-                            <p className="text-[8px] font-medium text-white/30 italic">Target Completion</p>
+                            <p className="text-[8px] font-medium text-white italic">Target Completion</p>
                             {sIdx < record.stages.length - 1 && (
                               <ArrowRight className="hidden sm:block absolute -right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/10 z-10" />
                             )}
@@ -184,13 +184,13 @@ export default function Waitlist() {
                   <div className="flex flex-col justify-between shrink-0 min-w-[200px]">
                     <div className="space-y-3 bg-black/40 p-4 rounded-xl border border-white/5">
                       <div className="flex justify-between items-center text-sm font-bold">
-                        <span className="text-white/50 uppercase tracking-widest text-[10px]">Requested</span>
+                        <span className="text-white uppercase tracking-widest text-[10px]">Requested</span>
                         <span className="text-white">
                           {record.scheduledAt?.toDate ? format(record.scheduledAt.toDate(), "MMM d") : 'N/A'}
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-sm font-bold">
-                        <span className="text-white/50 uppercase tracking-widest text-[10px]">Total Est. Wait</span>
+                        <span className="text-white uppercase tracking-widest text-[10px]">Total Est. Wait</span>
                         <span className="text-orange-400">
                           {record.waitBefore} min
                         </span>

@@ -59,7 +59,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 
 export default function Dashboard() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, isQuotaExceeded } = useAuth();
   const navigate = useNavigate();
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const [stats, setStats] = useState({
@@ -113,13 +113,13 @@ export default function Dashboard() {
   }, [allAppointments, clients, allLeads]);
 
   const fetchDashboardData = async (showToast = false) => {
-    if (!profile) return;
+    if (!profile || isQuotaExceeded) return;
     
-    // Cache check to avoid redundant reads during navigation (5 min TTL)
+    // Cache check to avoid redundant reads during navigation (10 min TTL for dashboard)
     const CACHE_KEY = `dashboard_cache_${profile.id}`;
     const lastFetch = Number(sessionStorage.getItem(`${CACHE_KEY}_time`) || 0);
     const now = Date.now();
-    const CACHE_TTL = 5 * 60 * 1000;
+    const CACHE_TTL = 10 * 60 * 1000;
 
     if (!showToast && now - lastFetch < CACHE_TTL) {
       const cachedData = sessionStorage.getItem(CACHE_KEY);
@@ -161,7 +161,7 @@ export default function Dashboard() {
           collection(db, "appointments"),
           where("scheduledAt", ">=", Timestamp.fromDate(startMonth)),
           where("scheduledAt", "<=", Timestamp.fromDate(endMonth)),
-          limit(300)
+          limit(100) // Reduced from 300 to save quota
         )).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments")),
         getDocs(query(
           collection(db, "appointments"),
@@ -173,11 +173,11 @@ export default function Dashboard() {
           collection(db, "leads"),
           where("status", "==", "new"),
           orderBy("createdAt", "desc"),
-          limit(8)
+          limit(5) // Reduced from 8 to save quota
         )).catch(e => handleFirestoreError(e, OperationType.LIST, "leads_new")),
-        getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(20))).catch(e => handleFirestoreError(e, OperationType.LIST, "leads_all")),
-        getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(20))).catch(e => handleFirestoreError(e, OperationType.LIST, "clients")),
-        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(20))).catch(e => handleFirestoreError(e, OperationType.LIST, "invoices")),
+        getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(10))).catch(e => handleFirestoreError(e, OperationType.LIST, "leads_all")), // Reduced from 20
+        getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(10))).catch(e => handleFirestoreError(e, OperationType.LIST, "clients")), // Reduced from 20
+        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(10))).catch(e => handleFirestoreError(e, OperationType.LIST, "invoices")), // Reduced from 20
         getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"))
       ]);
 
@@ -263,7 +263,7 @@ export default function Dashboard() {
       }));
       sessionStorage.setItem(`${CACHE_KEY}_time`, Date.now().toString());
 
-      if (showToast) toast.success("Command Center Ready", { id: "sync-dashboard" });
+      if (showToast) toast.success("Dashboard Ready", { id: "sync-dashboard" });
     } catch (error: any) {
       console.error("Error fetching dashboard data:", error);
       if (error?.message?.includes("Quota limit exceeded")) {
@@ -479,8 +479,8 @@ export default function Dashboard() {
   return (
     <div className="space-y-10 pb-24 w-full animate-in fade-in duration-700">
       <PageHeader 
-        title="Command CENTER" 
-        accentWord="CENTER" 
+        title="DASHBOARD" 
+        accentWord="DASHBOARD" 
         subtitle={`System Status: Optimal • ${format(new Date(), "EEEE, MMMM d, yyyy")}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
@@ -505,7 +505,7 @@ export default function Dashboard() {
                 </DialogHeader>
                 <div className="p-8 space-y-6">
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Category</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Category</Label>
                     <Select 
                       value={newExpense.category} 
                       onValueChange={(v: any) => setNewExpense({ ...newExpense, category: v })}
@@ -523,7 +523,7 @@ export default function Dashboard() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Amount ($)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Amount ($)</Label>
                     <Input 
                       type="number" 
                       placeholder="0.00" 
@@ -546,7 +546,7 @@ export default function Dashboard() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Description</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Description</Label>
                     <Input 
                       placeholder="e.g. Gas for van, Microfiber towels" 
                       className="bg-black/40 border-white/10 text-white rounded-xl h-12"
@@ -555,11 +555,11 @@ export default function Dashboard() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Reference Photo</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Reference Photo</Label>
                     <div className="flex items-center gap-4">
                       <Button 
                         variant="outline" 
-                        className="flex-1 h-12 border-dashed border-white/10 bg-black/20 text-white/60 hover:text-white hover:border-white/20 rounded-xl"
+                        className="flex-1 h-12 border-dashed border-white/10 bg-black/20 text-white hover:text-white hover:border-white/20 rounded-xl"
                         onClick={() => document.getElementById('receipt-upload')?.click()}
                       >
                         {receiptFile ? receiptFile.name : "Capture or Upload Receipt"}
@@ -581,7 +581,7 @@ export default function Dashboard() {
               </DialogContent>
             </Dialog>
             <Button onClick={() => navigate("/book-appointment")} className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[11px] shadow-glow-blue transition-all hover:scale-105">
-              <Plus className="w-4 h-4 mr-2" /> New Deployment
+              <Plus className="w-4 h-4 mr-2" /> New Booking
             </Button>
           </div>
         }
@@ -628,7 +628,7 @@ export default function Dashboard() {
           />
         </FocusWrapper>
 
-        <FocusWrapper id="ops" title="Active Operations Command" focusedId={focusedCardId} onFocus={setFocusedCardId}>
+        <FocusWrapper id="ops" title="Active Operations" focusedId={focusedCardId} onFocus={setFocusedCardId}>
           <StatCard 
             title="Active Operations" 
             value={stats.activeJobs.toString()} 
@@ -655,7 +655,7 @@ export default function Dashboard() {
                 <div>
                   <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading header-glow">Job Route</CardTitle>
                   <div className="flex items-center gap-3 mt-1">
-                    <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest">Efficiency Protocol Active</p>
+                    <p className="text-[10px] text-white font-black uppercase tracking-widest">Efficiency Protocol Active</p>
                     {optimizedRoute.length > 0 && (
                       <>
                         <div className="w-1 h-1 bg-primary rounded-full animate-pulse" />
@@ -682,9 +682,9 @@ export default function Dashboard() {
                 {(!optimizedRoute || optimizedRoute.length === 0) ? (
                   <div className="p-12 text-center flex flex-col items-center gap-4">
                     <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
-                      <CalendarIcon className="w-8 h-8 text-white/40" />
+                      <CalendarIcon className="w-8 h-8 text-white" />
                     </div>
-                    <p className="text-white/40 font-medium uppercase tracking-widest text-xs">No operations scheduled.</p>
+                    <p className="text-white font-medium uppercase tracking-widest text-xs">No operations scheduled.</p>
                   </div>
                 ) : (
                   <div className="space-y-6 relative before:absolute before:left-[19px] before:top-4 before:bottom-4 before:w-[2px] before:bg-gradient-to-b before:from-primary before:to-primary/10">
@@ -706,7 +706,7 @@ export default function Dashboard() {
                             </div>
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="flex items-center gap-2 text-[#A0A0A0]">
+                            <div className="flex items-center gap-2 text-white">
                               <MapPin className="w-3.5 h-3.5 text-primary/60" />
                               <span className="text-xs font-bold truncate tracking-tight">{stop.address}</span>
                             </div>
@@ -754,24 +754,24 @@ export default function Dashboard() {
                       <img src={`https://openweathermap.org/img/wn/${weather.current.icon}.png`} alt={weather.current.condition} className="w-10 h-10" />
                       <div>
                         <p className="text-xl font-black text-white">{weather.current.temp}°F</p>
-                        <p className="text-[10px] text-[#A0A0A0] font-black uppercase">{weather.current.condition}</p>
+                        <p className="text-[10px] text-white font-black uppercase">{weather.current.condition}</p>
                       </div>
                     </div>
-                    <Badge variant="outline" className="text-[8px] font-black uppercase border-white/10 text-[#A0A0A0]">Real-time Data</Badge>
+                    <Badge variant="outline" className="text-[8px] font-black uppercase border-white/10 text-white">Real-time Data</Badge>
                   </div>
                 )}
                 <div className="space-y-4">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#A0A0A0]/40">Strategic Insights</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Strategic Insights</p>
                   <div className="space-y-3">
                     {aiInsights.slice(0, focusedCardId === "intelligence" ? undefined : 1).map((insight, idx) => (
-                      <div key={idx} className="p-4 bg-white/5 rounded-2xl border border-white/10 text-xs font-medium text-white/80 leading-relaxed">
+                      <div key={idx} className="p-4 bg-white/5 rounded-2xl border border-white/10 text-xs font-medium text-white leading-relaxed">
                         {insight}
                       </div>
                     ))}
                     {focusedCardId === "intelligence" && isGeneratingInsights && (
                       <div className="flex items-center justify-center p-4 bg-white/5 rounded-2xl border border-white/10 border-dashed animate-pulse">
                         <Loader2 className="w-4 h-4 animate-spin text-primary mr-2" />
-                        <span className="text-[10px] font-black uppercase text-[#A0A0A0]/40 tracking-widest">Updating Intelligence...</span>
+                        <span className="text-[10px] font-black uppercase text-white tracking-widest">Updating Intelligence...</span>
                       </div>
                     )}
                   </div>
@@ -780,11 +780,11 @@ export default function Dashboard() {
                   <div className="space-y-4 pt-4 border-t border-white/10">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-                        <p className="text-[10px] font-black uppercase text-[#A0A0A0]/40 mb-1">Total Clients</p>
+                        <p className="text-[10px] font-black uppercase text-white mb-1">Total Clients</p>
                         <p className="text-xl font-black text-white">{clients.length}</p>
                       </div>
                       <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-                        <p className="text-[10px] font-black uppercase text-[#A0A0A0]/40 mb-1">Active Leads</p>
+                        <p className="text-[10px] font-black uppercase text-white mb-1">Active Leads</p>
                         <p className="text-xl font-black text-white">{allLeads.filter(l => l.status !== "converted" && l.status !== "lost").length}</p>
                       </div>
                     </div>
@@ -797,12 +797,12 @@ export default function Dashboard() {
           <FocusWrapper id="growth-metrics" title="Growth Vector Analysis" focusedId={focusedCardId} onFocus={setFocusedCardId}>
             <Card className="border border-white/5 shadow-xl bg-[#0B0B0B] rounded-3xl overflow-hidden transition-all duration-500 hover:shadow-primary/5">
               <CardHeader className="p-6 pb-2">
-                <CardTitle className="text-sm font-black uppercase tracking-widest text-[#A0A0A0]/60 font-heading">Growth Metrics</CardTitle>
+                <CardTitle className="text-sm font-black uppercase tracking-widest text-white font-heading">Growth Metrics</CardTitle>
               </CardHeader>
               <CardContent className="p-6 pt-0 space-y-4">
                 <div className="space-y-2">
                   <div className="flex justify-between text-[10px] font-black uppercase">
-                    <span className="text-[#A0A0A0]/60">Retention</span>
+                    <span className="text-white">Retention</span>
                     <span className="text-primary">{growthMetrics.retentionRate}%</span>
                   </div>
                   <Progress value={growthMetrics.retentionRate} className="h-1.5" />
@@ -811,14 +811,14 @@ export default function Dashboard() {
                   <>
                     <div className="space-y-2">
                       <div className="flex justify-between text-[10px] font-black uppercase">
-                        <span className="text-[#A0A0A0]/60">Lead Conversion</span>
+                        <span className="text-white">Lead Conversion</span>
                         <span className="text-primary">{growthMetrics.conversionRate}%</span>
                       </div>
                       <Progress value={growthMetrics.conversionRate} className="h-1.5" />
                     </div>
                     <div className="space-y-2">
                       <div className="flex justify-between text-[10px] font-black uppercase">
-                        <span className="text-[#A0A0A0]/60">Avg Ticket Size</span>
+                        <span className="text-white">Avg Ticket Size</span>
                         <span className="text-primary">{formatCurrency(growthMetrics.avgTicket)}</span>
                       </div>
                       <Progress value={Math.min(100, (growthMetrics.avgTicket / 500) * 100)} className="h-1.5" />
@@ -850,7 +850,7 @@ export default function Dashboard() {
                   <CardTitle className="text-lg font-black tracking-tight leading-tight text-white">{insight.finding}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <p className="text-sm text-white/80 font-medium leading-relaxed">{insight.recommendation}</p>
+                  <p className="text-sm text-white font-medium leading-relaxed">{insight.recommendation}</p>
                   <div className="flex items-center gap-2 text-green-600 bg-green-500/10 w-fit px-3 py-1 rounded-full border border-green-500/20">
                     <ArrowUpRight className="w-4 h-4" />
                     <span className="text-[10px] font-black uppercase tracking-widest">{insight.impact}</span>
@@ -875,7 +875,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading header-glow">High-Priority Inquiries</CardTitle>
-                <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Pending conversion opportunities</p>
+                <p className="text-[10px] text-white font-black uppercase tracking-widest mt-1">Pending conversion opportunities</p>
               </div>
             </div>
             <Button variant="ghost" size="sm" onClick={() => navigate("/leads")} className="font-black text-primary hover:bg-primary/5 uppercase tracking-widest text-[10px]">View Full Pipeline</Button>
@@ -883,7 +883,7 @@ export default function Dashboard() {
           <CardContent className="p-0">
             <div className="divide-y divide-white/5 min-h-[100px]">
               {recentLeads.length === 0 ? (
-                <div className="p-12 text-center text-[#A0A0A0] uppercase tracking-widest text-[10px] font-black">No new inquiries detected.</div>
+                <div className="p-12 text-center text-white uppercase tracking-widest text-[10px] font-black">No new inquiries detected.</div>
               ) : (
                 recentLeads.slice(0, focusedCardId === "recent-leads" ? undefined : 3).map(lead => (
                   <div key={lead.id} className="p-6 flex items-center justify-between hover:bg-white/5 transition-all duration-300 group">
@@ -893,7 +893,7 @@ export default function Dashboard() {
                       </div>
                       <div>
                         <p className="font-black text-white uppercase tracking-tight text-sm">{lead.name}</p>
-                        <p className="text-xs text-[#A0A0A0] font-medium mt-0.5">{lead.requestedService} • {lead.vehicleInfo}</p>
+                        <p className="text-xs text-white font-medium mt-0.5">{lead.requestedService} • {lead.vehicleInfo}</p>
                       </div>
                     </div>
                     <div className="text-right flex flex-col items-end gap-2 text-left">
@@ -903,7 +903,7 @@ export default function Dashboard() {
                       )}>
                         {lead.priority}
                       </Badge>
-                      <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest">
+                      <p className="text-[10px] text-white font-black uppercase tracking-widest">
                         {lead.createdAt instanceof Timestamp ? format(lead.createdAt.toDate(), "MMM d, h:mm a") : "Just now"}
                       </p>
                     </div>
@@ -957,7 +957,7 @@ function FocusWrapper({ id, focusedId, onFocus, title, children, className }: an
                   variant="ghost" 
                   size="icon" 
                   onClick={() => onFocus(null)}
-                  className="rounded-full hover:bg-white/10 text-[#A0A0A0] hover:text-white"
+                  className="rounded-full hover:bg-white/10 text-white hover:text-white"
                 >
                   <X className="w-5 h-5" />
                 </Button>
@@ -1005,10 +1005,10 @@ function StatCard({ title, value, subValue, icon, trend, trendValue, color, stan
           </div>
           
           <div className="space-y-4">
-            <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.3em]">{title}</p>
+            <p className="text-[10px] font-black text-white uppercase tracking-[0.3em]">{title}</p>
             <h3 className="text-4xl sm:text-6xl font-black text-white tracking-tighter font-heading leading-none drop-shadow-sm">{value}</h3>
             {subValue && (
-              <p className="text-xs font-bold text-[#A0A0A0] flex items-center gap-2 mt-4">
+              <p className="text-xs font-bold text-white flex items-center gap-2 mt-4">
                 <span className="w-2 h-2 bg-primary rounded-full shadow-glow-blue"></span>
                 {subValue}
               </p>

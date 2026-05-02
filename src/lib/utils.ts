@@ -5,6 +5,16 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function normalizePhone(value: string) {
+  if (!value) return "";
+  return value.replace(/[^\d]/g, "");
+}
+
+export function normalizeEmail(value: string) {
+  if (!value) return "";
+  return value.trim().toLowerCase();
+}
+
 export function formatPhoneNumber(value: string) {
   if (!value) return value;
   const phoneNumber = value.replace(/[^\d]/g, "");
@@ -156,22 +166,46 @@ export function cleanAddress(address: string | undefined | null): string {
 
 export function formatPercentage(value: number | undefined | null): string {
   if (value === undefined || value === null) return "0%";
-  return `${value}%`;
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(num)) return "0%";
+  return `${num}%`;
 }
 
 export function formatDistance(value: number | undefined | null): string {
   if (value === undefined || value === null) return "0.0 mi";
-  return `${value.toFixed(1)} mi`;
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(num)) return "0.0 mi";
+  return `${num.toFixed(1)} mi`;
 }
 
 export function formatCurrency(value: number | undefined | null): string {
   if (value === undefined || value === null) return "$0.00";
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(num)) return "$0.00";
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(value);
+  }).format(num);
+}
+
+export function validateEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export function formatVIN(vin: string): string {
+  // Enforce valid VIN: 17 chars, auto uppercase, reject I, O, Q
+  return vin.toUpperCase().replace(/[IOQ]/g, "").slice(0, 17);
+}
+
+export function validateVIN(vin: string): boolean {
+  // Basic length check for VIN
+  return vin.length === 17 && !/[IOQ]/i.test(vin);
+}
+
+export function formatLicensePlate(plate: string): string {
+  return plate.toUpperCase().trim();
 }
 
 export function convertToDate(timestamp: any): Date {
