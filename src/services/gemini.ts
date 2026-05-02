@@ -220,7 +220,7 @@ export async function qualifyLeadAI(lead: any): Promise<{
           ` }] 
       }],
       config: {
-        systemInstruction: `You are a world-class sales strategist for Flatline Mobile Detail.
+        systemInstruction: `You are a world-class sales strategist for DetailFlow Operations OS.
         
         ${isCollisionCenter ? `
         SPECIAL STRATEGY FOR COLLISION CENTERS / BODY SHOPS:
@@ -281,7 +281,7 @@ export async function askAssistant(input: string, context?: any): Promise<AIResp
       model: DEFAULT_MODEL,
       contents: [{ role: "user", parts: [{ text: `Context: ${JSON.stringify(context)}\n\nUser Request: ${input}` }] }],
       config: {
-        systemInstruction: `You are a world-class business consultant, marketing director, and AI assistant for Flatline Mobile Detail.
+        systemInstruction: `You are a world-class business consultant, marketing director, and AI assistant for DetailFlow Operations OS.
         
         Your goals:
         1. Answer business questions accurately using the provided context.

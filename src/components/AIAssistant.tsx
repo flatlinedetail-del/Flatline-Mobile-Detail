@@ -33,7 +33,7 @@ export default function AIAssistant({
   };
 
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([
-    { role: "assistant", content: "Hello! I'm your Flatline AI Assistant. How can I help you with your detailing business today?" }
+    { role: "assistant", content: "Hello! I'm your DetailFlow AI Assistant. How can I help you optimize your detailing operations today?" }
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -85,7 +85,7 @@ export default function AIAssistant({
       {/* Floating Button */}
       <Button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-xl bg-primary hover:bg-red-700 z-50"
+        className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-glow-blue bg-primary hover:bg-[#2A6CFF] z-50 flex items-center justify-center text-white transition-all hover:scale-110"
       >
         <MessageSquare className="w-6 h-6" />
       </Button>
@@ -136,7 +136,7 @@ export default function AIAssistant({
                   onChange={(e) => setInput(e.target.value)}
                   className="bg-white border-gray-200"
                 />
-                <Button type="submit" disabled={isLoading} className="bg-primary hover:bg-red-700">
+                <Button type="submit" disabled={isLoading} className="bg-primary hover:bg-[#2A6CFF] text-white font-black shadow-glow-blue transition-all hover:scale-105">
                   <Send className="w-4 h-4" />
                 </Button>
               </form>

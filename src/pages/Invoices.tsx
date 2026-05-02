@@ -201,7 +201,7 @@ export default function Invoices() {
       if (invoice.clientPhone) {
         messagingService.sendSms({
           to: invoice.clientPhone,
-          body: `Flatline Mobile Detail: Payment received. Thank you! We appreciate your business. Reply STOP to opt out.`
+          body: `DetailFlow: Payment received. Thank you! We appreciate your business. Reply STOP to opt out.`
         }).then(() => console.log("Payment Receipt SMS sent successfully."))
           .catch(e => console.error("Receipt SMS failed:", e));
       }
@@ -369,7 +369,7 @@ export default function Invoices() {
             }
           }}>
             <DialogTrigger render={
-              <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105" onClick={() => {
+              <Button className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105" onClick={() => {
                 resetForm();
                 setIsAddDialogOpen(true);
               }}>
@@ -389,7 +389,7 @@ export default function Invoices() {
               <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.2em] mt-4">Legacy Address Mapping Offline</p>
             </div>
             <DialogFooter className="w-full">
-              <Button onClick={() => setIsAddDialogOpen(false)} className="w-full bg-primary hover:bg-red-700 text-white font-black h-12 rounded-xl">Acknowledged</Button>
+              <Button onClick={() => setIsAddDialogOpen(false)} className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl">Acknowledged</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -549,7 +549,7 @@ export default function Invoices() {
                         try {
                           await messagingService.sendSms({
                             to: selectedInvoice.clientPhone,
-                            body: `Flatline Mobile Detail: Your invoice is ready. Please complete payment at your convenience. Reply STOP to opt out.`
+                            body: `DetailFlow: Your invoice is ready. Please complete payment at your convenience. Reply STOP to opt out.`
                           });
                           console.log("Manual Invoice SMS sent successfully to:", selectedInvoice.clientPhone);
                         } catch (smsErr) {
@@ -566,7 +566,7 @@ export default function Invoices() {
                   <Mail className="w-4 h-4 mr-2 text-primary shrink-0" /> Email
                 </Button>
                 <Button 
-                  className="shrink-0 bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-4 sm:px-6 rounded-xl shadow-lg shadow-primary/20"
+                  className="shrink-0 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[10px] h-12 px-4 sm:px-6 rounded-xl shadow-glow-blue"
                   onClick={() => handleDownloadPDF(selectedInvoice)}
                 >
                   <FileText className="w-4 h-4 mr-2 shrink-0" /> Download PDF

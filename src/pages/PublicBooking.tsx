@@ -610,7 +610,7 @@ export default function PublicBooking() {
               Thank you, {clientInfo.name.split(" ")[0] || "there"}! Your booking request has been submitted. 
               We will review it and contact you shortly to confirm.
             </p>
-            <Button onClick={() => window.location.reload()} className="w-full bg-primary font-bold">
+            <Button onClick={() => window.location.reload()} className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl shadow-glow-blue transition-all hover:scale-105">
               Book Another Appointment
             </Button>
           </CardContent>
@@ -654,7 +654,7 @@ export default function PublicBooking() {
                  <div key={idx} className="flex items-center">
                    <div className={cn(
                      "flex items-center justify-center h-8 w-8 rounded-full text-xs font-black transition-all",
-                     isActive ? "bg-primary text-white scale-110 shadow-md shadow-primary/20" : 
+                     isActive ? "bg-primary text-white scale-110 shadow-glow-blue" : 
                      isCompleted ? "bg-primary/10 text-primary" : "bg-gray-100 text-gray-400"
                    )}>
                      {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : sNum}
@@ -728,7 +728,7 @@ export default function PublicBooking() {
                       <div className="flex justify-end pt-4">
                         <Button 
                           type="button" 
-                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
                           disabled={!clientInfo.vehicleInfo}
                           onClick={() => setStep(2)}
                         >
@@ -762,7 +762,7 @@ export default function PublicBooking() {
                             key={goal}
                             className={cn(
                               "p-4 rounded-xl border-2 transition-all cursor-pointer font-bold text-center",
-                              clientGoal === goal ? "border-primary bg-red-50 text-primary shadow-sm" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
+                              clientGoal === goal ? "border-primary bg-primary/5 text-primary shadow-glow-blue" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
                             )}
                             onClick={() => setClientGoal(goal)}
                           >
@@ -803,7 +803,7 @@ export default function PublicBooking() {
                               key={'int-'+lvl}
                               className={cn(
                                 "p-4 rounded-xl border-2 transition-all cursor-pointer font-bold text-center capitalize",
-                                condition.interior === lvl ? "border-primary bg-red-50 text-primary shadow-sm" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300"
+                                condition.interior === lvl ? "border-primary bg-primary/5 text-primary shadow-glow-blue" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300"
                               )}
                               onClick={() => setCondition(prev => ({...prev, interior: lvl}))}
                             >
@@ -821,7 +821,7 @@ export default function PublicBooking() {
                               key={'ext-'+lvl}
                               className={cn(
                                 "p-4 rounded-xl border-2 transition-all cursor-pointer font-bold text-center capitalize",
-                                condition.exterior === lvl ? "border-primary bg-red-50 text-primary shadow-sm" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300"
+                                condition.exterior === lvl ? "border-primary bg-primary/5 text-primary shadow-glow-blue" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300"
                               )}
                               onClick={() => setCondition(prev => ({...prev, exterior: lvl}))}
                             >
@@ -887,7 +887,7 @@ export default function PublicBooking() {
                         <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(2)}>Back</Button>
                         <Button 
                           type="button" 
-                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
                           disabled={!condition.interior || !condition.exterior}
                           onClick={() => setStep(4)}
                         >
@@ -914,7 +914,7 @@ export default function PublicBooking() {
                               key={service.id}
                               className={cn(
                                 "p-5 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between",
-                                selectedServices.includes(service.id) ? "border-primary bg-red-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"
+                                selectedServices.includes(service.id) ? "border-primary bg-primary/5 shadow-glow-blue" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"
                               )}
                               onClick={() => {
                                 setSelectedServices(prev => 
@@ -944,7 +944,7 @@ export default function PublicBooking() {
                                 key={addon.id}
                                 className={cn(
                                   "p-4 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-between",
-                                  selectedAddons.includes(addon.id) ? "border-primary bg-red-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"
+                                  selectedAddons.includes(addon.id) ? "border-primary bg-primary/5 shadow-glow-blue" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"
                                 )}
                                 onClick={() => {
                                   setSelectedAddons(prev => 
@@ -967,7 +967,7 @@ export default function PublicBooking() {
                         <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(3)}>Back</Button>
                         <Button 
                           type="button" 
-                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
                           disabled={selectedServices.length === 0}
                           onClick={() => setStep(5)}
                         >
@@ -1122,7 +1122,7 @@ export default function PublicBooking() {
                         <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(4)}>Back</Button>
                         <Button 
                           type="button" 
-                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white disabled:opacity-50"
+                          className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105 disabled:opacity-50"
                           disabled={!scheduledAt || (isTimeAvailable === false && (!backupScheduledAt || isBackupAvailable === false))}
                           onClick={() => setStep(6)}
                         >
@@ -1191,7 +1191,7 @@ export default function PublicBooking() {
                         <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(5)}>Back</Button>
                         <Button 
                           type="button" 
-                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
                           disabled={!clientInfo.name || !clientInfo.phone || !clientInfo.address}
                           onClick={() => setStep(7)}
                         >
@@ -1310,7 +1310,7 @@ export default function PublicBooking() {
                         <Button 
                           type="submit" 
                           form="booking-form"
-                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white shadow-xl shadow-red-500/20"
+                          className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
                           disabled={isSubmitting || matchedRiskRule?.protectionLevel === "Block Booking"}
                         >
                           {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}

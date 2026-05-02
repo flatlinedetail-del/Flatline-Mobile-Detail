@@ -436,7 +436,7 @@ export default function Dashboard() {
       const projectedRevenue = upcomingAppointments.reduce((sum, a) => sum + (a.totalAmount || 0), 0);
 
       const context = {
-        businessName: settings?.businessName || "Flatline Mobile Detail",
+        businessName: settings?.businessName || "DetailFlow",
         clientCount: clients.length,
         vipCount: clients.filter(c => c.isVIP).length,
         leadCount: allLeads.length,
@@ -513,12 +513,12 @@ export default function Dashboard() {
                       <SelectTrigger className="bg-black/40 border-white/10 text-white rounded-xl h-12">
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
-                      <SelectContent className="bg-card border-border text-white">
-                        <SelectItem value="fuel">Fuel</SelectItem>
-                        <SelectItem value="supplies">Supplies</SelectItem>
-                        <SelectItem value="marketing">Marketing</SelectItem>
-                        <SelectItem value="insurance">Insurance</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
+                      <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                        <SelectItem value="fuel" className="focus:bg-white/5 focus:text-white">Fuel</SelectItem>
+                        <SelectItem value="supplies" className="focus:bg-white/5 focus:text-white">Supplies</SelectItem>
+                        <SelectItem value="marketing" className="focus:bg-white/5 focus:text-white">Marketing</SelectItem>
+                        <SelectItem value="insurance" className="focus:bg-white/5 focus:text-white">Insurance</SelectItem>
+                        <SelectItem value="other" className="focus:bg-white/5 focus:text-white">Other</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -574,13 +574,13 @@ export default function Dashboard() {
                       />
                     </div>
                   </div>
-                  <Button className="w-full bg-primary text-white hover:bg-red-700 font-black h-14 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20" onClick={handleAddExpense}>
+                  <Button className="w-full bg-primary text-white hover:bg-[#2A6CFF] font-black h-14 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue" onClick={handleAddExpense}>
                     Finalize Transaction
                   </Button>
                 </div>
               </DialogContent>
             </Dialog>
-            <Button onClick={() => navigate("/book-appointment")} className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[11px] shadow-lg shadow-primary/20 transition-all hover:scale-105">
+            <Button onClick={() => navigate("/book-appointment")} className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[11px] shadow-glow-blue transition-all hover:scale-105">
               <Plus className="w-4 h-4 mr-2" /> New Deployment
             </Button>
           </div>
@@ -597,7 +597,7 @@ export default function Dashboard() {
             icon={<DollarSign className="w-6 h-6" />}
             trend={performancePercent >= 100 ? "up" : "down"}
             trendValue={`${Math.round(performancePercent)}%`}
-            color="red"
+            color="blue"
             standalone={focusedCardId === "daily-revenue"}
           />
         </FocusWrapper>
@@ -623,7 +623,7 @@ export default function Dashboard() {
             icon={<TrendingUp className="w-6 h-6" />}
             trend={stats.monthProjected > 0 ? (stats.monthCompleted / stats.monthProjected >= 1 ? "up" : "down") : "up"}
             trendValue={stats.monthProjected > 0 ? `${Math.round((stats.monthCompleted / stats.monthProjected) * 100)}%` : "0%"}
-            color="red"
+            color="blue"
             standalone={focusedCardId === "monthly-perf"}
           />
         </FocusWrapper>
@@ -644,7 +644,7 @@ export default function Dashboard() {
         {/* Route Optimization View */}
         <FocusWrapper id="job-route" title="Field Operations" focusedId={focusedCardId} onFocus={setFocusedCardId} className="lg:col-span-2">
           <Card className={cn(
-            "border-none bg-card rounded-3xl overflow-hidden shadow-xl h-full flex flex-col group transition-all duration-500 hover:shadow-primary/5",
+            "border border-white/5 bg-[#0B0B0B] rounded-3xl overflow-hidden shadow-xl h-full flex flex-col group transition-all duration-500 hover:shadow-primary/5",
             focusedCardId !== "job-route" && "max-h-[350px]"
           )}>
             <CardHeader className="p-8 border-b border-white/5 flex flex-row items-center justify-between bg-black/40 shrink-0">
@@ -653,9 +653,9 @@ export default function Dashboard() {
                   <Navigation className="w-5 h-5" />
                 </div>
                 <div>
-                  <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Job Route</CardTitle>
+                  <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading header-glow">Job Route</CardTitle>
                   <div className="flex items-center gap-3 mt-1">
-                    <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Efficiency Protocol Active</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest">Efficiency Protocol Active</p>
                     {optimizedRoute.length > 0 && (
                       <>
                         <div className="w-1 h-1 bg-primary rounded-full animate-pulse" />
@@ -690,10 +690,10 @@ export default function Dashboard() {
                   <div className="space-y-6 relative before:absolute before:left-[19px] before:top-4 before:bottom-4 before:w-[2px] before:bg-gradient-to-b before:from-primary before:to-primary/10">
                     {optimizedRoute.slice(0, focusedCardId === "job-route" ? undefined : 3).map((stop, idx) => (
                       <div key={`stop-${stop.id}-${idx}`} className="relative pl-12 flex items-start justify-between group">
-                        <div className="absolute left-0 top-1 w-10 h-10 rounded-xl bg-zinc-900 border border-white/10 flex items-center justify-center z-10 group-hover:border-primary/50 transition-all duration-300 shadow-xl text-white font-black text-sm">
+                        <div className="absolute left-0 top-1 w-10 h-10 rounded-xl bg-zinc-900 border border-white/10 flex items-center justify-center z-10 group-hover:border-primary/50 group-hover:shadow-glow-blue transition-all duration-300 shadow-xl text-white font-black text-sm">
                           {idx + 1}
                         </div>
-                        <div className="flex-1 bg-white/[0.03] rounded-2xl p-5 border border-white/5 hover:border-white/10 transition-all duration-300 group-hover:bg-white/[0.05] text-left">
+                        <div className="flex-1 bg-white/5 rounded-2xl p-5 border border-white/5 hover:border-white/10 transition-all duration-300 group-hover:bg-white/[0.08] text-left">
                           <div className="flex items-center justify-between mb-3">
                             <h4 className="font-black text-white tracking-tight uppercase text-sm">{stop.customerName || "Client"}</h4>
                             <div className="flex items-center gap-2">
@@ -706,7 +706,7 @@ export default function Dashboard() {
                             </div>
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="flex items-center gap-2 text-white/60">
+                            <div className="flex items-center gap-2 text-[#A0A0A0]">
                               <MapPin className="w-3.5 h-3.5 text-primary/60" />
                               <span className="text-xs font-bold truncate tracking-tight">{stop.address}</span>
                             </div>
@@ -736,7 +736,7 @@ export default function Dashboard() {
         <div className="space-y-8">
           <FocusWrapper id="intelligence" title="Operation Intelligence" focusedId={focusedCardId} onFocus={setFocusedCardId}>
             <Card className={cn(
-              "border-none bg-card rounded-3xl overflow-hidden shadow-xl transition-all duration-500 hover:shadow-primary/5",
+              "border border-white/5 bg-[#0B0B0B] rounded-3xl overflow-hidden shadow-xl transition-all duration-500 hover:shadow-primary/5",
               focusedCardId !== "intelligence" && "max-h-[350px]"
             )}>
               <CardHeader className="p-8 border-b border-white/5 bg-black/40">
@@ -744,7 +744,7 @@ export default function Dashboard() {
                   <div className="p-3 bg-primary/10 rounded-xl text-primary border border-primary/20 group-hover:scale-110 transition-transform">
                     <BrainCircuit className="w-5 h-5" />
                   </div>
-                  <CardTitle className="text-lg font-black text-white uppercase tracking-tighter font-heading">Intelligence</CardTitle>
+                  <CardTitle className="text-lg font-black text-white uppercase tracking-tighter font-heading header-glow">Intelligence</CardTitle>
                 </div>
               </CardHeader>
               <CardContent className={cn("p-8 grow space-y-8", focusedCardId !== "intelligence" && "pointer-events-none")}>
@@ -754,14 +754,14 @@ export default function Dashboard() {
                       <img src={`https://openweathermap.org/img/wn/${weather.current.icon}.png`} alt={weather.current.condition} className="w-10 h-10" />
                       <div>
                         <p className="text-xl font-black text-white">{weather.current.temp}°F</p>
-                        <p className="text-[10px] text-white/40 font-black uppercase">{weather.current.condition}</p>
+                        <p className="text-[10px] text-[#A0A0A0] font-black uppercase">{weather.current.condition}</p>
                       </div>
                     </div>
-                    <Badge variant="outline" className="text-[8px] font-black uppercase border-white/10 text-white/40">Real-time Data</Badge>
+                    <Badge variant="outline" className="text-[8px] font-black uppercase border-white/10 text-[#A0A0A0]">Real-time Data</Badge>
                   </div>
                 )}
                 <div className="space-y-4">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/20">Strategic Insights</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#A0A0A0]/40">Strategic Insights</p>
                   <div className="space-y-3">
                     {aiInsights.slice(0, focusedCardId === "intelligence" ? undefined : 1).map((insight, idx) => (
                       <div key={idx} className="p-4 bg-white/5 rounded-2xl border border-white/10 text-xs font-medium text-white/80 leading-relaxed">
@@ -771,7 +771,7 @@ export default function Dashboard() {
                     {focusedCardId === "intelligence" && isGeneratingInsights && (
                       <div className="flex items-center justify-center p-4 bg-white/5 rounded-2xl border border-white/10 border-dashed animate-pulse">
                         <Loader2 className="w-4 h-4 animate-spin text-primary mr-2" />
-                        <span className="text-[10px] font-black uppercase text-white/20 tracking-widest">Updating Intelligence...</span>
+                        <span className="text-[10px] font-black uppercase text-[#A0A0A0]/40 tracking-widest">Updating Intelligence...</span>
                       </div>
                     )}
                   </div>
@@ -780,11 +780,11 @@ export default function Dashboard() {
                   <div className="space-y-4 pt-4 border-t border-white/10">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-                        <p className="text-[10px] font-black uppercase text-white/20 mb-1">Total Clients</p>
+                        <p className="text-[10px] font-black uppercase text-[#A0A0A0]/40 mb-1">Total Clients</p>
                         <p className="text-xl font-black text-white">{clients.length}</p>
                       </div>
                       <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-                        <p className="text-[10px] font-black uppercase text-white/20 mb-1">Active Leads</p>
+                        <p className="text-[10px] font-black uppercase text-[#A0A0A0]/40 mb-1">Active Leads</p>
                         <p className="text-xl font-black text-white">{allLeads.filter(l => l.status !== "converted" && l.status !== "lost").length}</p>
                       </div>
                     </div>
@@ -795,14 +795,14 @@ export default function Dashboard() {
           </FocusWrapper>
 
           <FocusWrapper id="growth-metrics" title="Growth Vector Analysis" focusedId={focusedCardId} onFocus={setFocusedCardId}>
-            <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden transition-all duration-500 hover:shadow-primary/5">
+            <Card className="border border-white/5 shadow-xl bg-[#0B0B0B] rounded-3xl overflow-hidden transition-all duration-500 hover:shadow-primary/5">
               <CardHeader className="p-6 pb-2">
-                <CardTitle className="text-sm font-black uppercase tracking-widest text-white/40 font-heading">Growth Metrics</CardTitle>
+                <CardTitle className="text-sm font-black uppercase tracking-widest text-[#A0A0A0]/60 font-heading">Growth Metrics</CardTitle>
               </CardHeader>
               <CardContent className="p-6 pt-0 space-y-4">
                 <div className="space-y-2">
                   <div className="flex justify-between text-[10px] font-black uppercase">
-                    <span className="text-white/40">Retention</span>
+                    <span className="text-[#A0A0A0]/60">Retention</span>
                     <span className="text-primary">{growthMetrics.retentionRate}%</span>
                   </div>
                   <Progress value={growthMetrics.retentionRate} className="h-1.5" />
@@ -811,14 +811,14 @@ export default function Dashboard() {
                   <>
                     <div className="space-y-2">
                       <div className="flex justify-between text-[10px] font-black uppercase">
-                        <span className="text-white/40">Lead Conversion</span>
+                        <span className="text-[#A0A0A0]/60">Lead Conversion</span>
                         <span className="text-primary">{growthMetrics.conversionRate}%</span>
                       </div>
                       <Progress value={growthMetrics.conversionRate} className="h-1.5" />
                     </div>
                     <div className="space-y-2">
                       <div className="flex justify-between text-[10px] font-black uppercase">
-                        <span className="text-white/40">Avg Ticket Size</span>
+                        <span className="text-[#A0A0A0]/60">Avg Ticket Size</span>
                         <span className="text-primary">{formatCurrency(growthMetrics.avgTicket)}</span>
                       </div>
                       <Progress value={Math.min(100, (growthMetrics.avgTicket / 500) * 100)} className="h-1.5" />
@@ -835,14 +835,14 @@ export default function Dashboard() {
       {growthStrategy && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
+            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-glow-blue">
               <Rocket className="w-6 h-6 text-white" />
             </div>
-            <h2 className="text-2xl font-black text-white uppercase tracking-tighter font-heading">Scaling Insights</h2>
+            <h2 className="text-2xl font-black text-white uppercase tracking-tighter font-heading header-glow">Scaling Insights</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {growthStrategy.scalingInsights?.map((insight, idx) => (
-              <Card key={`${insight.finding}-${idx}`} className="border-none shadow-xl bg-card border-l-4 border-l-primary group hover:scale-[1.02] transition-all duration-300">
+              <Card key={`${insight.finding}-${idx}`} className="border border-white/5 shadow-xl bg-[#0B0B0B] border-l-4 border-l-primary group hover:scale-[1.02] transition-all duration-300">
                 <CardHeader className="pb-2">
                   <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1 flex items-center gap-2">
                     <Zap className="w-3 h-3" /> Scaling Opportunity
@@ -865,7 +865,7 @@ export default function Dashboard() {
       {/* Recent Leads */}
       <FocusWrapper id="recent-leads" title="Sales Acquisition Pipeline" focusedId={focusedCardId} onFocus={setFocusedCardId}>
         <Card className={cn(
-          "border-none bg-card rounded-3xl overflow-hidden shadow-xl transition-all duration-500 hover:shadow-primary/5",
+          "border border-white/5 bg-[#0B0B0B] rounded-3xl overflow-hidden shadow-xl transition-all duration-500 hover:shadow-primary/5",
           focusedCardId !== "recent-leads" && "max-h-[350px]"
         )}>
           <CardHeader className="p-8 border-b border-white/5 flex flex-row items-center justify-between bg-black/40">
@@ -874,16 +874,16 @@ export default function Dashboard() {
                 <UserCheck className="w-5 h-5" />
               </div>
               <div>
-                <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">High-Priority Inquiries</CardTitle>
-                <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-1">Pending conversion opportunities</p>
+                <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading header-glow">High-Priority Inquiries</CardTitle>
+                <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Pending conversion opportunities</p>
               </div>
             </div>
             <Button variant="ghost" size="sm" onClick={() => navigate("/leads")} className="font-black text-primary hover:bg-primary/5 uppercase tracking-widest text-[10px]">View Full Pipeline</Button>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y divide-border min-h-[100px]">
+            <div className="divide-y divide-white/5 min-h-[100px]">
               {recentLeads.length === 0 ? (
-                <div className="p-12 text-center text-white/40 uppercase tracking-widest text-[10px] font-black">No new inquiries detected.</div>
+                <div className="p-12 text-center text-[#A0A0A0] uppercase tracking-widest text-[10px] font-black">No new inquiries detected.</div>
               ) : (
                 recentLeads.slice(0, focusedCardId === "recent-leads" ? undefined : 3).map(lead => (
                   <div key={lead.id} className="p-6 flex items-center justify-between hover:bg-white/5 transition-all duration-300 group">
@@ -893,7 +893,7 @@ export default function Dashboard() {
                       </div>
                       <div>
                         <p className="font-black text-white uppercase tracking-tight text-sm">{lead.name}</p>
-                        <p className="text-xs text-white/60 font-medium mt-0.5">{lead.requestedService} • {lead.vehicleInfo}</p>
+                        <p className="text-xs text-[#A0A0A0] font-medium mt-0.5">{lead.requestedService} • {lead.vehicleInfo}</p>
                       </div>
                     </div>
                     <div className="text-right flex flex-col items-end gap-2 text-left">
@@ -903,7 +903,7 @@ export default function Dashboard() {
                       )}>
                         {lead.priority}
                       </Badge>
-                      <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">
+                      <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest">
                         {lead.createdAt instanceof Timestamp ? format(lead.createdAt.toDate(), "MMM d, h:mm a") : "Just now"}
                       </p>
                     </div>
@@ -946,7 +946,7 @@ function FocusWrapper({ id, focusedId, onFocus, title, children, className }: an
             />
             <motion.div
               layoutId={id}
-              className="w-full max-w-2xl bg-card border border-white/10 rounded-3xl overflow-hidden shadow-2xl relative z-10"
+              className="w-full max-w-2xl bg-[#0B0B0B] border border-white/10 rounded-3xl overflow-hidden shadow-2xl relative z-10"
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -957,7 +957,7 @@ function FocusWrapper({ id, focusedId, onFocus, title, children, className }: an
                   variant="ghost" 
                   size="icon" 
                   onClick={() => onFocus(null)}
-                  className="rounded-full hover:bg-white/10 text-white/40 hover:text-white"
+                  className="rounded-full hover:bg-white/10 text-[#A0A0A0] hover:text-white"
                 >
                   <X className="w-5 h-5" />
                 </Button>
@@ -976,9 +976,10 @@ function FocusWrapper({ id, focusedId, onFocus, title, children, className }: an
 function StatCard({ title, value, subValue, icon, trend, trendValue, color, standalone }: any) {
   const colors: any = {
     red: "bg-primary/10 text-primary border-primary/20",
-    white: "bg-secondary text-white border-border",
+    white: "bg-white/5 text-white border-white/10",
     orange: "bg-orange-500/10 text-orange-500 border-orange-500/20",
     green: "bg-green-500/10 text-green-500 border-green-500/20",
+    blue: "bg-primary/10 text-primary border-primary/20",
   };
 
   const content = (
@@ -1004,11 +1005,11 @@ function StatCard({ title, value, subValue, icon, trend, trendValue, color, stan
           </div>
           
           <div className="space-y-4">
-            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">{title}</p>
+            <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.3em]">{title}</p>
             <h3 className="text-4xl sm:text-6xl font-black text-white tracking-tighter font-heading leading-none drop-shadow-sm">{value}</h3>
             {subValue && (
               <p className="text-xs font-bold text-[#A0A0A0] flex items-center gap-2 mt-4">
-                <span className="w-2 h-2 bg-primary rounded-full shadow-[0_0_8px_rgba(229,57,53,0.6)]"></span>
+                <span className="w-2 h-2 bg-primary rounded-full shadow-glow-blue"></span>
                 {subValue}
               </p>
             )}
@@ -1021,7 +1022,7 @@ function StatCard({ title, value, subValue, icon, trend, trendValue, color, stan
   if (standalone) return content;
 
   return (
-    <Card className="border-none bg-card rounded-3xl overflow-hidden group hover:shadow-2xl transition-all duration-500 shadow-xl relative min-h-[300px]">
+    <Card className="border border-white/5 bg-[#0B0B0B] rounded-3xl overflow-hidden group hover:shadow-glow-blue transition-all duration-500 shadow-sm relative min-h-[300px]">
       {content}
     </Card>
   );

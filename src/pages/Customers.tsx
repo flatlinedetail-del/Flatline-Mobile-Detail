@@ -375,7 +375,7 @@ export default function Customers() {
             <div className="bg-black/80 p-8 text-white shrink-0 border-b border-white/5">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-primary/20">
+                  <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-glow-blue">
                     {selectedCustomer.name.charAt(0)}
                   </div>
                   <div>
@@ -407,7 +407,7 @@ export default function Customers() {
                     <div className="flex items-center gap-2 mt-2">
                       <Button 
                         size="sm" 
-                        className="bg-primary text-white hover:bg-primary/90 font-black uppercase tracking-widest text-[10px] rounded-xl h-9 px-4 shadow-lg shadow-primary/20"
+                        className="bg-primary text-white hover:bg-[#2A6CFF] font-black uppercase tracking-widest text-[10px] rounded-xl h-9 px-4 shadow-glow-blue"
                         onClick={() => {
                           toast.success("Book Appointment Clicked");
                           setIsDetailOpen(false);
@@ -590,7 +590,7 @@ export default function Customers() {
                           <AlertDialogCancel className="font-bold rounded-xl bg-white/5 border-white/10 text-white hover:bg-white/10">Cancel</AlertDialogCancel>
                           <AlertDialogAction 
                             onClick={() => handleDeleteCustomer(selectedCustomer.id)}
-                            className="bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest rounded-xl"
+                            className="bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest rounded-xl shadow-glow-red"
                           >
                             Delete Customer
                           </AlertDialogAction>
@@ -654,7 +654,7 @@ export default function Customers() {
                               <AlertDialogCancel className="font-bold">Cancel</AlertDialogCancel>
                               <AlertDialogAction 
                                 onClick={() => handleDeleteVehicle(v.id)}
-                                className="bg-red-600 hover:bg-red-700 font-bold"
+                                className="bg-red-600 hover:bg-red-700 font-black uppercase tracking-widest text-[10px] h-9 rounded-xl shadow-glow-red"
                               >
                                 Delete
                               </AlertDialogAction>
@@ -717,7 +717,7 @@ export default function Customers() {
                     <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Engagement History</h3>
                     <Button 
                       size="sm" 
-                      className="bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-9 rounded-xl"
+                      className="bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[10px] h-9 rounded-xl shadow-glow-blue"
                       onClick={() => {
                         toast.success("Book Appointment Clicked");
                         setIsDetailOpen(false);

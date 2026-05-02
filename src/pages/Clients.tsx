@@ -692,7 +692,7 @@ export default function Clients() {
                 }
               }}>
               <DialogTrigger render={
-                <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105">
+                <Button className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105">
                   <UserPlus className="w-4 h-4 mr-2" />
                   Add New Client
                 </Button>
@@ -780,7 +780,7 @@ export default function Clients() {
                     <Label htmlFor="notes" className="font-black uppercase tracking-widest text-[10px] text-white/60">Internal Notes</Label>
                     <Textarea id="notes" name="notes" defaultValue={editingClient?.notes || ""} placeholder="Any special instructions..." className="bg-white/5 border-white/10 text-white rounded-xl min-h-[100px]" />
                   </div>
-                  <Button type="submit" className="w-full bg-primary text-white hover:bg-red-700 font-black h-14 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20">
+                  <Button type="submit" className="w-full bg-primary text-white hover:bg-[#2A6CFF] font-black h-14 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105">
                     {editingClient ? "Update Client Profile" : "Register Client Profile"}
                   </Button>
                 </form>
@@ -1218,7 +1218,7 @@ export default function Clients() {
 
                     {/* Pending Actions & Details */}
                     <div className="space-y-6">
-                      <div className="p-6 bg-primary rounded-[2rem] shadow-xl shadow-primary/20 space-y-4">
+                      <div className="p-6 bg-primary rounded-[2rem] shadow-glow-blue space-y-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-white/20 rounded-2xl flex items-center justify-center">
                             <Zap className="w-5 h-5 text-white" />
@@ -1362,7 +1362,7 @@ export default function Clients() {
                             className={cn(
                               "cursor-pointer px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all duration-300",
                               selectedClient.categoryIds?.includes(cat.id) 
-                                ? "bg-primary text-white border-primary shadow-lg shadow-primary/20" 
+                                ? "bg-primary text-white border-primary shadow-glow-blue" 
                                 : "bg-transparent text-white/40 border-white/10 hover:border-white/20 hover:text-white"
                             )}
                             onClick={() => {
@@ -1462,7 +1462,7 @@ export default function Clients() {
                           <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Active Vehicle <span className="text-primary italic">Inventory</span></h3>
                           <Dialog>
                             <DialogTrigger render={
-                              <Button size="sm" className="bg-primary hover:bg-red-700 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20">
+                              <Button size="sm" className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105">
                                 <Plus className="w-4 h-4 mr-2" /> Add Asset
                               </Button>
                             } />
@@ -1535,7 +1535,7 @@ export default function Clients() {
                                         setClientVehicles(prev => prev.filter(x => x.id !== v.id));
                                         toast.success("Vehicle removed");
                                       }}
-                                      className="bg-primary hover:bg-red-700 text-white rounded-xl h-12 px-8 font-black uppercase tracking-widest text-[10px]"
+                                      className="bg-primary hover:bg-[#2A6CFF] text-white rounded-xl h-12 px-8 font-black uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105"
                                     >
                                       Remove Asset
                                     </AlertDialogAction>
@@ -1634,7 +1634,7 @@ export default function Clients() {
 
                                   <div className="flex gap-4 pt-4">
                                     <Button type="button" variant="ghost" onClick={() => setIsEditVehicleOpen(false)} className="flex-1 bg-white/5 text-white hover:bg-white/10 rounded-xl h-14 font-black uppercase tracking-widest text-xs">Cancel</Button>
-                                    <Button type="submit" className="flex-1 bg-primary hover:bg-red-700 text-white rounded-xl h-14 font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20">Save Changes</Button>
+                                    <Button type="submit" className="flex-1 bg-primary hover:bg-[#2A6CFF] text-white rounded-xl h-14 font-black uppercase tracking-widest text-xs shadow-glow-blue transition-all hover:scale-105">Save Changes</Button>
                                   </div>
                                 </form>
                               )}
@@ -1651,7 +1651,7 @@ export default function Clients() {
                     <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Service <span className="text-primary italic">History</span></h3>
                     <Button 
                       size="sm" 
-                      className="bg-primary hover:bg-red-700 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+                      className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue"
                       onClick={() => {
                         toast.success("Book Appointment Clicked");
                         setIsDetailOpen(false);
@@ -1977,7 +1977,7 @@ export default function Clients() {
                             <AlertDialogCancel className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold uppercase tracking-widest text-[10px]">Cancel</AlertDialogCancel>
                             <AlertDialogAction 
                               onClick={() => handleDeleteClient(selectedClient.id)}
-                              className="bg-primary hover:bg-red-700 text-white rounded-xl h-12 px-8 font-black uppercase tracking-widest text-[10px]"
+                              className="bg-red-600 hover:bg-red-700 text-white rounded-xl h-12 px-8 font-black uppercase tracking-widest text-[10px] shadow-glow-red transition-all hover:scale-105"
                             >
                               Confirm Purge
                             </AlertDialogAction>
@@ -2104,7 +2104,7 @@ export default function Clients() {
                     <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Document <span className="text-primary italic">Vault</span></h3>
                     <Button 
                       size="sm" 
-                      className="bg-primary hover:bg-red-700 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+                      className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105"
                       onClick={() => navigate("/forms-builder")}
                     >
                       <Plus className="w-4 h-4 mr-2" /> Send New Form
@@ -2185,7 +2185,7 @@ export default function Clients() {
                         size="sm" 
                         disabled={isUploading}
                         onClick={() => cameraInputRef.current?.click()}
-                        className="bg-primary hover:bg-red-700 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+                        className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105"
                       >
                         <Camera className="w-4 h-4 mr-2" />
                         {isUploading ? "Capturing..." : "Capture Media"}

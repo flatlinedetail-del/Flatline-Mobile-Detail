@@ -542,7 +542,7 @@ export default function AILeadEngine() {
                 )}
 
                 <Button 
-                  className="w-full h-14 rounded-2xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-widest shadow-xl shadow-primary/20 group relative overflow-hidden"
+                  className="w-full h-14 rounded-2xl bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest shadow-glow-blue group relative overflow-hidden"
                   disabled={isGenerating}
                   onClick={searchType === "internal" ? handleGenerateInternal : handleGenerateExternal}
                 >
@@ -1006,7 +1006,7 @@ export default function AILeadEngine() {
                   Close
                 </Button>
                 <Button 
-                  className="flex-1 h-12 rounded-xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20"
+                  className="flex-1 h-12 rounded-xl bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-xs shadow-glow-blue"
                   onClick={() => {
                     if (selectedLead.id) {
                       updateDoc(doc(db, "leads", selectedLead.id), { status: "contacted" });

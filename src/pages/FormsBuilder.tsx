@@ -231,7 +231,7 @@ export default function FormsBuilder() {
         actions={
           <Button 
             onClick={() => handleOpenEdit()} 
-            className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105"
+            className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105"
           >
             <Plus className="w-4 h-4 mr-2" />
             Initialize Protocol
@@ -505,7 +505,7 @@ export default function FormsBuilder() {
 
           <DialogFooter className="p-6 border-t shrink-0">
             <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
-            <Button onClick={handleSave} className="bg-primary hover:bg-red-700 font-bold">
+            <Button onClick={handleSave} className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105">
               {editingTemplate ? "Update Template" : "Create Template"}
             </Button>
           </DialogFooter>

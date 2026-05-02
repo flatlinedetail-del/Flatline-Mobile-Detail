@@ -75,10 +75,9 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
                   />
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-primary">
-                  {isInvoice ? <Receipt className="w-8 h-8" /> : <FileText className="w-8 h-8" />}
-                  <span className="text-2xl font-black tracking-tighter uppercase">
-                    {settings?.businessName || "Flatline Detail"}
+                <div className="flex items-center gap-2 text-blue-600">
+                  <span className="text-2xl font-black tracking-tighter uppercase italic">
+                    DETAIL<span className="text-slate-900">FLOW</span>
                   </span>
                 </div>
               )}
@@ -381,8 +380,8 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
                 )}
               </div>
               <div className="flex flex-col justify-end items-end">
-                <p className="text-sm font-black text-black uppercase tracking-tighter">Thank you for choosing</p>
-                <p className="text-lg font-black text-primary uppercase tracking-tighter font-heading">{settings?.businessName}</p>
+                <p className="text-sm font-black text-slate-900 uppercase tracking-tighter">Powered by</p>
+                <p className="text-lg font-black text-blue-600 uppercase tracking-tighter font-heading italic">DETAILFLOW</p>
               </div>
             </div>
           </div>

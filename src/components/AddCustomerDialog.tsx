@@ -59,7 +59,7 @@ export default function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps)
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger render={
-        <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
+        <Button className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105">
           <UserPlus className="w-4 h-4 mr-2" />
           Add New Customer
         </Button>
@@ -103,7 +103,7 @@ export default function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps)
             <StableTextarea id="notes" name="notes" placeholder="Special requests, gate codes, etc." className="min-h-[120px]" />
           </div>
           <div className="pt-4">
-            <Button type="submit" className="w-full h-12 bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest shadow-lg shadow-primary/20 rounded-xl">
+            <Button type="submit" className="w-full h-12 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest shadow-glow-blue rounded-xl transition-all hover:scale-105">
               Create Customer Profile
             </Button>
           </div>

@@ -264,7 +264,7 @@ export function ClientCommunication({ client }: ClientCommunicationProps) {
                 <Button 
                   type="submit" 
                   disabled={isSending || !content.trim()}
-                  className="w-full h-14 bg-primary hover:bg-red-700 text-white font-black uppercase tracking-[0.2em] text-[11px] rounded-2xl shadow-xl shadow-primary/20 transition-all hover:scale-[1.01]"
+                  className="w-full h-14 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-[0.2em] text-[11px] rounded-2xl shadow-glow-blue transition-all hover:scale-[1.01]"
                 >
                   {isSending ? (
                     <>

@@ -45,7 +45,7 @@ export function DeleteConfirmationDialog({
               e.stopPropagation();
               onConfirm();
             }}
-            className="bg-red-600 hover:bg-red-700 font-bold text-white"
+            className="bg-red-600 hover:bg-red-700 font-black uppercase tracking-widest text-xs h-12 rounded-xl text-white shadow-glow-red transition-all hover:scale-105"
           >
             Delete
           </AlertDialogAction>

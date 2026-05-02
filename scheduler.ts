@@ -92,7 +92,7 @@ async function processReminders(db: any) {
             job, 
             docSnap.id, 
             "reminder_24h", 
-            `Hi ${job.customerName}, reminder: your Flatline Mobile Detail appointment is tomorrow at ${formatTime(scheduledDate)}.`
+            `Hi ${job.customerName}, reminder: your DetailFlow appointment is tomorrow at ${formatTime(scheduledDate)}.`
           );
           updatedReminders.twentyFourHour = result.status;
           needsUpdate = true;
@@ -111,7 +111,7 @@ async function processReminders(db: any) {
             job, 
             docSnap.id, 
             "reminder_2h", 
-            `Hi ${job.customerName}, Flatline Mobile Detail will see you in about 2 hours for your appointment at ${formatTime(scheduledDate)}.`
+            `Hi ${job.customerName}, DetailFlow will see you in about 2 hours for your appointment at ${formatTime(scheduledDate)}.`
           );
           updatedReminders.twoHour = result.status;
           needsUpdate = true;

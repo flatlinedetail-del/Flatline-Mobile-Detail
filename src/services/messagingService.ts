@@ -29,16 +29,16 @@ export interface SmsTemplateData {
 }
 
 const DEFAULT_TEMPLATES: Record<string, string> = {
-  booked: "Hi {clientName}, your Flatline Mobile Detail appointment for {appointmentDate} at {appointmentTime} is confirmed.",
-  updated: "Hi {clientName}, your Flatline Mobile Detail appointment has been updated to {appointmentDate} at {appointmentTime}.",
-  canceled: "Hi {clientName}, your Flatline Mobile Detail appointment for {appointmentDate} has been canceled. Contact us if you need to reschedule.",
-  on_the_way: "Hi {clientName}, Flatline Mobile Detail is on the way to your location. See you soon.",
-  arrived: "Hi {clientName}, Flatline Mobile Detail has arrived at your location and is preparing to begin your service.",
-  started: "Hi {clientName}, your service with Flatline Mobile Detail has started.",
-  completed: "Hi {clientName}, your service is complete. Thank you for choosing Flatline Mobile Detail.",
-  invoice_sent: "Hi {clientName}, your Flatline Mobile Detail invoice for {invoiceAmount} is ready. You can view/pay it here: {invoiceLink}",
-  payment_reminder: "Hi {clientName}, reminder: your Flatline Mobile Detail invoice for {invoiceAmount} is still pending. Pay here: {paymentLink}",
-  review_request: "Hi {clientName}, thank you for choosing Flatline Mobile Detail. If you were happy with the service, please leave us a review: {reviewLink}"
+  booked: "Hi {clientName}, your DetailFlow appointment for {appointmentDate} at {appointmentTime} is confirmed.",
+  updated: "Hi {clientName}, your DetailFlow appointment has been updated to {appointmentDate} at {appointmentTime}.",
+  canceled: "Hi {clientName}, your DetailFlow appointment for {appointmentDate} has been canceled. Contact us if you need to reschedule.",
+  on_the_way: "Hi {clientName}, DetailFlow is on the way to your location. See you soon.",
+  arrived: "Hi {clientName}, DetailFlow has arrived at your location and is preparing to begin your service.",
+  started: "Hi {clientName}, your service with DetailFlow has started.",
+  completed: "Hi {clientName}, your service is complete. Thank you for choosing DetailFlow.",
+  invoice_sent: "Hi {clientName}, your DetailFlow invoice for {invoiceAmount} is ready. You can view/pay it here: {invoiceLink}",
+  payment_reminder: "Hi {clientName}, reminder: your DetailFlow invoice for {invoiceAmount} is still pending. Pay here: {paymentLink}",
+  review_request: "Hi {clientName}, thank you for choosing DetailFlow. If you were happy with the service, please leave us a review: {reviewLink}"
 };
 
 export function parseTemplate(template: string, data: SmsTemplateData): string {

@@ -241,11 +241,11 @@ export default function Leads() {
   );
 
   const statusColors: Record<string, string> = {
-    new: "bg-gray-100 text-gray-700 border-gray-200",
-    contacted: "bg-black text-white border-black",
-    quoted: "bg-red-50 text-primary border-red-200",
-    converted: "bg-green-100 text-green-700 border-green-200",
-    lost: "bg-red-100 text-red-700 border-red-200",
+    new: "bg-white/5 text-[#A0A0A0] border-white/10",
+    contacted: "bg-primary/10 text-primary border-primary/20",
+    quoted: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+    converted: "bg-green-500/10 text-green-500 border-green-500/20",
+    lost: "bg-red-500/10 text-red-500 border-red-500/20",
   };
 
   return (
@@ -280,7 +280,7 @@ export default function Leads() {
             }
           }}>
             <DialogTrigger render={
-              <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105" onClick={() => {
+              <Button className="bg-primary hover:opacity-90 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105" onClick={() => {
                 setEditingLead(null);
                 setIsAddDialogOpen(true);
               }}>
@@ -288,15 +288,15 @@ export default function Leads() {
                 Initialize Lead
               </Button>
             } />
-          <DialogContent className="bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black sm:max-w-[700px]">
+          <DialogContent className="bg-[#0B0B0B] border border-white/10 p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black sm:max-w-[700px]">
             <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
                   <UserPlus className="w-6 h-6" />
                 </div>
                 <div>
-                  <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase">{editingLead ? "Modify Opportunity" : "New Opportunity Acquisition"}</DialogTitle>
-                  <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mt-1">Strategic Lead Intake Protocol</p>
+                  <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase header-glow">{editingLead ? "Modify Opportunity" : "New Opportunity Acquisition"}</DialogTitle>
+                  <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">Strategic Lead Intake Protocol</p>
                 </div>
               </div>
             </DialogHeader>
@@ -304,18 +304,18 @@ export default function Leads() {
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Target Full Name</Label>
-                    <Input id="name" name="name" defaultValue={editingLead?.name || ""} placeholder="John Doe" required className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold" />
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Target Full Name</Label>
+                    <Input id="name" name="name" defaultValue={editingLead?.name || ""} placeholder="John Doe" required className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" />
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Contact Frequency (Phone)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Contact Frequency (Phone)</Label>
                     <Input 
                       id="phone" 
                       name="phone" 
                       defaultValue={editingLead?.phone || ""}
                       placeholder="(555) 000-0000" 
                       required 
-                      className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold"
+                      className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold"
                       onChange={(e) => {
                         e.target.value = formatPhoneNumber(e.target.value);
                       }}
@@ -323,11 +323,11 @@ export default function Leads() {
                   </div>
                 </div>
                 <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Digital Identity (Email)</Label>
-                  <Input id="email" name="email" type="email" defaultValue={editingLead?.email || ""} placeholder="john@example.com" className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold" />
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Digital Identity (Email)</Label>
+                  <Input id="email" name="email" type="email" defaultValue={editingLead?.email || ""} placeholder="john@example.com" className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" />
                 </div>
                 <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Mission Coordinates (Address)</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Mission Coordinates (Address)</Label>
                   <AddressInput 
                     defaultValue={editingLead?.address || ""}
                     onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({ 
@@ -340,11 +340,11 @@ export default function Leads() {
                       placeId: structured?.placeId || ""
                     })}
                     placeholder="123 Main St, City, ST"
-                    className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold"
+                    className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold"
                   />
                 </div>
                 <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Asset Profile (Vehicle)</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Asset Profile (Vehicle)</Label>
                   <VehicleSelector 
                     onSelect={setNewVehicleData}
                     initialValues={editingLead?.vehicleInfo ? {
@@ -356,26 +356,26 @@ export default function Leads() {
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Requested Protocol (Service)</Label>
-                    <Input id="requestedService" name="requestedService" defaultValue={editingLead?.requestedService || ""} placeholder="Full Detail" className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold" />
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Requested Protocol (Service)</Label>
+                    <Input id="requestedService" name="requestedService" defaultValue={editingLead?.requestedService || ""} placeholder="Full Detail" className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" />
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Priority Designation</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Priority Designation</Label>
                     <Select name="priority" defaultValue={editingLead?.priority || "medium"}>
-                      <SelectTrigger className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold">
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold">
                         <SelectValue placeholder="Select priority" />
                       </SelectTrigger>
-                      <SelectContent className="bg-white border-gray-100 text-black">
-                        <SelectItem value="hot" className="font-bold text-red-600">HOT (READY TO BOOK)</SelectItem>
-                        <SelectItem value="high" className="font-bold">HIGH</SelectItem>
-                        <SelectItem value="medium" className="font-bold">MEDIUM</SelectItem>
-                        <SelectItem value="low" className="font-bold">LOW</SelectItem>
+                      <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                        <SelectItem value="hot" className="font-bold text-primary focus:bg-white/5">HOT (READY TO BOOK)</SelectItem>
+                        <SelectItem value="high" className="font-bold focus:bg-white/5">HIGH</SelectItem>
+                        <SelectItem value="medium" className="font-bold focus:bg-white/5">MEDIUM</SelectItem>
+                        <SelectItem value="low" className="font-bold focus:bg-white/5">LOW</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Acquisition Source</Label>
-                    <Input id="source" name="source" defaultValue={editingLead?.source || ""} placeholder="Google, FB, Referral" className="bg-white border-gray-200 text-black rounded-xl h-12 font-bold" />
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Acquisition Source</Label>
+                    <Input id="source" name="source" defaultValue={editingLead?.source || ""} placeholder="Google, FB, Referral" className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold" />
                   </div>
                 </div>
               </div>
@@ -384,11 +384,11 @@ export default function Leads() {
                   type="button" 
                   variant="ghost" 
                   onClick={() => setIsAddDialogOpen(false)}
-                  className="flex-1 text-white/40 hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
+                  className="flex-1 text-[#A0A0A0] hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
                 >
                   Abort
                 </Button>
-                <Button type="submit" className="flex-[2] bg-primary text-white hover:bg-red-700 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 transition-all hover:scale-105">
+                <Button type="submit" className="flex-[2] bg-primary text-white hover:opacity-90 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105">
                   {editingLead ? "Authorize Update" : "Authorize Acquisition"}
                 </Button>
               </div>
@@ -399,13 +399,13 @@ export default function Leads() {
     }
   />
 
-      <Card className="border-none bg-card rounded-3xl overflow-hidden shadow-xl">
+      <Card className="border border-white/5 bg-[#0B0B0B] rounded-3xl overflow-hidden shadow-xl">
         <CardHeader className="p-8 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-black/40">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" />
             <Input 
               placeholder="Search opportunities..." 
-              className="pl-12 bg-white border-border text-black rounded-xl h-12 font-medium focus:ring-primary/50"
+              className="pl-12 bg-white/5 border border-white/10 text-white rounded-xl h-12 font-medium focus:ring-primary/50"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -413,13 +413,13 @@ export default function Leads() {
           <div className="flex items-center gap-3">
             <Button 
               variant="outline" 
-              className="rounded-xl border-border bg-white text-black hover:bg-gray-50 font-black uppercase tracking-widest text-[10px] h-12 px-6"
+              className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 font-black uppercase tracking-widest text-[10px] h-12 px-6"
               onClick={() => fetchLeads(true)}
             >
               <RefreshCcw className="w-4 h-4 mr-2 text-primary" />
               Sync Pipeline
             </Button>
-            <Button variant="outline" className="border-border bg-white text-black hover:bg-gray-50 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
+            <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
               <Filter className="w-4 h-4 mr-2 text-primary" />
               Filter Pipeline
             </Button>
@@ -429,27 +429,27 @@ export default function Leads() {
           <Table>
             <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow className="hover:bg-transparent border-none">
-                <TableHead className="px-8 py-5 text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Customer Entity</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Asset & Service</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Status</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Next Engagement</TableHead>
-                <TableHead className="px-8 py-5 text-right text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Tactical Actions</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Customer Entity</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Asset & Service</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Status</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Next Engagement</TableHead>
+                <TableHead className="px-8 py-5 text-right text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Tactical Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow className="hover:bg-transparent border-border">
-                  <TableCell colSpan={5} className="text-center py-20 text-white/40 font-black uppercase tracking-widest text-[10px] animate-pulse">Scanning Pipeline...</TableCell>
+                <TableRow className="hover:bg-transparent border-none">
+                  <TableCell colSpan={5} className="text-center py-20 text-[#A0A0A0] font-black uppercase tracking-widest text-[10px] animate-pulse">Scanning Pipeline...</TableCell>
                 </TableRow>
               ) : filteredLeads.length === 0 ? (
-                <TableRow className="hover:bg-transparent border-border">
-                  <TableCell colSpan={5} className="text-center py-20 text-white/40 font-black uppercase tracking-widest text-[10px]">No opportunities detected.</TableCell>
+                <TableRow className="hover:bg-transparent border-none">
+                  <TableCell colSpan={5} className="text-center py-20 text-[#A0A0A0] font-black uppercase tracking-widest text-[10px]">No opportunities detected.</TableCell>
                 </TableRow>
               ) : (
                 filteredLeads.map((lead) => (
                   <TableRow 
                     key={lead.id} 
-                    className="hover:bg-white/5 transition-all duration-300 cursor-pointer group border-border"
+                    className="hover:bg-white/5 transition-all duration-300 cursor-pointer group border-b border-white/5"
                     onClick={() => {
                       setSelectedLead(lead);
                       setIsDetailOpen(true);
@@ -458,7 +458,7 @@ export default function Leads() {
                     <TableCell className="px-8 py-6">
                       <div className="flex flex-col">
                         <span className="font-black text-white uppercase tracking-tight text-sm">{lead.name}</span>
-                        <div className="flex items-center gap-2 text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
+                        <div className="flex items-center gap-2 text-[10px] text-[#A0A0A0] font-bold uppercase tracking-widest mt-1">
                           <Phone className="w-3 h-3 text-primary" />
                           {formatPhoneNumber(lead.phone)}
                         </div>
@@ -467,16 +467,16 @@ export default function Leads() {
                     <TableCell className="px-8 py-6">
                       <div className="flex flex-col">
                         <span className="text-sm font-bold text-white/80">{lead.vehicleInfo}</span>
-                        <span className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-0.5">{lead.requestedService}</span>
+                        <span className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-0.5">{lead.requestedService}</span>
                       </div>
                     </TableCell>
                     <TableCell className="px-8 py-6">
                       <Badge variant="outline" className={cn(
                         "text-[9px] uppercase font-black tracking-widest px-2.5 py-1 rounded-md border-none",
-                        lead.status === "new" ? "bg-white/10 text-white/60" :
+                        lead.status === "new" ? "bg-white/10 text-[#A0A0A0]" :
                         lead.status === "contacted" ? "bg-primary/10 text-primary" :
                         lead.status === "converted" ? "bg-green-500/10 text-green-400" :
-                        "bg-white/10 text-white/40"
+                        "bg-white/10 text-[#A0A0A0]/40"
                       )}>
                         {lead.status?.replace("_", " ")}
                       </Badge>
@@ -485,7 +485,7 @@ export default function Leads() {
                       <div className="flex flex-col">
                         <span className={cn(
                           "text-[10px] font-black uppercase tracking-widest",
-                          lead.nextFollowUpAt && lead.nextFollowUpAt.toDate() < new Date() ? "text-primary" : "text-white/40"
+                          lead.nextFollowUpAt && lead.nextFollowUpAt.toDate() < new Date() ? "text-primary" : "text-[#A0A0A0]"
                         )}>
                           {lead.nextFollowUpAt ? format(lead.nextFollowUpAt.toDate(), "MMM d, yyyy") : "TBD"}
                         </span>
@@ -499,7 +499,7 @@ export default function Leads() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-9 w-9 text-white/70 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
+                          className="h-9 w-9 text-[#A0A0A0] hover:text-white hover:bg-white/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingLead(lead);
@@ -520,7 +520,7 @@ export default function Leads() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-9 w-9 text-white/70 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
+                          className="h-9 w-9 text-[#A0A0A0] hover:text-white hover:bg-white/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
                             window.location.href = `tel:${lead.phone}`;
@@ -531,7 +531,7 @@ export default function Leads() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-9 w-9 text-white/70 hover:text-green-400 hover:bg-green-500/10 rounded-xl transition-all"
+                          className="h-9 w-9 text-[#A0A0A0] hover:text-green-400 hover:bg-green-500/10 rounded-xl transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
                           navigate(`/book-appointment?leadId=${lead.id}`);
@@ -544,7 +544,7 @@ export default function Leads() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-9 w-9 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 rounded-xl transition-all"
+                              className="h-9 w-9 text-[#A0A0A0] hover:text-red-500 hover:bg-red-500/20 bg-white/5 rounded-xl transition-all"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -567,7 +567,7 @@ export default function Leads() {
       {/* Lead Details Dialog */}
       {selectedLead && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-          <DialogContent className="bg-white border-none p-0 overflow-hidden rounded-3xl shadow-2xl sm:max-w-[600px]">
+          <DialogContent className="bg-[#0B0B0B] border border-white/10 p-0 overflow-hidden rounded-3xl shadow-2xl sm:max-w-[600px]">
             <div className="bg-primary p-8 text-white shrink-0 relative overflow-hidden">
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
               <div className="relative z-10 flex justify-between items-start">
@@ -593,24 +593,24 @@ export default function Leads() {
               </div>
             </div>
 
-            <div key={selectedLead.id} className="p-8 space-y-8 bg-white">
+            <div key={selectedLead.id} className="p-8 space-y-8 bg-[#0B0B0B]">
               <div className="grid grid-cols-2 gap-8">
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black text-black/40 uppercase tracking-widest">Target Asset</p>
-                  <p className="text-lg font-black text-black uppercase tracking-tight">{selectedLead.vehicleInfo}</p>
+                  <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Target Asset</p>
+                  <p className="text-lg font-black text-white uppercase tracking-tight">{selectedLead.vehicleInfo}</p>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black text-black/40 uppercase tracking-widest">Requested Protocol</p>
-                  <p className="text-lg font-black text-black uppercase tracking-tight">{selectedLead.requestedService}</p>
+                  <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Requested Protocol</p>
+                  <p className="text-lg font-black text-white uppercase tracking-tight">{selectedLead.requestedService}</p>
                 </div>
               </div>
 
               <div className="space-y-3">
-                <p className="text-[10px] font-black text-black/40 uppercase tracking-widest">Intelligence Notes</p>
+                <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Intelligence Notes</p>
                 <Textarea 
                   defaultValue={selectedLead.notes}
                   placeholder="Add details about the inquiry..."
-                  className="min-h-[120px] bg-gray-50 border-gray-100 text-black rounded-2xl focus-visible:ring-primary p-5 leading-relaxed"
+                  className="min-h-[120px] bg-white/5 border-white/10 text-white rounded-2xl focus-visible:ring-primary p-5 leading-relaxed"
                   onBlur={async (e) => {
                     await updateDoc(doc(db, "leads", selectedLead.id), { notes: e.target.value });
                   }}
@@ -619,7 +619,7 @@ export default function Leads() {
 
               <div className="grid grid-cols-2 gap-4">
                 <Button 
-                  className="bg-primary hover:bg-red-700 text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
+                  className="bg-primary hover:opacity-90 text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
                   onClick={() => {
                     setIsDetailOpen(false);
                     
@@ -636,14 +636,14 @@ export default function Leads() {
                 </Button>
                 <Button 
                   variant="outline" 
-                  className="bg-gray-50 border-gray-100 text-black hover:bg-gray-100 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs transition-all hover:scale-[1.02]"
+                  className="bg-white/5 border-white/10 text-white hover:bg-white/10 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs transition-all hover:scale-[1.02]"
                   onClick={() => updateLeadStatus(selectedLead.id, "contacted")}
                 >
                   <MessageSquare className="w-4 h-4 mr-2 text-primary" /> Mark Contacted
                 </Button>
                 <Button 
                   variant="outline" 
-                  className="bg-gray-50 border-gray-100 text-black hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/20 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs transition-all hover:scale-[1.02]"
+                  className="bg-white/5 border-white/10 text-white hover:bg-white/10 hover:border-red-500/20 font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs transition-all hover:scale-[1.02]"
                   onClick={() => updateLeadStatus(selectedLead.id, "lost")}
                 >
                   <XCircle className="w-4 h-4 mr-2 text-primary" /> Mark Lost
@@ -663,7 +663,7 @@ export default function Leads() {
                 />
               </div>
 
-              <div className="pt-6 border-t border-gray-100 flex items-center justify-between text-[10px] text-black/40 font-black uppercase tracking-widest">
+              <div className="pt-6 border-t border-white/5 flex items-center justify-between text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest">
                 <p>Captured: {format(selectedLead.createdAt.toDate(), "MMM d, yyyy h:mm a")}</p>
                 <p>Source: {selectedLead.source}</p>
               </div>

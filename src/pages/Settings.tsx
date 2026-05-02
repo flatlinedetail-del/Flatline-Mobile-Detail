@@ -179,7 +179,7 @@ export default function Settings() {
         } else if (profile?.role === "admin") {
           // Initialize default settings ONLY if user is admin
           const defaultSettings: BusinessSettings = {
-            businessName: "Flatline Mobile Detail",
+            businessName: "DetailFlow",
             taxRate: 8.25,
             currency: "USD",
             timezone: "America/Chicago",
@@ -919,7 +919,7 @@ export default function Settings() {
     <div className="max-w-[1600px] mx-auto space-y-8 pb-20">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter mb-2 font-heading uppercase">
+          <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter mb-2 font-heading uppercase header-glow">
             SYSTEM <span className="text-primary italic">PREFERENCES</span>
           </h1>
           <p className="text-white/60 font-medium tracking-wide uppercase text-xs">
@@ -935,74 +935,74 @@ export default function Settings() {
       <Tabs value={activeTab} onValueChange={handleTabChange} orientation="vertical" className="flex flex-col md:flex-row gap-10">
         <div className="w-full md:w-72 shrink-0 space-y-8 h-fit sticky top-28">
           <TabsList className="flex flex-col h-auto bg-transparent border-none p-0 gap-1.5">
-            <h3 className="px-4 text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Identity & Profile</h3>
+            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-2">Identity & Profile</h3>
             <TabsTrigger 
               value="profile" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <User className="w-4 h-4" /> Personal Protocol
             </TabsTrigger>
             <TabsTrigger 
               value="business" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Building2 className="w-4 h-4" /> Business Core
             </TabsTrigger>
             <TabsTrigger 
               value="branding" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Palette className="w-4 h-4" /> Visual Identity
             </TabsTrigger>
 
-            <h3 className="px-4 text-[10px] font-black text-white/40 uppercase tracking-widest mt-6 mb-2">Fleet & Service</h3>
+            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Fleet & Service</h3>
             <TabsTrigger 
               value="staff" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Users className="w-4 h-4" /> Staff Management
             </TabsTrigger>
             <TabsTrigger 
               value="client-types" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <DatabaseZap className="w-4 h-4" /> Client Archetypes
             </TabsTrigger>
             <TabsTrigger 
               value="services" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <ClipboardList className="w-4 h-4" /> Service Protocols
             </TabsTrigger>
 
-            <h3 className="px-4 text-[10px] font-black text-white/40 uppercase tracking-widest mt-6 mb-2">Revenue & Growth</h3>
+            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Revenue & Growth</h3>
             <TabsTrigger 
               value="coupons" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Ticket className="w-4 h-4" /> Growth Incentives
             </TabsTrigger>
             <TabsTrigger 
               value="automation" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Zap className="w-4 h-4" /> Operational Automations
             </TabsTrigger>
             <TabsTrigger 
               value="calendar" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Calendar className="w-4 h-4" /> Calendar Service Colors
             </TabsTrigger>
             <TabsTrigger 
               value="integrations" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
-              <Plug className="w-4 h-4" /> Neural Links
+              <Plus className="w-4 h-4" /> Neural Links
             </TabsTrigger>
             <TabsTrigger 
               value="security" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Shield className="w-4 h-4" /> Security Layers
             </TabsTrigger>
@@ -1012,10 +1012,10 @@ export default function Settings() {
         <div className="flex-1 min-w-0">
 
         <TabsContent value="profile" className="mt-0">
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
+          <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Personal <span className="text-primary italic">Identity</span></CardTitle>
-              <CardDescription className="text-white/60 font-medium uppercase tracking-widest text-[10px] mt-1">Manage your individual system credentials</CardDescription>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Manage your individual system credentials</CardDescription>
             </CardHeader>
             <CardContent className="p-8">
               <form onSubmit={handleSaveProfile} className="space-y-8">
@@ -1060,10 +1060,10 @@ export default function Settings() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Public Display Name</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Public Display Name</Label>
                     <StableInput 
                       id="displayName" 
-                      className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                      className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                       value={profile?.displayName || ""} 
                       onValueChange={async (val) => {
                         if (profile?.uid) {
@@ -1074,18 +1074,18 @@ export default function Settings() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">System Email</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">System Email</Label>
                     <Input 
                       key={profile?.uid ? 'loaded' : 'loading'}
                       id="email" 
                       name="email" 
                       defaultValue={profile?.email || ""} 
                       placeholder="email@example.com" 
-                      className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold" 
+                      className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20" 
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Access Level</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Access Level</Label>
                     {profile?.role === "admin" ? (
                       <Select 
                         key={profile?.uid ? 'loaded' : 'loading'}
@@ -1108,12 +1108,12 @@ export default function Settings() {
                         <Shield className="w-4 h-4 text-primary" />
                         <span className="font-black text-white uppercase tracking-widest text-[10px]">{profile?.role}</span>
                         <input type="hidden" name="role" value={profile?.role || ""} />
-                        <Badge variant="outline" className="ml-auto text-[8px] uppercase font-black border-white/10 text-white/40">Locked</Badge>
+                        <Badge variant="outline" className="ml-auto text-[8px] uppercase font-black border-white/10 text-[#A0A0A0]">Locked</Badge>
                       </div>
                     )}
                   </div>
                 </div>
-                <Button type="submit" className="bg-primary hover:bg-red-700 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]" disabled={isSaving}>
+                <Button type="submit" className="bg-primary hover:opacity-90 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]" disabled={isSaving}>
                   {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                   Authorize Profile Update
                 </Button>
@@ -1123,19 +1123,19 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="staff" className="mt-0">
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20 flex flex-row items-center justify-between">
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40 flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Staff <span className="text-primary italic">Management</span></CardTitle>
-                <CardDescription className="text-white/60 font-medium uppercase tracking-widest text-[10px] mt-1">Manage your team members and their access levels</CardDescription>
+                <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Manage your team members and their access levels</CardDescription>
               </div>
               <Dialog open={isStaffDialogOpen} onOpenChange={setIsStaffDialogOpen}>
                 <DialogTrigger render={
-                  <Button className="bg-primary hover:bg-red-700 text-white font-black rounded-xl h-12 px-6 uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]">
+                  <Button className="bg-primary hover:opacity-90 text-white font-black rounded-xl h-12 px-6 uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02]">
                     <Plus className="w-4 h-4 mr-2" /> Add Staff Intelligence
                   </Button>
                 } />
-                <DialogContent className="bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black sm:max-w-[500px]">
+                <DialogContent className="bg-[#0B0B0B] border border-white/10 p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black sm:max-w-[500px]">
                   <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -1143,35 +1143,35 @@ export default function Settings() {
                       </div>
                       <div>
                         <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Authorize Staff Intelligence</DialogTitle>
-                        <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mt-1">Personnel Access Protocol</p>
+                        <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">Personnel Access Protocol</p>
                       </div>
                     </div>
                   </DialogHeader>
                   <div className="p-8 space-y-8">
                     <div className="space-y-6">
                       <div className="space-y-3">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Google Identity (Email)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Google Identity (Email)</Label>
                         <Input 
                           id="staffEmail" 
                           placeholder="staff@gmail.com" 
                           value={newStaffEmail} 
                           onChange={(e) => setNewStaffEmail(e.target.value)} 
-                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                         />
-                        <p className="text-[9px] text-white/60 font-black uppercase tracking-widest leading-relaxed">The operative must authenticate using this specific Google account.</p>
+                        <p className="text-[9px] text-[#A0A0A0]/60 font-black uppercase tracking-widest leading-relaxed">The operative must authenticate using this specific Google account.</p>
                       </div>
                       <div className="space-y-3">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Clearance Level (Role)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Clearance Level (Role)</Label>
                         <Select value={newStaffRole} onValueChange={setNewStaffRole}>
-                          <SelectTrigger className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-black uppercase tracking-widest text-[10px]">
+                          <SelectTrigger className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-black uppercase tracking-widest text-[10px] focus:ring-primary/20">
                             <SelectValue />
                           </SelectTrigger>
-                          <SelectContent className="bg-white border-border text-black">
-                            <SelectItem value="admin" className="font-black">ADMINISTRATOR</SelectItem>
-                            <SelectItem value="manager" className="font-black">MANAGER</SelectItem>
-                            <SelectItem value="technician" className="font-black">TECHNICIAN</SelectItem>
-                            <SelectItem value="office" className="font-black">OFFICE OPS</SelectItem>
-                            <SelectItem value="read-only" className="font-black">READ-ONLY</SelectItem>
+                          <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                            <SelectItem value="admin" className="font-black focus:bg-white/5 focus:text-white">ADMINISTRATOR</SelectItem>
+                            <SelectItem value="manager" className="font-black focus:bg-white/5 focus:text-white">MANAGER</SelectItem>
+                            <SelectItem value="technician" className="font-black focus:bg-white/5 focus:text-white">TECHNICIAN</SelectItem>
+                            <SelectItem value="office" className="font-black focus:bg-white/5 focus:text-white">OFFICE OPS</SelectItem>
+                            <SelectItem value="read-only" className="font-black focus:bg-white/5 focus:text-white">READ-ONLY</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -1181,13 +1181,13 @@ export default function Settings() {
                       <Button 
                         variant="ghost" 
                         onClick={() => setIsStaffDialogOpen(false)} 
-                        className="flex-1 text-white/40 hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
+                        className="flex-1 text-[#A0A0A0] hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
                       >
                         Abort
                       </Button>
                       <Button 
                         onClick={handleAddStaff} 
-                        className="flex-[2] bg-primary hover:bg-red-700 text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 transition-all hover:scale-105"
+                        className="flex-[2] bg-primary hover:opacity-90 text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105"
                       >
                         Authorize Operative
                       </Button>
@@ -1210,7 +1210,7 @@ export default function Settings() {
                       </div>
                       <div>
                         <p className="font-black text-white uppercase tracking-tight text-lg">{member.displayName || "New User"}</p>
-                        <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">{member.email}</p>
+                        <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest">{member.email}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -1220,15 +1220,15 @@ export default function Settings() {
                         onValueChange={(val) => handleUpdateStaffRole(member.id, val)}
                         disabled={member.email === "flatlinedetail@gmail.com"}
                       >
-                        <SelectTrigger className="w-[160px] bg-black/60 border-white/10 text-white font-black uppercase tracking-widest text-[10px] h-10 rounded-xl">
+                        <SelectTrigger className="w-[160px] bg-black/60 border-white/10 text-white font-black uppercase tracking-widest text-[10px] h-10 rounded-xl focus:ring-primary/20">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="bg-white border-border text-black">
-                          <SelectItem value="admin">Admin</SelectItem>
-                          <SelectItem value="manager">Manager</SelectItem>
-                          <SelectItem value="technician">Technician</SelectItem>
-                          <SelectItem value="office">Office</SelectItem>
-                          <SelectItem value="read-only">Read-only</SelectItem>
+                        <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                          <SelectItem value="admin" className="focus:bg-white/5 focus:text-white">Admin</SelectItem>
+                          <SelectItem value="manager" className="focus:bg-white/5 focus:text-white">Manager</SelectItem>
+                          <SelectItem value="technician" className="focus:bg-white/5 focus:text-white">Technician</SelectItem>
+                          <SelectItem value="office" className="focus:bg-white/5 focus:text-white">Office</SelectItem>
+                          <SelectItem value="read-only" className="focus:bg-white/5 focus:text-white">Read-only</SelectItem>
                         </SelectContent>
                       </Select>
                       {member.email !== "flatlinedetail@gmail.com" && (
@@ -1256,15 +1256,15 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="business" className="mt-0">
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
-              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Business <span className="text-primary italic">Intelligence</span></CardTitle>
-              <CardDescription className="text-white/60 font-medium uppercase tracking-widest text-[10px] mt-1">Configure asset logistics and document identities</CardDescription>
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading header-glow">Business <span className="text-primary italic">Intelligence</span></CardTitle>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Configure asset logistics and document identities</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-12">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-2 col-span-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Customer-Facing Invoice Address</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Customer-Facing Invoice Address</Label>
                   <AddressInput 
                     defaultValue={settings?.invoiceAddress}
                     onAddressSelect={(address) => handleSaveSettings({ invoiceAddress: address })}
@@ -1272,61 +1272,61 @@ export default function Settings() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Business Name</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Business Name</Label>
                   <StableInput 
                     id="businessName" 
-                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                     value={settings?.businessName || ""} 
                     onValueChange={(val) => setSettings(prev => prev ? { ...prev, businessName: val } : null)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Business Email</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Business Email</Label>
                   <StableInput 
                     id="businessEmail" 
                     type="email"
-                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                     value={settings?.businessEmail || ""} 
                     onValueChange={(val) => setSettings(prev => prev ? { ...prev, businessEmail: val } : null)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Business Phone</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Business Phone</Label>
                   <StableInput 
                     id="businessPhone" 
-                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                     value={settings?.businessPhone || ""} 
                     onValueChange={(val) => setSettings(prev => prev ? { ...prev, businessPhone: val } : null)}
                     formatOnBlur={formatPhoneNumber}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Default Tax Rate (%)</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Tax Rate (%)</Label>
                   <NumberInput 
                     id="taxRate" 
-                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                     value={settings?.taxRate || 0} 
                     onValueChange={(num) => setSettings(prev => prev ? { ...prev, taxRate: num } : null)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Currency</Label>
-                  <Input id="currency" value={settings?.currency || "USD"} disabled className="bg-black/20 border-white/5 text-white/40 rounded-xl h-12 font-bold" />
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Currency</Label>
+                  <Input id="currency" value={settings?.currency || "USD"} disabled className="bg-black/20 border-white/5 text-[#A0A0A0]/60 rounded-xl h-12 font-bold cursor-not-allowed" />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Timezone</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Timezone</Label>
                   <StableInput 
                     id="timezone" 
-                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                     value={settings?.timezone || ""} 
                     onValueChange={(val) => setSettings(prev => prev ? { ...prev, timezone: val } : null)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Default Technician Commission (%)</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Technician Commission (%)</Label>
                   <NumberInput 
                     id="commissionRate" 
-                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                    className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                     value={settings?.commissionRate || 0} 
                     onValueChange={(num) => setSettings(prev => prev ? { ...prev, commissionRate: num } : null)}
                   />
@@ -1335,10 +1335,10 @@ export default function Settings() {
               <div className="flex items-center gap-4 pt-8">
                 <Button 
                   onClick={() => handleSaveSettings(settings || {})} 
-                  className="bg-primary hover:bg-red-700 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] w-full"
+                  className="bg-primary hover:opacity-90 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02] w-full"
                   disabled={isSaving}
                 >
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
                   Authorize Business Update
                 </Button>
               </div>
@@ -1347,10 +1347,10 @@ export default function Settings() {
 
           {/* Business Hours */}
           <div className="mt-8"></div>
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
-              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Business <span className="text-primary italic">Hours</span></CardTitle>
-              <CardDescription className="text-white/40 font-black uppercase tracking-widest text-[10px] mt-1">Configure normal operating hours and after-hours protocol</CardDescription>
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading header-glow">Business <span className="text-primary italic">Hours</span></CardTitle>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Configure normal operating hours and after-hours protocol</CardDescription>
             </CardHeader>
             <CardContent className="p-8">
               <div className="space-y-6">
@@ -1372,15 +1372,15 @@ export default function Settings() {
                           }}
                           className="data-[state=checked]:bg-primary"
                         />
-                        <Label className="font-bold uppercase tracking-widest text-white/80">{dayName}</Label>
+                        <Label className="font-bold uppercase tracking-widest text-white">{dayName}</Label>
                       </div>
                       
                       <div className={`flex flex-1 items-center gap-4 transition-opacity ${!dayData?.isOpen ? 'opacity-20 pointer-events-none' : ''}`}>
                         <div className="flex-1 space-y-1">
-                          <Label className="text-[10px] uppercase font-black tracking-widest text-white/40">Open</Label>
+                          <Label className="text-[10px] uppercase font-black tracking-widest text-[#A0A0A0]">Open</Label>
                           <Input 
                             type="time" 
-                            className="bg-black/60 border-white/10 rounded-lg text-white font-bold h-11 focus:ring-2 focus:ring-primary/50"
+                            className="bg-black/60 border-white/10 rounded-lg text-white font-bold h-11 focus:ring-2 focus:ring-primary/20"
                             value={dayData?.openTime || "08:00"}
                             onChange={(e) => {
                               setSettings(prev => prev ? {
@@ -1394,10 +1394,10 @@ export default function Settings() {
                           />
                         </div>
                         <div className="flex-1 space-y-1">
-                          <Label className="text-[10px] uppercase font-black tracking-widest text-white/40">Close</Label>
+                          <Label className="text-[10px] uppercase font-black tracking-widest text-[#A0A0A0]">Close</Label>
                           <Input 
                             type="time" 
-                            className="bg-black/60 border-white/10 rounded-lg text-white font-bold h-11 focus:ring-2 focus:ring-primary/50"
+                            className="bg-black/60 border-white/10 rounded-lg text-white font-bold h-11 focus:ring-2 focus:ring-primary/20"
                             value={dayData?.closeTime || "18:00"}
                             onChange={(e) => {
                               setSettings(prev => prev ? {
@@ -1419,14 +1419,14 @@ export default function Settings() {
                   <div className="flex items-center justify-between mb-4">
                     <div className="space-y-1">
                       <Label className="text-white font-black uppercase tracking-widest">After-Hours Protocol</Label>
-                      <p className="text-xs text-white/60 font-medium tracking-tight">Allow booking outside normal business hours with a conditional fee.</p>
+                      <p className="text-xs text-[#A0A0A0] font-medium tracking-tight">Allow booking outside normal business hours with a conditional fee.</p>
                     </div>
                     <Switch 
                       checked={settings?.businessHours?.allowAfterHours || false}
                       onCheckedChange={(val) => setSettings(prev => prev ? { 
                         ...prev, 
                         businessHours: { ...(prev.businessHours as any), allowAfterHours: val } 
-                      } : null)}
+                       } : null)}
                       className="data-[state=checked]:bg-primary"
                     />
                   </div>
@@ -1434,10 +1434,10 @@ export default function Settings() {
                   {settings?.businessHours?.allowAfterHours && (
                     <div className="pt-4 grid grid-cols-1 gap-6 animate-in fade-in slide-in-from-top-2">
                       <div className="space-y-2">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">After-Hours Fee Amount ($)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">After-Hours Fee Amount ($)</Label>
                         <NumberInput 
                           id="afterHoursFeeAmount" 
-                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                           value={settings?.businessHours?.afterHoursFeeAmount || 0} 
                           onValueChange={(num) => setSettings(prev => prev ? { 
                             ...prev, 
@@ -1445,6 +1445,14 @@ export default function Settings() {
                           } : null)}
                         />
                       </div>
+                      <Button 
+                         onClick={() => handleSaveSettings(settings || {})} 
+                         className="bg-primary hover:opacity-90 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02] w-full"
+                         disabled={isSaving}
+                      >
+                         {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                         Authorize Business Update
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -1452,10 +1460,10 @@ export default function Settings() {
               <div className="flex items-center gap-4 pt-8 border-t border-white/5 mt-8">
                 <Button 
                   onClick={() => handleSaveSettings(settings || {})} 
-                  className="bg-primary hover:bg-red-700 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] w-full"
+                  className="bg-primary hover:opacity-90 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02] w-full"
                   disabled={isSaving}
                 >
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
                   Authorize Business Update
                 </Button>
               </div>
@@ -1464,10 +1472,10 @@ export default function Settings() {
 
           {/* Travel Pricing Merged */}
           <div className="mt-8"></div>
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Mileage & <span className="text-primary italic">Travel Logistics</span></CardTitle>
-              <CardDescription className="text-white/40 font-black uppercase tracking-widest text-[10px] mt-1">Configure asset logistics and travel premiums</CardDescription>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Configure asset logistics and travel premiums</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-12">
               <div className="flex items-center justify-between p-6 bg-primary/5 rounded-2xl border border-primary/10">
@@ -1476,10 +1484,10 @@ export default function Settings() {
                     <Truck className="w-6 h-6 text-primary" />
                     Protocol Status
                   </h3>
-                  <p className="text-xs text-white/60 font-medium leading-relaxed">Toggle the entire travel premium architecture on or off.</p>
+                  <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed">Toggle the entire travel premium architecture on or off.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Status Toggle</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Status Toggle</Label>
                   <Switch 
                     checked={settings?.travelPricing?.enabled ?? true} 
                     onCheckedChange={(checked) => {
@@ -1502,7 +1510,7 @@ export default function Settings() {
                     <div className="flex items-center justify-between">
                       <div className="space-y-1">
                         <Label className="text-white font-black uppercase tracking-widest text-[10px]">Calculation Strategy</Label>
-                        <p className="text-xs text-white/60 font-medium">Select the protocol for determining travel premiums.</p>
+                        <p className="text-xs text-[#A0A0A0] font-medium">Select the protocol for determining travel premiums.</p>
                       </div>
                       <Select 
                         value={settings?.travelPricing?.mode || "mileage"} 
@@ -1516,20 +1524,20 @@ export default function Settings() {
                           });
                         }}
                       >
-                        <SelectTrigger className="w-[200px] bg-black/40 border-white/10 text-white font-bold h-12 rounded-xl">
+                        <SelectTrigger className="w-[200px] bg-black/40 border-white/10 text-white font-bold h-12 rounded-xl focus:ring-primary/20">
                           <SelectValue placeholder="Select Mode" />
                         </SelectTrigger>
-                        <SelectContent className="bg-gray-900 border-white/10 text-white font-bold">
-                          <SelectItem value="mileage">Mileage Based</SelectItem>
-                          <SelectItem value="zones">Radius Zones</SelectItem>
-                          <SelectItem value="map_zones">Map Boundaries</SelectItem>
+                        <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white font-bold">
+                          <SelectItem value="mileage" className="focus:bg-white/5 focus:text-white">Mileage Based</SelectItem>
+                          <SelectItem value="zones" className="focus:bg-white/5 focus:text-white">Radius Zones</SelectItem>
+                          <SelectItem value="map_zones" className="focus:bg-white/5 focus:text-white">Map Boundaries</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
 
                   <div className="space-y-2 col-span-2">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Internal Tactical Base (Private location for distance logic)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Internal Tactical Base (Private location for distance logic)</Label>
                     <AddressInput 
                       defaultValue={settings?.baseAddress}
                       onAddressSelect={(address, lat, lng) => handleSaveSettings({ baseAddress: address, baseLatitude: lat, baseLongitude: lng })}
@@ -1540,11 +1548,11 @@ export default function Settings() {
                   {settings?.travelPricing.mode === "mileage" && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 col-span-2 animate-in fade-in slide-in-from-top-2 duration-300">
                       <div className="space-y-2">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Rate Per Mile ($)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Rate Per Mile ($)</Label>
                         <NumberInput 
                           id="pricePerMile" 
                           placeholder="e.g. 1.50"
-                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                           value={travelPricingInputs.pricePerMile} 
                           onValueChange={(num) => {
                             const val = num.toString();
@@ -1556,11 +1564,11 @@ export default function Settings() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Free Range Threshold (One Way Miles)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Free Range Threshold (One Way Miles)</Label>
                         <NumberInput 
                           id="freeMilesThreshold" 
                           placeholder="e.g. 10"
-                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                           value={travelPricingInputs.freeMilesThreshold} 
                           onValueChange={(num) => {
                             const val = num.toString();
@@ -1572,11 +1580,11 @@ export default function Settings() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Floor Travel Fee ($)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Floor Travel Fee ($)</Label>
                         <NumberInput 
                           id="minTravelFee" 
                           placeholder="e.g. 0"
-                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                           value={travelPricingInputs.minTravelFee} 
                           onValueChange={(num) => {
                             const val = num.toString();
@@ -1588,11 +1596,11 @@ export default function Settings() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Ceiling Travel Fee ($)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Ceiling Travel Fee ($)</Label>
                         <NumberInput 
                           id="maxTravelFee" 
                           placeholder="e.g. 100"
-                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold"
+                          className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
                           value={travelPricingInputs.maxTravelFee} 
                           onValueChange={(num) => {
                             const val = num.toString();
@@ -1606,7 +1614,7 @@ export default function Settings() {
                       <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 col-span-2">
                         <div className="space-y-1">
                           <Label className="text-white font-black uppercase tracking-widest text-[10px]">Route Optimization (Round Trip)</Label>
-                          <p className="text-xs text-white/60 font-medium tracking-tight">Calculate fee based on cumulative distance (departure and return).</p>
+                          <p className="text-xs text-[#A0A0A0] font-medium tracking-tight">Calculate fee based on cumulative distance (departure and return).</p>
                         </div>
                         <Switch 
                           checked={settings?.travelPricing.roundTripToggle || false} 
@@ -1624,11 +1632,11 @@ export default function Settings() {
                       <div className="flex items-center justify-between">
                         <div className="space-y-1">
                           <Label className="text-white font-black uppercase tracking-widest text-[10px]">Service Radius Protocols</Label>
-                          <p className="text-xs text-white/60 font-medium tracking-tight">Set discrete flat fees based on incremental distance from base.</p>
+                          <p className="text-xs text-[#A0A0A0] font-medium tracking-tight">Set discrete flat fees based on incremental distance from base.</p>
                         </div>
                         <Button 
                           onClick={handleAddTravelZone}
-                          className="bg-primary hover:bg-red-700 text-white font-bold h-10 px-6 rounded-xl text-[10px] uppercase tracking-widest"
+                          className="bg-primary hover:opacity-90 text-white font-bold h-10 px-6 rounded-xl text-[10px] uppercase tracking-widest"
                         >
                           <Plus className="w-4 h-4 mr-2" /> Register Zone
                         </Button>
@@ -1637,16 +1645,16 @@ export default function Settings() {
                         {settings?.travelPricing.zones?.map((zone, idx) => (
                           <div key={zone.id} className="grid grid-cols-4 gap-4 p-4 bg-black/40 rounded-2xl border border-white/5 items-end group">
                             <div className="space-y-2">
-                              <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Zone Alias</Label>
+                              <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Zone Alias</Label>
                               <Input 
                                 value={zone.name}
                                 onChange={(e) => handleUpdateTravelZone(idx, { name: e.target.value })}
-                                className="bg-white/5 border-white/10 text-white font-bold h-12 rounded-xl"
+                                className="bg-white/5 border-white/10 text-white font-bold h-12 rounded-xl focus:ring-primary/20"
                                 placeholder="Local Area"
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Min Miles</Label>
+                              <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Min Miles</Label>
                               <Input 
                                 type="number"
                                 value={zone.minDistance}
@@ -1696,7 +1704,7 @@ export default function Settings() {
                           <p className="text-xs text-white/60 font-medium tracking-tight">Draw custom service perimeters on the map to define distinct travel premiums.</p>
                         </div>
                         <Dialog>
-                          <DialogTrigger className="bg-primary hover:bg-red-700 text-white font-black h-10 px-6 rounded-xl text-[10px] uppercase tracking-widest flex items-center justify-center">
+                          <DialogTrigger className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl text-[10px] uppercase tracking-widest flex items-center justify-center shadow-glow-blue transition-all hover:scale-105">
                             <Plus className="w-4 h-4 mr-2" /> Launch Tactical Editor
                           </DialogTrigger>
                           <DialogContent className="max-w-7xl p-0 h-[85vh] bg-black border-white/10 outline-none">
@@ -1765,7 +1773,7 @@ export default function Settings() {
 
                   <Button 
                     onClick={() => handleSaveSettings(settings || {})} 
-                    className="bg-primary hover:bg-red-700 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] col-span-2"
+                    className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02] col-span-2"
                     disabled={isSaving}
                   >
                     {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
@@ -1778,10 +1786,10 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="branding" className="mt-0">
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Visual <span className="text-primary italic">Branding</span></CardTitle>
-              <CardDescription className="text-white/60 font-medium uppercase tracking-widest text-[10px] mt-1">Manage your business logo and document identity</CardDescription>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Manage your business logo and document identity</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-12">
               <div className="space-y-6">
@@ -1806,7 +1814,7 @@ export default function Settings() {
                       className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer backdrop-blur-sm" 
                       onClick={() => !isUploading && fileInputRef.current?.click()}
                     >
-                      <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/20">
+                      <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center shadow-glow-blue">
                         <Upload className="w-6 h-6 text-white" />
                       </div>
                     </div>
@@ -1814,7 +1822,7 @@ export default function Settings() {
                   <div className="flex-1 space-y-8">
                     <div className="space-y-2">
                       <h4 className="text-lg font-black text-white uppercase tracking-tight">Business Logo <span className="text-primary italic">Asset</span></h4>
-                      <p className="text-xs text-white/40 font-medium leading-relaxed max-w-md">
+                      <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed max-w-md">
                         This asset will be used across all official documents, invoices, and the public booking interface. 
                         Adjust the scale and positioning to ensure it fits perfectly in all contexts.
                       </p>
@@ -1824,7 +1832,7 @@ export default function Settings() {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-left-4 duration-500">
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 italic">Scale Factor</Label>
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]/40 italic">Scale Factor</Label>
                             <span className="text-[10px] font-black text-primary">{(settings?.logoSettings?.scale || 1).toFixed(2)}x</span>
                           </div>
                           <Slider 
@@ -1844,7 +1852,7 @@ export default function Settings() {
                         </div>
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 italic">X-Position</Label>
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]/40 italic">X-Position</Label>
                             <span className="text-[10px] font-black text-primary">{settings?.logoSettings?.x || 0}px</span>
                           </div>
                           <Slider 
@@ -1864,7 +1872,7 @@ export default function Settings() {
                         </div>
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 italic">Y-Position</Label>
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]/40 italic">Y-Position</Label>
                             <span className="text-[10px] font-black text-primary">{settings?.logoSettings?.y || 0}px</span>
                           </div>
                           <Slider 
@@ -1897,7 +1905,7 @@ export default function Settings() {
                         type="button" 
                         onClick={() => fileInputRef.current?.click()}
                         disabled={isUploading}
-                        className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
+                        className="bg-primary hover:opacity-90 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02]"
                       >
                         {isUploading ? (
                           <>
@@ -1933,7 +1941,7 @@ export default function Settings() {
                         </Button>
                       )}
                     </div>
-                    <div className="flex items-center gap-4 text-[9px] font-black uppercase tracking-[0.2em] text-white/20">
+                    <div className="flex items-center gap-4 text-[9px] font-black uppercase tracking-[0.2em] text-[#A0A0A0]/20">
                       <span className="flex items-center gap-1.5"><Check className="w-3 h-3 text-green-500" /> PNG/JPG/JPEG</span>
                       <span className="w-1 h-1 bg-white/10 rounded-full"></span>
                       <span className="flex items-center gap-1.5"><Check className="w-3 h-3 text-green-500" /> Max 2MB</span>
@@ -1946,14 +1954,14 @@ export default function Settings() {
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
                   <div className="space-y-1">
                     <Label className="text-white font-black uppercase tracking-widest text-[10px]">Document Logo Visibility</Label>
-                    <p className="text-xs text-white/60 font-medium">Include your official logo on invoices, quotes, and reports.</p>
+                    <p className="text-xs text-[#A0A0A0] font-medium">Include your official logo on invoices, quotes, and reports.</p>
                   </div>
                   <Switch defaultChecked className="data-[state=checked]:bg-primary" />
                 </div>
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
                   <div className="space-y-1">
                     <Label className="text-white font-black uppercase tracking-widest text-[10px]">Watermark Protocol</Label>
-                    <p className="text-xs text-white/60 font-medium">Add a subtle watermark to the background of PDF exports.</p>
+                    <p className="text-xs text-[#A0A0A0] font-medium">Add a subtle watermark to the background of PDF exports.</p>
                   </div>
                   <Switch defaultChecked className="data-[state=checked]:bg-primary" />
                 </div>
@@ -1964,7 +1972,7 @@ export default function Settings() {
                 <div className="pt-4 px-2">
                   <Slider defaultValue={[50]} max={100} step={1} className="[&_[role=slider]]:bg-primary" />
                 </div>
-                <div className="flex justify-between text-[8px] text-white/20 font-black uppercase tracking-[0.2em]">
+                <div className="flex justify-between text-[8px] text-[#A0A0A0]/20 font-black uppercase tracking-[0.2em]">
                   <span>Minimal</span>
                   <span>Standard</span>
                   <span>Prominent</span>
@@ -1989,7 +1997,7 @@ export default function Settings() {
                 </div>
               </div>
 
-              <Button className="w-full bg-primary hover:bg-red-700 text-white font-black uppercase tracking-[0.2em] h-14 rounded-xl text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.01]">
+              <Button className="w-full bg-primary hover:opacity-90 text-white font-black uppercase tracking-[0.2em] h-14 rounded-xl text-xs shadow-glow-blue transition-all hover:scale-[1.01]">
                 Authorize Branding Update
               </Button>
             </CardContent>
@@ -1998,13 +2006,13 @@ export default function Settings() {
 
         <TabsContent value="services" className="mt-0">
           <div className="grid grid-cols-1 gap-8">
-            <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-              <CardHeader className="p-8 border-b border-white/5 bg-black/20 flex flex-row items-center justify-between">
+            <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+              <CardHeader className="p-8 border-b border-white/5 bg-black/40 flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Service <span className="text-primary italic">Protocols</span></CardTitle>
-                  <CardDescription className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-1">Manage your primary detailing packages</CardDescription>
+                  <CardDescription className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Manage your primary detailing packages</CardDescription>
                 </div>
-                <Button size="sm" className="bg-primary hover:bg-red-700 text-white font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]" onClick={() => {
+                <Button size="sm" className="bg-primary hover:opacity-90 text-white font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02]" onClick={() => {
                   setEditingService({
                     name: "",
                     description: "",
@@ -2071,7 +2079,7 @@ export default function Settings() {
           </div>
 
           <Dialog open={isServiceDialogOpen} onOpenChange={setIsServiceDialogOpen}>
-            <DialogContent className="max-w-2xl bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black">
+            <DialogContent className="max-w-2xl bg-[#0B0B0B] border border-white/10 p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black">
               <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -2079,98 +2087,98 @@ export default function Settings() {
                   </div>
                   <div>
                     <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">{editingService?.id ? "Modify Service Protocol" : "Initialize New Service"}</DialogTitle>
-                    <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mt-1">Operational Service Definition</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">Operational Service Definition</p>
                   </div>
                 </div>
               </DialogHeader>
               <form onSubmit={handleSaveService} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
                 <div className="space-y-6">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Protocol Designation (Name)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Protocol Designation (Name)</Label>
                     <StableInput 
                       value={editingService?.name || ""} 
                       onValueChange={val => setEditingService(prev => ({ ...prev!, name: val }))}
                       required
-                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                     />
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Operational Brief (Description)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Operational Brief (Description)</Label>
                     <StableTextarea 
                       value={editingService?.description || ""} 
                       onValueChange={val => setEditingService(prev => ({ ...prev!, description: val }))}
-                      className="bg-black/40 border-white/10 text-white rounded-xl font-bold min-h-[100px]"
+                      className="bg-black/40 border-white/10 text-white rounded-xl font-bold min-h-[100px] focus:ring-primary/20"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Mission Category</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Mission Category</Label>
                       <Select 
                         value={editingService?.category || ""} 
                         onValueChange={(v: any) => setEditingService(prev => ({ ...prev!, category: v }))}
                       >
-                        <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold">
+                        <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20">
                           <SelectValue placeholder="Select Category" />
                         </SelectTrigger>
-                        <SelectContent className="bg-white border-border text-black">
+                        <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
                           {categories.filter(c => c.type === "service" && c.isActive).map(cat => (
-                            <SelectItem key={cat.id} value={cat.name} className="font-bold">{cat.name}</SelectItem>
+                            <SelectItem key={cat.id} value={cat.name} className="font-bold focus:bg-white/5 focus:text-white">{cat.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Base Financial Value ($)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Base Financial Value ($)</Label>
                       <NumberInput 
                         value={editingService?.basePrice || 0}
                         onValueChange={val => setEditingService(prev => ({ ...prev!, basePrice: val }))}
-                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                         required
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Duration (Minutes)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Duration (Minutes)</Label>
                       <StableInput 
                         type="text"
                         inputMode="numeric"
                         value={editingService?.estimatedDuration?.toString() || ""} 
                         onValueChange={val => setEditingService(prev => ({ ...prev!, estimatedDuration: parseInt(val) || 0 }))}
                         required
-                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                       />
                     </div>
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Buffer Time (Minutes)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Buffer Time (Minutes)</Label>
                       <StableInput 
                         type="text"
                         inputMode="numeric"
                         placeholder="e.g. 15"
                         value={editingService?.bufferTimeMinutes?.toString() || ""} 
                         onValueChange={val => setEditingService(prev => ({ ...prev!, bufferTimeMinutes: parseInt(val) || 0 }))}
-                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                       />
                     </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Taxable</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Taxable</Label>
                       <Switch 
                         checked={editingService?.isTaxable ?? true} 
                         onCheckedChange={v => setEditingService(prev => ({ ...prev!, isTaxable: v }))}
                       />
                     </div>
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Requires Waiver</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Requires Waiver</Label>
                       <Switch 
                         checked={editingService?.requiresWaiver ?? false} 
                         onCheckedChange={v => setEditingService(prev => ({ ...prev!, requiresWaiver: v }))}
                       />
                     </div>
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Active Status</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Active Status</Label>
                       <Switch 
                         checked={editingService?.isActive ?? true} 
                         onCheckedChange={v => setEditingService(prev => ({ ...prev!, isActive: v }))}
@@ -2182,8 +2190,8 @@ export default function Settings() {
                 <div className="space-y-6 pt-6 border-t border-white/5">
                   <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
                     <div className="space-y-1">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Require Deposit</Label>
-                      <p className="text-[10px] text-white/40">Require a deposit when booking this service</p>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Require Deposit</Label>
+                      <p className="text-[10px] text-[#A0A0A0]/60">Require a deposit when booking this service</p>
                     </div>
                     <Switch 
                       checked={editingService?.depositRequired ?? false} 
@@ -2194,26 +2202,26 @@ export default function Settings() {
                   {editingService?.depositRequired && (
                     <div className="grid grid-cols-2 gap-6 p-6 bg-black/20 rounded-2xl border border-white/5">
                       <div className="space-y-3">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Deposit Type</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Deposit Type</Label>
                         <Select 
                           value={editingService?.depositType || "fixed"} 
                           onValueChange={(v: "fixed" | "percentage") => setEditingService(prev => ({ ...prev!, depositType: v }))}
                         >
-                          <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold">
+                          <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20">
                             <SelectValue />
                           </SelectTrigger>
-                          <SelectContent className="bg-zinc-900 border-white/10">
-                            <SelectItem value="fixed">Fixed Amount ($)</SelectItem>
-                            <SelectItem value="percentage">Percentage (%)</SelectItem>
+                          <SelectContent className="bg-[#0B0B0B] border border-white/10">
+                            <SelectItem value="fixed" className="focus:bg-white/5 focus:text-white">Fixed Amount ($)</SelectItem>
+                            <SelectItem value="percentage" className="focus:bg-white/5 focus:text-white">Percentage (%)</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-3">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Deposit Amount</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Deposit Amount</Label>
                         <NumberInput 
                           value={editingService?.depositAmount || 0}
                           onValueChange={val => setEditingService(prev => ({ ...prev!, depositAmount: val }))}
-                          className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                          className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                         />
                       </div>
                     </div>
@@ -2223,8 +2231,8 @@ export default function Settings() {
                 <div className="space-y-6 pt-6 border-t border-white/5">
                   <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
                     <div className="space-y-1">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Maintenance Return Automation</Label>
-                      <p className="text-[10px] text-white/40">Enable autonomous return scheduling protocols</p>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Maintenance Return Automation</Label>
+                      <p className="text-[10px] text-[#A0A0A0]/60">Enable autonomous return scheduling protocols</p>
                     </div>
                     <Switch 
                       checked={editingService?.maintenanceReturnEnabled ?? false} 
@@ -2235,34 +2243,34 @@ export default function Settings() {
                   {editingService?.maintenanceReturnEnabled && (
                     <div className="grid grid-cols-2 gap-6 p-6 bg-black/20 rounded-2xl border border-white/5">
                       <div className="space-y-3">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Interval (Days)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Interval (Days)</Label>
                         <StableInput 
                           type="text"
                           inputMode="numeric"
                           value={editingService?.maintenanceIntervalDays?.toString() || ""} 
                           onValueChange={val => setEditingService(prev => ({ ...prev!, maintenanceIntervalDays: parseInt(val) || 0 }))}
-                          className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                          className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                         />
                       </div>
                       <div className="space-y-3">
-                        <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Interval (Months)</Label>
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Interval (Months)</Label>
                         <StableInput 
                           type="text"
                           inputMode="numeric"
                           value={editingService?.maintenanceIntervalMonths?.toString() || ""} 
                           onValueChange={val => setEditingService(prev => ({ ...prev!, maintenanceIntervalMonths: parseInt(val) || 0 }))}
-                          className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                          className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                         />
                       </div>
                       <div className="flex items-center justify-between col-span-2 p-3 bg-white/5 rounded-xl">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Auto-create Calendar Return</Label>
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Auto-create Calendar Return</Label>
                         <Switch 
                           checked={editingService?.autoCreateCalendarReturn ?? false} 
                           onCheckedChange={v => setEditingService(prev => ({ ...prev!, autoCreateCalendarReturn: v }))}
                         />
                       </div>
                       <div className="flex items-center justify-between col-span-2 p-3 bg-white/5 rounded-xl">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Auto-create Lead Follow-up</Label>
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Auto-create Lead Follow-up</Label>
                         <Switch 
                           checked={editingService?.autoCreateLeadFollowUp ?? false} 
                           onCheckedChange={v => setEditingService(prev => ({ ...prev!, autoCreateLeadFollowUp: v }))}
@@ -2272,15 +2280,15 @@ export default function Settings() {
                   )}
 
                   <div className="space-y-4 pt-4 border-t border-white/5">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Pricing by Vehicle Size Matrix</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Pricing by Vehicle Size Matrix</Label>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       {VEHICLE_SIZES.map(size => (
                         <div key={size.value} className="space-y-2">
-                          <Label className="text-[9px] font-black uppercase tracking-tighter text-white/40">{size.label}</Label>
+                          <Label className="text-[9px] font-black uppercase tracking-tighter text-[#A0A0A0]">{size.label}</Label>
                           <StableInput 
                             type="text"
                             inputMode="decimal"
-                            className="bg-black/40 border-white/10 text-white h-10 rounded-lg font-bold text-xs"
+                            className="bg-black/40 border-white/10 text-white h-10 rounded-lg font-bold text-xs focus:ring-primary/20"
                             value={editingService?.pricingBySize?.[size.value]?.toString() || ""}
                             onValueChange={val => setEditingService(prev => ({
                               ...prev!,
@@ -2301,13 +2309,13 @@ export default function Settings() {
                     variant="ghost" 
                     type="button" 
                     onClick={() => setIsServiceDialogOpen(false)} 
-                    className="flex-1 text-white/40 hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
+                    className="flex-1 text-[#A0A0A0] hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
                   >
                     Abort
                   </Button>
                   <Button 
                     type="submit" 
-                    className="flex-[2] bg-primary hover:bg-red-700 text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 transition-all hover:scale-105"
+                    className="flex-[2] bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105"
                   >
                     Authorize Protocol
                   </Button>
@@ -2318,11 +2326,11 @@ export default function Settings() {
 
           {/* Enhancement Add-ons */}
           <div className="grid grid-cols-1 gap-8 mt-8">
-            <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-              <CardHeader className="p-8 border-b border-white/5 bg-black/20 flex flex-row items-center justify-between">
+            <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+              <CardHeader className="p-8 border-b border-white/5 bg-black/40 flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Enhancement <span className="text-primary italic">Add-ons</span></CardTitle>
-                  <CardDescription className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-1">Extra services that can be added to any package</CardDescription>
+                  <CardDescription className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Extra services that can be added to any package</CardDescription>
                 </div>
                 <Button size="sm" className="bg-white/10 hover:bg-white/20 text-white font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] transition-all" onClick={() => {
                   setEditingAddon({
@@ -2387,7 +2395,7 @@ export default function Settings() {
           </div>
 
           <Dialog open={isAddonDialogOpen} onOpenChange={setIsAddonDialogOpen}>
-            <DialogContent className="max-w-xl bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black">
+            <DialogContent className="max-w-xl bg-[#0B0B0B] border border-white/10 p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black">
               <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -2395,89 +2403,89 @@ export default function Settings() {
                   </div>
                   <div>
                     <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">{editingAddon?.id ? "Modify Enhancement" : "Initialize Enhancement"}</DialogTitle>
-                    <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mt-1">Operational Add-on Definition</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">Operational Add-on Definition</p>
                   </div>
                 </div>
               </DialogHeader>
               <form onSubmit={handleSaveAddon} className="flex-1 overflow-y-auto p-8 space-y-8">
                 <div className="space-y-6">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Enhancement Designation (Name)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Enhancement Designation (Name)</Label>
                     <StableInput 
                       value={editingAddon?.name || ""} 
                       onValueChange={val => setEditingAddon(prev => ({ ...prev!, name: val }))}
                       required
-                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                     />
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Enhancement Brief (Description)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Enhancement Brief (Description)</Label>
                     <StableTextarea 
                       value={editingAddon?.description || ""} 
                       onValueChange={val => setEditingAddon(prev => ({ ...prev!, description: val }))}
-                      className="bg-black/40 border-white/10 text-white rounded-xl font-bold min-h-[100px]"
+                      className="bg-black/40 border-white/10 text-white rounded-xl font-bold min-h-[100px] focus:ring-primary/20"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Mission Category</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Mission Category</Label>
                       <Select 
                         value={(editingAddon as any)?.category || ""} 
                         onValueChange={(v: any) => setEditingAddon(prev => ({ ...prev!, category: v }))}
                       >
-                        <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold">
+                        <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20">
                           <SelectValue placeholder="Select Category" />
                         </SelectTrigger>
-                        <SelectContent className="bg-white border-border text-black">
+                        <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
                           {categories.filter(c => c.type === "addon" && c.isActive).map(cat => (
-                            <SelectItem key={cat.id} value={cat.name} className="font-bold">{cat.name}</SelectItem>
+                            <SelectItem key={cat.id} value={cat.name} className="font-bold focus:bg-white/5 focus:text-white">{cat.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Financial Value ($)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Financial Value ($)</Label>
                       <NumberInput 
                         value={editingAddon.price || 0}
                         onValueChange={val => setEditingAddon(prev => ({ ...prev!, price: val }))}
                         required
-                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Duration (Minutes)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Duration (Minutes)</Label>
                       <NumberInput 
                         value={editingAddon.estimatedDuration || 0}
                         onValueChange={val => setEditingAddon(prev => ({ ...prev!, estimatedDuration: val }))}
                         required
-                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                       />
                     </div>
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Buffer Time (Minutes)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Buffer Time (Minutes)</Label>
                       <StableInput 
                         type="text"
                         inputMode="numeric"
                         placeholder="e.g. 5"
                         value={editingAddon?.bufferTimeMinutes?.toString() || ""} 
                         onValueChange={val => setEditingAddon(prev => ({ ...prev!, bufferTimeMinutes: parseInt(val) || 0 }))}
-                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                       />
                     </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Taxable</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Taxable</Label>
                       <Switch 
                         checked={editingAddon?.isTaxable ?? true} 
                         onCheckedChange={v => setEditingAddon(prev => ({ ...prev!, isTaxable: v }))}
                       />
                     </div>
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Active Status</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Active Status</Label>
                       <Switch 
                         checked={editingAddon?.isActive ?? true} 
                         onCheckedChange={v => setEditingAddon(prev => ({ ...prev!, isActive: v }))}
@@ -2491,15 +2499,15 @@ export default function Settings() {
                     variant="ghost" 
                     type="button" 
                     onClick={() => setIsAddonDialogOpen(false)} 
-                    className="flex-1 text-white/40 hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
+                    className="flex-1 text-[#A0A0A0] hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
                   >
                     Abort
                   </Button>
                   <Button 
                     type="submit" 
-                    className="flex-[2] bg-primary hover:bg-red-700 text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 transition-all hover:scale-105"
+                    className="flex-[2] bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105"
                   >
-                    Authorize Protocol
+                    Authorize Add-on
                   </Button>
                 </div>
               </form>
@@ -2670,7 +2678,7 @@ export default function Settings() {
                   </Button>
                   <Button 
                     type="submit" 
-                    className="flex-[2] bg-primary hover:bg-red-700 text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 transition-all hover:scale-105"
+                    className="flex-[2] bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105"
                   >
                     Authorize Taxonomy
                   </Button>
@@ -2682,9 +2690,9 @@ export default function Settings() {
 
         <TabsContent value="integrations" className="mt-0">
           <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">System <span className="text-primary italic">Integrations</span></CardTitle>
-              <CardDescription className="text-white/40 font-medium uppercase tracking-widest text-[10px] mt-1">Connect and synchronize external payment architectures</CardDescription>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Connect and synchronize external payment architectures</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-6">
               
@@ -2932,7 +2940,7 @@ export default function Settings() {
               ))}
               <Button 
                 onClick={() => handleSaveSettings(settings || {})} 
-                className="bg-primary hover:bg-red-700 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
+                className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
               >
                 Save Integration Protocol
               </Button>
@@ -2941,15 +2949,15 @@ export default function Settings() {
         </TabsContent>
 
                 <TabsContent value="client-types" className="mt-0">
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Loyalty <span className="text-primary italic">Engine</span></CardTitle>
-              <CardDescription className="text-white/40 font-medium uppercase tracking-widest text-[10px] mt-1">Configure customer retention algorithms and reward synthesis</CardDescription>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Configure customer retention algorithms and reward synthesis</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Points Per Dollar Spent</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Dollar Spent</Label>
                   <StableInput 
                     type="text" 
                     inputMode="numeric"
@@ -2958,11 +2966,11 @@ export default function Settings() {
                       ...prev, 
                       loyaltySettings: { ...prev.loyaltySettings, pointsPerDollar: parseFloat(val) || 0 } 
                     } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Points Per Visit</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Visit</Label>
                   <StableInput 
                     type="text" 
                     inputMode="numeric"
@@ -2971,11 +2979,11 @@ export default function Settings() {
                       ...prev, 
                       loyaltySettings: { ...prev.loyaltySettings, pointsPerVisit: parseFloat(val) || 0 } 
                     } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Redemption Rate ($ per point)</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Redemption Rate ($ per point)</Label>
                   <StableInput 
                     type="text" 
                     inputMode="decimal"
@@ -2984,12 +2992,12 @@ export default function Settings() {
                       ...prev, 
                       loyaltySettings: { ...prev.loyaltySettings, redemptionRate: parseFloat(val) || 0 } 
                     } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                   />
-                  <p className="text-[10px] text-white/20 font-black uppercase tracking-widest mt-1">Example: 0.01 means 100 points = $1.00</p>
+                  <p className="text-[10px] text-[#A0A0A0]/40 font-black uppercase tracking-widest mt-1">Example: 0.01 means 100 points = $1.00</p>
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Minimum Points to Redeem</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Minimum Points to Redeem</Label>
                   <StableInput 
                     type="text" 
                     inputMode="numeric"
@@ -2998,14 +3006,14 @@ export default function Settings() {
                       ...prev, 
                       loyaltySettings: { ...prev.loyaltySettings, minPointsToRedeem: parseFloat(val) || 0 } 
                     } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                   />
                 </div>
               </div>
               <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
                 <div className="space-y-1">
                   <Label className="text-sm font-black text-white uppercase tracking-tight">Stack with Coupons</Label>
-                  <p className="text-[10px] text-white/40 font-medium">Allow customers to use points and coupons on the same order.</p>
+                  <p className="text-[10px] text-[#A0A0A0] font-medium">Allow customers to use points and coupons on the same order.</p>
                 </div>
                 <Switch 
                   checked={settings?.loyaltySettings?.stackWithCoupons || false} 
@@ -3018,7 +3026,7 @@ export default function Settings() {
               </div>
               <Button 
                 onClick={() => handleSaveSettings(settings || {})} 
-                className="bg-primary hover:bg-red-700 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
+                className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
               >
                 Save Loyalty Engine
               </Button>
@@ -3027,37 +3035,37 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="staff" className="mt-0">
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Commission <span className="text-primary italic">Architecture</span></CardTitle>
-              <CardDescription className="text-white/40 font-medium uppercase tracking-widest text-[10px] mt-1">Set default technician payout protocols for completed operations</CardDescription>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Set default technician payout protocols for completed operations</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Default Commission Type</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Commission Type</Label>
                   <Select 
                     value={settings?.commissionType || "percentage"} 
                     onValueChange={(val: "percentage" | "flat") => setSettings(prev => prev ? { ...prev, commissionType: val } : null)}
                   >
-                    <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-black uppercase tracking-widest text-[10px]">
+                    <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-black uppercase tracking-widest text-[10px] focus:ring-primary/20">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-white border-border text-black">
-                      <SelectItem value="percentage">Percentage (%)</SelectItem>
-                      <SelectItem value="flat">Flat Fee ($)</SelectItem>
+                    <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                      <SelectItem value="percentage" className="focus:bg-white/5 focus:text-white">Percentage (%)</SelectItem>
+                      <SelectItem value="flat" className="focus:bg-white/5 focus:text-white">Flat Fee ($)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Default Commission Rate</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Commission Rate</Label>
                   <div className="relative">
                     <StableInput 
                       type="text" 
                       inputMode="decimal"
                       value={settings?.commissionRate?.toString() || ""} 
                       onValueChange={(val) => setSettings(prev => prev ? { ...prev, commissionRate: parseFloat(val) || 0 } : null)}
-                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold pl-10"
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold pl-10 focus:ring-primary/20"
                     />
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-primary">
                       {settings?.commissionType === "percentage" ? <Percent className="w-4 h-4" /> : <DollarIcon className="w-4 h-4" />}
@@ -3067,7 +3075,7 @@ export default function Settings() {
               </div>
               <Button 
                 onClick={() => handleSaveSettings(settings || {})} 
-                className="bg-primary hover:bg-red-700 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
+                className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
               >
                 Save Commission Protocol
               </Button>
@@ -3076,13 +3084,13 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="coupons" className="mt-0">
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20 flex flex-row items-center justify-between">
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40 flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Promotional <span className="text-primary italic">Incentives</span></CardTitle>
-                <CardDescription className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-1">Create and manage discount codes for your elite clientele</CardDescription>
+                <CardDescription className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Create and manage discount codes for your elite clientele</CardDescription>
               </div>
-              <Button size="sm" className="bg-primary hover:bg-red-700 text-white font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]" onClick={() => {
+              <Button size="sm" className="bg-primary hover:opacity-90 text-white font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02]" onClick={() => {
                 setEditingCoupon({
                   code: "",
                   discountType: "percentage",
@@ -3104,7 +3112,7 @@ export default function Settings() {
                         <Badge className="bg-primary/10 text-primary border-primary/20 font-black tracking-[0.2em] uppercase text-[10px] px-3 py-1">
                           {coupon.code}
                         </Badge>
-                        {!coupon.isActive && <Badge variant="secondary" className="bg-gray-800 text-gray-400 border-none text-[8px] uppercase font-black tracking-widest">Inactive</Badge>}
+                        {!coupon.isActive && <Badge variant="secondary" className="bg-white/10 text-[#A0A0A0] border-none text-[8px] uppercase font-black tracking-widest">Inactive</Badge>}
                       </div>
                       <div className="flex items-center gap-1 transition-all duration-300">
                         <Button 
@@ -3136,20 +3144,20 @@ export default function Settings() {
                     </div>
                     <div className="space-y-4">
                       <div className="space-y-1">
-                        <p className="text-[8px] text-white/20 font-black uppercase tracking-[0.2em]">Discount Value</p>
+                        <p className="text-[8px] text-[#A0A0A0]/40 font-black uppercase tracking-[0.2em]">Discount Value</p>
                         <p className="text-white font-black text-xl tracking-tighter">
                           {coupon.discountType === "percentage" ? `${coupon.discountValue}% OFF` : `$${coupon.discountValue} OFF`}
                         </p>
                       </div>
                       <div className="flex items-center justify-between pt-4 border-t border-white/5">
                         <div className="space-y-1">
-                          <p className="text-[7px] text-white/20 font-black uppercase tracking-widest">Usage</p>
-                          <p className="text-[10px] text-white/40 font-bold">{coupon.usageCount} / {coupon.usageLimit || "∞"}</p>
+                          <p className="text-[7px] text-[#A0A0A0]/40 font-black uppercase tracking-widest">Usage</p>
+                          <p className="text-[10px] text-[#A0A0A0] font-bold">{coupon.usageCount} / {coupon.usageLimit || "∞"}</p>
                         </div>
                         {coupon.expiryDate && coupon.expiryDate instanceof Timestamp && (
                           <div className="text-right space-y-1">
-                            <p className="text-[7px] text-white/20 font-black uppercase tracking-widest">Expires</p>
-                            <p className="text-[10px] text-white/40 font-bold">{format(coupon.expiryDate.toDate(), "MM/dd/yy")}</p>
+                            <p className="text-[7px] text-[#A0A0A0]/40 font-black uppercase tracking-widest">Expires</p>
+                            <p className="text-[10px] text-[#A0A0A0] font-bold">{format(coupon.expiryDate.toDate(), "MM/dd/yy")}</p>
                           </div>
                         )}
                       </div>
@@ -3161,7 +3169,7 @@ export default function Settings() {
           </Card>
 
           <Dialog open={isCouponDialogOpen} onOpenChange={setIsCouponDialogOpen}>
-            <DialogContent className="max-w-xl bg-card border-none p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black">
+            <DialogContent className="max-w-xl bg-[#0B0B0B] border border-white/10 p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black">
               <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -3169,35 +3177,35 @@ export default function Settings() {
                   </div>
                   <div>
                     <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">{editingCoupon?.id ? "Modify Incentive" : "Initialize Incentive"}</DialogTitle>
-                    <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mt-1">Operational Discount Protocol</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">Operational Discount Protocol</p>
                   </div>
                 </div>
               </DialogHeader>
               <form onSubmit={handleSaveCoupon} className="flex-1 overflow-y-auto p-8 space-y-8">
                 <div className="space-y-6">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Incentive Code (Designation)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Incentive Code (Designation)</Label>
                     <StableInput 
                       placeholder="SUMMER24"
                       value={editingCoupon?.code || ""} 
                       onValueChange={val => setEditingCoupon(prev => ({ ...prev!, code: val.toUpperCase() }))}
                       required
-                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-black uppercase tracking-widest text-lg"
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-black uppercase tracking-widest text-lg focus:ring-primary/20"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Discount Type</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Discount Type</Label>
                       <Select 
                         value={editingCoupon?.discountType || "percentage"} 
                         onValueChange={(v: any) => setEditingCoupon(prev => ({ ...prev!, discountType: v }))}
                       >
-                        <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-black uppercase tracking-widest text-[10px]">
+                        <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-black uppercase tracking-widest text-[10px] focus:ring-primary/20">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="bg-white border-border text-black">
-                          <SelectItem value="percentage" className="font-black">PERCENTAGE (%)</SelectItem>
-                          <SelectItem value="fixed" className="font-black">FIXED AMOUNT ($)</SelectItem>
+                        <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                          <SelectItem value="percentage" className="font-black focus:bg-white/5 focus:text-white">PERCENTAGE (%)</SelectItem>
+                          <SelectItem value="fixed" className="font-black focus:bg-white/5 focus:text-white">FIXED AMOUNT ($)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -3215,20 +3223,20 @@ export default function Settings() {
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Usage Limit (0 for ∞)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Usage Limit (0 for ∞)</Label>
                       <StableInput 
                         type="text"
                         inputMode="numeric"
                         value={editingCoupon?.usageLimit?.toString() || ""} 
                         onValueChange={val => setEditingCoupon(prev => ({ ...prev!, usageLimit: parseInt(val) || 0 }))}
-                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                       />
                     </div>
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Expiry Protocol (Optional)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Expiry Protocol (Optional)</Label>
                       <Input 
                         type="date"
-                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                         value={editingCoupon?.expiryDate ? format(editingCoupon.expiryDate.toDate(), "yyyy-MM-dd") : ""}
                         onChange={e => {
                           const date = e.target.value ? Timestamp.fromDate(new Date(e.target.value)) : undefined;
@@ -3238,7 +3246,7 @@ export default function Settings() {
                     </div>
                   </div>
                   <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Operational Status</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Operational Status</Label>
                     <Switch 
                       checked={editingCoupon?.isActive ?? true} 
                       onCheckedChange={v => setEditingCoupon(prev => ({ ...prev!, isActive: v }))}
@@ -3251,13 +3259,13 @@ export default function Settings() {
                     variant="ghost" 
                     type="button" 
                     onClick={() => setIsCouponDialogOpen(false)} 
-                    className="flex-1 text-white/40 hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
+                    className="flex-1 text-[#A0A0A0] hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
                   >
                     Abort
                   </Button>
                   <Button 
                     type="submit" 
-                    className="flex-[2] bg-primary hover:bg-red-700 text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 transition-all hover:scale-105"
+                    className="flex-[2] bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105"
                   >
                     Authorize Incentive
                   </Button>
@@ -3268,11 +3276,11 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="automation" className="mt-0">
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20 flex flex-row items-center justify-between">
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40 flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Operational <span className="text-primary italic">Automations</span></CardTitle>
-                <CardDescription className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-1">Configure autonomous client engagement protocols</CardDescription>
+                <CardDescription className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Configure autonomous client engagement protocols</CardDescription>
               </div>
               <Button 
                 variant="outline" 
@@ -3290,7 +3298,7 @@ export default function Settings() {
               <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
                 <div className="space-y-1">
                   <Label className="text-base font-black text-white uppercase tracking-tight">Post-Service Engagement</Label>
-                  <p className="text-xs text-white/40 font-medium">Automatically initiate follow-up sequences after service completion.</p>
+                  <p className="text-xs text-[#A0A0A0] font-medium">Automatically initiate follow-up sequences after service completion.</p>
                 </div>
                 <Switch 
                   checked={settings?.automationSettings?.followUpEnabled || false}
@@ -3306,7 +3314,7 @@ export default function Settings() {
                 <div className="space-y-8">
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Deployment Delay</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Deployment Delay</Label>
                       <span className="font-black text-primary text-xs tracking-widest">{settings?.automationSettings?.delayHours} HOURS</span>
                     </div>
                     <Slider 
@@ -3320,11 +3328,11 @@ export default function Settings() {
                       } : null)}
                       className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
                     />
-                    <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest italic">Wait time after "Completed" status trigger.</p>
+                    <p className="text-[9px] text-[#A0A0A0]/40 font-bold uppercase tracking-widest italic">Wait time after "Completed" status trigger.</p>
                   </div>
 
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Transmission Channel</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Transmission Channel</Label>
                     <Select 
                       value={settings?.automationSettings?.channels || "email"}
                       onValueChange={(val: any) => setSettings(prev => prev ? { 
@@ -3332,13 +3340,13 @@ export default function Settings() {
                         automationSettings: { ...prev.automationSettings!, channels: val } 
                       } : null)}
                     >
-                      <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold">
+                      <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-white border-border text-black">
-                        <SelectItem value="email">Email Protocol</SelectItem>
-                        <SelectItem value="sms">SMS Protocol</SelectItem>
-                        <SelectItem value="both">Dual-Channel (Email & SMS)</SelectItem>
+                      <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                        <SelectItem value="email" className="focus:bg-white/5 focus:text-white">Email Protocol</SelectItem>
+                        <SelectItem value="sms" className="focus:bg-white/5 focus:text-white">SMS Protocol</SelectItem>
+                        <SelectItem value="both" className="focus:bg-white/5 focus:text-white">Dual-Channel (Email & SMS)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -3346,7 +3354,7 @@ export default function Settings() {
                   <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
                     <div className="space-y-1">
                       <Label className="font-black text-white uppercase tracking-tight text-sm">Review Acquisition</Label>
-                      <p className="text-[10px] text-white/40 font-medium">Include Google Review link for first-time clients.</p>
+                      <p className="text-[10px] text-[#A0A0A0] font-medium">Include Google Review link for first-time clients.</p>
                     </div>
                     <Switch 
                       checked={settings?.automationSettings?.includeReviewLink || false}
@@ -3360,7 +3368,7 @@ export default function Settings() {
 
                   {settings?.automationSettings?.includeReviewLink && (
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Google Review Endpoint</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Google Review Endpoint</Label>
                       <StableInput 
                         value={settings?.automationSettings?.googleReviewUrl || ""}
                         onValueChange={(val) => setSettings(prev => prev ? { 
@@ -3368,7 +3376,7 @@ export default function Settings() {
                           automationSettings: { ...prev.automationSettings!, googleReviewUrl: val } 
                         } : null)}
                         placeholder="https://g.page/r/..."
-                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                       />
                     </div>
                   )}
@@ -3376,18 +3384,18 @@ export default function Settings() {
 
                 <div className="space-y-8">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Email Subject Header</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Email Subject Header</Label>
                     <StableInput 
                       value={settings?.automationSettings?.emailSubject || ""}
                       onValueChange={(val) => setSettings(prev => prev ? { 
                         ...prev,
                         automationSettings: { ...prev.automationSettings!, emailSubject: val } 
                       } : null)}
-                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold"
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
                     />
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Email Payload Content</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Email Payload Content</Label>
                     <StableTextarea 
                       value={settings?.automationSettings?.emailBody || ""}
                       onValueChange={(val) => setSettings(prev => prev ? { 
@@ -3395,12 +3403,12 @@ export default function Settings() {
                         automationSettings: { ...prev.automationSettings!, emailBody: val } 
                       } : null)}
                       rows={6}
-                      className="bg-black/40 border-white/10 text-white rounded-2xl font-medium p-4"
+                      className="bg-black/40 border-white/10 text-white rounded-2xl font-medium p-4 focus:ring-primary/20"
                     />
-                    <p className="text-[9px] text-white/20 font-mono uppercase tracking-widest">Variables: {"{{firstName}}, {{businessName}}"}</p>
+                    <p className="text-[9px] text-[#A0A0A0]/40 font-mono uppercase tracking-widest">Variables: {"{{firstName}}, {{businessName}}"}</p>
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">SMS Payload Content</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">SMS Payload Content</Label>
                     <StableTextarea 
                       value={settings?.automationSettings?.smsBody || ""}
                       onValueChange={(val) => setSettings(prev => prev ? { 
@@ -3408,7 +3416,7 @@ export default function Settings() {
                         automationSettings: { ...prev.automationSettings!, smsBody: val } 
                       } : null)}
                       rows={4}
-                      className="bg-black/40 border-white/10 text-white rounded-2xl font-medium p-4"
+                      className="bg-black/40 border-white/10 text-white rounded-2xl font-medium p-4 focus:ring-primary/20"
                     />
                   </div>
                 </div>
@@ -3422,10 +3430,10 @@ export default function Settings() {
                       <Bell className="w-6 h-6 text-primary" />
                       Automated Client Communication
                     </h3>
-                    <p className="text-xs text-white/60 font-medium leading-relaxed">System-wide control for scheduled transactional messaging.</p>
+                    <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed">System-wide control for scheduled transactional messaging.</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Master Trigger</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Master Trigger</Label>
                     <Switch 
                       checked={settings?.communicationAutomation?.enabled ?? false} 
                       onCheckedChange={(val) => setSettings(prev => prev ? { 
@@ -3444,7 +3452,7 @@ export default function Settings() {
                   <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
                     <div className="space-y-1">
                       <Label className="text-xs font-black text-white uppercase tracking-tight">Booking Confirmation</Label>
-                      <p className="text-[9px] text-white/40 font-black uppercase tracking-widest">
+                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
                         {settings?.communicationAutomation?.bookingConfirmation ? "Automated" : "Manual Only"}
                       </p>
                     </div>
@@ -3461,7 +3469,7 @@ export default function Settings() {
                   <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
                     <div className="space-y-1">
                       <Label className="text-xs font-black text-white uppercase tracking-tight">24-Hour Reminder</Label>
-                      <p className="text-[9px] text-white/40 font-black uppercase tracking-widest">
+                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
                         {settings?.communicationAutomation?.reminder24h ? "Automated" : "Manual Only"}
                       </p>
                     </div>
@@ -3478,7 +3486,7 @@ export default function Settings() {
                   <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
                     <div className="space-y-1">
                       <Label className="text-xs font-black text-white uppercase tracking-tight">2-Hour Reminder</Label>
-                      <p className="text-[9px] text-white/40 font-black uppercase tracking-widest">
+                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
                         {settings?.communicationAutomation?.reminder2h ? "Automated" : "Manual Only"}
                       </p>
                     </div>
@@ -3502,10 +3510,10 @@ export default function Settings() {
                       <Globe className="w-6 h-6 text-primary" />
                       Weather Intelligence System
                     </h3>
-                    <p className="text-xs text-white/60 font-medium leading-relaxed">Autonomous weather monitoring and risk mitigation protocols.</p>
+                    <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed">Autonomous weather monitoring and risk mitigation protocols.</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Status Toggle</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Status Toggle</Label>
                     <Switch 
                       checked={settings?.weatherAutomation?.enabled ?? false} 
                       onCheckedChange={(val) => setSettings(prev => prev ? { 
@@ -3522,7 +3530,7 @@ export default function Settings() {
                     <div className="space-y-8">
                       <div className="space-y-4">
                         <div className="flex justify-between items-center">
-                          <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Surveillance Lead Time</Label>
+                          <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Surveillance Lead Time</Label>
                           <span className="font-black text-primary text-xs tracking-widest">{settings?.weatherAutomation?.checkTimingHours} HOURS</span>
                         </div>
                         <Slider 
@@ -3536,12 +3544,12 @@ export default function Settings() {
                           } : null)}
                           className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
                         />
-                        <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest italic">Hours before deployment to initiate final weather telemetry check.</p>
+                        <p className="text-[9px] text-[#A0A0A0]/40 font-bold uppercase tracking-widest italic">Hours before deployment to initiate final weather telemetry check.</p>
                       </div>
 
                       <div className="space-y-4">
                         <div className="flex justify-between items-center">
-                          <Label className="font-black uppercase tracking-widest text-[10px] text-white/40">Precipitation Threshold</Label>
+                          <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Precipitation Threshold</Label>
                           <span className="font-black text-primary text-xs tracking-widest">{settings?.weatherAutomation?.rainProbabilityThreshold}% RISK</span>
                         </div>
                         <Slider 
@@ -3555,7 +3563,7 @@ export default function Settings() {
                           } : null)}
                           className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
                         />
-                        <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest italic">Minimum rain probability percentage to trigger an operational warning.</p>
+                        <p className="text-[9px] text-[#A0A0A0]/40 font-bold uppercase tracking-widest italic">Minimum rain probability percentage to trigger an operational warning.</p>
                       </div>
                     </div>
 
@@ -3563,7 +3571,7 @@ export default function Settings() {
                       <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
                         <div className="space-y-1">
                           <Label className="font-black text-white uppercase tracking-tight text-sm">Autonomous Client Alerts</Label>
-                          <p className="text-[10px] text-white/40 font-medium">Auto-dispatch weather warnings to clients when high-risk conditions are detected.</p>
+                          <p className="text-[10px] text-[#A0A0A0] font-medium">Auto-dispatch weather warnings to clients when high-risk conditions are detected.</p>
                         </div>
                         <Switch 
                           checked={settings?.weatherAutomation?.autoNotifyClient ?? false}
@@ -3576,7 +3584,7 @@ export default function Settings() {
                       </div>
                       
                       <div className="p-6 bg-black/20 rounded-2xl border border-white/5 italic">
-                        <p className="text-[10px] text-white/40 font-medium leading-relaxed">
+                        <p className="text-[10px] text-[#A0A0A0]/60 font-medium leading-relaxed">
                           Note: Weather Intelligence relies on real-time meteorological telemetry. Alerts will be generated based on the latest available forecast at the configured surveillance lead time.
                         </p>
                       </div>
@@ -3588,7 +3596,7 @@ export default function Settings() {
               <div className="flex flex-col sm:flex-row gap-4 pt-6">
                 <Button 
                   onClick={() => handleSaveSettings(settings || {})} 
-                  className="bg-primary hover:bg-red-700 text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
+                  className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
                 >
                   Save Automation Protocol
                 </Button>
@@ -3616,22 +3624,22 @@ export default function Settings() {
 
 
         <TabsContent value="security" className="mt-0">
-          <Card className="border-white/5 bg-card/50 backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/20">
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Security & <span className="text-primary italic">Access Control</span></CardTitle>
-              <CardDescription className="text-[10px] text-white/40 font-black uppercase tracking-widest mt-1">Manage administrative access and data protection protocols</CardDescription>
+              <CardDescription className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Manage administrative access and data protection protocols</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
                   <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-primary/10 rounded-lg text-primary">
+                      <div className="p-2 bg-primary/10 rounded-lg text-primary border border-primary/20">
                         <Lock className="w-4 h-4" />
                       </div>
                       <Label className="text-sm font-black text-white uppercase tracking-tight">Admin-Only Access</Label>
                     </div>
-                    <p className="text-[10px] text-white/40 font-medium ml-10">Restrict financial reports and settings to administrators.</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-medium ml-10">Restrict financial reports and settings to administrators.</p>
                   </div>
                   <Switch defaultChecked className="data-[state=checked]:bg-primary" />
                 </div>
@@ -3639,25 +3647,25 @@ export default function Settings() {
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
                   <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-white/10 rounded-lg text-white">
+                      <div className="p-2 bg-white/5 rounded-lg text-white border border-white/10">
                         <Shield className="w-4 h-4" />
                       </div>
                       <Label className="text-sm font-black text-white uppercase tracking-tight">Multi-Factor Auth</Label>
                     </div>
-                    <p className="text-[10px] text-white/40 font-medium ml-10">Secondary verification for administrative logins.</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-medium ml-10">Secondary verification for administrative logins.</p>
                   </div>
-                  <Badge variant="secondary" className="bg-gray-800 text-white/40 border-none text-[8px] uppercase font-black tracking-widest px-2 py-1">Coming Soon</Badge>
+                  <Badge variant="secondary" className="bg-white/5 text-[#A0A0A0] border-none text-[8px] uppercase font-black tracking-widest px-2 py-1">Coming Soon</Badge>
                 </div>
 
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
                   <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-green-500/10 rounded-lg text-green-500">
+                      <div className="p-2 bg-green-500/10 rounded-lg text-green-500 border border-green-500/20">
                         <Database className="w-4 h-4" />
                       </div>
                       <Label className="text-sm font-black text-white uppercase tracking-tight">Data Encryption</Label>
                     </div>
-                    <p className="text-[10px] text-white/40 font-medium ml-10">PII and financial data encrypted at rest and in transit.</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-medium ml-10">PII and financial data encrypted at rest and in transit.</p>
                   </div>
                   <Badge className="bg-green-500/10 text-green-500 border-green-500/20 uppercase text-[8px] font-black tracking-widest px-2 py-1">Active</Badge>
                 </div>
@@ -3665,33 +3673,34 @@ export default function Settings() {
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
                   <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500">
+                      <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500 border border-blue-500/20">
                         <ShieldCheck className="w-4 h-4" />
                       </div>
                       <Label className="text-sm font-black text-white uppercase tracking-tight">Audit Logging</Label>
                     </div>
-                    <p className="text-[10px] text-white/40 font-medium ml-10">Track all administrative actions and data modifications.</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-medium ml-10">Track all administrative actions and data modifications.</p>
                   </div>
                   <Badge className="bg-blue-500/10 text-blue-500 border-blue-500/20 uppercase text-[8px] font-black tracking-widest px-2 py-1">Active</Badge>
                 </div>
               </div>
 
               <div className="pt-8 border-t border-white/5">
-                <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-6">Data Architecture Tools</h3>
+                <h3 className="text-[10px] font-black text-[#A0A0A0]/40 uppercase tracking-[0.2em] mb-6">Data Architecture Tools</h3>
                 <div className="p-6 bg-primary/5 rounded-2xl border border-primary/10 mb-8 flex items-center justify-between">
                   <div className="flex gap-4">
-                    <div className="p-3 bg-primary/10 rounded-2xl text-primary shrink-0">
+                    <div className="p-3 bg-primary/10 rounded-2xl text-primary shrink-0 border border-primary/20">
                       <DatabaseZap className="w-5 h-5" />
                     </div>
                     <div className="space-y-2">
                       <p className="text-sm font-black text-white uppercase tracking-tight">Legacy Data Synthesis</p>
-                      <p className="text-[10px] text-white/40 leading-relaxed font-medium">
+                      <p className="text-[10px] text-[#A0A0A0] leading-relaxed font-medium">
                         Synthesize elite client records from legacy database architectures.
                       </p>
                     </div>
                   </div>
                   <Button 
                     size="sm"
+                    className="bg-primary hover:opacity-90 text-white font-black"
                     onClick={async () => {
                       if (confirm("Execute data synthesis protocol? This will re-map all legacy records to the unified client system.")) {
                         setIsSaving(true);
@@ -3699,32 +3708,28 @@ export default function Settings() {
                           const result = await migrateDataToClients();
                           toast.success(`Successfully synthesized ${result.migratedCount} elite clients!`);
                         } catch (error) {
-                          console.error("Migration error:", error);
-                          toast.error("Protocol failure. Check console for diagnostics.");
+                          toast.error("Protocol failed.");
                         } finally {
                           setIsSaving(false);
                         }
                       }
                     }}
-                    className="bg-primary hover:bg-red-700 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
-                    disabled={isSaving}
                   >
-                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DatabaseZap className="w-4 h-4 mr-2" />}
-                    Execute
+                    Run Synthesis
                   </Button>
                 </div>
               </div>
 
               <div className="pt-8 border-t border-white/5">
-                <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-6">Discovery & Performance Demo</h3>
+                <h3 className="text-[10px] font-black text-[#A0A0A0]/40 uppercase tracking-[0.2em] mb-6">Discovery & Performance Demo</h3>
                 <div className="p-6 bg-purple-500/5 rounded-2xl border border-purple-500/10 mb-8 flex items-center justify-between">
                   <div className="flex gap-4">
-                    <div className="p-3 bg-purple-500/10 rounded-2xl text-purple-500 shrink-0">
+                    <div className="p-3 bg-purple-500/10 rounded-2xl text-purple-500 shrink-0 border border-purple-500/20">
                       <Clock className="w-5 h-5" />
                     </div>
                     <div className="space-y-2">
                       <p className="text-sm font-black text-white uppercase tracking-tight">Service Timing Intelligence Demo</p>
-                      <p className="text-[10px] text-white/40 leading-relaxed font-medium">
+                      <p className="text-[10px] text-[#A0A0A0] leading-relaxed font-medium">
                         Initialize high-fidelity historical data to verify predictive timing logic and maintenance return status.
                       </p>
                     </div>
@@ -3737,20 +3742,20 @@ export default function Settings() {
                       setIsSaving(true);
                       
                       toast.promise(seedServiceTimingDemo(), {
-                        loading: 'Initializing high-fidelity service intelligence architecture...',
+                        loading: "Initializing high-fidelity service intelligence architecture...",
                         success: (data) => {
                           setIsSaving(false);
-                          if (data) return 'Service Intelligence Demo Ready. Open "Timothy Timing (Demo)" profile to verify.';
-                          return 'Data synthesis finished with anomalies.';
+                          if (data) return "Service Intelligence Demo Ready. Open \"Timothy Timing (Demo)\" profile to verify.";
+                          return "Data synthesis finished with anomalies.";
                         },
                         error: (err) => {
                           setIsSaving(false);
                           console.error("Seeding failure:", err);
-                          return 'Protocol failure. Check system logs.';
+                          return "Protocol failure. Check system logs.";
                         },
                       });
                     }}
-                    className="bg-purple-600 hover:bg-purple-700 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-purple-500/20 transition-all hover:scale-[1.02]"
+                    className="bg-purple-600 hover:opacity-90 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-purple-500/20 transition-all hover:scale-[1.02]"
                     disabled={isSaving}
                   >
                     {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Zap className="w-4 h-4 mr-2" />}
@@ -3760,9 +3765,9 @@ export default function Settings() {
               </div>
 
               <div className="pt-8 border-t border-white/5">
-                <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-6">Privacy & Data Governance</h3>
+                <h3 className="text-[10px] font-black text-[#A0A0A0]/40 uppercase tracking-[0.2em] mb-6">Privacy & Data Governance</h3>
                 <div className="p-6 bg-black/40 rounded-2xl border border-white/5 border-l-4 border-l-primary">
-                  <p className="text-xs text-white/40 leading-relaxed font-medium">
+                  <p className="text-xs text-[#A0A0A0] leading-relaxed font-medium">
                     Your business data is stored securely in our proprietary cloud infrastructure. We maintain a strict zero-trust architecture. 
                     We do not sell your data to third parties. Access is restricted to authorized personnel only via encrypted channels. 
                     For detailed compliance reports, please contact our security operations center.
@@ -3802,7 +3807,7 @@ export default function Settings() {
                           required 
                         />
                       </div>
-                      <Button type="submit" className="w-full bg-primary hover:bg-red-700 text-white font-black h-12 rounded-xl uppercase tracking-widest text-xs">
+                      <Button type="submit" className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl uppercase tracking-widest text-xs shadow-glow-blue transition-all hover:scale-105">
                         {editingClientType?.id ? "Update Archetype" : "Create Archetype"}
                       </Button>
                     </form>
@@ -3900,7 +3905,7 @@ export default function Settings() {
                           />
                         </div>
                       </div>
-                      <Button type="submit" className="w-full bg-primary hover:bg-red-700 text-white font-black h-12 rounded-xl uppercase tracking-widest text-xs">
+                      <Button type="submit" className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl uppercase tracking-widest text-xs shadow-glow-blue transition-all hover:scale-105">
                         {editingClientCategory?.id ? "Update Category" : "Create Category"}
                       </Button>
                     </form>

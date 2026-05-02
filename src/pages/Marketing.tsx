@@ -85,10 +85,10 @@ function MarketingIntelligence({ data }: { data: any }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="bg-zinc-900/60 border-white/5 backdrop-blur-sm shadow-xl">
+        <Card className="bg-[#121212]/60 border-white/5 backdrop-blur-sm shadow-xl">
           <CardContent className="p-6 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-black uppercase tracking-widest text-zinc-400">Total Pipeline</p>
+              <p className="text-xs font-black uppercase tracking-widest text-[#A0A0A0]">Total Pipeline</p>
               <TrendingUp className="w-4 h-4 text-green-500" />
             </div>
             <p className="text-3xl font-black text-white tracking-tighter">${data.totalRevenue.toLocaleString()}</p>
@@ -98,10 +98,10 @@ function MarketingIntelligence({ data }: { data: any }) {
           </CardContent>
         </Card>
 
-        <Card className="bg-zinc-900/60 border-white/5 backdrop-blur-sm shadow-xl">
+        <Card className="bg-[#121212]/60 border-white/5 backdrop-blur-sm shadow-xl">
           <CardContent className="p-6 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-black uppercase tracking-widest text-zinc-400">Response Speed</p>
+              <p className="text-xs font-black uppercase tracking-widest text-[#A0A0A0]">Response Speed</p>
               <Clock className="w-4 h-4 text-primary" />
             </div>
             <p className="text-3xl font-black text-white tracking-tighter">{Math.round(data.avgResponseTime)}m</p>
@@ -111,7 +111,7 @@ function MarketingIntelligence({ data }: { data: any }) {
           </CardContent>
         </Card>
 
-        <Card className="bg-zinc-900/60 border-white/5 backdrop-blur-sm border-l-4 border-l-red-600 shadow-xl">
+        <Card className="bg-[#121212]/60 border-white/5 backdrop-blur-sm border-l-4 border-l-red-600 shadow-xl">
           <CardContent className="p-6 space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs font-black uppercase tracking-widest text-primary">Leak Alert</p>
@@ -124,10 +124,10 @@ function MarketingIntelligence({ data }: { data: any }) {
           </CardContent>
         </Card>
 
-        <Card className="bg-zinc-900/60 border-white/5 backdrop-blur-sm shadow-xl">
+        <Card className="bg-[#121212]/60 border-white/5 backdrop-blur-sm shadow-xl">
           <CardContent className="p-6 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-black uppercase tracking-widest text-zinc-400">Top Funnel</p>
+              <p className="text-xs font-black uppercase tracking-widest text-[#A0A0A0]">Top Funnel</p>
               <Target className="w-4 h-4 text-white" />
             </div>
             <p className="text-xl font-black text-white uppercase tracking-tighter truncate leading-tight py-1">
@@ -141,10 +141,10 @@ function MarketingIntelligence({ data }: { data: any }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-zinc-900/80 border-white/5 border-none shadow-2xl">
+        <Card className="bg-[#121212]/80 border-white/5 border-none shadow-2xl">
           <CardHeader>
             <CardTitle className="text-white font-black uppercase tracking-tight text-lg">Funnel Accuracy</CardTitle>
-            <CardDescription className="text-zinc-400 text-xs font-medium">Tracking conversion performance from lead to paid revenue.</CardDescription>
+            <CardDescription className="text-[#A0A0A0] text-xs font-medium">Tracking conversion performance from lead to paid revenue.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-4">
@@ -157,7 +157,7 @@ function MarketingIntelligence({ data }: { data: any }) {
               ].map((stage, i) => (
                 <div key={i} className="space-y-1">
                   <div className="flex justify-between items-end">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">{stage.label}</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">{stage.label}</span>
                     <span className="text-xs font-black text-white">{stage.value}</span>
                   </div>
                   <div className="h-2.5 w-full bg-white/5 rounded-full overflow-hidden">
@@ -182,20 +182,20 @@ function MarketingIntelligence({ data }: { data: any }) {
           </CardContent>
         </Card>
 
-        <Card className="bg-zinc-900/80 border-white/5 border-none shadow-2xl overflow-hidden">
+        <Card className="bg-[#121212]/80 border-white/5 border-none shadow-2xl overflow-hidden">
           <CardHeader>
             <CardTitle className="text-white font-black uppercase tracking-tight text-lg">Lead Source Intel</CardTitle>
-            <CardDescription className="text-zinc-400 text-xs font-medium">Acquisition performance by generation channel.</CardDescription>
+            <CardDescription className="text-[#A0A0A0] text-xs font-medium">Acquisition performance by generation channel.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-white/5">
                   <tr>
-                    <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-400">Source</th>
-                    <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-zinc-400">Volume</th>
-                    <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-zinc-400">CR%</th>
-                    <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-zinc-400">Value</th>
+                    <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Source</th>
+                    <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Volume</th>
+                    <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">CR%</th>
+                    <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Value</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -623,7 +623,7 @@ export default function Marketing() {
       const projectedRevenue = upcomingAppointments.reduce((sum, a) => sum + (a.totalAmount || 0), 0);
 
       const context = {
-        businessName: settings?.businessName || "Flatline Mobile Detail",
+        businessName: settings?.businessName || "DetailFlow",
         clientCount: clients.length,
         vipCount: clients.filter(c => c.isVIP).length,
         oneTimeCount: clients.filter(c => c.isOneTime).length,
@@ -644,7 +644,7 @@ export default function Marketing() {
         } : null
       };
 
-      const prompt = customQuery || "Generate a data-driven business growth and scaling strategy for Flatline Mobile Detail using the provided intelligence data. Focus on real retention metrics, acquisition cost by source, and high-margin upselling based on our performance. Provide specific campaign ideas and scaling insights based on our current funnel and revenue data. Do not use generic marketing buzzwords.";
+      const prompt = customQuery || "Generate a data-driven business growth and scaling strategy for DetailFlow Operations OS using the provided intelligence data. Focus on real retention metrics, acquisition cost by source, and high-margin upselling based on our performance. Provide specific campaign ideas and scaling insights based on our current funnel and revenue data. Do not use generic marketing buzzwords.";
       
       const strategy = await askAssistant(prompt, context);
       
@@ -684,7 +684,7 @@ export default function Marketing() {
       const templateData = {
         name: `AI: ${campaignIdea.title}`,
         subject: campaignIdea.title,
-        body: `Hi {{firstName}},\n\n${campaignIdea.messageAngle}\n\nOur current offer: ${campaignIdea.offer}${campaignIdea.coupon ? `\n\nUse code: ${campaignIdea.coupon.code}` : ""}\n\nGoal: ${campaignIdea.goal}\n\nBest,\nFlatline Mobile Detail Team`,
+        body: `Hi {{firstName}},\n\n${campaignIdea.messageAngle}\n\nOur current offer: ${campaignIdea.offer}${campaignIdea.coupon ? `\n\nUse code: ${campaignIdea.coupon.code}` : ""}\n\nGoal: ${campaignIdea.goal}\n\nBest,\nDetailFlow Team`,
         category: "promotional",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -802,7 +802,7 @@ export default function Marketing() {
                   </div>
                   <div className="flex gap-3 justify-end pt-4">
                     <Button variant="outline" onClick={() => setIsTemplateDialogOpen(false)} className="rounded-xl h-12 px-6 font-bold uppercase tracking-widest text-[10px]">Cancel</Button>
-                    <Button onClick={handleSaveTemplate} className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20">Save Template</Button>
+                    <Button onClick={handleSaveTemplate} className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue">Save Template</Button>
                   </div>
                 </div>
               </DialogContent>
@@ -820,7 +820,7 @@ export default function Marketing() {
               }
             }}>
               <DialogTrigger render={
-                <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105">
+                <Button className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105">
                   <Plus className="w-4 h-4 mr-2" /> Create Campaign
                 </Button>
               } />
@@ -938,7 +938,7 @@ export default function Marketing() {
                   </div>
                   <div className="flex gap-3 justify-end pt-8">
                     <Button variant="outline" onClick={() => setIsCampaignDialogOpen(false)} className="rounded-xl h-12 px-6 font-bold uppercase tracking-widest text-[10px]">Cancel</Button>
-                    <Button onClick={handleCreateCampaign} className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20">
+                    <Button onClick={handleCreateCampaign} className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue">
                       {editingCampaign?.id ? "Update Campaign" : "Create Campaign"}
                     </Button>
                   </div>
@@ -1031,7 +1031,7 @@ export default function Marketing() {
                       size="sm"
                       onClick={() => generateGrowthStrategy()} 
                       disabled={isGeneratingGrowth}
-                      className="w-full bg-primary hover:bg-red-700 text-white font-black h-10 rounded-xl"
+                      className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 rounded-xl shadow-glow-blue"
                     >
                       {isGeneratingGrowth ? <Loader2 className="w-3 h-3 animate-spin" /> : <TrendingUp className="w-3 h-3 mr-2" />}
                       {isGeneratingGrowth ? "Audit" : "Run Audit"}
@@ -1067,7 +1067,7 @@ export default function Marketing() {
           {/* SECTION 2: RECOMMENDED ACTIONS */}
           <div className="space-y-8 bg-zinc-900/20 p-8 rounded-[2rem] border border-white/5">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
+              <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center shadow-glow-blue">
                 <Target className="w-6 h-6 text-white" />
               </div>
               <div>
@@ -1202,7 +1202,7 @@ export default function Marketing() {
             
             <div className="relative z-10 grid grid-cols-1 lg:grid-cols-5 gap-12">
               <div className="lg:col-span-2 space-y-6">
-                <div className="w-16 h-16 rounded-3xl bg-primary flex items-center justify-center shadow-xl shadow-primary/20">
+                <div className="w-16 h-16 rounded-3xl bg-primary flex items-center justify-center shadow-glow-blue">
                   <Sparkles className="w-8 h-8 text-white" />
                 </div>
                 <div>
@@ -1226,7 +1226,7 @@ export default function Marketing() {
                     <Button 
                       onClick={() => generateGrowthStrategy(marketingQuery)}
                       disabled={isAskingAI || !marketingQuery}
-                      className="bg-primary hover:bg-red-700 text-white font-black h-12 px-6 rounded-xl shadow-lg"
+                      className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-6 rounded-xl shadow-glow-blue"
                     >
                       {isAskingAI ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5 mr-2" />}
                       {isAskingAI ? "" : "Analyze"}
@@ -1357,7 +1357,7 @@ export default function Marketing() {
                         {campaign.status === "draft" && (
                           <Button 
                             size="sm" 
-                            className="bg-primary hover:bg-red-700 text-white font-bold h-8 shadow-lg shadow-primary/20"
+                            className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-8 shadow-glow-blue"
                             onClick={() => handleSendCampaign(campaign)}
                           >
                             <Send className="w-3 h-3 mr-2" /> Send Now
@@ -1464,7 +1464,7 @@ export default function Marketing() {
               if (!open) setEditingCoupon(null);
             }}>
               <DialogTrigger render={
-                <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105">
+                <Button className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105">
                   <Plus className="w-4 h-4 mr-2" /> Create Coupon
                 </Button>
               } />
@@ -1532,7 +1532,7 @@ export default function Marketing() {
                   </div>
                   <div className="flex gap-3 justify-end pt-4">
                     <Button variant="outline" onClick={() => setIsCouponDialogOpen(false)} className="rounded-xl h-12 px-6 font-bold uppercase tracking-widest text-[10px]">Cancel</Button>
-                    <Button onClick={handleSaveCoupon} className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20">Save Coupon</Button>
+                    <Button onClick={handleSaveCoupon} className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue">Save Coupon</Button>
                   </div>
                 </div>
               </DialogContent>

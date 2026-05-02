@@ -1184,7 +1184,7 @@ export default function Calendar() {
         } else {
           const smsData = {
             clientName: appointmentData.customerName || "Customer",
-            businessName: settings?.businessName || "Flatline Mobile Detail",
+            businessName: settings?.businessName || "DetailFlow",
             appointmentDate: safeFormat(startAt, "MMM do, yyyy"),
             appointmentTime: safeFormat(startAt, "h:mm a"),
             serviceName: appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service",
@@ -1300,7 +1300,7 @@ export default function Calendar() {
           if (client?.phone) {
             const smsData = {
               clientName: appointmentData.customerName || "Customer",
-              businessName: settings?.businessName || "Flatline Mobile Detail",
+              businessName: settings?.businessName || "DetailFlow",
               appointmentDate: safeFormat(startAt, "MMM do, yyyy"),
               appointmentTime: safeFormat(startAt, "h:mm a"),
               serviceName: appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service",
@@ -1560,13 +1560,13 @@ export default function Calendar() {
       }
     }
 
-    if (nameLower.includes("mold") || nameLower.includes("biohazard")) return "shadow-[0_0_12px_rgba(239,68,68,0.3)] border-red-500/40";
-    if (nameLower.includes("ceramic") || nameLower.includes("coating") || nameLower.includes("protection") || nameLower.includes("gold")) return "shadow-[0_0_12px_rgba(234,179,8,0.3)] border-yellow-500/40";
-    if (nameLower.includes("interior") || nameLower.includes("purple")) return "shadow-[0_0_12px_rgba(168,85,247,0.3)] border-purple-500/40";
-    if (nameLower.includes("exterior") || nameLower.includes("basic") || nameLower.includes("blue")) return "shadow-[0_0_12px_rgba(59,130,246,0.3)] border-blue-500/40";
-    if (nameLower.includes("fleet") || nameLower.includes("vendor") || nameLower.includes("commercial") || nameLower.includes("green")) return "shadow-[0_0_12px_rgba(34,197,94,0.3)] border-green-500/40";
+    if (nameLower.includes("mold") || nameLower.includes("biohazard")) return "shadow-glow-red border-red-500/40";
+    if (nameLower.includes("ceramic") || nameLower.includes("coating") || nameLower.includes("protection") || nameLower.includes("gold")) return "shadow-glow-green border-green-500/40";
+    if (nameLower.includes("interior") || nameLower.includes("purple")) return "shadow-[0_0_12px_rgba(168,85,247,0.3)] border-purple-500/40 opacity-90";
+    if (nameLower.includes("exterior") || nameLower.includes("basic") || nameLower.includes("blue")) return "shadow-glow-blue border-blue-500/40";
+    if (nameLower.includes("fleet") || nameLower.includes("vendor") || nameLower.includes("commercial") || nameLower.includes("green")) return "shadow-glow-green border-green-500/40";
     
-    return "shadow-[0_0_10px_rgba(156,163,175,0.15)] border-white/10";
+    return "shadow-glow-blue/10 border-white/10";
   };
 
   const handleLongPress = (id: string) => {
@@ -1597,7 +1597,7 @@ export default function Calendar() {
 
     if (event.type === 'block') {
       return (
-        <div className="text-[10px] font-black uppercase tracking-widest p-2 overflow-hidden h-full flex items-center bg-zinc-900/80 text-zinc-400 rounded-xl border border-white/5 backdrop-blur-sm shadow-xl">
+        <div className="text-[10px] font-black uppercase tracking-widest p-2 overflow-hidden h-full flex items-center bg-[#121212]/80 text-[#A0A0A0] rounded-xl border border-white/5 backdrop-blur-sm shadow-xl">
           <Lock className="w-3 h-3 inline mr-2 shrink-0 text-zinc-500" />
           <span className="truncate">{event.title}</span>
         </div>
@@ -1626,11 +1626,11 @@ export default function Calendar() {
     return (
       <div 
         className={cn(
-          "w-full flex flex-col p-2.5 overflow-hidden transition-all duration-300 relative group rounded-xl border-l-[3px] border-l-primary bg-zinc-900/95 shadow-xl backdrop-blur-md",
+          "w-full flex flex-col p-2.5 overflow-hidden transition-all duration-300 relative group rounded-xl border-l-[3px] border-l-primary bg-[#121212]/95 backdrop-blur-md",
           "hover:bg-zinc-800/95 hover:scale-[1.01] active:scale-[0.98]",
           "border border-white/5",
           getServiceGlow(app),
-          riskLevel && "ring-1 ring-red-500/30",
+          riskLevel && "ring-1 ring-red-500/30 shadow-glow-red",
           isDayView ? "h-full gap-2" : "min-h-[90px] gap-1"
         )}
       >
@@ -1826,7 +1826,7 @@ export default function Calendar() {
       if (client?.phone) {
         const smsData = {
           clientName: selectedDetailedApp.customerName || "Customer",
-          businessName: settings?.businessName || "Flatline Mobile Detail",
+          businessName: settings?.businessName || "DetailFlow",
           appointmentDate: selectedDetailedApp.scheduledAt?.toDate ? safeFormat(selectedDetailedApp.scheduledAt.toDate(), "MMM do, h:mm a") : "",
           serviceName: selectedDetailedApp.serviceNames?.join(", ") || "service",
           vehicle: selectedDetailedApp.vehicleNames?.[0] || ""
@@ -1945,7 +1945,7 @@ export default function Calendar() {
                 onClick={() => setCalendarView("tactical")}
                 className={cn(
                   "h-10 px-4 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all shrink-0", 
-                  calendarView === "tactical" ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-white/40 hover:text-white"
+                  calendarView === "tactical" ? "bg-primary text-white shadow-glow-blue" : "text-white/40 hover:text-white"
                 )}
               >
                 <MapPin className="w-4 h-4 mr-2" />
@@ -1957,7 +1957,7 @@ export default function Calendar() {
                 onClick={() => setCalendarView("list")}
                 className={cn(
                   "h-10 px-4 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all shrink-0", 
-                  calendarView === "list" ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-white/40 hover:text-white"
+                  calendarView === "list" ? "bg-primary text-white shadow-glow-blue" : "text-white/40 hover:text-white"
                 )}
               >
                 <List className="w-4 h-4 mr-2" />
@@ -2016,7 +2016,7 @@ export default function Calendar() {
                   {recurringAction?.type === "edit" ? "Target This Deployment Only" : "Terminate This Deployment Only"}
                 </Button>
                 <Button 
-                  className="h-16 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-primary text-white hover:bg-red-700 shadow-xl shadow-primary/20 transition-all hover:scale-[1.02]"
+                  className="h-16 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-primary text-white hover:bg-[#2A6CFF] shadow-glow-blue transition-all hover:scale-[1.02]"
                   onClick={() => {
                     const app = recurringAction?.appointment;
                     if (recurringAction?.type === "edit") {
@@ -2451,7 +2451,7 @@ export default function Calendar() {
                       <DialogTrigger render={
                       <Button 
                         size="sm" 
-                        className="bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl shadow-lg shadow-primary/20 transition-all"
+                        className="bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl shadow-glow-blue transition-all"
                         onClick={() => {
                           setEditingAppointment(null);
                           setShowAddDialog(true);
@@ -2651,7 +2651,7 @@ export default function Calendar() {
                                     <Label className="text-xs text-white/60">Frequency</Label>
                                     <Select value={recurringFrequency} onValueChange={(v: any) => setRecurringFrequency(v)}>
                                       <SelectTrigger className="h-10 bg-white/5 border-white/10 text-white font-bold rounded-xl"><SelectValue /></SelectTrigger>
-                                      <SelectContent className="bg-zinc-900 border-white/10 text-white font-bold">
+                                      <SelectContent className="bg-[#121212] border-white/10 text-white font-bold">
                                         <SelectItem value="daily">Daily</SelectItem>
                                         <SelectItem value="weekly">Weekly</SelectItem>
                                         <SelectItem value="biweekly">Bi-weekly</SelectItem>
@@ -2941,7 +2941,7 @@ export default function Calendar() {
                                             <Button 
                                               type="button"
                                               onClick={() => setSelectedAddons(prev => [...prev, { id: addon.id, qty: 1 }])}
-                                              className="bg-primary hover:bg-red-700 text-white font-black text-[9px] h-7 px-3 rounded-lg uppercase tracking-widest shadow-lg shadow-primary/20"
+                                              className="bg-primary hover:bg-[#2A6CFF] text-white font-black text-[9px] h-7 px-3 rounded-lg uppercase tracking-widest shadow-glow-blue"
                                             >
                                               Add to Mission
                                             </Button>
@@ -3211,7 +3211,7 @@ export default function Calendar() {
                           </Button>
                           <Button 
                             type="submit" 
-                            className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-primary text-white hover:bg-red-700 shadow-xl shadow-primary/20 transition-all hover:scale-105"
+                            className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-primary text-white hover:bg-[#2A6CFF] shadow-glow-blue transition-all hover:scale-105"
                             disabled={isCreating}
                           >
                             {isCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
@@ -3235,7 +3235,7 @@ export default function Calendar() {
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <Input 
                         placeholder="Search deployments by client, vehicle, VIN, or job #..." 
-                        className="pl-12 h-14 bg-zinc-900 border-white/10 text-white font-bold rounded-2xl shadow-xl focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-white/20"
+                        className="pl-12 h-14 bg-[#121212] border-white/10 text-white font-bold rounded-2xl shadow-xl focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-white/20"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
@@ -3243,7 +3243,7 @@ export default function Calendar() {
                     {selectedIds.length > 0 && (
                       <Button 
                         variant="destructive" 
-                        className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+                        className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-glow-red"
                         onClick={() => setShowBulkDeleteConfirm(true)}
                       >
                         <Trash2 className="w-4 h-4 mr-2" />
@@ -3252,7 +3252,7 @@ export default function Calendar() {
                     )}
                   </div>
 
-                  <div className="rounded-3xl border border-white/5 overflow-hidden bg-zinc-900/50 shadow-2xl backdrop-blur-sm">
+                  <div className="rounded-3xl border border-white/5 overflow-hidden bg-[#121212]/50 shadow-2xl backdrop-blur-sm">
                     <Table>
                       <TableHeader className="bg-white/5">
                         <TableRow className="border-white/5 hover:bg-transparent">
@@ -3572,7 +3572,7 @@ export default function Calendar() {
             <CardHeader className="p-8">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
+                  <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-glow-blue">
                     <MapPin className="w-5 h-5 text-white" />
                   </div>
                   Tactical Route Optimization
@@ -3652,7 +3652,7 @@ export default function Calendar() {
               </div>
 
               <Button 
-                className="bg-primary text-white hover:bg-red-700 font-black uppercase tracking-[0.2em] text-[10px] w-full h-14 rounded-2xl shadow-xl shadow-primary/20 transition-all"
+                className="bg-primary text-white hover:bg-[#2A6CFF] font-black uppercase tracking-[0.2em] text-[10px] w-full h-14 rounded-2xl shadow-glow-blue transition-all"
                 onClick={() => setCalendarView("tactical")}
               >
                 View Tactical Route View
@@ -3805,7 +3805,7 @@ export default function Calendar() {
                     toast.error("Failed to save blocked date");
                   }
                 }}
-                className="bg-primary hover:bg-primary/90 text-white font-bold rounded-xl h-12 px-8 shadow-lg shadow-primary/20"
+                className="bg-primary hover:bg-[#2A6CFF] text-white font-bold rounded-xl h-12 px-8 shadow-glow-blue"
               >
                 {editingTimeBlock ? "Update Block" : "Create Block"}
               </Button>
@@ -3925,7 +3925,7 @@ export default function Calendar() {
                     </Button>
                   </div>
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-primary/10 rounded-2xl border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/20 shrink-0">
+                    <div className="w-14 h-14 bg-primary/10 rounded-2xl border border-primary/20 flex items-center justify-center text-primary shadow-glow-blue shrink-0">
                       <MapPin className="w-6 h-6" />
                     </div>
                     <div>
@@ -4111,7 +4111,7 @@ export default function Calendar() {
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4 animate-in slide-in-from-bottom-10">
           <div className="bg-gray-900 border border-white/10 rounded-3xl p-4 shadow-2xl flex items-center justify-between gap-4">
             <div className="flex items-center gap-4 px-4">
-              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-primary/20">
+              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-black shadow-glow-blue">
                 {selectedIds.length}
               </div>
               <div>
@@ -4135,7 +4135,7 @@ export default function Calendar() {
               <AlertDialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
                 <AlertDialogTrigger render={
                   <Button 
-                    className="bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-8 rounded-xl shadow-lg shadow-red-600/20"
+                    className="bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-8 rounded-xl shadow-glow-red"
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
                     Abort Selected
@@ -4164,7 +4164,7 @@ export default function Calendar() {
                       </AlertDialogCancel>
                       <AlertDialogAction 
                         onClick={handleBulkDelete}
-                        className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-red-600 text-white hover:bg-red-700 shadow-xl shadow-red-600/20 transition-all hover:scale-105"
+                        className="flex-[2] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-red-600 text-white hover:bg-red-700 shadow-glow-red transition-all hover:scale-105"
                         disabled={isDeletingBulk}
                       >
                         {isDeletingBulk ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
@@ -4190,7 +4190,7 @@ export default function Calendar() {
             {selectedDayEvents?.events.map((evt: any) => (
               <div 
                 key={evt.id}
-                className="p-4 rounded-2xl bg-zinc-900 border border-white/5 hover:bg-zinc-800 cursor-pointer transition-all flex items-center justify-between gap-4 group"
+                className="p-4 rounded-2xl bg-[#121212] border border-white/5 hover:bg-white/5 cursor-pointer transition-all flex items-center justify-between gap-4 group"
                 onClick={() => {
                   setSelectedDetailedApp(evt.resource);
                   setSelectedDayEvents(null);

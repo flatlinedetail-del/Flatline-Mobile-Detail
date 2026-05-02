@@ -47,57 +47,60 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+    --shadow-glow-blue: 0 0 15px rgba(10, 77, 255, 0.4);
+    --shadow-glow-red: 0 0 15px rgba(239, 68, 68, 0.4);
+    --shadow-glow-green: 0 0 15px rgba(34, 197, 94, 0.4);
 }
 
 :root {
-    --background: #09090B;
-    --foreground: #F8F9FB;
-    --card: #111114;
-    --card-foreground: #F8F9FB;
-    --popover: #111114;
-    --popover-foreground: #F8F9FB;
-    --primary: #E53935;
+    --background: #0B0B0B;
+    --foreground: #FFFFFF;
+    --card: #121212;
+    --card-foreground: #FFFFFF;
+    --popover: #121212;
+    --popover-foreground: #FFFFFF;
+    --primary: #0A4DFF;
     --primary-foreground: #FFFFFF;
-    --secondary: #1A1C23;
-    --secondary-foreground: #F8F9FB;
-    --muted: #151821;
-    --muted-foreground: #94A3B8;
-    --accent: #1A1C23;
-    --accent-foreground: #E53935;
+    --secondary: #161616;
+    --secondary-foreground: #FFFFFF;
+    --muted: #1A1A1A;
+    --muted-foreground: #A0A0A0;
+    --accent: #0A4DFF;
+    --accent-foreground: #FFFFFF;
     --destructive: #EF4444;
     --border: rgba(255, 255, 255, 0.08);
-    --input: #1A1C23;
-    --ring: #E53935;
+    --input: #1A1A1A;
+    --ring: #0A4DFF;
     --radius: 1rem;
-    --sidebar: #09090B;
-    --sidebar-foreground: #F8F9FB;
-    --sidebar-primary: #E53935;
+    --sidebar: #0B0B0B;
+    --sidebar-foreground: #FFFFFF;
+    --sidebar-primary: #0A4DFF;
     --sidebar-primary-foreground: #FFFFFF;
-    --sidebar-accent: rgba(255, 255, 255, 0.05);
+    --sidebar-accent: rgba(10, 77, 255, 0.1);
     --sidebar-accent-foreground: #FFFFFF;
     --sidebar-border: rgba(255, 255, 255, 0.05);
-    --sidebar-ring: #E53935;
+    --sidebar-ring: #0A4DFF;
 }
 
 .dark {
-    --background: #09090B;
-    --foreground: #F8F9FB;
-    --card: #111114;
-    --card-foreground: #F8F9FB;
-    --popover: #111114;
-    --popover-foreground: #F8F9FB;
-    --primary: #E53935;
+    --background: #0B0B0B;
+    --foreground: #FFFFFF;
+    --card: #121212;
+    --card-foreground: #FFFFFF;
+    --popover: #121212;
+    --popover-foreground: #FFFFFF;
+    --primary: #0A4DFF;
     --primary-foreground: #FFFFFF;
-    --secondary: #1A1C23;
-    --secondary-foreground: #F8F9FB;
-    --muted: #151821;
-    --muted-foreground: #94A3B8;
-    --accent: #1A1C23;
-    --accent-foreground: #E53935;
+    --secondary: #161616;
+    --secondary-foreground: #FFFFFF;
+    --muted: #1A1A1A;
+    --muted-foreground: #A0A0A0;
+    --accent: #0A4DFF;
+    --accent-foreground: #FFFFFF;
     --destructive: #EF4444;
     --border: rgba(255, 255, 255, 0.08);
-    --input: #1A1C23;
-    --ring: #E53935;
+    --input: #1A1A1A;
+    --ring: #0A4DFF;
 }
 
 @layer base {
@@ -124,11 +127,11 @@
 }
 
 .rbc-header {
-  @apply border-white/5 py-5 font-black uppercase tracking-[0.2em] text-[9px] text-gray-500 bg-black/60 backdrop-blur-md;
+  @apply border-white/5 py-5 font-black uppercase tracking-[0.2em] text-[9px] text-[#A0A0A0] bg-black/60 backdrop-blur-md;
 }
 
 .rbc-month-view, .rbc-time-view, .rbc-agenda-view {
-  @apply border-white/10 rounded-3xl overflow-hidden bg-card shadow-2xl;
+  @apply border-white/10 rounded-3xl overflow-hidden bg-[#121212] shadow-2xl;
 }
 
 .rbc-day-bg {
@@ -136,7 +139,7 @@
 }
 
 .rbc-today {
-  @apply !bg-primary/[0.03];
+  @apply !bg-[#0A4DFF]/[0.03];
 }
 
 .rbc-off-range-bg {
@@ -184,16 +187,16 @@
 }
 
 .rbc-current-time-indicator {
-  @apply bg-primary h-[1.5px] z-20 shadow-[0_0_15px_rgba(229,57,53,0.5)];
+  @apply bg-[#0A4DFF] h-[1.5px] z-20 shadow-[0_0_15px_rgba(10,77,255,0.5)];
 }
 
 .rbc-current-time-indicator::after {
   content: 'NOW';
-  @apply absolute left-0 -top-4 bg-primary text-white text-[7px] font-black px-1.5 py-0.5 rounded-sm tracking-widest shadow-lg;
+  @apply absolute left-0 -top-4 bg-[#0A4DFF] text-white text-[7px] font-black px-1.5 py-0.5 rounded-sm tracking-widest shadow-lg;
 }
 
 .rbc-time-gutter .rbc-label {
-  @apply text-[9px] font-black text-gray-500 uppercase pr-3 tracking-tighter;
+  @apply text-[9px] font-black text-[#A0A0A0] uppercase pr-3 tracking-tighter;
 }
 
 .rbc-agenda-view {
@@ -245,7 +248,7 @@
 }
 
 .rbc-toolbar button:active, .rbc-toolbar button.rbc-active {
-  @apply !bg-primary !text-white !border-primary !shadow-[0_0_20px_rgba(229,57,53,0.3)];
+  @apply !bg-[#0A4DFF] !text-white !border-[#0A4DFF] !shadow-[0_0_20px_rgba(10,77,255,0.3)];
 }
 
 .rbc-toolbar {
@@ -268,9 +271,17 @@
 }
 
 .rbc-overlay-header {
-  @apply border-b border-white/10 pb-3 mb-3 text-xs font-black uppercase tracking-[0.2em] text-gray-500 text-center;
+  @apply border-b border-white/10 pb-3 mb-3 text-xs font-black uppercase tracking-[0.2em] text-[#A0A0A0] text-center;
 }
 
 .rbc-overlay .rbc-event {
   @apply mb-2 last:mb-0;
+}
+
+@layer utilities {
+  .header-glow {
+    text-shadow: 
+      0 0 8px rgba(10, 77, 255, 0.35),
+      0 0 18px rgba(10, 77, 255, 0.22);
+  }
 }

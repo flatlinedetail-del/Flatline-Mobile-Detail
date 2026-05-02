@@ -266,13 +266,13 @@ export default function Expenses() {
               Sync Ledger
             </Button>
             <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-            <DialogTrigger render={
-              <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105">
-                <Plus className="w-4 h-4 mr-2" />
-                Log Expenditure
-              </Button>
-            } />
-            <DialogContent className="max-w-xl bg-card rounded-3xl border-none shadow-2xl shadow-black p-0 overflow-hidden">
+              <DialogTrigger render={
+                <Button className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Log Expenditure
+                </Button>
+              } />
+              <DialogContent className="max-w-xl bg-card rounded-3xl border-none shadow-2xl shadow-black p-0 overflow-hidden">
               <DialogHeader className="p-8 bg-black/40 border-b border-white/5">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -423,7 +423,7 @@ export default function Expenses() {
                   <Button variant="ghost" type="button" onClick={() => setShowAddDialog(false)} className="flex-1 text-gray-400 hover:text-white font-black uppercase tracking-widest text-[10px] h-14">
                     Abort
                   </Button>
-                  <Button type="submit" className="flex-[2] bg-primary hover:bg-red-700 text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 transition-all hover:scale-105">
+                  <Button type="submit" className="flex-[2] bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105">
                     {editingExpense ? "Authorize Modification" : "Authorize Expenditure"}
                   </Button>
                 </div>

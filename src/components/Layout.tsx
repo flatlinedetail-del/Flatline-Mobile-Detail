@@ -72,10 +72,10 @@ function NotificationBell() {
   
   return (
     <SheetTrigger render={
-      <Button variant="ghost" size="icon" className="text-gray-400 hover:text-primary hover:bg-white/5 rounded-xl transition-all duration-300 relative">
+      <Button variant="ghost" size="icon" className="text-[#A0A0A0] hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300 relative">
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full ring-2 ring-sidebar animate-pulse"></span>
+          <span className="absolute top-2 right-2 w-2 h-2 bg-[#0A4DFF] rounded-full ring-2 ring-sidebar animate-pulse"></span>
         )}
       </Button>
     } />
@@ -118,28 +118,28 @@ export default function Layout() {
         to={item.href}
         onClick={() => isMobile && setIsMobileMenuOpen(false)}
         className={cn(
-          "flex items-center rounded-xl text-sm font-medium transition-colors duration-200 group relative",
+          "flex items-center rounded-xl text-sm font-medium transition-all duration-300 group relative",
           isActive
-            ? "bg-primary text-white shadow-lg shadow-primary/20"
+            ? "bg-linear-to-r from-[#0A4DFF] to-[#1E90FF] text-white shadow-glow-blue"
             : isWaitlistGlow
-              ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
-              : "text-white/60 hover:bg-white/5 hover:text-white",
+              ? "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
+              : "text-[#A0A0A0] hover:bg-white/5 hover:text-white",
           isSidebarCollapsed && !isMobile ? "justify-center w-12 h-12 mx-auto" : "gap-3 px-3 py-2.5 w-full",
-          isWaitlistGlow && !isActive && "animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.3)] shadow-primary/30 border border-primary/20"
+          isWaitlistGlow && !isActive && "animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.3)] border border-amber-500/20"
         )}
         title={isSidebarCollapsed && !isMobile ? item.name : undefined}
       >
-        <item.icon className={cn("w-5 h-5 transition-transform group-hover:scale-110 shrink-0", isActive ? "text-white" : isWaitlistGlow ? "text-primary" : "text-white/50")} />
+        <item.icon className={cn("w-5 h-5 transition-transform group-hover:scale-110 shrink-0", isActive ? "text-white" : isWaitlistGlow ? "text-amber-500" : "text-[#A0A0A0]")} />
         {(!isSidebarCollapsed || isMobile) && (
           <span className={cn(
             "tracking-tight font-bold truncate flex-1",
-            isActive ? "text-white" : isWaitlistGlow ? "text-red-400" : "text-white/60"
+            isActive ? "text-white" : isWaitlistGlow ? "text-amber-500" : "text-[#A0A0A0] group-hover:text-white"
           )}>
             {item.name}
           </span>
         )}
         {(!isSidebarCollapsed || isMobile) && item.name === "Waitlist" && activeWaitlistCount > 0 && (
-          <Badge className="bg-primary text-white border-none py-0 px-1.5 h-5 text-[10px] font-black shrink-0">
+          <Badge className="bg-amber-500 text-white border-none py-0 px-1.5 h-5 text-[10px] font-black shrink-0">
             {activeWaitlistCount}
           </Badge>
         )}
@@ -181,11 +181,11 @@ export default function Layout() {
           {!isSidebarCollapsed ? (
             <div className="flex items-center gap-4 mb-6 px-2">
               <div className="relative group shrink-0">
-                <div className="w-10 h-10 bg-primary/20 rounded-xl overflow-hidden ring-2 ring-primary/20 group-hover:ring-primary/50 transition-all duration-300">
+                <div className="w-10 h-10 bg-[#0A4DFF]/20 rounded-xl overflow-hidden ring-2 ring-[#0A4DFF]/20 group-hover:ring-[#0A4DFF]/50 transition-all duration-300">
                   {profile?.photoURL ? (
                     <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-primary font-bold">
+                    <div className="w-full h-full flex items-center justify-center text-[#0A4DFF] font-bold">
                       {profile?.displayName?.charAt(0)}
                     </div>
                   )}
@@ -194,17 +194,17 @@ export default function Layout() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-white truncate tracking-tight">{profile?.displayName}</p>
-                <p className="text-[10px] text-primary truncate uppercase tracking-widest font-black">{profile?.role}</p>
+                <p className="text-[10px] text-[#0A4DFF] truncate uppercase tracking-widest font-black">{profile?.role}</p>
               </div>
             </div>
           ) : (
             <div className="flex justify-center mb-6">
               <div className="relative group shrink-0">
-                <div className="w-10 h-10 bg-primary/20 rounded-xl overflow-hidden ring-2 ring-primary/20 group-hover:ring-primary/50">
+                <div className="w-10 h-10 bg-[#0A4DFF]/20 rounded-xl overflow-hidden ring-2 ring-[#0A4DFF]/20 group-hover:ring-[#0A4DFF]/50">
                   {profile?.photoURL ? (
                     <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-primary font-bold">
+                    <div className="w-full h-full flex items-center justify-center text-[#0A4DFF] font-bold">
                       {profile?.displayName?.charAt(0)}
                     </div>
                   )}
@@ -242,7 +242,7 @@ export default function Layout() {
               variant="ghost" 
               size="icon" 
               onClick={toggleSidebar}
-              className="hidden md:flex text-gray-400 hover:text-primary hover:bg-white/5 rounded-xl transition-all duration-300"
+              className="hidden md:flex text-[#A0A0A0] hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300"
             >
               {isSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
             </Button>
@@ -269,7 +269,7 @@ export default function Layout() {
                 variant="ghost" 
                 size="icon" 
                 onClick={() => setIsAIAssistantOpen(true)}
-                className="text-gray-400 hover:text-primary hover:bg-white/5 rounded-xl transition-all duration-300"
+                className="text-[#A0A0A0] hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300"
               >
                 <MessageSquare className="w-5 h-5" />
               </Button>
@@ -306,7 +306,7 @@ export default function Layout() {
                 <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-white/5 bg-black/40">
                   <Button 
                     variant="ghost" 
-                    className="w-full justify-start text-gray-400 hover:text-primary hover:bg-white/5 rounded-xl transition-all duration-300" 
+                    className="w-full justify-start text-[#A0A0A0] hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300" 
                     onClick={logout}
                   >
                     <LogOut className="w-5 h-5 mr-3" />

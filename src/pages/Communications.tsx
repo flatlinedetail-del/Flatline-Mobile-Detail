@@ -279,7 +279,7 @@ export default function Communications() {
                           <Button 
                             onClick={(e) => { e.stopPropagation(); handleRetry(log.id, log.recipient, log.content); }}
                             disabled={retryingId === log.id}
-                            className="bg-primary hover:bg-red-700 text-white font-bold h-10 px-6 rounded-xl"
+                            className="bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[10px] h-10 px-6 rounded-xl shadow-glow-blue transition-all hover:scale-105"
                           >
                             {retryingId === log.id ? (
                               <RefreshCw className="w-4 h-4 mr-2 animate-spin" />

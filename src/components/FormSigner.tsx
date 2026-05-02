@@ -273,7 +273,7 @@ export default function FormSigner({ template, appointmentId, clientId, onComple
           <Button 
             onClick={handleSubmit} 
             disabled={isSubmitting}
-            className={cn("flex-1 bg-primary hover:bg-red-700 font-bold h-12", template.isMandatory && "w-full")}
+            className={cn("flex-1 bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 shadow-glow-blue transition-all hover:scale-105", template.isMandatory && "w-full")}
           >
             {isSubmitting ? "Saving..." : "Sign & Complete"}
           </Button>

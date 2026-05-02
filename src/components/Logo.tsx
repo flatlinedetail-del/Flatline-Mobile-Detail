@@ -20,12 +20,12 @@ export default function Logo({
   yOverride
 }: LogoProps) {
   const { settings } = useSettings();
-  const primaryColor = color === "white" ? "white" : "black";
-  const accentColor = "#E11D48"; // Heartbeat Red
+  const primaryColor = color === "white" ? "#FFFFFF" : "#0F172A"; // Slate 900
+  const accentColor = "#0A4DFF"; // DetailFlow Blue
 
-  const businessName = settings?.businessName || "FLATLINE";
+  const businessName = settings?.businessName || "DETAILFLOW";
   const firstWord = businessName.split(" ")[0];
-  const restOfName = businessName.split(" ").slice(1).join(" ") || "Mobile Detail";
+  const restOfName = businessName.split(" ").slice(1).join(" ") || "OPERATIONS OS";
 
   const scale = scaleOverride ?? settings?.logoSettings?.scale ?? 1;
   const x = xOverride ?? settings?.logoSettings?.x ?? 0;
@@ -47,10 +47,10 @@ export default function Logo({
         </div>
         {variant === "full" && (
           <div className="flex flex-col leading-none">
-            <span className={cn("font-black tracking-tighter text-2xl font-heading", color === "white" ? "text-white" : "text-black")}>
+            <span className={cn("font-black tracking-tighter text-2xl font-heading", color === "white" ? "text-white" : "text-slate-900")}>
               {firstWord}
             </span>
-            <span className={cn("font-bold text-[10px] uppercase tracking-[0.3em] font-sans", color === "white" ? "text-primary" : "text-primary")}>
+            <span className={cn("font-bold text-[10px] uppercase tracking-[0.3em] font-sans text-[#0A4DFF]")}>
               {restOfName}
             </span>
           </div>
@@ -59,56 +59,54 @@ export default function Logo({
     );
   }
 
+  // DEFAULT DETAILFLOW LOGO
   return (
     <div className={cn("flex items-center gap-3", className)}>
-      <div className={cn(variant === "full" ? "w-12 h-12" : "w-full h-full", "relative")}>
+      <div className={cn(variant === "full" ? "w-12 h-12" : "w-full h-full", "relative group transition-all duration-500 group-hover:shadow-glow-blue/20 rounded-xl")}>
         <svg
           viewBox="0 0 100 100"
           className="w-full h-full"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          {/* Heartbeat Line Background */}
+          {/* Hexagon Background */}
           <path
-            d="M5 75 L25 75 L30 65 L35 85 L40 45 L45 95 L50 75 L95 75"
-            stroke={accentColor}
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="opacity-20"
+            d="M50 5 L89 27.5 L89 72.5 L50 95 L11 72.5 L11 27.5 Z"
+            fill={accentColor}
+            className="opacity-10 group-hover:opacity-20 transition-opacity"
           />
-          {/* FMD Initials */}
-          <text
-            x="50%"
-            y="50%"
-            dominantBaseline="middle"
-            textAnchor="middle"
-            fill={primaryColor}
-            fontSize="36"
-            fontWeight="900"
-            fontFamily="Outfit, sans-serif"
-            letterSpacing="-2"
-          >
-            FMD
-          </text>
-          {/* Main Heartbeat Line */}
+          {/* DetailFlow "DF" Monogram */}
           <path
-            d="M10 70 L30 70 L35 60 L40 80 L45 40 L50 90 L55 70 L90 70"
+            d="M35 30 L55 30 C65 30 70 35 70 45 C70 55 65 60 55 60 L35 60 Z"
+            stroke={primaryColor}
+            strokeWidth="8"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M35 30 L35 75"
+            stroke={primaryColor}
+            strokeWidth="8"
+            strokeLinecap="round"
+          />
+          <path
+            d="M55 45 L70 45 L70 75"
             stroke={accentColor}
-            strokeWidth="4"
+            strokeWidth="8"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+          {/* Modern Accent */}
+          <circle cx="70" cy="75" r="4" fill={accentColor} />
         </svg>
       </div>
 
       {variant === "full" && (
         <div className="flex flex-col leading-none">
-          <span className={cn("font-black tracking-tighter text-2xl font-heading", color === "white" ? "text-white" : "text-black")}>
-            {firstWord}
+          <span className={cn("font-black tracking-tighter text-2xl font-heading uppercase italic", color === "white" ? "text-white" : "text-slate-900")}>
+            DETAIL<span className="text-[#0A4DFF]">FLOW</span>
           </span>
-          <span className={cn("font-bold text-[10px] uppercase tracking-[0.3em] font-sans text-primary")}>
-            {restOfName}
+          <span className={cn("font-bold text-[9px] uppercase tracking-[0.4em] font-sans text-[#A0A0A0] mt-0.5")}>
+            OPERATIONS OS
           </span>
         </div>
       )}

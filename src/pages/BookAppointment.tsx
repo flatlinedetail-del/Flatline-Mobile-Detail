@@ -1068,7 +1068,7 @@ export default function BookAppointment() {
 
       if (client?.phone) {
         const serviceText = appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service";
-        const messageBody = `Flatline Mobile Detail: Your appointment is confirmed for ${format(startAt, "MMM do, yyyy")} at ${format(startAt, "h:mm a")} for ${serviceText}. Reply STOP to opt out.`;
+        const messageBody = `DetailFlow: Your appointment is confirmed for ${format(startAt, "MMM do, yyyy")} at ${format(startAt, "h:mm a")} for ${serviceText}. Reply STOP to opt out.`;
         messagingService.sendSms({
           to: client.phone,
           body: messageBody
@@ -2001,7 +2001,7 @@ export default function BookAppointment() {
             <Button
               type="submit"
               disabled={saving}
-              className="px-8 h-12 bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-105 disabled:opacity-50"
+              className="px-8 h-12 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest rounded-xl shadow-glow-blue transition-all hover:scale-105 disabled:opacity-50"
             >
               {saving ? "Deploying..." : "Confirm Booking"}
             </Button>
@@ -2234,8 +2234,8 @@ export default function BookAppointment() {
                                                             className={cn(
                                                                 "w-full h-9 text-[9px] font-black uppercase tracking-widest border-none shadow-lg",
                                                                 isAccepted 
-                                                                    ? "bg-primary text-white shadow-primary/20 hover:bg-red-600" 
-                                                                    : "bg-primary hover:bg-primary/90 text-white shadow-primary/20"
+                                                                    ? "bg-primary text-white shadow-glow-blue hover:bg-[#2A6CFF]" 
+                                                                    : "bg-primary hover:bg-[#2A6CFF] text-white shadow-glow-blue"
                                                             )}
                                                         >
                                                             {isAccepted ? "Release Deal" : "Honor Deal"}
@@ -2384,7 +2384,7 @@ export default function BookAppointment() {
                           handleAddRecommendation(selectedRecDetail);
                           setSelectedRecDetail(null);
                         }}
-                        className="flex-1 bg-primary hover:bg-red-700 text-white font-black uppercase text-xs tracking-widest h-12 shadow-lg shadow-primary/20"
+                        className="flex-1 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase text-xs tracking-widest h-12 shadow-glow-blue transition-all hover:scale-105"
                       >
                         Add to Protocol
                       </Button>

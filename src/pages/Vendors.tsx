@@ -356,7 +356,7 @@ export default function Vendors() {
             }
           }}>
           <DialogTrigger render={
-            <Button className="bg-primary hover:bg-red-700 shadow-lg shadow-red-100 font-bold">
+            <Button className="bg-primary hover:bg-[#2A6CFF] shadow-glow-blue font-black uppercase tracking-widest text-[10px] h-12 rounded-xl">
               <Building2 className="w-4 h-4 mr-2" />
               Add New Vendor
             </Button>
@@ -409,7 +409,7 @@ export default function Vendors() {
                 <Label htmlFor="notes">Internal Notes</Label>
                 <Textarea id="notes" name="notes" defaultValue={editingVendor?.notes || ""} placeholder="Terms, preferences, etc." />
               </div>
-              <Button type="submit" className="w-full bg-primary hover:bg-red-700 font-bold">
+              <Button type="submit" className="w-full bg-primary hover:bg-[#2A6CFF] font-black uppercase tracking-widest text-xs h-12 rounded-xl shadow-glow-blue">
                 {editingVendor ? "Update Vendor Profile" : "Create Vendor Account"}
               </Button>
             </form>
@@ -550,7 +550,7 @@ export default function Vendors() {
             <div className="bg-black/80 p-8 text-white shrink-0 border-b border-white/5">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-primary/20">
+                  <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-glow-blue">
                     <Building2 className="w-8 h-8" />
                   </div>
                   <div>
@@ -570,7 +570,7 @@ export default function Vendors() {
                   <div className="flex items-center gap-2 mb-2">
                     <Button 
                       size="sm" 
-                      className="bg-primary text-white hover:bg-primary/90 font-black uppercase tracking-widest text-[10px] rounded-xl h-9 px-4 shadow-lg shadow-primary/20"
+                      className="bg-primary text-white hover:bg-[#2A6CFF] font-black uppercase tracking-widest text-[10px] rounded-xl h-9 px-4 shadow-glow-blue"
                       onClick={() => {
                         toast.success("Book Appointment Clicked");
                         setIsDetailOpen(false);
@@ -825,7 +825,7 @@ export default function Vendors() {
                                     <AlertDialogCancel className="font-bold">Cancel</AlertDialogCancel>
                                     <AlertDialogAction 
                                       onClick={() => handleDeleteVehicle(v.id)}
-                                      className="bg-red-600 hover:bg-red-700 font-bold"
+                                      className="bg-red-600 hover:bg-red-700 font-black uppercase tracking-widest text-[10px] h-9 rounded-xl shadow-glow-red"
                                     >
                                       Delete
                                     </AlertDialogAction>
@@ -1024,7 +1024,7 @@ export default function Vendors() {
                     <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">Engagement History</h3>
                     <Button 
                       size="sm" 
-                      className="bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-9 rounded-xl"
+                      className="bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[10px] h-9 rounded-xl shadow-glow-blue"
                       onClick={() => {
                         toast.success("Book Appointment Clicked");
                         setIsDetailOpen(false);

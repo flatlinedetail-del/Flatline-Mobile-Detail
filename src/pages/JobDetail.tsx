@@ -113,7 +113,7 @@ function SmallCardWrapper({
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in" onClick={() => onFocus(null)} />
           <div className="relative z-10 w-full max-w-2xl animate-in zoom-in-95 duration-200">
             <Button size="icon" variant="ghost" onClick={() => onFocus(null)} className="absolute -top-12 right-0 text-white/70 hover:text-white hover:bg-white/10 rounded-full bg-black/40"><X className="w-5 h-5"/></Button>
-            <div className="bg-[#050505] flex flex-col rounded-3xl border border-primary/50 shadow-[0_0_100px_-20px_rgba(239,68,68,0.4)]">
+            <div className="bg-[#121212] flex flex-col rounded-3xl border border-primary/50 shadow-glow-blue">
               {children}
             </div>
           </div>
@@ -126,7 +126,7 @@ function SmallCardWrapper({
     <div 
       onClick={() => onFocus(id)} 
       className={cn(
-        "cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:ring-1 hover:ring-white/20 rounded-2xl h-full flex flex-col relative", 
+        "cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-glow-blue hover:ring-1 hover:ring-white/20 rounded-2xl h-full flex flex-col relative", 
         isDimmed ? "opacity-30 grayscale-[50%] blur-[1px] pointer-events-none" : ""
       )}
     >
@@ -539,11 +539,11 @@ export default function JobDetail() {
       const formattedDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(scheduledDate);
 
       if (type === "confirmation") {
-        messageBody = `Flatline Mobile Detail: Your appointment is confirmed for ${formattedDate} at ${formattedTime} for ${serviceText}. Reply STOP to opt out.`;
+        messageBody = `DetailFlow: Your appointment is confirmed for ${formattedDate} at ${formattedTime} for ${serviceText}. Reply STOP to opt out.`;
       } else if (type === "reminder_24h") {
-        messageBody = `Hi ${getClientDisplayName(job)}, reminder: your Flatline Mobile Detail appointment is tomorrow at ${formattedTime}.`;
+        messageBody = `Hi ${getClientDisplayName(job)}, reminder: your DetailFlow appointment is tomorrow at ${formattedTime}.`;
       } else if (type === "reminder_2h") {
-        messageBody = `Hi ${getClientDisplayName(job)}, Flatline Mobile Detail will see you in about 2 hours for your appointment at ${formattedTime}.`;
+        messageBody = `Hi ${getClientDisplayName(job)}, DetailFlow will see you in about 2 hours for your appointment at ${formattedTime}.`;
       }
 
       const res = await messagingService.sendSms({
@@ -812,7 +812,7 @@ export default function JobDetail() {
       if (invoiceData.clientPhone) {
         const smsData = {
           clientName: invoiceData.clientName || "Customer",
-          businessName: businessSettings?.businessName || "Flatline Mobile Detail",
+          businessName: businessSettings?.businessName || "DetailFlow",
           invoiceAmount: formatCurrency(invoiceData.total || 0),
           invoiceLink: window.location.origin + "/public-invoice/" + docRef.id,
           paymentLink: window.location.origin + "/public-invoice/" + docRef.id + "/pay"
@@ -1230,7 +1230,7 @@ export default function JobDetail() {
       if (job.customerPhone) {
         const smsData = {
           clientName: job.customerName || "Customer",
-          businessName: businessSettings?.businessName || "Flatline Mobile Detail",
+          businessName: businessSettings?.businessName || "DetailFlow",
           appointmentDate: job.scheduledAt ? job.scheduledAt.toDate().toLocaleDateString() : 'your appointment',
           appointmentTime: job.scheduledAt ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(job.scheduledAt.toDate()) : ''
         };
@@ -1524,7 +1524,7 @@ export default function JobDetail() {
       if (job.customerPhone) {
         messagingService.sendSms({
           to: job.customerPhone,
-          body: `Flatline Mobile Detail: Payment received. Thank you! We appreciate your business. Reply STOP to opt out.`
+          body: `DetailFlow: Payment received. Thank you! We appreciate your business. Reply STOP to opt out.`
         }).then(() => console.log("Payment Receipt SMS sent successfully."))
           .catch(e => console.error("Receipt SMS failed:", e));
       }
@@ -1697,7 +1697,7 @@ export default function JobDetail() {
       
       const smsData = {
         clientName: job.customerName || "Customer",
-        businessName: businessSettings?.businessName || "Flatline Mobile Detail"
+        businessName: businessSettings?.businessName || "DetailFlow"
       };
 
       if (newStatus === "canceled") {
@@ -1941,7 +1941,7 @@ export default function JobDetail() {
             variant="ghost" 
             size="icon" 
             onClick={() => navigate(-1)} 
-            className="rounded-2xl w-12 h-12 bg-card border border-border text-gray-400 hover:text-primary transition-all shadow-sm"
+            className="rounded-2xl w-12 h-12 bg-secondary border border-white/10 text-[#A0A0A0] hover:text-primary transition-all shadow-sm"
           >
             <ChevronLeft className="w-6 h-6" />
           </Button>
@@ -1971,7 +1971,7 @@ export default function JobDetail() {
       <div className="sticky top-4 z-40 bg-black/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 shadow-2xl shadow-black flex flex-wrap lg:flex-nowrap items-center gap-5 justify-between animate-in slide-in-from-top-4 duration-500 overflow-hidden">
         <div className="flex flex-wrap items-center gap-6 flex-1 min-w-0">
           <div className="flex flex-col min-w-[160px] max-w-[240px] border-r border-white/5 pr-4 shrink-0">
-            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Client Contact</span>
+            <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Client Contact</span>
             <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
             <div className="flex items-center gap-2 mt-1">
               {job.customerPhone && (
@@ -1988,14 +1988,14 @@ export default function JobDetail() {
           </div>
 
           <div className="flex flex-col min-w-[180px] max-w-[280px] border-r border-white/5 pr-4 shrink-0">
-            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Vehicle Information</span>
+            <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Vehicle Information</span>
             <div className="flex flex-col">
               <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
                 {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
               </span>
               <div className="flex items-center gap-3 mt-1">
                 {job.vin && (
-                  <span className="text-[8px] font-mono text-white/40 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
+                  <span className="text-[8px] font-mono text-[#A0A0A0] bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
                     VIN: {job.vin.slice(-8)}
                   </span>
                 )}
@@ -2014,13 +2014,13 @@ export default function JobDetail() {
                     <DialogHeader className="bg-black/40 border-b border-white/5 p-8 pb-6">
                       <div className="flex flex-col gap-1">
                         <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Information Manager</DialogTitle>
-                        <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Update Vehicle & Job Details</p>
+                        <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest">Update Vehicle & Job Details</p>
                       </div>
                     </DialogHeader>
                     <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">VIN / Asset ID</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">VIN / Asset ID</Label>
                           <div className="flex gap-3">
                             <Input 
                               placeholder="Enter VIN" 
@@ -2029,7 +2029,7 @@ export default function JobDetail() {
                               id="vin-input-quick"
                             />
                             <Button 
-                              className="bg-primary text-white font-black h-12 px-4 rounded-xl uppercase tracking-widest text-[9px] hover:bg-red-700 shrink-0"
+                              className="bg-primary text-white font-black h-12 px-4 rounded-xl uppercase tracking-widest text-[9px] hover:bg-[#2A6CFF] shrink-0"
                               onClick={async () => {
                                 const vin = (document.getElementById("vin-input-quick") as HTMLInputElement).value;
                                 if (vin) {
@@ -2050,15 +2050,15 @@ export default function JobDetail() {
 
                         {decodedVin && (
                           <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 grid grid-cols-2 gap-4 text-[10px] font-black uppercase tracking-[0.1em]">
-                            <div className="text-white/40">Make: <span className="text-white">{decodedVin.make}</span></div>
-                            <div className="text-white/40">Model: <span className="text-white">{decodedVin.model}</span></div>
-                            <div className="text-white/40">Year: <span className="text-white">{decodedVin.year}</span></div>
-                            <div className="text-white/40">Type: <span className="text-white">{decodedVin.type}</span></div>
+                            <div className="text-[#A0A0A0]">Make: <span className="text-white">{decodedVin.make}</span></div>
+                            <div className="text-[#A0A0A0]">Model: <span className="text-white">{decodedVin.model}</span></div>
+                            <div className="text-[#A0A0A0]">Year: <span className="text-white">{decodedVin.year}</span></div>
+                            <div className="text-[#A0A0A0]">Type: <span className="text-white">{decodedVin.type}</span></div>
                           </div>
                         )}
 
                         <div className="space-y-2">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">RO Identifier</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">RO Identifier</Label>
                           <Input 
                             placeholder="Repair Order #" 
                             className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-black uppercase tracking-widest text-sm"
@@ -2088,7 +2088,7 @@ export default function JobDetail() {
           </div>
 
           <div className="flex flex-col min-w-[180px] max-w-[300px] hidden md:flex border-r border-white/5 pr-4 shrink-0">
-            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Job Location</span>
+            <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Job Location</span>
             <div className="flex items-center gap-2">
               <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={cleanAddress(job.address)}>
                 {cleanAddress(job.address)}
@@ -2115,7 +2115,7 @@ export default function JobDetail() {
         
         <div className="flex items-center gap-6 shrink-0">
           <div className="flex flex-col min-w-[120px]">
-            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Status</span>
+            <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Status</span>
             <div className="flex items-center gap-3">
               <Badge className={cn("text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded border-none w-fit shadow-md shrink-0", statusColors[job.status] || "bg-gray-500 text-white")}>
                 {job.status?.replace("_", " ")}
@@ -2135,7 +2135,7 @@ export default function JobDetail() {
                       }
                     }} 
                     disabled={isUpdating} 
-                    className="bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[9px] h-9 px-4 rounded-xl shadow-lg shadow-primary/20 whitespace-nowrap"
+                    className="bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[9px] h-9 px-4 rounded-xl shadow-glow-blue whitespace-nowrap"
                   >
                     Start Route
                   </Button>
@@ -2195,7 +2195,7 @@ export default function JobDetail() {
             </div>
           </div>
           <div className="flex flex-col min-w-[120px] items-end border-l border-white/10 pl-6 shrink-0 relative">
-            <span className="text-[9px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Running Total</span>
+            <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Running Total</span>
             <span className="text-2xl text-primary font-black leading-none">{formatCurrency(job.totalAmount || 0)}</span>
             
             {/* Real-time Payment Status from Invoice or Job */}
@@ -2292,7 +2292,7 @@ export default function JobDetail() {
                     </div>
                     <div>
                       <CardTitle className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter">Upsell Intelligence</CardTitle>
-                      <p className="text-[10px] text-white/50 font-black uppercase tracking-[0.2em] mt-1">AI-Powered Revenue Optimization</p>
+                      <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">AI-Powered Revenue Optimization</p>
                     </div>
                   </div>
                 </CardHeader>
@@ -2525,7 +2525,7 @@ export default function JobDetail() {
                           }
                         }}
                         disabled={isGeneratingUpsells || (technicianAssessment.trim() === "" && assessmentTags.length === 0 && assessmentImages.length === 0)}
-                        className="w-full h-14 bg-primary hover:bg-red-700 text-white font-black rounded-xl uppercase tracking-[0.2em] text-[10px]"
+                        className="w-full h-14 bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-xl uppercase tracking-[0.2em] text-[10px]"
                       >
                         {isGeneratingUpsells ? <Loader2 className="w-5 h-5 animate-spin" /> : "Initiate Revenue Optimization"}
                       </Button>
@@ -2593,16 +2593,16 @@ export default function JobDetail() {
                               <span className="text-[9px] font-black uppercase text-primary tracking-widest bg-primary/10 w-fit px-2 py-0.5 rounded-sm">Smart Suggestion</span>
                             </div>
                             
-                            <p className="text-xs text-white/60 font-medium mb-4 leading-relaxed flex-1">{rec.reason}</p>
+                             <p className="text-xs text-[#A0A0A0] font-medium mb-4 leading-relaxed flex-1">{rec.reason}</p>
                             
                             {rec.recommendedProduct && (
-                              <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                              <div className="mb-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-[9px] font-black uppercase tracking-widest text-blue-400">Suggested Tool / Product</span>
+                                  <span className="text-[9px] font-black uppercase tracking-widest text-primary">Suggested Tool / Product</span>
                                 </div>
                                 <p className="text-xs font-black text-white mb-1">{rec.recommendedProduct}</p>
                                 {rec.productReason && (
-                                  <p className="text-[10px] text-blue-200/60 leading-tight">{rec.productReason}</p>
+                                  <p className="text-[10px] text-white/40 leading-tight">{rec.productReason}</p>
                                 )}
                               </div>
                             )}
@@ -2616,10 +2616,10 @@ export default function JobDetail() {
 
                             <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/10">
                               <div className="flex flex-col gap-1">
-                                <span className="text-[9px] font-black uppercase text-white/40 tracking-widest leading-none">Range: {rec.priceRange}</span>
+                                <span className="text-[9px] font-black uppercase text-[#A0A0A0] tracking-widest leading-none">Range: {rec.priceRange}</span>
                                 {rec.originalPrice && rec.bundlePrice && rec.originalPrice > rec.bundlePrice && (
                                   <div className="flex items-center gap-1.5 mt-1">
-                                    <span className="text-xs text-white/40 line-through">${rec.originalPrice}</span>
+                                    <span className="text-xs text-[#A0A0A0] line-through">${rec.originalPrice}</span>
                                     <span className="text-[10px] font-black uppercase tracking-widest text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">
                                       Save {formatCurrency(rec.originalPrice - rec.bundlePrice)}
                                     </span>
@@ -2630,7 +2630,7 @@ export default function JobDetail() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-white/30 hover:text-red-500 hover:bg-red-500/10 pointer-events-auto"
+                                  className="h-8 w-8 text-[#A0A0A0]/30 hover:text-red-500 hover:bg-red-500/10 pointer-events-auto"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setRecommendations(recommendations.filter(r => r.serviceName !== rec.serviceName));
@@ -2654,7 +2654,7 @@ export default function JobDetail() {
                                 <Button 
                                   onClick={(e) => { e.stopPropagation(); handleApplyOneTapUpsell(rec); }}
                                   disabled={isDisabled}
-                                  className="h-8 px-4 text-[10px] font-black uppercase tracking-widest bg-primary hover:bg-red-700 text-white rounded-md pointer-events-auto shrink-0 disabled:opacity-50"
+                                  className="h-8 px-4 text-[10px] font-black uppercase tracking-widest bg-primary hover:opacity-90 text-white rounded-md pointer-events-auto shrink-0 disabled:opacity-50"
                                 >
                                   {isUpdating ? <Loader2 className="w-3 h-3 animate-spin" /> : "Add Recommended Service"}
                                 </Button>
@@ -2684,7 +2684,7 @@ export default function JobDetail() {
                               : "bg-white/5 border-white/10"
                           )}>
                             <div className="flex justify-between items-start mb-2">
-                              <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">Floor</span>
+                              <span className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Floor</span>
                               {pricingAnalysis.floorPrice < pricingAnalysis.totalProductCost * 1.5 && (
                                 <AlertCircle className="w-3 h-3 text-amber-500" />
                               )}
@@ -2706,7 +2706,7 @@ export default function JobDetail() {
                             <Button 
                               onClick={() => handleApplyPriceTier('recommended')}
                               disabled={isApplyingPrice}
-                              className="w-full h-10 text-[9px] font-black uppercase tracking-widest bg-primary hover:bg-red-700"
+                              className="w-full h-10 text-[9px] font-black uppercase tracking-widest bg-primary hover:opacity-90"
                             >
                               Apply Recommended
                             </Button>
@@ -2714,7 +2714,7 @@ export default function JobDetail() {
 
                           {/* Premium Tier */}
                           <div className="p-4 rounded-xl border bg-white/5 border-white/10">
-                            <span className="text-[10px] font-black text-white/50 uppercase tracking-widest block mb-2">Premium</span>
+                            <span className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest block mb-2">Premium</span>
                             <div className="text-2xl font-black text-white mb-4">{formatCurrency(pricingAnalysis.premiumPrice)}</div>
                             <Button 
                               onClick={() => handleApplyPriceTier('premium')}
@@ -2729,19 +2729,19 @@ export default function JobDetail() {
                         {/* Financial Metrics */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
                           <div>
-                            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Total Job Cost</p>
+                            <p className="text-[9px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Total Job Cost</p>
                             <p className="text-sm font-black text-white">{formatCurrency(pricingAnalysis.totalProductCost)}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Gross Revenue</p>
+                            <p className="text-[9px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Gross Revenue</p>
                             <p className="text-sm font-black text-green-500">{formatCurrency(pricingAnalysis.recommendedPrice)}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Margin Dollars</p>
+                            <p className="text-[9px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Margin Dollars</p>
                             <p className="text-sm font-black text-primary">{formatCurrency(pricingAnalysis.estimatedMarginDollars)}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Margin %</p>
+                            <p className="text-[9px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Margin %</p>
                             <p className="text-sm font-black text-primary">{pricingAnalysis.estimatedMarginPercent.toFixed(1)}%</p>
                           </div>
                         </div>
@@ -3143,8 +3143,8 @@ export default function JobDetail() {
                     <CardContent className="p-8 relative z-10">
                       {activeDirectives.length === 0 ? (
                         <div className="text-center py-6">
-                           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50 mb-2">NO ACTIVE DIRECTIVES</p>
-                           <p className="text-xs text-white/40">Run Revenue Optimization in the Revenue Intel tab to generate tactical directives for this deployment.</p>
+                           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#A0A0A0] mb-2">NO ACTIVE DIRECTIVES</p>
+                           <p className="text-xs text-[#A0A0A0]">Run Revenue Optimization in the Revenue Intel tab to generate tactical directives for this deployment.</p>
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full items-stretch">
@@ -3162,17 +3162,17 @@ export default function JobDetail() {
                               </div>
                               
                               <div className="p-4 bg-black/40 rounded-xl border border-white/5 flex-1">
-                                <Label className="text-[9px] font-black uppercase tracking-widest text-white/50 mb-2 block">Action Required</Label>
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-[#A0A0A0] mb-2 block">Action Required</Label>
                                 <div className="text-sm font-medium text-white/90 leading-relaxed">
                                   {item.instruction}
                                 </div>
                               </div>
                               
                               {item.recommendedProduct && (
-                                <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 mt-auto">
-                                  <Label className="text-[9px] font-black uppercase tracking-widest text-blue-400 mb-2 block">Tooling / Product Recommendation</Label>
+                                <div className="p-4 rounded-xl bg-primary/10 border border-primary/20 mt-auto">
+                                  <Label className="text-[9px] font-black uppercase tracking-widest text-primary mb-2 block">Tooling / Product Recommendation</Label>
                                   <p className="text-sm font-black text-white">{item.recommendedProduct}</p>
-                                  {item.productReason && <p className="text-xs text-blue-200/60 mt-1">{item.productReason}</p>}
+                                  {item.productReason && <p className="text-xs text-white/40 mt-1">{item.productReason}</p>}
                                 </div>
                               )}
                             </div>
@@ -3186,7 +3186,7 @@ export default function JobDetail() {
               })()}
 
               {/* Revenue Summary Card (Restored to Operations Tab) */}
-              <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
+              <Card className="border-none shadow-xl bg-[#121212] rounded-3xl overflow-hidden">
                 <CardHeader className="bg-black/20 border-b border-white/5 p-6">
                   <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Revenue Summary</CardTitle>
                 </CardHeader>
@@ -3217,7 +3217,7 @@ export default function JobDetail() {
                                       <span className="text-white font-black uppercase tracking-widest text-[9px] leading-none mb-1 border-b border-dashed border-white/40 group-hover:border-white/70 transition-colors inline-block truncate max-w-full">{service.name}</span>
                                     </button>
                                   } />
-                                  <DialogContent className="max-w-md bg-card border border-white/10 shadow-2xl p-6 rounded-2xl">
+                                  <DialogContent className="max-w-md bg-[#121212] border border-white/10 shadow-2xl p-6 rounded-2xl">
                                     <DialogHeader className="mb-4 text-left">
                                       <DialogTitle className="font-black text-lg tracking-tighter text-white uppercase">{service.name}</DialogTitle>
                                     </DialogHeader>
@@ -3227,7 +3227,7 @@ export default function JobDetail() {
                                         <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.internal}</p>
                                       </div>
                                       <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">Customer Explanation</Label>
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Customer Explanation</Label>
                                         <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.customer}</p>
                                       </div>
                                     </div>
@@ -3236,14 +3236,14 @@ export default function JobDetail() {
                               ) : (
                                 <span className="text-white font-black uppercase tracking-widest text-[9px] leading-none mb-1 truncate">{service.name}</span>
                               )}
-                              <span className="text-[9px] text-white/30 font-bold uppercase tracking-tight truncate">{service.vehicleName || "Main Asset"}</span>
+                              <span className="text-[9px] text-[#A0A0A0] font-bold uppercase tracking-tight truncate">{service.vehicleName || "Main Asset"}</span>
                             </div>
                             <div className="flex items-center gap-3 ml-2">
                               <span className="text-white font-black text-xs font-mono whitespace-nowrap">{formatCurrency(service.price || 0)}</span>
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="h-8 w-8 text-white/40 hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
+                                className="h-8 w-8 text-[#A0A0A0] hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   removeBillableItem(service.id || service.name, "service");
@@ -3282,7 +3282,7 @@ export default function JobDetail() {
                                       <span className="text-primary/70 font-black uppercase tracking-widest text-[9px] leading-none mb-1 italic border-b border-dashed border-primary/40 group-hover:border-primary/70 transition-colors inline-block truncate max-w-full">{addon.name} {addon.qty > 1 ? `(x${addon.qty})` : ""}</span>
                                     </button>
                                   } />
-                                  <DialogContent className="max-w-md bg-card border border-white/10 shadow-2xl p-6 rounded-2xl">
+                                  <DialogContent className="max-w-md bg-[#121212] border border-white/10 shadow-2xl p-6 rounded-2xl">
                                     <DialogHeader className="mb-4 text-left">
                                       <DialogTitle className="font-black text-lg tracking-tighter text-white uppercase">{addon.name}</DialogTitle>
                                     </DialogHeader>
@@ -3292,7 +3292,7 @@ export default function JobDetail() {
                                         <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.internal}</p>
                                       </div>
                                       <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">Customer Explanation</Label>
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Customer Explanation</Label>
                                         <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.customer}</p>
                                       </div>
                                     </div>
@@ -3301,14 +3301,14 @@ export default function JobDetail() {
                               ) : (
                                 <span className="text-primary/70 font-black uppercase tracking-widest text-[9px] leading-none mb-1 italic truncate">{addon.name} {addon.qty > 1 ? `(x${addon.qty})` : ""}</span>
                               )}
-                              <span className="text-[9px] text-white/30 font-bold uppercase tracking-tight truncate">{addon.vehicleName || "Main Asset"}</span>
+                              <span className="text-[9px] text-[#A0A0A0] font-bold uppercase tracking-tight truncate">{addon.vehicleName || "Main Asset"}</span>
                             </div>
                             <div className="flex items-center gap-3 ml-2">
                               <span className="text-primary font-black text-xs font-mono whitespace-nowrap">{formatCurrency((addon.price || 0) * (addon.qty || 1))}</span>
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                className="h-8 w-8 text-white/40 hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
+                                className="h-8 w-8 text-[#A0A0A0] hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   removeBillableItem(addon.id || addon.name, "addon");
@@ -3348,7 +3348,7 @@ export default function JobDetail() {
                                   <Button 
                                     variant="ghost" 
                                     size="icon" 
-                                    className="h-8 w-8 text-white/40 hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
+                                    className="h-8 w-8 text-[#A0A0A0] hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 hover:border-red-500/20 relative z-10"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       removeBillableItem(adj.id, "adjustment");
@@ -3359,7 +3359,7 @@ export default function JobDetail() {
                                 </div>
                               </div>
 
-                              <DialogContent className="max-w-md bg-card border border-white/10 shadow-2xl p-6 rounded-2xl">
+                              <DialogContent className="max-w-md bg-[#121212] border border-white/10 shadow-2xl p-6 rounded-2xl">
                                 <DialogHeader className="mb-4 text-left">
                                   <DialogTitle className="font-black text-lg tracking-tighter text-white uppercase">{labels.internalLabel}</DialogTitle>
                                 </DialogHeader>
@@ -3370,7 +3370,7 @@ export default function JobDetail() {
                                     <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.internal}</p>
                                   </div>
                                   <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">Customer Explanation</Label>
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Customer Explanation</Label>
                                     <p className="text-sm text-white/80 leading-relaxed font-medium">{explanations?.customer}</p>
                                   </div>
                                 </div>
@@ -3384,12 +3384,12 @@ export default function JobDetail() {
 
                   <div className="pt-6 border-t border-white/10 space-y-2">
                     <div className="flex justify-between items-center px-4 py-1">
-                      <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Base Amount</span>
+                      <span className="text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">Base Amount</span>
                       <span className="text-sm font-black text-white/80">{formatCurrency(job.baseAmount || 0)}</span>
                     </div>
                     {job.travelFee ? (
                       <div className="flex justify-between items-center px-4 py-1">
-                        <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Travel Fee</span>
+                        <span className="text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">Travel Fee</span>
                         <span className="text-sm font-black text-white/80">{formatCurrency(job.travelFee)}</span>
                       </div>
                     ) : null}
@@ -3407,13 +3407,13 @@ export default function JobDetail() {
                     ) : null}
                     {job.taxAmount ? (
                       <div className="flex justify-between items-center px-4 py-1">
-                        <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Tax</span>
+                        <span className="text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">Tax</span>
                         <span className="text-sm font-black text-white/80">{formatCurrency(job.taxAmount)}</span>
                       </div>
                     ) : null}
 
                     <div className="flex justify-between items-center px-4 py-3 bg-black/40 rounded-xl border border-white/5 mt-2">
-                      <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Calculated Balance</span>
+                      <span className="text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">Calculated Balance</span>
                       <span className="text-xl font-black text-primary">{formatCurrency(job.totalAmount || 0)}</span>
                     </div>
                   </div>
@@ -3441,7 +3441,7 @@ export default function JobDetail() {
                     defaultValue={job.notes}
                   />
                   <div className="flex justify-end mt-4">
-                    <Button className="bg-primary hover:bg-red-700 font-bold">Save Notes</Button>
+                    <Button className="bg-primary hover:bg-[#2A6CFF] font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl shadow-glow-blue">Save Notes</Button>
                   </div>
                 </CardContent>
               </Card>
@@ -3645,7 +3645,7 @@ export default function JobDetail() {
                                     e.stopPropagation();
                                     messagingService.sendTemplateSms(job.customerPhone!, log.type, {
                                       clientName: job.customerName || "Customer",
-                                      businessName: "Flatline Mobile Detail"
+                                      businessName: "DetailFlow"
                                     }, id, job.customerId);
                                   }}
                                   className="w-full text-[10px] bg-red-500/10 text-red-500 hover:bg-red-500/20 hover:text-red-400 mt-2 h-6"
@@ -3759,7 +3759,7 @@ export default function JobDetail() {
                 )}
                 {job.status === "pending_approval" && (
                   <div className="flex flex-col gap-2">
-                    <Button onClick={() => handleStatusChangeRequest("scheduled")} disabled={isUpdating} className="w-full bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-lg shadow-primary/20">
+                    <Button onClick={() => handleStatusChangeRequest("scheduled")} disabled={isUpdating} className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-glow-blue">
                       Approve & Schedule
                     </Button>
                     <Button onClick={() => handleStatusChangeRequest("declined")} variant="outline" disabled={isUpdating} className="w-full border-red-500/20 text-red-500 hover:bg-red-500/10 font-black uppercase tracking-widest text-[10px] h-12 rounded-xl">
@@ -3788,7 +3788,7 @@ export default function JobDetail() {
                         }
                       }} 
                       disabled={isUpdating} 
-                      className="w-full bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-14 rounded-xl shadow-lg shadow-primary/20"
+                      className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[10px] h-14 rounded-xl shadow-glow-blue"
                     >
                       Start Operations
                     </Button>
@@ -3815,7 +3815,7 @@ export default function JobDetail() {
                       onClick={() => {
                         navigate(`/book-appointment?clientId=${job.clientId || job.customerId}`);
                       }}
-                      className="w-full bg-primary hover:bg-red-700 text-white font-black h-12 rounded-xl uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+                      className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue"
                     >
                       <Calendar className="w-4 h-4 mr-2" /> Schedule Follow-up
                     </Button>
@@ -3910,7 +3910,7 @@ export default function JobDetail() {
                   updateStatus(pendingStatusChange.newStatus, pendingStatusChange.oldStatus);
                 }
               }}
-              className="bg-primary hover:bg-red-700 text-white font-black rounded-xl uppercase tracking-widest text-[10px]"
+              className="bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue"
             >
               Confirm Revert
             </AlertDialogAction>
@@ -3956,7 +3956,7 @@ export default function JobDetail() {
             <AlertDialogCancel className="font-bold rounded-xl">Keep Appointment</AlertDialogCancel>
             <AlertDialogAction 
               onClick={handleCancelJob}
-              className="bg-red-600 hover:bg-red-700 text-white font-black rounded-xl"
+              className="bg-red-600 hover:bg-red-700 text-white font-black rounded-xl shadow-glow-red"
             >
               Confirm Cancellation
             </AlertDialogAction>
@@ -4038,7 +4038,7 @@ export default function JobDetail() {
                       setIsUpdating(false);
                     }
                   }}
-                  className="w-full bg-primary hover:bg-red-700 text-white font-black rounded-lg h-10 uppercase text-[9px] tracking-widest"
+                  className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-lg h-10 uppercase text-[9px] tracking-widest shadow-glow-blue"
                 >
                   Deploy Custom Asset
                 </Button>
@@ -4090,7 +4090,7 @@ export default function JobDetail() {
             <div className="mt-6 pt-6 border-t border-white/10">
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/60 block">Static Catalog</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0] block">Static Catalog</Label>
                   <p className="text-[9px] text-white/40 mt-1 uppercase tracking-tight">For intelligent suggestions, use AI Revenue Optimization.</p>
                 </div>
                 <Button 
@@ -4150,7 +4150,7 @@ export default function JobDetail() {
       </Dialog>
 
       <Dialog open={isInvoiceModalOpen} onOpenChange={setIsInvoiceModalOpen}>
-        <DialogContent className="max-w-5xl p-0 overflow-hidden bg-gray-100 border-none rounded-3xl shadow-2xl flex flex-col max-h-[90vh]">
+        <DialogContent className="max-w-5xl p-0 overflow-hidden bg-white border-none rounded-3xl shadow-2xl flex flex-col max-h-[90vh]">
           <div className="flex-1 overflow-y-auto" id={`invoice-preview-container-detail-${currentInvoice?.id || 'new'}`}>
             <div id={`invoice-preview-content-detail-${currentInvoice?.id || 'new'}`}>
               {currentInvoice && (
@@ -4189,7 +4189,7 @@ export default function JobDetail() {
                         const targetPhone = currentInvoice?.clientPhone || job?.customerPhone;
                         const smsData = {
                           clientName: currentInvoice?.clientName || job?.customerName || "Customer",
-                          businessName: businessSettings?.businessName || "Flatline Mobile Detail",
+                          businessName: businessSettings?.businessName || "DetailFlow",
                           invoiceAmount: formatCurrency(currentInvoice?.total || 0),
                           invoiceLink: window.location.origin + "/public-invoice/" + currentInvoice?.id,
                           paymentLink: window.location.origin + "/public-invoice/" + currentInvoice?.id + "/pay"
@@ -4228,7 +4228,7 @@ export default function JobDetail() {
                     toast.loading("Sending SMS reminder...", { id: "sms-reminder" });
                     const smsData = {
                       clientName: currentInvoice?.clientName || job?.customerName || "Customer",
-                      businessName: businessSettings?.businessName || "Flatline Mobile Detail",
+                      businessName: businessSettings?.businessName || "DetailFlow",
                       invoiceAmount: formatCurrency(currentInvoice?.total || 0),
                       invoiceLink: window.location.origin + "/public-invoice/" + currentInvoice?.id,
                       paymentLink: window.location.origin + "/public-invoice/" + currentInvoice?.id + "/pay"
@@ -4250,7 +4250,7 @@ export default function JobDetail() {
               </Button>
 
               <Button 
-                className="shrink-0 bg-primary hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-4 sm:px-6 rounded-xl shadow-lg shadow-primary/20"
+                className="shrink-0 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[10px] h-12 px-4 sm:px-6 rounded-xl shadow-glow-blue"
                 onClick={() => handleDownloadPDF(currentInvoice)}
               >
                 <FileText className="w-4 h-4 mr-2 shrink-0" /> Download PDF
@@ -4258,7 +4258,7 @@ export default function JobDetail() {
               
               {currentInvoice?.status !== "paid" && currentInvoice?.status !== "voided" && (
                 <Button 
-                  className="shrink-0 bg-green-600 hover:bg-green-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-4 sm:px-6 rounded-xl shadow-lg shadow-green-500/20"
+                  className="shrink-0 bg-green-600 hover:bg-green-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-4 sm:px-6 rounded-xl shadow-glow-green"
                   onClick={() => handleAcceptPayment(currentInvoice)}
                 >
                   <DollarSign className="w-4 h-4 mr-2 shrink-0" /> Accept Payment
@@ -4318,13 +4318,13 @@ export default function JobDetail() {
       </Dialog>
 
       <Dialog open={isPaymentSelectionOpen} onOpenChange={setIsPaymentSelectionOpen}>
-        <DialogContent className="max-w-md bg-[#0a0a0a] border-white/10 rounded-3xl p-6 shadow-2xl">
+        <DialogContent className="max-w-md bg-[#0B0B0B] border-white/10 rounded-3xl p-6 shadow-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-3">
               <DollarSign className="w-6 h-6 text-green-500" />
               Accept Payment
             </DialogTitle>
-            <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold mt-1">Select payment method for {formatCurrency(currentInvoice?.total)}</p>
+            <p className="text-[#A0A0A0] text-[10px] uppercase tracking-widest font-bold mt-1">Select payment method for {formatCurrency(currentInvoice?.total)}</p>
           </DialogHeader>
           
           <div className="grid grid-cols-1 gap-3 mt-6">
@@ -4349,7 +4349,7 @@ export default function JobDetail() {
             <div className="grid grid-cols-2 gap-3">
               <Button 
                 variant="outline"
-                className="h-20 flex-col gap-2 bg-white/5 border-white/10 text-white hover:bg-white/10 rounded-2xl"
+                className="h-20 flex-col gap-2 bg-[#121212] border-white/10 text-white hover:bg-white/10 rounded-2xl"
                 onClick={() => handleManualPayment(currentInvoice, "Cash")}
               >
                 <Banknote className="w-5 h-5 text-green-500" />
@@ -4358,7 +4358,7 @@ export default function JobDetail() {
               
               <Button 
                 variant="outline"
-                className="h-20 flex-col gap-2 bg-white/5 border-white/10 text-white hover:bg-white/10 rounded-2xl"
+                className="h-20 flex-col gap-2 bg-[#121212] border-white/10 text-white hover:bg-white/10 rounded-2xl"
                 onClick={() => handleManualPayment(currentInvoice, "Zelle")}
               >
                 <QrCode className="w-5 h-5 text-blue-400" />
@@ -4367,7 +4367,7 @@ export default function JobDetail() {
 
               <Button 
                 variant="outline"
-                className="h-20 flex-col gap-2 bg-white/5 border-white/10 text-white hover:bg-white/10 rounded-2xl"
+                className="h-20 flex-col gap-2 bg-[#121212] border-white/10 text-white hover:bg-white/10 rounded-2xl"
                 onClick={() => handleManualPayment(currentInvoice, "Apple Pay")}
               >
                 <Wallet className="w-5 h-5 text-white" />
@@ -4376,7 +4376,7 @@ export default function JobDetail() {
 
               <Button 
                 variant="outline"
-                className="h-20 flex-col gap-2 bg-white/5 border-white/10 text-white hover:bg-white/10 rounded-2xl"
+                className="h-20 flex-col gap-2 bg-[#121212] border-white/10 text-white hover:bg-white/10 rounded-2xl"
                 onClick={() => handleManualPayment(currentInvoice, "Check")}
               >
                 <FileText className="w-5 h-5 text-orange-400" />

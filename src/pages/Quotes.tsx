@@ -565,19 +565,19 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
               </div>
               <div className="flex-1">
                 <CardTitle className="text-2xl font-black text-white uppercase tracking-tighter">Independent AI Estimator</CardTitle>
-                <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-1">Market-Based Pricing & Analysis</p>
+                <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">Market-Based Pricing & Analysis</p>
               </div>
               <div className="flex items-center gap-2 bg-white/5 p-1.5 rounded-xl border border-white/10">
                 <Button
                   variant="ghost"
-                  className={cn("rounded-lg text-[10px] font-black uppercase tracking-widest px-4 h-8 transition-all", quoteType === "retail" ? "bg-primary text-white" : "text-gray-400 hover:text-white")}
+                  className={cn("rounded-lg text-[10px] font-black uppercase tracking-widest px-4 h-8 transition-all", quoteType === "retail" ? "bg-primary text-white" : "text-[#A0A0A0] hover:text-white")}
                   onClick={() => setQuoteType("retail")}
                 >
                   Retail Customer
                 </Button>
                 <Button
                   variant="ghost"
-                  className={cn("rounded-lg text-[10px] font-black uppercase tracking-widest px-4 h-8 transition-all", quoteType === "insurance" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white")}
+                  className={cn("rounded-lg text-[10px] font-black uppercase tracking-widest px-4 h-8 transition-all", quoteType === "insurance" ? "bg-blue-600 text-white" : "text-[#A0A0A0] hover:text-white")}
                   onClick={() => setQuoteType("insurance")}
                 >
                   Insurance Claim
@@ -588,13 +588,13 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
           <CardContent className="p-8 space-y-8">
             {/* Client Info Section */}
             <div className="space-y-6">
-              <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2">
+              <h3 className="text-xs font-black text-[#A0A0A0] uppercase tracking-[0.2em] flex items-center gap-2">
                 <UserIcon className="w-4 h-4 text-primary" />
                 Target Entity Information
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">First Name</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">First Name</Label>
                   <Input 
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
@@ -603,7 +603,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Last Name</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Last Name</Label>
                   <Input 
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
@@ -612,7 +612,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Business Name (Optional)</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Business Name (Optional)</Label>
                   <Input 
                     value={businessName}
                     onChange={(e) => setBusinessName(e.target.value)}
@@ -621,7 +621,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Email Address</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Email Address</Label>
                   <Input 
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -630,7 +630,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Phone Number</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Phone Number</Label>
                   <Input 
                     value={phone}
                     onChange={handlePhoneChange}
@@ -642,7 +642,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
               <div className="space-y-4 pt-4 border-t border-white/5">
                 <div className="flex items-center gap-2 mb-2">
                   <MapPin className="w-4 h-4 text-primary" />
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Customer Invoice Address</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Customer Invoice Address</Label>
                 </div>
                 <AddressInput 
                   defaultValue={serviceAddress || address}
@@ -655,7 +655,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
 
             {/* Vehicle Selection Section */}
             <div className="space-y-6 pt-6 border-t border-white/5">
-              <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2">
+              <h3 className="text-xs font-black text-[#A0A0A0] uppercase tracking-[0.2em] flex items-center gap-2">
                 <Car className="w-4 h-4 text-primary" />
                 Asset Configuration
               </h3>
@@ -667,12 +667,12 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                 />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Vehicle Size</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Vehicle Size</Label>
                     <Select value={currentVehicle.size} onValueChange={(v) => setCurrentVehicle(prev => ({ ...prev, size: v }))}>
                       <SelectTrigger className="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white">
                         <SelectValue placeholder="Select size" />
                       </SelectTrigger>
-                      <SelectContent className="bg-gray-900 border-white/10 text-white">
+                      <SelectContent className="bg-[#121212] border-white/10 text-white">
                         <SelectItem value="small">Small (Coupe/Compact)</SelectItem>
                         <SelectItem value="medium">Medium (Sedan/Small SUV)</SelectItem>
                         <SelectItem value="large">Large (Large SUV/Truck)</SelectItem>
@@ -684,7 +684,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                     type="button"
                     onClick={addVehicle}
                     disabled={!currentVehicle.year || !currentVehicle.make || !currentVehicle.model}
-                    className="bg-primary hover:bg-red-700 text-white font-black h-12 rounded-xl uppercase tracking-widest text-[10px]"
+                    className="bg-primary hover:opacity-90 text-white font-black h-12 rounded-xl uppercase tracking-widest text-[10px]"
                   >
                     <Plus className="w-4 h-4 mr-2" /> Add Asset
                   </Button>
@@ -709,7 +709,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
             {/* Service Selection Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-white/5">
               <div className="space-y-3">
-                <Label className="font-black uppercase tracking-widest text-[10px] text-white/50">Service Protocols</Label>
+                <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Service Protocols</Label>
                 <div className="grid grid-cols-1 gap-2 border border-white/10 rounded-2xl p-4 bg-white/5 max-h-64 overflow-y-auto custom-scrollbar">
                   {services.filter(s => s.isActive).map((s) => (
                     <div key={s.id} className="space-y-2 p-2 bg-white/5 rounded-xl border border-white/5 group">
@@ -748,7 +748,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                                 variant="outline"
                                 className={cn(
                                   "cursor-pointer text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
-                                  isSelected ? "bg-primary text-white border-primary" : "bg-white/5 text-white/40 border-white/10"
+                                  isSelected ? "bg-primary text-white border-primary" : "bg-white/5 text-[#A0A0A0] border-white/10"
                                 )}
                                 onClick={() => {
                                   if (isSelected) {
@@ -774,7 +774,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
               </div>
 
               <div className="space-y-3">
-                <Label className="font-black uppercase tracking-widest text-[10px] text-white/50">Add-On Protocols</Label>
+                <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Add-On Protocols</Label>
                 <div className="grid grid-cols-1 gap-2 border border-white/10 rounded-2xl p-4 bg-white/5 max-h-64 overflow-y-auto custom-scrollbar">
                   {addOns.filter(a => a.isActive).map((a) => (
                     <div key={a.id} className="space-y-2 p-2 bg-white/5 rounded-xl border border-white/5 group">
@@ -972,9 +972,9 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
           </CardContent>
         </Card>
 
-        {recommendations && recommendations.upsells.length > 0 && (
+            {recommendations && recommendations.upsells.length > 0 && (
           <div className="space-y-4">
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2">
+            <h3 className="text-xs font-black text-[#A0A0A0] uppercase tracking-[0.2em] flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-primary" />
               Strategic Upsell Opportunities
             </h3>
@@ -1010,7 +1010,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                         <span className="font-black text-white uppercase tracking-tight text-sm">{upsell.name}</span>
                         <span className="text-xs font-black text-primary">+{upsell.price > 0 ? `$${upsell.price}` : `-$${Math.abs(upsell.price)}`}</span>
                       </div>
-                      <p className="text-[10px] text-gray-400 font-bold leading-relaxed">{upsell.reason}</p>
+                      <p className="text-[10px] text-[#A0A0A0] font-bold leading-relaxed">{upsell.reason}</p>
                     </div>
                     <ArrowRight className="w-4 h-4 text-primary" />
                   </CardContent>
@@ -1022,14 +1022,14 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       </div>
 
       <div className="space-y-6">
-        <Card className="border-none shadow-2xl bg-gray-900 rounded-3xl overflow-hidden sticky top-8">
+        <Card className="border-none shadow-2xl bg-[#121212] rounded-3xl overflow-hidden sticky top-8">
           <CardHeader className="bg-black/40 border-b border-white/5 p-8">
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-xl font-black text-white uppercase tracking-tighter">Market Analysis</CardTitle>
-                <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-1">AI-Powered Market Estimate</p>
+                <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">AI-Powered Market Estimate</p>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
+              <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white shadow-glow-blue">
                 <ShieldCheck className="w-5 h-5" />
               </div>
             </div>
@@ -1038,7 +1038,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
             <div className="space-y-6">
               <div className="space-y-2">
                 <div className="flex justify-between items-end">
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selected Price Option</p>
+                  <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Selected Price Option</p>
                   <Badge className={cn(
                     "border-none text-[9px] font-black uppercase tracking-widest",
                     isPriceCustomized ? "bg-blue-500/20 text-blue-400" : "bg-primary/20 text-primary"
@@ -1098,7 +1098,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                       className={cn(
                         "p-3 rounded-xl border transition-all text-center",
                         customPrice === pricingAnalysis.premiumPrice ? "bg-purple-500/20 border-purple-500/40 ring-1 ring-purple-500" : "bg-white/5 border-white/5 hover:bg-white/10"
-                      )}
+                       )}
                     >
                       <p className="text-[8px] font-black text-purple-400 uppercase tracking-widest mb-1">Premium</p>
                       <p className="text-xs font-black text-white">{formatCurrency(pricingAnalysis.premiumPrice)}</p>
@@ -1191,12 +1191,12 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                     Customize
                   </Button>
                 } />
-                <DialogContent className="bg-gray-900 border-white/10 text-white">
+                <DialogContent className="bg-[#121212] border-white/10 text-white">
                   <DialogHeader>
                     <DialogTitle className="text-white font-black uppercase">Manual Price Override</DialogTitle>
                   </DialogHeader>
                   <div className="py-6 space-y-4">
-                    <Label className="text-gray-400 font-black uppercase tracking-widest text-[10px]">Set Custom Total Value</Label>
+                    <Label className="text-[#A0A0A0] font-black uppercase tracking-widest text-[10px]">Set Custom Total Value</Label>
                     <div className="relative">
                       <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" />
                       <Input 
@@ -1209,7 +1209,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   </div>
                   <DialogFooter>
                     <Button 
-                      className="w-full bg-primary hover:bg-red-700 text-white font-black h-12 rounded-xl uppercase tracking-widest"
+                      className="w-full bg-primary hover:opacity-90 text-white font-black h-12 rounded-xl uppercase tracking-widest"
                       onClick={() => setIsPriceCustomized(true)}
                     >
                       Apply Custom Price
@@ -1230,18 +1230,18 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                     Difficulty: {recommendations.difficulty}
                   </Badge>
                 </div>
-                <p className="text-[11px] text-gray-300 font-medium leading-relaxed overflow-hidden">
+                <p className="text-[11px] text-[#FFFFFF] font-medium leading-relaxed overflow-hidden">
                   {recommendations.explanation}
                 </p>
               </div>
             )}
 
             <div className="space-y-4 pt-6 border-t border-white/5">
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Market Protocol Breakdown</p>
+              <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Market Protocol Breakdown</p>
               <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
                 {recommendations?.items.map((item, idx) => (
                   <div key={idx} className="flex justify-between items-center text-sm">
-                    <span className="text-gray-400 font-bold truncate mr-4">{item.name}</span>
+                    <span className="text-[#A0A0A0] font-bold truncate mr-4">{item.name}</span>
                     <span className="text-white font-black">{formatCurrency(item.price)}</span>
                   </div>
                 ))}
@@ -1252,7 +1252,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
             </div>
 
             <Button 
-              className="w-full bg-primary hover:bg-red-700 text-white font-black h-14 rounded-2xl uppercase tracking-tight text-sm shadow-xl shadow-primary/20 transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 flex items-center justify-center px-4"
+              className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 rounded-2xl uppercase tracking-tight text-sm shadow-glow-blue transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 flex items-center justify-center px-4"
               disabled={manualVehicles.length === 0 || (selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0)}
               onClick={handleApply}
             >
@@ -1711,7 +1711,7 @@ export default function Quotes() {
             }
           }}>
             <DialogTrigger render={
-              <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-primary/20 transition-all hover:scale-105" onClick={() => {
+              <Button className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105" onClick={() => {
                 setEditingQuote(null);
                 resetForm();
                 setIsAddDialogOpen(true);
@@ -1720,7 +1720,7 @@ export default function Quotes() {
                 Generate Quote
               </Button>
             } />
-          <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto bg-card border-none rounded-3xl shadow-2xl shadow-black p-0">
+          <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto bg-[#0B0B0B] border border-white/10 rounded-3xl shadow-2xl shadow-black p-0">
             <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -1728,7 +1728,7 @@ export default function Quotes() {
                 </div>
                 <div>
                   <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">{editingQuote ? "Edit Proposal" : "Generate Professional Quote"}</DialogTitle>
-                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-1">Strategic Opportunity Engine</p>
+                  <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">Strategic Opportunity Engine</p>
                 </div>
               </div>
             </DialogHeader>
@@ -1736,7 +1736,7 @@ export default function Quotes() {
               <div className="space-y-6">
                 <div className="space-y-4 p-6 bg-white/5 rounded-2xl border border-white/10">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Target Entity (Client)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Target Entity (Client)</Label>
                     <SearchableSelector
                       options={clients.map(c => ({
                         value: c.id,
@@ -1753,7 +1753,7 @@ export default function Quotes() {
                   </div>
 
                 <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white/60">Customer Invoice Address</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Customer Invoice Address</Label>
                   <AddressInput 
                     defaultValue={manualClientInfo.serviceAddress || manualClientInfo.address}
                     onAddressSelect={(address) => setManualClientInfo(prev => ({ ...prev, serviceAddress: address, address: address }))}
@@ -1764,7 +1764,7 @@ export default function Quotes() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">First Name</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">First Name</Label>
                     <Input 
                       placeholder="John"
                       value={manualClientInfo.firstName}
@@ -1773,7 +1773,7 @@ export default function Quotes() {
                     />
                   </div>
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Last Name</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Last Name</Label>
                     <Input 
                       placeholder="Doe"
                       value={manualClientInfo.lastName}
@@ -1785,7 +1785,7 @@ export default function Quotes() {
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Business Name (Optional)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Business Name (Optional)</Label>
                       <Input 
                         placeholder="Acme Corp"
                         value={manualClientInfo.businessName}
@@ -1795,7 +1795,7 @@ export default function Quotes() {
                     </div>
 
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Email Address</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Email Address</Label>
                       <Input 
                         type="email"
                         placeholder="client@example.com"
@@ -1805,7 +1805,7 @@ export default function Quotes() {
                       />
                     </div>
                     <div className="space-y-3">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Phone Number</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Phone Number</Label>
                       <Input 
                         placeholder="(555) 000-0000"
                         value={manualClientInfo.phone}
@@ -1816,7 +1816,7 @@ export default function Quotes() {
                   </div>
 
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Mission Coordinates (Address)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Mission Coordinates (Address)</Label>
                     <AddressInput 
                       defaultValue={manualClientInfo.address}
                       onAddressSelect={(address, lat, lng) => setManualClientInfo(prev => ({ ...prev, address, latitude: lat, longitude: lng }))}
@@ -1826,7 +1826,7 @@ export default function Quotes() {
                   </div>
 
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Service Description (Generated)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Service Description (Generated)</Label>
                     <Textarea 
                       placeholder="Detailed description of work to be performed..."
                       value={quoteDescription}
@@ -1836,7 +1836,7 @@ export default function Quotes() {
                   </div>
 
                   <div className="space-y-3">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Internal Notes / Job Details</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Internal Notes / Job Details</Label>
                     <Textarea 
                       placeholder="Internal notes about the job..."
                       value={smartQuoteNotes}
@@ -1847,7 +1847,7 @@ export default function Quotes() {
                 </div>
 
                 <div className="space-y-4 p-6 bg-white/5 rounded-2xl border border-white/10">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Attach Forms & Waivers</Label>
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Attach Forms & Waivers</Label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-48 overflow-y-auto custom-scrollbar pr-2">
                     {formTemplates.map((form) => (
                       <div key={form.id} className="flex items-center space-x-3 p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-all">
@@ -1866,7 +1866,7 @@ export default function Quotes() {
                       </div>
                     ))}
                     {formTemplates.length === 0 && (
-                      <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest italic p-4 text-center col-span-2">No forms detected in system.</p>
+                      <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest italic p-4 text-center col-span-2">No forms detected in system.</p>
                     )}
                   </div>
                 </div>
@@ -1874,7 +1874,7 @@ export default function Quotes() {
                 {(selectedClientId || manualVehicles.length > 0) && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Asset Profile (Vehicle)</Label>
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Asset Profile (Vehicle)</Label>
                       <Button 
                         type="button" 
                         variant="ghost" 
@@ -1934,7 +1934,7 @@ export default function Quotes() {
                           </div>
                         ))}
                         {allVehicles.filter(v => v.clientId === selectedClientId).length === 0 && (
-                          <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest italic p-4 text-center">No assets detected for this entity.</p>
+                          <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest italic p-4 text-center">No assets detected for this entity.</p>
                         )}
                       </div>
                     )}
@@ -1943,7 +1943,7 @@ export default function Quotes() {
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-gray-400">Service Protocols (Line Items)</Label>
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Service Protocols (Line Items)</Label>
                     <Button 
                       type="button" 
                       variant="outline" 
@@ -1990,13 +1990,13 @@ export default function Quotes() {
                 </div>
               </div>
 
-              <div className="p-8 bg-gray-900 rounded-3xl text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl">
+              <div className="p-8 bg-[#121212] border border-white/5 rounded-3xl text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl">
                 <div className="flex items-center gap-6">
-                  <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/20">
+                  <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center shadow-glow-blue">
                     <DollarSign className="w-8 h-8 text-white" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Estimated Proposal Value</p>
+                    <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em] mb-1">Estimated Proposal Value</p>
                     <p className="text-4xl font-black tracking-tighter text-white">{formatCurrency(calculateTotal())}</p>
                   </div>
                 </div>
@@ -2004,7 +2004,7 @@ export default function Quotes() {
                   <Button 
                     type="button" 
                     variant="ghost" 
-                    className="text-gray-400 hover:text-white font-black uppercase tracking-widest text-[10px] h-14 px-8"
+                    className="text-[#A0A0A0] hover:text-white font-black uppercase tracking-widest text-[10px] h-14 px-8"
                     onClick={() => setIsPreviewOpen(true)}
                   >
                     <Eye className="w-4 h-4 mr-2" />
@@ -2012,7 +2012,7 @@ export default function Quotes() {
                   </Button>
                   <Button 
                     type="submit" 
-                    className="flex-1 md:flex-none bg-primary hover:bg-red-700 text-white font-black h-14 px-12 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 transition-all hover:scale-105"
+                    className="flex-1 md:flex-none bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-12 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105"
                   >
                     {editingQuote ? "Authorize Update" : "Authorize Proposal"}
                   </Button>
@@ -2072,19 +2072,19 @@ export default function Quotes() {
           </DialogContent>
         </Dialog>
 
-      <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
+      <Card className="border-none shadow-xl bg-[#0B0B0B] rounded-3xl overflow-hidden border border-white/5">
         <CardHeader className="bg-black/40 border-b border-white/5 p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" />
             <Input 
               placeholder="Search proposals..." 
-              className="pl-12 bg-white border-border text-gray-900 rounded-xl h-12 font-medium focus:ring-primary/50"
+              className="pl-12 bg-white/5 border-white/10 text-white rounded-xl h-12 font-medium focus:ring-primary/50"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" className="border-border bg-white text-gray-900 hover:bg-gray-50 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
+            <Button variant="outline" size="sm" className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
               <Filter className="w-4 h-4 mr-2 text-primary" />
               Filter Proposals
             </Button>
@@ -2094,28 +2094,28 @@ export default function Quotes() {
           <Table>
             <TableHeader className="bg-black/20 border-b border-white/5">
               <TableRow className="hover:bg-transparent border-none">
-                <TableHead className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Proposal ID</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Client Entity</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Asset Profile</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Timestamp</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Estimated Value</TableHead>
-                <TableHead className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Status</TableHead>
-                <TableHead className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Actions</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Proposal ID</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Client Entity</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Asset Profile</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Timestamp</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Estimated Value</TableHead>
+                <TableHead className="px-8 py-5 text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Status</TableHead>
+                <TableHead className="px-8 py-5 text-right text-[10px] font-black text-[#A0A0A0] uppercase tracking-[0.2em]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow className="hover:bg-transparent border-border">
-                  <TableCell colSpan={7} className="text-center py-20 text-gray-400 font-black uppercase tracking-widest text-[10px] animate-pulse">Synchronizing Proposals...</TableCell>
+                <TableRow className="hover:bg-transparent border-none">
+                  <TableCell colSpan={7} className="text-center py-20 text-[#A0A0A0] font-black uppercase tracking-widest text-[10px] animate-pulse">Synchronizing Proposals...</TableCell>
                 </TableRow>
               ) : filteredQuotes.length === 0 ? (
-                <TableRow className="hover:bg-transparent border-border">
-                  <TableCell colSpan={7} className="text-center py-20 text-gray-400 font-black uppercase tracking-widest text-[10px]">No proposals detected.</TableCell>
+                <TableRow className="hover:bg-transparent border-none">
+                  <TableCell colSpan={7} className="text-center py-20 text-[#A0A0A0] font-black uppercase tracking-widest text-[10px]">No proposals detected.</TableCell>
                 </TableRow>
               ) : (
                 filteredQuotes.map((q) => (
-                  <TableRow key={q.id} className="hover:bg-gray-50/50 transition-all duration-300 cursor-pointer group border-border">
-                    <TableCell className="px-8 py-6 font-mono text-[10px] font-black uppercase text-gray-400 tracking-widest">
+                  <TableRow key={q.id} className="hover:bg-white/5 transition-all duration-300 cursor-pointer group border-b border-white/5">
+                    <TableCell className="px-8 py-6 font-mono text-[10px] font-black uppercase text-[#A0A0A0] tracking-widest">
                       #{q.id.slice(-6)}
                     </TableCell>
                     <TableCell className="px-8 py-6">
@@ -2123,23 +2123,23 @@ export default function Quotes() {
                         <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary border border-primary/20">
                           <UserIcon className="w-4 h-4" />
                         </div>
-                        <span className="font-black text-gray-900 uppercase tracking-tight text-sm">{q.clientName}</span>
+                        <span className="font-black text-white uppercase tracking-tight text-sm">{q.clientName}</span>
                       </div>
                     </TableCell>
                     <TableCell className="px-8 py-6">
                       <div className="flex flex-wrap gap-2">
                         {q.vehicles.map((v, idx) => (
-                          <Badge key={`${v.id}-${idx}`} variant="outline" className="text-[9px] font-black uppercase tracking-widest bg-muted/50 border-none px-2 py-0.5 rounded-md">
+                          <Badge key={`${v.id}-${idx}`} variant="outline" className="text-[9px] font-black uppercase tracking-widest bg-white/5 text-white border-white/5 px-2 py-0.5 rounded-md">
                             <Car className="w-3 h-3 mr-1.5 text-primary" />
                             {v.year} {v.make}
                           </Badge>
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="px-8 py-6 text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                    <TableCell className="px-8 py-6 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">
                       {q.createdAt ? format((q.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}
                     </TableCell>
-                    <TableCell className="px-8 py-6 font-black text-gray-900 text-lg tracking-tighter">
+                    <TableCell className="px-8 py-6 font-black text-white text-lg tracking-tighter">
                       {formatCurrency(q.total)}
                     </TableCell>
                     <TableCell className="px-8 py-6">
@@ -2147,7 +2147,7 @@ export default function Quotes() {
                         "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border-none",
                         q.status === "approved" ? "bg-green-500/10 text-green-600" :
                         q.status === "sent" ? "bg-blue-500/10 text-blue-600" :
-                        "bg-gray-500/10 text-gray-600"
+                        "bg-white/10 text-[#A0A0A0]"
                       )}>
                         {q.status.toUpperCase()}
                       </Badge>
@@ -2157,7 +2157,7 @@ export default function Quotes() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-9 w-9 text-gray-600 hover:text-primary hover:bg-primary/10 rounded-xl"
+                          className="h-9 w-9 text-[#A0A0A0] hover:text-white hover:bg-white/10 rounded-xl"
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedQuote(q);
@@ -2169,7 +2169,7 @@ export default function Quotes() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-9 w-9 text-gray-600 hover:text-primary hover:bg-primary/10 rounded-xl"
+                          className="h-9 w-9 text-[#A0A0A0] hover:text-white hover:bg-white/10 rounded-xl"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingQuote(q);
@@ -2263,12 +2263,12 @@ export default function Quotes() {
               </div>
             </div>
 
-            <div className="p-6 space-y-6 bg-white">
+            <div className="p-6 space-y-6 bg-[#0B0B0B] border-t border-white/10">
               <div className="space-y-3">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Asset Profile</p>
+                <p className="text-xs font-bold text-[#A0A0A0] uppercase tracking-widest">Asset Profile</p>
                 <div className="flex flex-wrap gap-2">
                   {selectedQuote.vehicles.map((v: any) => (
-                    <Badge key={v.id} variant="outline" className="text-[10px] font-black uppercase tracking-widest bg-gray-50 border-gray-100 px-3 py-1 rounded-lg">
+                    <Badge key={v.id} variant="outline" className="text-[10px] font-black uppercase tracking-widest bg-white/5 border-white/10 px-3 py-1 rounded-lg text-white">
                       <Car className="w-3 h-3 mr-2 text-primary" />
                       {v.year} {v.make} {v.model}
                     </Badge>
@@ -2277,11 +2277,11 @@ export default function Quotes() {
               </div>
 
               <div className="space-y-3">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Line Items</p>
+                <p className="text-xs font-bold text-[#A0A0A0] uppercase tracking-widest">Line Items</p>
                 <div className="space-y-2">
                   {selectedQuote.lineItems.map((item: any, idx: number) => (
-                    <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100">
-                      <span className="font-bold text-gray-900">{item.serviceName}</span>
+                    <div key={idx} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
+                      <span className="font-bold text-white">{item.serviceName}</span>
                       <span className="font-black text-primary">{formatCurrency(item.price)}</span>
                     </div>
                   ))}
@@ -2291,7 +2291,7 @@ export default function Quotes() {
               <div className="flex flex-wrap gap-3 pt-6">
                 {selectedQuote.status === "approved" && (
                   <Button 
-                    className="flex-1 min-w-[140px] bg-green-600 hover:bg-green-700 text-white font-black uppercase tracking-[0.2em] text-[10px] h-12 rounded-xl shadow-lg shadow-green-500/20 transition-all hover:scale-105"
+                    className="flex-1 min-w-[140px] bg-green-600 hover:opacity-90 text-white font-black uppercase tracking-[0.2em] text-[10px] h-12 rounded-xl shadow-lg shadow-green-500/20 transition-all hover:scale-105"
                     onClick={() => {
                       toast.success("Book Appointment Clicked");
                       setIsDetailOpen(false);
@@ -2306,17 +2306,17 @@ export default function Quotes() {
                     <Calendar className="w-4 h-4 mr-2" /> Book Appointment
                   </Button>
                 )}
-                <Button className="flex-1 min-w-[140px] bg-white border border-border text-gray-900 hover:bg-gray-50 font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-sm transition-all">
+                <Button className="flex-1 min-w-[140px] bg-white/5 border border-white/10 text-white hover:bg-white/10 font-black uppercase tracking-widest text-[10px] h-12 rounded-xl shadow-sm transition-all">
                   <FileText className="w-4 h-4 mr-2 text-primary" /> Download PDF
                 </Button>
-                <Button className="flex-1 min-w-[140px] bg-primary hover:bg-red-700 text-white font-black uppercase tracking-[0.2em] text-[10px] h-12 rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-105">
+                <Button className="flex-1 min-w-[140px] bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-[0.2em] text-[10px] h-12 rounded-xl shadow-glow-blue transition-all hover:scale-105">
                   <Mail className="w-4 h-4 mr-2" /> Email Proposal
                 </Button>
                 <DeleteConfirmationDialog
                   trigger={
                     <Button 
                       variant="ghost" 
-                      className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold shrink-0"
+                      className="text-red-500 hover:text-red-700 hover:bg-red-500/10 font-bold shrink-0"
                     >
                       <Trash2 className="w-4 h-4 mr-2" /> Delete
                     </Button>

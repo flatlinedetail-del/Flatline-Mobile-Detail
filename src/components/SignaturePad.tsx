@@ -87,7 +87,7 @@ export default function SignaturePad({ onSave, onCancel, title = "Customer Signa
           <Button variant="outline" onClick={clear} className="flex-1 font-bold border-gray-200">
             <Eraser className="w-4 h-4 mr-2" /> Clear
           </Button>
-          <Button onClick={save} className="flex-1 bg-primary hover:bg-red-700 font-bold">
+          <Button onClick={save} className="flex-1 bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 shadow-glow-blue transition-all hover:scale-105">
             <Check className="w-4 h-4 mr-2" /> Save Signature
           </Button>
         </div>

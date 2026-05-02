@@ -242,7 +242,7 @@ export default function ProtectedClients() {
         accentWord="Management"
         subtitle="View and manually adjust risk levels or flag clients for special handling."
         actions={
-          <Button className="bg-primary hover:bg-red-700 text-white font-black h-12 px-6 rounded-xl uppercase tracking-[0.2em] text-[10px]" onClick={openNewDialog}>
+          <Button className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-6 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105" onClick={openNewDialog}>
             <Plus className="w-4 h-4 mr-2" />
             Add Custom Rule
           </Button>
