@@ -4092,11 +4092,14 @@ export default function Calendar() {
                   </div>
                   
                   <div className="flex justify-center mt-4 pt-4 border-t border-white/5">
-                    <Button variant="ghost" className="text-xs text-white/50 hover:text-white transition-all uppercase tracking-widest font-bold" onClick={() => {
+                    <Button 
+                      className="w-full bg-primary/20 hover:bg-primary text-white font-black h-12 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-[0_0_15px_rgba(10,77,255,0.45)] hover:shadow-[0_0_25px_rgba(10,77,255,0.65)] transition-all hover:scale-105 border border-primary/30" 
+                      onClick={() => {
                         setSelectedDetailedApp(null);
                         navigate(`/calendar/${app.id}`);
-                    }}>
-                       Open Full Intelligence Dashboard
+                      }}
+                    >
+                      OPEN JOB DETAILS
                     </Button>
                   </div>
                 </div>
