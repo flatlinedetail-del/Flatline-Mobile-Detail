@@ -8,7 +8,8 @@ export function useWaitlistCount() {
   useEffect(() => {
     const q = query(
       collection(db, "appointments"),
-      where("status", "in", ["waitlisted", "pending_waitlist", "offered"])
+      where("status", "in", ["waitlisted", "pending_waitlist", "offered"]),
+      limit(100)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setActiveWaitlistCount(snapshot.size);

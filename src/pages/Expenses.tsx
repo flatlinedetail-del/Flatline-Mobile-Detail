@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Receipt, Plus, Search, Filter, Trash2, Calendar, DollarSign, Tag, Link as LinkIcon, ExternalLink, Loader2, Camera, FileText, Sparkles, Upload, Edit2, RefreshCcw, Zap } from "lucide-react";
 import { toast } from "sonner";
+import { syncService } from "../services/syncService";
 import { format } from "date-fns";
 import { cn, formatCurrency } from "@/lib/utils";
 import { Category } from "../types";
@@ -37,8 +38,28 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export default function Expenses() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, settings: authSettings, canAccessAdmin } = useAuth();
   const [expenses, setExpenses] = useState<any[]>([]);
+
+  if (authLoading) return <div className="flex items-center justify-center h-screen bg-black">
+    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-primary"></div>
+  </div>;
+
+  const canAccess = canAccessAdmin;
+
+  if (!profile || !canAccess) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
+        <Receipt className="w-16 h-16 text-red-500" />
+        <h2 className="text-2xl font-black text-white uppercase tracking-tight">Access Restricted</h2>
+        <p className="text-white/60 font-medium text-center max-w-md px-6">
+          Administrative financial isolation protocol is active. Expense management is restricted to owners and core administrators.
+        </p>
+        <Button onClick={() => window.history.back()} variant="outline" className="border-white/10 text-white/40 hover:text-white">Go Back</Button>
+      </div>
+    );
+  }
+
   const [appointments, setAppointments] = useState<any[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +83,12 @@ export default function Expenses() {
     try {
       const expensesQuery = query(collection(db, "expenses"), orderBy("date", "desc"), limit(200));
       const snapshot = await getDocs(expensesQuery);
-      setExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      let expensesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Merge pending offline expenses
+      expensesData = await syncService.injectPendingRecords("expenses", expensesData);
+      
+      setExpenses(expensesData);
       
       const [appointmentsSnap, categoriesSnap] = await Promise.all([
         getDocs(query(collection(db, "appointments"), orderBy("scheduledAt", "desc"), limit(50))),
@@ -82,7 +108,7 @@ export default function Expenses() {
   };
 
   useEffect(() => {
-    if (authLoading || !profile) return;
+    if (authLoading || !profile || !canAccess) return;
     fetchExpenses();
   }, [profile, authLoading]);
 
@@ -189,14 +215,29 @@ export default function Expenses() {
       };
 
       if (editingExpense) {
-        await updateDoc(doc(db, "expenses", editingExpense.id), expenseData);
-        toast.success("Expense updated!");
+        try {
+          await updateDoc(doc(db, "expenses", editingExpense.id), expenseData);
+          toast.success("Expense updated!");
+        } catch (err) {
+          console.warn("Direct update failed, enqueuing...", err);
+          await syncService.enqueueTask("expenses", expenseData, 'update', editingExpense.id);
+          toast.info("Offline: Update saved locally and will sync later");
+        }
       } else {
-        await addDoc(collection(db, "expenses"), {
-          ...expenseData,
-          createdAt: serverTimestamp(),
-        });
-        toast.success("Expense recorded!");
+        try {
+          await addDoc(collection(db, "expenses"), {
+            ...expenseData,
+            createdAt: serverTimestamp(),
+          });
+          toast.success("Expense recorded!");
+        } catch (err) {
+          console.warn("Direct add failed, enqueuing...", err);
+          await syncService.enqueueTask("expenses", {
+            ...expenseData,
+            createdAt: Date.now()
+          }, 'create');
+          toast.info("Offline: Expense saved locally and will sync later");
+        }
       }
       setShowAddDialog(false);
       setEditingExpense(null);

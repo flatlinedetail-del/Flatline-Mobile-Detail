@@ -144,10 +144,10 @@ export default function AILeadEngine() {
     const fetchLeadEngineData = async () => {
       try {
         const [leadsSnap, quotesSnap, appointmentsSnap, clientsSnap] = await Promise.all([
-          getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"))),
-          getDocs(query(collection(db, "quotes"), orderBy("createdAt", "desc"))),
-          getDocs(query(collection(db, "appointments"), orderBy("scheduledAt", "desc"))),
-          getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc")))
+          getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(200))),
+          getDocs(query(collection(db, "quotes"), orderBy("createdAt", "desc"), limit(200))),
+          getDocs(query(collection(db, "appointments"), orderBy("scheduledAt", "desc"), limit(200))),
+          getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(200)))
         ]);
 
         setPipelineLeads(leadsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead)));

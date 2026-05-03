@@ -12,7 +12,8 @@ import {
   getDocs,
   getDoc,
   Timestamp,
-  deleteDoc
+  deleteDoc,
+  limit
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -293,7 +294,7 @@ function MarketingIntelligence({ data }: { data: any }) {
 }
 
 export default function Marketing() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, systemStatus, settings: sharedSettings, clientTypes: sharedTypes, clientCategories: sharedCats } = useAuth();
   const [activeTab, setActiveTab] = useState("ai-assistant");
   const [campaigns, setCampaigns] = useState<MarketingCampaign[]>([]);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
@@ -306,7 +307,23 @@ export default function Marketing() {
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+
+  // Sync shared state
+  useEffect(() => {
+    if (sharedSettings) {
+      setSettings(sharedSettings as BusinessSettings);
+      if (sharedSettings.baseLatitude && sharedSettings.baseLongitude && !weather) {
+        setIsFetchingWeather(true);
+        fetchWeather(sharedSettings.baseLatitude, sharedSettings.baseLongitude)
+          .then(setWeather)
+          .finally(() => setIsFetchingWeather(false));
+      }
+    }
+    if (sharedTypes) setClientTypes(sharedTypes);
+    if (sharedCats) setClientCategories(sharedCats);
+  }, [sharedSettings, sharedTypes, sharedCats]);
   const [isFetchingWeather, setIsFetchingWeather] = useState(false);
+  const [loading, setLoading] = useState(true);
   
   const [isCampaignDialogOpen, setIsCampaignDialogOpen] = useState(false);
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
@@ -390,50 +407,37 @@ export default function Marketing() {
     // Optimized Data Fetcher (Fetch once on mount to save quota)
     const fetchMarketingAggregateData = async () => {
       try {
+        const lastYear = new Date();
+        lastYear.setFullYear(lastYear.getFullYear() - 1);
+        const lastYearTs = Timestamp.fromDate(lastYear);
+
         const [
           campaignsSnap,
           templatesSnap,
           clientsSnap,
-          typesSnap,
-          catsSnap,
           apptsSnap,
           leadsSnap,
           invoicesSnap,
-          settingsSnap,
           couponsSnap
         ] = await Promise.all([
-          getDocs(query(collection(db, "marketing_campaigns"), orderBy("createdAt", "desc"))),
-          getDocs(query(collection(db, "email_templates"), orderBy("name", "asc"))),
-          getDocs(collection(db, "clients")),
-          getDocs(collection(db, "client_types")),
-          getDocs(collection(db, "client_categories")),
-          getDocs(collection(db, "appointments")),
-          getDocs(collection(db, "leads")),
-          getDocs(collection(db, "invoices")),
-          getDoc(doc(db, "settings", "business")),
-          getDocs(query(collection(db, "coupons"), orderBy("createdAt", "desc")))
+          getDocs(query(collection(db, "marketing_campaigns"), orderBy("createdAt", "desc"), limit(50))),
+          getDocs(query(collection(db, "email_templates"), orderBy("name", "asc"), limit(50))),
+          getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(200))),
+          getDocs(query(collection(db, "appointments"), where("scheduledAt", ">=", lastYearTs), orderBy("scheduledAt", "desc"), limit(300))),
+          getDocs(query(collection(db, "leads"), where("createdAt", ">=", lastYearTs), orderBy("createdAt", "desc"), limit(200))),
+          getDocs(query(collection(db, "invoices"), where("createdAt", ">=", lastYearTs), orderBy("createdAt", "desc"), limit(200))),
+          getDocs(query(collection(db, "coupons"), orderBy("createdAt", "desc"), limit(50)))
         ]);
 
         setCampaigns(campaignsSnap.docs.map(d => ({ id: d.id, ...d.data() } as MarketingCampaign)));
         setTemplates(templatesSnap.docs.map(d => ({ id: d.id, ...d.data() } as EmailTemplate)));
         setClients(clientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-        setClientTypes(typesSnap.docs.map(d => ({ id: d.id, ...d.data() } as ClientType)));
-        setClientCategories(catsSnap.docs.map(d => ({ id: d.id, ...d.data() } as ClientCategory)));
         setAppointments(apptsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Appointment)));
         setLeads(leadsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
         setInvoices(invoicesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice)));
         setCoupons(couponsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Coupon)));
 
-        if (settingsSnap.exists()) {
-          const businessSettings = settingsSnap.data() as BusinessSettings;
-          setSettings(businessSettings);
-          if (businessSettings.baseLatitude && businessSettings.baseLongitude) {
-            setIsFetchingWeather(true);
-            fetchWeather(businessSettings.baseLatitude, businessSettings.baseLongitude)
-              .then(setWeather)
-              .finally(() => setIsFetchingWeather(false));
-          }
-        }
+        setLoading(false);
       } catch (error) {
         console.error("Error fetching marketing data:", error);
       }
@@ -733,12 +737,21 @@ export default function Marketing() {
     }
   };
 
+  const getSystemStatusLabel = () => {
+    switch (systemStatus) {
+      case 'offline': return "Offline Mode • AI Features Limited";
+      case 'quota-exhausted': return "Quota Exhausted • Viewing Cached Marketing Hub";
+      case 'permission-denied': return "Permission Error";
+      default: return "Optimal";
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-20">
       <PageHeader 
         title="Marketing" 
         accentWord="Marketing" 
-        subtitle="Manage your campaigns, templates, and audience engagement."
+        subtitle={`System Status: ${getSystemStatusLabel()} • Manage your campaigns, templates, and audience engagement.`}
         actions={
           <div className="flex gap-3">
             <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>

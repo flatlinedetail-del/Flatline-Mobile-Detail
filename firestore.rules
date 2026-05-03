@@ -80,7 +80,7 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'email', 'role']) &&
              data.uid is string &&
              data.email is string &&
-             data.role in ['admin', 'technician'];
+             data.role in ['admin', 'technician', 'owner', 'manager', 'read-only', 'office', 'worker'];
     }
 
     function isValidEmail(email) {
@@ -101,6 +101,10 @@ service cloud.firestore {
     // ===============================================================
     // Rules
     // ===============================================================
+
+    match /test/connection {
+      allow read: if true;
+    }
 
     match /bundle_offers/{bundleId} {
       allow read, write: if isPublic();
@@ -283,14 +287,14 @@ service cloud.firestore {
     }
 
     match /blocked_dates/{blockId} {
-      allow read: if isTechnician();
+      allow read: if isPublic();
       allow create: if isTechnician();
       allow update: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /time_blocks/{blockId} {
-      allow read: if isTechnician();
+      allow read: if isPublic();
       allow create: if isTechnician();
       allow update: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isTechnician() && (resource.data.userId == request.auth.uid || isAdmin());
@@ -311,6 +315,20 @@ service cloud.firestore {
 
     match /protected_clients/{protectedClientId} {
       allow read, write: if isAdmin();
+    }
+
+    match /warranties/{warrantyId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+
+      match /warrantyClaims/{claimId} {
+        allow read: if isTechnician();
+        allow create: if isTechnician();
+        allow update: if isTechnician();
+        allow delete: if isAdmin();
+      }
     }
 
     // Default deny

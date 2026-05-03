@@ -15,6 +15,7 @@ import {
   deleteDoc,
   writeBatch,
   limit,
+  startAfter,
   FieldValue
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -34,6 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Textarea } from "../components/ui/textarea";
 import { geocodeAddress } from "../services/geocodingService";
 import { useNavigate } from "react-router-dom";
+import WarrantyManager from "../components/WarrantyManager";
 import { NumberInput } from "../components/NumberInput";
 import { 
   Users, 
@@ -78,6 +80,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { format } from "date-fns";
 import VehicleSelector from "../components/VehicleSelector";
+import { syncService } from "../services/syncService";
 import { 
   cn, 
   formatPhoneNumber, 
@@ -132,9 +135,17 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       await addDoc(collection(db, "vehicles"), newVehicle);
       toast.success("Vehicle added");
       if (onSuccess) onSuccess();
-    } catch (error) {
-      console.error("Error adding vehicle:", error);
-      toast.error("Failed to add vehicle");
+    } catch (error: any) {
+      console.warn("Direct add failed for vehicle, enqueuing...", error);
+      const isPermanent = error?.code === 'permission-denied' || error?.code === 'invalid-argument';
+      
+      if (isPermanent) {
+        handleFirestoreError(error, OperationType.CREATE, "vehicles");
+      } else {
+        await syncService.enqueueTask("vehicles", { ...newVehicle, createdAt: Date.now() }, 'create');
+        toast.info("Vehicle saved locally — pending sync.");
+        if (onSuccess) onSuccess();
+      }
     }
   };
 
@@ -179,15 +190,40 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
   );
 }
 
+const CLIENT_TYPE_OPTIONS = [
+  { id: "individual", name: "Individual" },
+  { id: "business", name: "Business" },
+  { id: "collision_center", name: "Collision Center" },
+  { id: "dealership", name: "Dealership" },
+  { id: "fleet", name: "Fleet" },
+  { id: "vendor", name: "Vendor" },
+  { id: "insurance", name: "Insurance" },
+  { id: "property_manager", name: "Property Manager" },
+  { id: "other", name: "Other" }
+];
+
 export default function Clients() {
-  const { profile, loading: authLoading, isQuotaExceeded } = useAuth();
+  const { profile, loading: authLoading, systemStatus, clientTypes: sharedTypes, clientCategories: sharedCats, services: sharedServices } = useAuth();
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
   const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
-  const [clientTypes, setClientTypes] = useState<ClientType[]>([]);
+  const [clientTypes, setClientTypes] = useState<ClientType[]>(CLIENT_TYPE_OPTIONS as any);
   const [categories, setCategories] = useState<ClientCategory[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
+  const [lastDoc, setLastDoc] = useState<any>(null);
+  const clientsUnsubscribe = useRef<(() => void) | null>(null);
+
+  // Sync shared state
+  useEffect(() => {
+    if (sharedTypes && sharedTypes.length > 0) {
+      setClientTypes(sharedTypes);
+    }
+    if (sharedCats && sharedCats.length > 0) setCategories(sharedCats);
+    if (sharedServices && sharedServices.length > 0) setServices(sharedServices);
+  }, [sharedTypes, sharedCats, sharedServices]);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -209,30 +245,67 @@ export default function Clients() {
         const data = results.data as any[];
         const errors: string[] = [];
         
-        // Basic normalization and validation
+        // Comprehensive normalization and validation
         const normalizedData = data.map((row, index) => {
-          const email = row.Email || row.email || "";
-          const phone = row.Phone || row.phone || row.Mobile || "";
-          const firstName = row.FirstName || row["First Name"] || row.first_name || "";
-          const lastName = row.LastName || row["Last Name"] || row.last_name || "";
-          const name = row.Name || row.name || (`${firstName} ${lastName}`).trim();
+          // Helper to get value by case-insensitive alias
+          const getVal = (aliases: string[], fallback = "") => {
+            const found = Object.keys(row).find(k => aliases.includes(k.toLowerCase().trim()));
+            return found ? (row[found] || fallback) : fallback;
+          };
 
-          if (!name) errors.push(`Row ${index + 1}: Name is required`);
+          const name = getVal(["name", "full name", "client name", "customer name", "client"]);
+          const firstName = getVal(["first name", "firstname", "first_name"]);
+          const lastName = getVal(["last name", "lastname", "last_name"]);
+          const email = getVal(["email", "email address", "e-mail"]);
+          const phone = getVal(["phone", "phone number", "mobile", "cell", "telephone"]);
+          const address = getVal(["address", "street address", "service address", "street", "location"]);
+          const notes = getVal(["notes", "internal notes", "description", "details"]);
+          const businessName = getVal(["business name", "company", "business", "organization"]);
+          const rawClientType = getVal(["client type", "type", "category"]);
+
+          // Vehicle fields
+          const vYear = getVal(["vehicle year", "year"]);
+          const vMake = getVal(["vehicle make", "make"]);
+          const vModel = getVal(["vehicle model", "model"]);
+          const vVin = getVal(["vin", "v.i.n."]);
+          const vPlate = getVal(["license plate", "plate", "license"]);
+          
+          const fullName = name || (firstName && lastName ? `${firstName} ${lastName}` : firstName || lastName || "Unknown Client");
+          
+          // Basic mapping to known IDs
+          const clientTypeId = CLIENT_TYPE_OPTIONS.find(opt => 
+            opt.id === rawClientType.toLowerCase() || 
+            opt.name.toLowerCase() === rawClientType.toLowerCase()
+          )?.id || (businessName ? "business" : "individual");
+
+          if (!fullName) errors.push(`Row ${index + 1}: Name is required`);
           
           return {
             ...row,
-            name,
-            firstName: firstName || name.split(" ")[0],
-            lastName: lastName || name.split(" ").slice(1).join(" "),
+            name: fullName,
+            firstName: firstName || fullName.split(" ")[0],
+            lastName: lastName || fullName.split(" ").slice(1).join(" "),
             email: normalizeEmail(email),
             phone: normalizePhone(phone),
-            address: row.Address || row.address || "",
-            notes: row.Notes || row.notes || "",
+            address: address,
+            businessName: businessName,
+            clientTypeId,
+            notes: notes,
+            // Vehicle info for second stage
+            vehicle: (vYear || vMake || vModel || vVin || vPlate) ? {
+              year: vYear,
+              make: vMake,
+              model: vModel,
+              vin: vVin,
+              plate: vPlate
+            } : null
           };
         });
 
-        if (errors.length > 0) {
+        if (errors.length > 0 && errors.length < 10) {
           setImportErrors(errors);
+        } else if (errors.length >= 10) {
+          setImportErrors([...errors.slice(0, 5), `...and ${errors.length - 5} more errors`]);
         } else {
           setImportErrors([]);
           setImportData(normalizedData);
@@ -249,15 +322,16 @@ export default function Clients() {
     setIsImporting(true);
     let successCount = 0;
     let duplicateCount = 0;
+    let localCount = 0;
+
+    const isRestricted = systemStatus === 'quota-exhausted' || !navigator.onLine;
 
     try {
-      const batch = writeBatch(db);
-      
       for (const client of importData) {
-        // Check for duplicate by email or phone
+        // Check for duplicate by email or phone (using normalized values)
         const isDuplicate = clients.some(c => 
-          (client.email && c.email === client.email) || 
-          (client.phone && c.phone === client.phone)
+          (client.email && c.email.toLowerCase() === client.email.toLowerCase()) || 
+          (client.phone && c.phone.replace(/\D/g, "") === (c.phone || "").replace(/\D/g, ""))
         );
 
         if (isDuplicate) {
@@ -265,32 +339,102 @@ export default function Clients() {
           continue;
         }
 
-        const newClientRef = doc(collection(db, "clients"));
-        batch.set(newClientRef, {
-          ...client,
+        // Prepare client data
+        const { vehicle, ...clientBase } = client;
+        const clientData = {
+          ...clientBase,
           ownerId: profile?.uid,
           isActive: true,
-          clientType: "Retail", // Default
-          category: "Residential", // Default
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-        successCount++;
+          clientTypeId: client.clientTypeId || "individual",
+          categoryIds: [],
+          loyaltyPoints: 0,
+          membershipLevel: "none",
+        };
+
+        if (isRestricted) {
+          // Enqueue client
+          const localId = await syncService.enqueueTask("clients", { ...clientData, createdAt: Date.now() }, 'create');
+          
+          // Enqueue vehicle if exists
+          if (vehicle) {
+            await syncService.enqueueTask("vehicles", {
+              ...vehicle,
+              clientId: localId, // Link to localId
+              ownerId: profile?.uid,
+              isActive: true,
+              size: "medium",
+              createdAt: Date.now()
+            }, 'create');
+          }
+          localCount++;
+          continue;
+        }
+
+        try {
+          // Try direct save
+          const docRef = await addDoc(collection(db, "clients"), {
+            ...clientData,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+
+          // Save vehicle if exists
+          if (vehicle) {
+            await addDoc(collection(db, "vehicles"), {
+              ...vehicle,
+              clientId: docRef.id,
+              ownerId: profile?.uid,
+              isActive: true,
+              size: "medium",
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            }).catch(vErr => console.warn("Failed to add vehicle for imported client:", vErr));
+          }
+          
+          successCount++;
+        } catch (err: any) {
+          const isQuota = err?.code === 'resource-exhausted' || err?.message?.includes("quota");
+          
+          if (isQuota || !navigator.onLine) {
+            // Local fallback
+            const localId = await syncService.enqueueTask("clients", { ...clientData, createdAt: Date.now() }, 'create');
+            if (vehicle) {
+              await syncService.enqueueTask("vehicles", {
+                ...vehicle,
+                clientId: localId,
+                ownerId: profile?.uid,
+                isActive: true,
+                size: "medium",
+                createdAt: Date.now()
+              }, 'create');
+            }
+            localCount++;
+          } else {
+            console.error("Direct import failed for row:", err);
+            throw err; // Stop on unknown errors
+          }
+        }
       }
 
-      await batch.commit();
-      toast.success(`Imported ${successCount} clients. ${duplicateCount} duplicates skipped.`);
+      let msg = "";
+      if (successCount > 0) msg += `Imported ${successCount} clients. `;
+      if (localCount > 0) msg += `${localCount} clients saved locally (Pending Sync). `;
+      if (duplicateCount > 0) msg += `${duplicateCount} duplicates skipped.`;
+      
+      toast.success(msg || "Import complete");
       setIsImportOpen(false);
       setImportData([]);
-    } catch (err) {
+      fetchClientsData();
+    } catch (err: any) {
       console.error("Import error:", err);
-      toast.error("Failed to import clients.");
+      toast.error(`Import partially failed: ${err.message || "Unknown error"}`);
     } finally {
       setIsImporting(false);
     }
   };
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [clientVehicles, setClientVehicles] = useState<Vehicle[]>([]);
+  const [clientWarranties, setClientWarranties] = useState<any[]>([]);
   const [clientHistory, setClientHistory] = useState<Appointment[]>([]);
   const [clientInvoices, setClientInvoices] = useState<Invoice[]>([]);
   const [clientQuotes, setClientQuotes] = useState<Quote[]>([]);
@@ -308,6 +452,15 @@ export default function Clients() {
   const [isEditVehicleOpen, setIsEditVehicleOpen] = useState(false);
   const [newClientAddress, setNewClientAddress] = useState({ address: "", lat: 0, lng: 0 });
   const [isUploading, setIsUploading] = useState(false);
+  const [formClientTypeId, setFormClientTypeId] = useState<string>("");
+
+  useEffect(() => {
+    if (editingClient) {
+      setFormClientTypeId(editingClient.clientTypeId || "");
+    } else {
+      setFormClientTypeId("");
+    }
+  }, [editingClient, isAddDialogOpen]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -365,108 +518,139 @@ export default function Clients() {
       baseColor += " border-amber-500/50";
     }
     return baseColor;
-  };
+  };  const fetchClientsData = async (showToast = false, searchStr?: string, loadMore = false) => {
+    // Performance marker
+    const loadStart = performance.now();
+    const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
 
-  const fetchClientsData = async (showToast = false) => {
-    if (isQuotaExceeded) {
+    // If search is happening, bypass general cache
+    if (!searchStr && !loadMore) {
+      // Check cache first if not performing a manual sync (10 min cache)
       const cached = sessionStorage.getItem('clients_registry_cache');
-      if (cached) setClients(JSON.parse(cached));
+      const cacheTime = sessionStorage.getItem('clients_registry_cache_time');
+      const now = Date.now();
+      const isCacheFresh = cached && cacheTime && now - Number(cacheTime) < 10 * 60 * 1000;
+      
+      if (isCacheFresh || (cached && isRestricted)) {
+        try {
+          let data = JSON.parse(cached || '[]');
+          data = await syncService.injectPendingRecords("clients", data);
+          setClients(data);
+          setLoading(false);
+          const time = performance.now() - loadStart;
+          console.log(`🚀 [CLIENTS] Loaded from ${isRestricted ? 'OFFLINE CACHE' : 'REGISTRY CACHE'} in ${time.toFixed(2)}ms`);
+          if (isRestricted) return;
+        } catch (e) {
+          console.warn("[Clients] Cache parse failed", e);
+        }
+      }
+    }
+
+    if (isRestricted && !searchStr) {
+      console.warn(`[Clients] Fetch skipped. System status: ${systemStatus}`);
       setLoading(false);
       return;
     }
 
-    // Check cache first if not performing a manual sync (10 min cache)
-    if (!showToast) {
-      const cached = sessionStorage.getItem('clients_registry_cache');
-      const cacheTime = sessionStorage.getItem('clients_registry_cache_time');
-      const now = Date.now();
-      
-      if (cached && cacheTime && now - Number(cacheTime) < 10 * 60 * 1000) { 
-        setClients(JSON.parse(cached));
-        setLoading(false);
-        return;
-      }
+    if (showToast) {
+      toast.loading("Syncing Registry...", { id: "sync-clients" });
+      await syncService.syncPendingRecords();
     }
-
-    if (showToast) toast.loading("Syncing Registry...", { id: "sync-clients" });
     setLoading(true);
-    try {
-      const q = query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(200));
-      const snapshot = await getDocs(q).catch(e => handleFirestoreError(e, OperationType.LIST, "clients"));
-      if (!snapshot) return;
-      const clientsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
-      setClients(clientsData);
-      
-      // Update cache
-      sessionStorage.setItem('clients_registry_cache', JSON.stringify(clientsData));
-      sessionStorage.setItem('clients_registry_cache_time', Date.now().toString());
+    
+    console.log(`🔥 FIRESTORE READ [Clients]: Fetching data ${searchStr ? `for search: "${searchStr}"` : `initial load (limit 50)${loadMore ? ' [Loading More]' : ''}`}`);
 
-      setLoading(false);
+    try {
+      let q;
+      if (searchStr) {
+        const normalized = searchStr.charAt(0).toUpperCase() + searchStr.slice(1).toLowerCase();
+        q = query(
+          collection(db, "clients"), 
+          where("name", ">=", normalized),
+          where("name", "<=", normalized + "\uf8ff"),
+          limit(30)
+        );
+      } else {
+        if (loadMore && lastDoc) {
+          q = query(collection(db, "clients"), orderBy("createdAt", "desc"), startAfter(lastDoc), limit(50));
+        } else {
+          q = query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(50));
+        }
+      }
+
+      if (clientsUnsubscribe.current) clientsUnsubscribe.current();
+
+      if (searchStr) {
+        const snapshot = await getDocs(q);
+        let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any } as Client));
+        data = await syncService.injectPendingRecords("clients", data);
+        setClients(data);
+        setHasMore(false);
+        setLoading(false);
+      } else {
+        clientsUnsubscribe.current = onSnapshot(q, async (snapshot) => {
+            let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any } as Client));
+            data = await syncService.injectPendingRecords("clients", data);
+            
+            if (loadMore) {
+                setClients(prev => {
+                    const existingIds = new Set(prev.map(c => c.id));
+                    const newItems = data.filter(c => !existingIds.has(c.id));
+                    return [...prev, ...newItems];
+                });
+            } else {
+                setClients(data);
+                sessionStorage.setItem('clients_registry_cache', JSON.stringify(data));
+                sessionStorage.setItem('clients_registry_cache_time', Date.now().toString());
+            }
+            
+            setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+            setHasMore(snapshot.docs.length === 50);
+            setLoading(false);
+            console.log(`📡 [CLIENTS] Listener updated: ${data.length} docs`);
+        }, async (err) => {
+            console.warn("[Clients] Listener error, falling back to local data:", err);
+            handleFirestoreError(err, OperationType.LIST, "clients");
+            const localOnly = await syncService.injectPendingRecords("clients", []);
+            setClients(prev => prev.length > 0 ? prev : localOnly);
+            setLoading(false);
+        });
+      }
+
       if (showToast) toast.success("Registry Synchronized", { id: "sync-clients" });
     } catch (error: any) {
       console.error("Error fetching clients:", error);
+      const localOnly = await syncService.injectPendingRecords("clients", []);
+      setClients(prev => prev.length > 0 ? prev : localOnly);
       setLoading(false);
-      if (error?.message?.includes("Quota limit exceeded")) {
-        toast.error("Registry Sync Failed: Quota exceeded");
-      } else if (showToast) {
-        toast.error("Sync Failed", { id: "sync-clients" });
-      }
     }
   };
 
+  // Pagination helper
+  const loadMoreClients = () => {
+    if (!loading && hasMore) {
+        fetchClientsData(false, undefined, true);
+    }
+  };
+
+  // Debounced search logic
+  useEffect(() => {
+    if (searchTerm.length >= 2) {
+      const timeoutId = setTimeout(() => {
+        fetchClientsData(false, searchTerm);
+      }, 600);
+      return () => clearTimeout(timeoutId);
+    } else if (searchTerm.length === 0) {
+      fetchClientsData();
+    }
+  }, [searchTerm]);
+
   useEffect(() => {
     if (authLoading || !profile) return;
-
-    const loadMetadata = async () => {
-      // Small metadata caching
-      const cachedTypes = sessionStorage.getItem('client_types_cache');
-      const cachedCats = sessionStorage.getItem('client_categories_cache');
-      if (cachedTypes && cachedCats) {
-        setClientTypes(JSON.parse(cachedTypes));
-        setCategories(JSON.parse(cachedCats));
-        return;
-      }
-
-      try {
-        const typesSnap = await getDocs(query(collection(db, "client_types"), orderBy("sortOrder", "asc"))).catch(e => handleFirestoreError(e, OperationType.LIST, "client_types"));
-        const catsSnap = await getDocs(query(collection(db, "client_categories"), orderBy("name", "asc"))).catch(e => handleFirestoreError(e, OperationType.LIST, "client_categories"));
-        
-        if (!typesSnap || !catsSnap) return;
-        const typesData = typesSnap.docs.map(t => ({ id: t.id, ...t.data() } as ClientType));
-        const catsData = catsSnap.docs.map(c => ({ id: c.id, ...c.data() } as ClientCategory));
-        
-        setClientTypes(typesData);
-        setCategories(catsData);
-        
-        sessionStorage.setItem('client_types_cache', JSON.stringify(typesData));
-        sessionStorage.setItem('client_categories_cache', JSON.stringify(catsData));
-      } catch (error) {
-        console.error("Error loading metadata:", error);
-      }
-    };
-    loadMetadata();
     fetchClientsData();
 
-    const loadServices = async () => {
-      const cachedServices = sessionStorage.getItem('services_list_cache');
-      if (cachedServices) {
-        setServices(JSON.parse(cachedServices));
-        return;
-      }
-      try {
-        const servicesSnap = await getDocs(collection(db, "services")).catch(e => handleFirestoreError(e, OperationType.LIST, "services"));
-        if (!servicesSnap) return;
-        const servicesData = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service));
-        setServices(servicesData);
-        sessionStorage.setItem('services_list_cache', JSON.stringify(servicesData));
-      } catch (error) {
-        console.error("Error fetching services in clients:", error);
-      }
-    };
-    loadServices();
-
     return () => {
-      // Cleanup
+      if (clientsUnsubscribe.current) clientsUnsubscribe.current();
     };
   }, [profile, authLoading]);
 
@@ -537,6 +721,13 @@ export default function Clients() {
       console.error("Error listening to client vehicles:", error);
     });
 
+    const unsubWarranties = onSnapshot(query(collection(db, "warranties"), where("clientId", "==", selectedClient.id)), snap => {
+      setClientWarranties(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error: any) => {
+      if (error?.code === 'cancelled' || error?.message?.includes('CANCELLED') || error?.message?.includes('idle stream')) return;
+      console.error("Error listening to client warranties:", error);
+    });
+
     // Auto-geocode if missing lat/lng
     if (selectedClient.address && (!selectedClient.latitude || !selectedClient.longitude)) {
       const performGeocoding = async () => {
@@ -555,6 +746,7 @@ export default function Clients() {
 
     return () => {
       unsubVehicles();
+      unsubWarranties();
     };
   }, [selectedClient]);
 
@@ -594,22 +786,46 @@ export default function Clients() {
       notes: (formData.get("notes") as string)?.trim(),
     };
 
+    const isRestricted = systemStatus === 'quota-exhausted' || !navigator.onLine;
+
+    if (isRestricted) {
+      console.warn(`[Sync] Proactive local save triggered. Reason: ${systemStatus}`);
+      if (editingClient) {
+        await syncService.enqueueTask("clients", clientData, 'update', editingClient.id);
+        toast.info("Update saved locally — pending sync (Quota/Network)");
+      } else {
+        const localData = {
+          ...clientData,
+          categoryIds: [],
+          loyaltyPoints: 0,
+          membershipLevel: "none",
+          createdAt: Date.now(),
+        };
+        await syncService.enqueueTask("clients", localData, 'create');
+        toast.info("Client saved locally — pending sync (Quota/Network)");
+      }
+      setIsAddDialogOpen(false);
+      setEditingClient(null);
+      fetchClientsData();
+      return;
+    }
+
     // Duplicate check
     try {
-      if (!editingClient) {
+      if (!editingClient && navigator.onLine) {
         const clientsRef = collection(db, "clients");
         let duplicateFound = false;
 
         if (clientData.phone) {
           const qPhone = query(clientsRef, where("phone", "==", clientData.phone), limit(1));
-          const snapPhone = await getDocs(qPhone);
-          if (!snapPhone.empty) duplicateFound = true;
+          const snapPhone = await getDocs(qPhone).catch(() => null);
+          if (snapPhone && !snapPhone.empty) duplicateFound = true;
         }
 
         if (!duplicateFound && clientData.email) {
           const qEmail = query(clientsRef, where("email", "==", clientData.email), limit(1));
-          const snapEmail = await getDocs(qEmail);
-          if (!snapEmail.empty) duplicateFound = true;
+          const snapEmail = await getDocs(qEmail).catch(() => null);
+          if (snapEmail && !snapEmail.empty) duplicateFound = true;
         }
 
         if (duplicateFound) {
@@ -619,17 +835,55 @@ export default function Clients() {
       }
 
       if (editingClient) {
-        await updateDoc(doc(db, "clients", editingClient.id), clientData);
-        toast.success("Client profile updated");
+        try {
+          await updateDoc(doc(db, "clients", editingClient.id), clientData);
+          toast.success("Client profile updated");
+        } catch (err: any) {
+          console.warn("Direct update failed, enqueuing...", err);
+          
+          // Check for permanent failures vs offline
+          const isPermanent = err?.code === 'permission-denied' || err?.code === 'invalid-argument';
+          
+          if (isPermanent) {
+            handleFirestoreError(err, OperationType.UPDATE, `clients/${editingClient.id}`);
+          } else {
+            await syncService.enqueueTask("clients", clientData, 'update', editingClient.id);
+            toast.info("Client updated locally — pending sync.");
+          }
+        }
       } else {
-        await addDoc(collection(db, "clients"), {
-          ...clientData,
-          categoryIds: [],
-          loyaltyPoints: 0,
-          membershipLevel: "none",
-          createdAt: serverTimestamp(),
-        });
-        toast.success("Client added successfully");
+        try {
+          // Sanitization: Ensure no undefined fields are sent
+          const finalData = {
+            ...clientData,
+            categoryIds: clientData.categoryIds || [],
+            loyaltyPoints: clientData.loyaltyPoints || 0,
+            membershipLevel: clientData.membershipLevel || "none",
+            createdAt: serverTimestamp(),
+          };
+
+          await addDoc(collection(db, "clients"), finalData);
+          toast.success("Client added successfully");
+        } catch (err: any) {
+          console.warn("Direct add failed, enqueuing...", err);
+          
+          const isPermanent = err?.code === 'permission-denied' || err?.code === 'invalid-argument';
+          
+          if (isPermanent) {
+            handleFirestoreError(err, OperationType.CREATE, "clients");
+          } else {
+            // Local fallback data (use simple numeric timestamp)
+            const localData = {
+              ...clientData,
+              categoryIds: [],
+              loyaltyPoints: 0,
+              membershipLevel: "none",
+              createdAt: Date.now(),
+            };
+            await syncService.enqueueTask("clients", localData, 'create');
+            toast.info("Client saved locally — pending sync.");
+          }
+        }
       }
       
       // Invalidate cache
@@ -642,9 +896,20 @@ export default function Clients() {
       setIsAddDialogOpen(false);
       setEditingClient(null);
       fetchClientsData(); // Sync manually
-    } catch (error) {
-      console.error("Error saving client:", error);
-      toast.error(editingClient ? "Failed to update client" : "Failed to add client");
+    } catch (error: any) {
+      console.error("Critical Error saving client:", error);
+      let errorMsg = "Failed to save client";
+      
+      try {
+        const detail = JSON.parse(error.message);
+        errorMsg = `Error: ${detail.error}`;
+      } catch {
+        errorMsg = error.message || String(error);
+      }
+      
+      toast.error(errorMsg, {
+        description: "Full error logged to console for administrator review."
+      });
     }
   };
 
@@ -803,12 +1068,21 @@ export default function Clients() {
     });
   }, [clients, searchTerm, typeFilter, categoryFilter]);
 
+  const getSystemStatusLabel = () => {
+    switch (systemStatus) {
+      case 'offline': return "Offline Mode • Local DB Active";
+      case 'quota-exhausted': return "Quota Exhausted • Viewing Cached Registry";
+      case 'permission-denied': return "Permission Error";
+      default: return "Optimal";
+    }
+  };
+
   return (
     <div className="space-y-10 pb-24 w-full">
       <PageHeader 
         title="Client Registry" 
         accentWord="Registry" 
-        subtitle="Unified database for retail, business, and vehicle accounts."
+        subtitle={`System Status: ${getSystemStatusLabel()} • Unified database for retail, business, and vehicle accounts.`}
         actions={
           <div className="flex items-center gap-3">
             <Button 
@@ -873,14 +1147,24 @@ export default function Clients() {
                               <TableHead className="text-[9px] font-black uppercase text-white h-10">Name</TableHead>
                               <TableHead className="text-[9px] font-black uppercase text-white h-10">Email</TableHead>
                               <TableHead className="text-[9px] font-black uppercase text-white h-10">Phone</TableHead>
+                              <TableHead className="text-[9px] font-black uppercase text-white h-10">Address</TableHead>
+                              <TableHead className="text-[9px] font-black uppercase text-white h-10">Type</TableHead>
+                              <TableHead className="text-[9px] font-black uppercase text-white h-10">Vehicle</TableHead>
+                              <TableHead className="text-[9px] font-black uppercase text-white h-10">Notes</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {importData.slice(0, 5).map((row, i) => (
                               <TableRow key={i} className="border-white/5 bg-white/5">
                                 <TableCell className="text-[10px] text-white font-bold h-10">{row.name}</TableCell>
-                                <TableCell className="text-[10px] text-white/60 h-10">{row.email}</TableCell>
-                                <TableCell className="text-[10px] text-white/60 h-10">{row.phone}</TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10">{row.email || "-"}</TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10">{row.phone || "-"}</TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10 truncate max-w-[100px]">{row.address || "-"}</TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10 capitalize">{row.clientTypeId || "individual"}</TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10">
+                                  {row.vehicle ? `${row.vehicle.year || ""} ${row.vehicle.make || ""} ${row.vehicle.model || ""}`.trim() || row.vehicle.vin || row.vehicle.plate : "-"}
+                                </TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10 truncate max-w-[100px]">{row.notes || "-"}</TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
@@ -964,16 +1248,23 @@ export default function Clients() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="clientTypeId" className="font-black uppercase tracking-widest text-[10px] text-white">Client Type</Label>
-                      <Select name="clientTypeId" defaultValue={editingClient?.clientTypeId || ""} required>
+                      <Select 
+                        value={formClientTypeId} 
+                        onValueChange={setFormClientTypeId} 
+                        required
+                      >
                         <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12">
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
-                        <SelectContent className="bg-gray-900 border-white/10 text-white font-bold">
+                        <SelectContent className="bg-[#1A1A1A] border border-white/10 text-white font-bold z-[5000]">
                           {clientTypes.map(t => (
-                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                            <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
+                              {t.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      <input type="hidden" name="clientTypeId" value={formClientTypeId} />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="contactPerson" className="font-black uppercase tracking-widest text-[10px] text-white">Contact Person (Optional)</Label>
@@ -1147,6 +1438,12 @@ export default function Clients() {
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-2">
                               <span className="font-black text-white tracking-tight uppercase text-sm">{getClientDisplayName(client)}</span>
+                              {client.localId && (
+                                <Badge variant="outline" className="bg-orange-500/10 text-orange-400 border-orange-500/20 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ml-1 animate-pulse">
+                                  <RefreshCcw className="w-2.5 h-2.5 mr-1" />
+                                  Pending Sync
+                                </Badge>
+                              )}
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
                               {(() => {
                                 const risk = client.riskLevel;
@@ -1287,6 +1584,17 @@ export default function Clients() {
               )}
             </TableBody>
           </Table>
+          {!loading && hasMore && !searchTerm && (
+            <div className="p-8 flex justify-center border-t border-white/5 bg-black/20">
+              <Button 
+                variant="outline" 
+                onClick={loadMoreClients}
+                className="bg-white/5 border-white/10 text-white hover:bg-white/10 rounded-xl px-10 h-14 font-black uppercase tracking-[0.2em] text-[11px] transition-all hover:scale-105"
+              >
+                Load More Records
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1410,6 +1718,7 @@ export default function Clients() {
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Profile</TabsTrigger>
                 <TabsTrigger value="appointments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Appointments ({clientHistory.length})</TabsTrigger>
                 <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Vehicles ({clientVehicles.length})</TabsTrigger>
+                <TabsTrigger value="warranties" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-cyan-400">Warranties</TabsTrigger>
                 <TabsTrigger value="forms" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Forms ({signedForms.length})</TabsTrigger>
                 {selectedClient.isVIP && (
                   <TabsTrigger value="vip-pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-yellow-500">VIP Pricing</TabsTrigger>
@@ -1674,9 +1983,11 @@ export default function Clients() {
                             <SelectTrigger className="bg-black/40 border-white/10 text-white rounded-xl h-12">
                               <SelectValue placeholder="Select type" />
                             </SelectTrigger>
-                            <SelectContent className="bg-gray-900 border-white/10 text-white">
+                            <SelectContent className="bg-[#1A1A1A] border border-white/10 text-white font-bold z-[5000]">
                               {clientTypes.map(t => (
-                                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
+                                  {t.name}
+                                </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -1861,10 +2172,30 @@ export default function Clients() {
                                     );
                                   })()}
                                 </div>
-                                <div className="flex items-center gap-4 text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                                <div className="flex items-center gap-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">
                                   <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: v.color?.toLowerCase() || 'gray' }}></div> {v.color || "Unknown Color"}</span>
                                   <span className="opacity-30">|</span>
                                   <span>{v.size?.replace("_", " ") || "Standard"}</span>
+                                </div>
+                                <div className="mt-2">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-white/40">Active Warranties</span>
+                                  </div>
+                                  {(() => {
+                                    const vWarranties = clientWarranties.filter(w => w.vehicleId === v.id && w.status !== "EXPIRED");
+                                    if (vWarranties.length === 0) {
+                                       return <span className="text-[10px] text-white/30 italic">No active warranties</span>;
+                                    }
+                                    return (
+                                      <div className="flex flex-wrap gap-2 mt-1">
+                                        {vWarranties.map(w => (
+                                          <Badge key={w.id} variant="outline" className="bg-cyan-500/10 text-cyan-400 border-cyan-500/20 text-[9px] font-bold uppercase">
+                                            {w.serviceName || w.warrantyType}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                               <AlertDialog>
@@ -2453,7 +2784,14 @@ export default function Clients() {
                   </div>
                 </TabsContent>
 
-                 <TabsContent value="forms" className="mt-0 space-y-8 outline-none">
+                 <TabsContent value="warranties" className="mt-0 space-y-8 outline-none animate-in fade-in slide-in-from-bottom-4">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Warranty <span className="text-cyan-400 italic">Portfolio</span></h3>
+                  </div>
+                  <WarrantyManager clientId={selectedClient.id} vehicles={clientVehicles || []} />
+                </TabsContent>
+
+                <TabsContent value="forms" className="mt-0 space-y-8 outline-none">
                   <div className="flex justify-between items-center">
                     <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Document <span className="text-primary italic">Vault</span></h3>
                     <Button 

@@ -59,9 +59,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 
 export default function Dashboard() {
-  const { profile, loading: authLoading, isQuotaExceeded } = useAuth();
+  const { profile, loading: authLoading, systemStatus, settings: sharedSettings, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
+
+  const adminOnly = sharedSettings?.adminOnlyAccess ?? true;
+  const canSeeFinance = adminOnly ? isAdmin : true;
+
   const [stats, setStats] = useState({
     projected: 0,
     completed: 0,
@@ -79,10 +83,23 @@ export default function Dashboard() {
   const [clients, setClients] = useState<Client[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [allAppointments, setAllAppointments] = useState<Appointment[]>([]);
+  const [activeWarranties, setActiveWarranties] = useState(0);
+  const [expiringWarranties, setExpiringWarranties] = useState(0);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [optimizedRoute, setOptimizedRoute] = useState<RouteStop[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Sync shared settings to local state
+  useEffect(() => {
+    if (sharedSettings) {
+      setSettings(sharedSettings as BusinessSettings);
+      if (sharedSettings.baseLatitude && sharedSettings.baseLongitude && !weather) {
+        fetchWeather(sharedSettings.baseLatitude, sharedSettings.baseLongitude)
+          .then(setWeather);
+      }
+    }
+  }, [sharedSettings]);
 
   const [isGeneratingGrowth, setIsGeneratingGrowth] = useState(false);
   const [growthStrategy, setGrowthStrategy] = useState<AIResponse | null>(null);
@@ -113,38 +130,51 @@ export default function Dashboard() {
   }, [allAppointments, clients, allLeads]);
 
   const fetchDashboardData = async (showToast = false) => {
-    if (!profile || isQuotaExceeded) return;
+    if (!profile) return;
     
+    // Performance marker
+    const loadStart = performance.now();
+    const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
+
     // Cache check to avoid redundant reads during navigation (10 min TTL for dashboard)
     const CACHE_KEY = `dashboard_cache_${profile.id}`;
     const lastFetch = Number(sessionStorage.getItem(`${CACHE_KEY}_time`) || 0);
     const now = Date.now();
     const CACHE_TTL = 10 * 60 * 1000;
 
-    if (!showToast && now - lastFetch < CACHE_TTL) {
-      const cachedData = sessionStorage.getItem(CACHE_KEY);
-      if (cachedData) {
-        try {
-          const parsed = JSON.parse(cachedData);
-          setStats(parsed.stats);
-          setUpcomingJobs(parsed.upcomingJobs);
-          setRecentLeads(parsed.recentLeads);
-          setAllLeads(parsed.allLeads);
-          setClients(parsed.clients);
-          setInvoices(parsed.invoices);
-          setAllAppointments(parsed.allAppointments);
-          setSettings(parsed.settings);
-          setLoading(false);
-          console.log("[Dashboard] Loaded from cache");
-          return;
-        } catch (e) {
-          console.warn("[Dashboard] Cache parse failed", e);
-        }
+    const cachedData = sessionStorage.getItem(CACHE_KEY);
+    if (cachedData && (isRestricted || (!showToast && now - lastFetch < CACHE_TTL))) {
+      try {
+        const parsed = JSON.parse(cachedData);
+        setStats(parsed.stats);
+        setUpcomingJobs(parsed.upcomingJobs);
+        setRecentLeads(parsed.recentLeads);
+        setAllLeads(parsed.allLeads);
+        setClients(parsed.clients);
+        setInvoices(parsed.invoices);
+        setAllAppointments(parsed.allAppointments);
+        setSettings(parsed.settings);
+        setLoading(false);
+        const time = performance.now() - loadStart;
+        console.log(`🚀 [DASHBOARD] Loaded from ${isRestricted ? 'OFFLINE CACHE' : 'BUSINESS CACHE'} in ${time.toFixed(2)}ms`);
+        return;
+      } catch (e) {
+        console.warn("[Dashboard] Cache parse failed", e);
       }
+    }
+
+    if (isRestricted) {
+      console.warn(`[Dashboard] Fetch skipped. System status: ${systemStatus}`);
+      setLoading(false);
+      return;
     }
 
     if (showToast) toast.loading("Syncing operations...", { id: "sync-dashboard" });
     
+    // Summary of read impact
+    console.log(`🔥 FIRESTORE READ [Dashboard]: Fetching summary metrics (Initial or manual sync)`);
+    console.log(`- Docs targeted: appointments (month), upcoming (5), leads (5/10), clients (10), invoices (10)`);
+
     setLoading(true);
     const today = new Date();
     const todayStart = startOfDay(today);
@@ -156,32 +186,37 @@ export default function Dashboard() {
     const endMonth = endOfMonth(today);
 
     try {
-      const [statsSnap, jobsSnap, leadsSnap, aiLeadsSnap, aiClientsSnap, aiInvoicesSnap, settingsSnap] = await Promise.all([
+      console.log(`🔥 [DASHBOARD] Executing Batch Metrics Retrieval...`);
+      const [statsSnap, jobsSnap, leadsSnap, aiLeadsSnap, aiClientsSnap, aiInvoicesSnap, warrantiesSnap] = await Promise.all([
         getDocs(query(
           collection(db, "appointments"),
           where("scheduledAt", ">=", Timestamp.fromDate(startMonth)),
           where("scheduledAt", "<=", Timestamp.fromDate(endMonth)),
-          limit(100) // Reduced from 300 to save quota
-        )).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments")),
+          limit(100) 
+        )).then(s => { console.log(`Read [appointments_stats]: ${s.size} docs`); return s; }).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments")),
         getDocs(query(
           collection(db, "appointments"),
           where("scheduledAt", ">=", Timestamp.fromDate(todayStart)),
           orderBy("scheduledAt", "asc"),
           limit(5)
-        )).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments_upcoming")),
+        )).then(s => { console.log(`Read [appointments_upcoming]: ${s.size} docs`); return s; }).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments_upcoming")),
         getDocs(query(
           collection(db, "leads"),
           where("status", "==", "new"),
           orderBy("createdAt", "desc"),
-          limit(5) // Reduced from 8 to save quota
-        )).catch(e => handleFirestoreError(e, OperationType.LIST, "leads_new")),
-        getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(10))).catch(e => handleFirestoreError(e, OperationType.LIST, "leads_all")), // Reduced from 20
-        getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(10))).catch(e => handleFirestoreError(e, OperationType.LIST, "clients")), // Reduced from 20
-        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(10))).catch(e => handleFirestoreError(e, OperationType.LIST, "invoices")), // Reduced from 20
-        getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"))
+          limit(5)
+        )).then(s => { console.log(`Read [leads_new]: ${s.size} docs`); return s; }).catch(e => handleFirestoreError(e, OperationType.LIST, "leads_new")),
+        getDocs(query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(10))).then(s => { console.log(`Read [leads_all]: ${s.size} docs`); return s; }).catch(e => handleFirestoreError(e, OperationType.LIST, "leads_all")),
+        getDocs(query(collection(db, "clients"), orderBy("createdAt", "desc"), limit(10))).then(s => { console.log(`Read [clients_recent]: ${s.size} docs`); return s; }).catch(e => handleFirestoreError(e, OperationType.LIST, "clients")),
+        getDocs(query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(10))).then(s => { console.log(`Read [invoices_recent]: ${s.size} docs`); return s; }).catch(e => handleFirestoreError(e, OperationType.LIST, "invoices")),
+        getDocs(query(collection(db, "warranties"), where("status", "==", "ACTIVE"), limit(50))).then(s => { console.log(`Read [warranties]: ${s.size} docs`); return s; }).catch(e => handleFirestoreError(e, OperationType.LIST, "warranties"))
       ]);
 
-      if (!statsSnap || !jobsSnap || !leadsSnap || !aiLeadsSnap || !aiClientsSnap || !aiInvoicesSnap || !settingsSnap) return;
+      if (!statsSnap || !jobsSnap || !leadsSnap || !aiLeadsSnap || !aiClientsSnap || !aiInvoicesSnap || !warrantiesSnap) {
+        // If error occurred but some data might be in local cache, handled above.
+        // If we get here it means we tried to fetch and failed.
+        return;
+      }
 
       // Stats Processing
       let dayProj = 0, dayComp = 0, dayPend = 0, dayActive = 0;
@@ -235,7 +270,6 @@ export default function Dashboard() {
       const allLeadsList = aiLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Lead));
       const clientsList = aiClientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
       const invoicesList = aiInvoicesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice));
-      const businessSettings = settingsSnap.exists() ? (settingsSnap.data() as BusinessSettings) : null;
 
       setUpcomingJobs(jobsList);
       setRecentLeads(recentLeadsList);
@@ -243,12 +277,25 @@ export default function Dashboard() {
       setAllLeads(allLeadsList);
       setClients(clientsList);
       setInvoices(invoicesList);
-      setSettings(businessSettings);
 
-      if (businessSettings?.baseLatitude && businessSettings?.baseLongitude) {
-        fetchWeather(businessSettings.baseLatitude, businessSettings.baseLongitude)
-          .then(setWeather);
+      const thirtyDaysFromNow = new Date();
+      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+      const thirtyDaysMs = thirtyDaysFromNow.getTime();
+
+      let activeCount = 0;
+      let expiringCount = 0;
+
+      if ((warrantiesSnap as any)?.docs) {
+        (warrantiesSnap as any).docs.forEach((doc: any) => {
+          activeCount++;
+          if (doc.data().expirationDate && doc.data().expirationDate <= thirtyDaysMs) {
+            expiringCount++;
+          }
+        });
       }
+
+      setActiveWarranties(activeCount);
+      setExpiringWarranties(expiringCount);
 
       // Save to Session Cache
       sessionStorage.setItem(CACHE_KEY, JSON.stringify({
@@ -258,17 +305,14 @@ export default function Dashboard() {
         allLeads: allLeadsList,
         clients: clientsList,
         invoices: invoicesList,
-        allAppointments: statsList,
-        settings: businessSettings
+        allAppointments: statsList
       }));
       sessionStorage.setItem(`${CACHE_KEY}_time`, Date.now().toString());
 
       if (showToast) toast.success("Dashboard Ready", { id: "sync-dashboard" });
     } catch (error: any) {
       console.error("Error fetching dashboard data:", error);
-      if (error?.message?.includes("Quota limit exceeded")) {
-        toast.error("Dashboard Sync Failed: Quota exceeded");
-      } else if (showToast) {
+      if (showToast) {
         toast.error("Sync Interrupted", { id: "sync-dashboard" });
       }
     } finally {
@@ -476,12 +520,21 @@ export default function Dashboard() {
     }
   };
 
+  const getSystemStatusLabel = () => {
+    switch (systemStatus) {
+      case 'offline': return "System Status: Offline Mode";
+      case 'quota-exhausted': return "System Status: Quota Exhausted";
+      case 'permission-denied': return "System Status: Permission Error";
+      default: return "System Status: Optimal";
+    }
+  };
+
   return (
     <div className="space-y-10 pb-24 w-full animate-in fade-in duration-700">
       <PageHeader 
         title="DASHBOARD" 
         accentWord="DASHBOARD" 
-        subtitle={`System Status: Optimal • ${format(new Date(), "EEEE, MMMM d, yyyy")}`}
+        subtitle={`${getSystemStatusLabel()} • ${format(new Date(), "EEEE, MMMM d, yyyy")}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
             <Button 
@@ -592,8 +645,8 @@ export default function Dashboard() {
         <FocusWrapper id="daily-revenue" title="Daily Revenue Strategy" focusedId={focusedCardId} onFocus={setFocusedCardId}>
           <StatCard 
             title="Daily Revenue" 
-            value={formatCurrency(stats.completed)} 
-            subValue={`Target: ${formatCurrency(stats.projected)}`}
+            value={canSeeFinance ? formatCurrency(stats.completed) : "PROTECTED"} 
+            subValue={canSeeFinance ? `Target: ${formatCurrency(stats.projected)}` : "ADMIN ONLY"}
             icon={<DollarSign className="w-6 h-6" />}
             trend={performancePercent >= 100 ? "up" : "down"}
             trendValue={`${Math.round(performancePercent)}%`}
@@ -605,8 +658,8 @@ export default function Dashboard() {
         <FocusWrapper id="weekly-volume" title="Weekly Operational Scale" focusedId={focusedCardId} onFocus={setFocusedCardId}>
           <StatCard 
             title="Weekly Volume" 
-            value={formatCurrency(stats.weekCompleted)} 
-            subValue={`Target: ${formatCurrency(stats.weekProjected)}`}
+            value={canSeeFinance ? formatCurrency(stats.weekCompleted) : "PROTECTED"} 
+            subValue={canSeeFinance ? `Target: ${formatCurrency(stats.weekProjected)}` : "ADMIN ONLY"}
             icon={<BarChart3 className="w-6 h-6" />}
             trend={stats.weekProjected > 0 ? (stats.weekCompleted / stats.weekProjected >= 1 ? "up" : "down") : "up"}
             trendValue={stats.weekProjected > 0 ? `${Math.round((stats.weekCompleted / stats.weekProjected) * 100)}%` : "0%"}
@@ -618,8 +671,8 @@ export default function Dashboard() {
         <FocusWrapper id="monthly-perf" title="Monthly Performance Intelligence" focusedId={focusedCardId} onFocus={setFocusedCardId}>
           <StatCard 
             title="Monthly Performance" 
-            value={formatCurrency(stats.monthCompleted)} 
-            subValue={`Target: ${formatCurrency(stats.monthProjected)}`}
+            value={canSeeFinance ? formatCurrency(stats.monthCompleted) : "PROTECTED"} 
+            subValue={canSeeFinance ? `Target: ${formatCurrency(stats.monthProjected)}` : "ADMIN ONLY"}
             icon={<TrendingUp className="w-6 h-6" />}
             trend={stats.monthProjected > 0 ? (stats.monthCompleted / stats.monthProjected >= 1 ? "up" : "down") : "up"}
             trendValue={stats.monthProjected > 0 ? `${Math.round((stats.monthCompleted / stats.monthProjected) * 100)}%` : "0%"}
@@ -787,6 +840,17 @@ export default function Dashboard() {
                         <p className="text-[10px] font-black uppercase text-white mb-1">Active Leads</p>
                         <p className="text-xl font-black text-white">{allLeads.filter(l => l.status !== "converted" && l.status !== "lost").length}</p>
                       </div>
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                        <p className="text-[10px] font-black uppercase text-white mb-1">Active Warranties</p>
+                        <p className="text-xl font-black text-cyan-400">{activeWarranties}</p>
+                      </div>
+                      <div className={cn("p-4 rounded-2xl border", expiringWarranties > 0 ? "bg-red-500/10 border-red-500/20" : "bg-white/5 border-white/10")}>
+                        <div className="flex items-center gap-2 mb-1">
+                          {expiringWarranties > 0 && <AlertCircle className="w-3 h-3 text-red-500" />}
+                          <p className={cn("text-[10px] font-black uppercase", expiringWarranties > 0 ? "text-red-500" : "text-white")}>Expiring Soon</p>
+                        </div>
+                        <p className={cn("text-xl font-black", expiringWarranties > 0 ? "text-red-500" : "text-white")}>{expiringWarranties}</p>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -819,9 +883,9 @@ export default function Dashboard() {
                     <div className="space-y-2">
                       <div className="flex justify-between text-[10px] font-black uppercase">
                         <span className="text-white">Avg Ticket Size</span>
-                        <span className="text-primary">{formatCurrency(growthMetrics.avgTicket)}</span>
+                        <span className="text-primary">{canSeeFinance ? formatCurrency(growthMetrics.avgTicket) : "ADMIN ONLY"}</span>
                       </div>
-                      <Progress value={Math.min(100, (growthMetrics.avgTicket / 500) * 100)} className="h-1.5" />
+                      <Progress value={canSeeFinance ? Math.min(100, (growthMetrics.avgTicket / 500) * 100) : 0} className="h-1.5" />
                     </div>
                   </>
                 )}

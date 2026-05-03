@@ -16,9 +16,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Clock, MapPin, User, Car, Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Settings2, Loader2, RefreshCw, RefreshCcw, AlertTriangle, AlertOctagon, ShieldAlert, Search, Filter, MoreHorizontal, Phone, Mail, ArrowRight, Star, Truck, Repeat, Trash2, Save, ChevronDown, ExternalLink, FileText, Lock, Sparkles, Crown, Globe, Navigation2, Play, Check, X, Map } from "lucide-react";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import "react-big-calendar/lib/css/react-big-calendar.css";
-import { format, startOfDay, endOfDay, isSameDay, isSameMonth, addDays, subDays, addHours, addWeeks, addMonths, subMonths, startOfMonth, endOfMonth, isBefore, parseISO, parse, startOfWeek, getDay, addMinutes } from "date-fns";
+import { format, startOfDay, endOfDay, isSameDay, isSameMonth, addDays, subDays, addHours, addWeeks, addMonths, subMonths, startOfMonth, endOfMonth, endOfWeek, isBefore, parseISO, parse, startOfWeek, getDay, addMinutes } from "date-fns";
 import { calculateDistance, calculateTravelFee } from "../services/travelService";
 import { messagingService } from "../services/messagingService";
+import { syncService } from "../services/syncService";
 import { enUS } from "date-fns/locale";
 import { Calendar as BigCalendar, dateFnsLocalizer, Views } from "react-big-calendar";
 import "react-big-calendar/lib/css/react-big-calendar.css";
@@ -74,7 +75,7 @@ const safeFormat = (date: any, formatStr: string, fallback: string = "---") => {
 };
 
 export default function Calendar() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, systemStatus, settings: sharedSettings, services: sharedServices, addons: sharedAddons } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [date, setDate] = useState<Date | undefined>(new Date());
@@ -96,15 +97,27 @@ export default function Calendar() {
   
   const [timeBlocks, setTimeBlocks] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
+  const [fetchedRanges, setFetchedRanges] = useState<string[]>([]);
+  const appointmentsUnsubscribe = useRef<(() => void) | null>(null);
+  const blocksUnsubscribe = useRef<(() => void) | null>(null);
+
+  // Sync shared state
+  useEffect(() => {
+    if (sharedSettings) setSettings(sharedSettings as BusinessSettings);
+    if (sharedServices) setServices(sharedServices);
+    if (sharedAddons) setAddons(sharedAddons);
+  }, [sharedSettings, sharedServices, sharedAddons]);
 
   const { isLoaded } = useGoogleMaps();
 
   const events = useMemo(() => {
     const appEvents = appointments.map((app: any) => {
+      // Use profile-based lookup first
       const client = clients.find(c => c.id === (app.clientId || app.customerId));
-      const start = app.scheduledAt?.toDate ? app.scheduledAt.toDate() : new Date(app.scheduledAt);
+      const start = app.scheduledAt?.toDate ? app.scheduledAt.toDate() : (app.scheduledAt ? new Date(app.scheduledAt) : null);
       
-      if (!isValidDate(start)) {
+      if (!start || !isValidDate(start)) {
+        console.warn("[Calendar] Invalid start date for app:", app.id, app.scheduledAt);
         return null;
       }
 
@@ -115,12 +128,17 @@ export default function Calendar() {
         end = addHours(start, 2);
       }
       
-      // Determine risk level from client data
-      const riskLevel = client?.riskLevel || client?.risk_level || client?.riskStatus || client?.clientRiskLevel || client?.riskManagement?.level;
+      // Determine risk level from client data or appointment snapshot
+      const riskLevel = client?.riskLevel || app.clientRiskLevel || app.riskLevel;
+
+      // Fallback title logic: Prefer Client Registry -> Saved Client Name -> Job Info -> "Unknown Client"
+      const title = client 
+        ? getClientDisplayName(client) 
+        : (app.customerName || app.clientName || app.businessName || app.contactPerson || app.name || "Unknown Client");
 
       return {
         id: app.id,
-        title: `${getClientDisplayName(client || app)}`,
+        title,
         start,
         end,
         resource: {
@@ -315,138 +333,155 @@ export default function Calendar() {
     );
   }, [isLoaded, optimizedStops, settings, date]);
 
-  const fetchCalendarData = async (showToast = false) => {
-    if (!profile) return;
+  const syncCalendarData = async (showToast = false, forceRange?: { start: Date; end: Date }) => {
+    if (!profile || !isLoaded) return;
+    
+    // Performance marker
+    const loadStart = performance.now();
+    const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
 
-    // Cache check to avoid redundant reads during navigation (5 min TTL)
-    const CACHE_KEY = `calendar_cache_${profile.id}`;
-    const lastFetch = Number(sessionStorage.getItem(`${CACHE_KEY}_time`) || 0);
-    const now = Date.now();
-    const CACHE_TTL = 5 * 60 * 1000;
+    // Determine target range based on view or forceRange
+    let rangeStart: Date;
+    let rangeEnd: Date;
 
-    if (!showToast && now - lastFetch < CACHE_TTL) {
-      const cachedData = sessionStorage.getItem(CACHE_KEY);
-      if (cachedData) {
-        try {
-          const parsed = JSON.parse(cachedData);
-          setAppointments(parsed.appointments);
-          setTimeBlocks(parsed.timeBlocks);
-          setClients(parsed.clients || []);
-          setServices(parsed.services);
-          setAddons(parsed.addons);
-          setSettings(parsed.settings);
-          setLoading(false);
-          console.log("[Calendar] Loaded from cache");
-          return;
-        } catch (e) {
-          console.warn("[Calendar] Cache parse failed", e);
-        }
+    if (forceRange) {
+      rangeStart = startOfDay(forceRange.start);
+      rangeEnd = endOfDay(forceRange.end);
+    } else {
+      if (calendarView === 'month') {
+        rangeStart = startOfMonth(calendarDate);
+        rangeEnd = endOfMonth(calendarDate);
+      } else if (calendarView === 'week') {
+        rangeStart = startOfWeek(calendarDate);
+        rangeEnd = endOfWeek(calendarDate);
+      } else {
+        rangeStart = startOfDay(calendarDate);
+        rangeEnd = endOfDay(calendarDate);
+      }
+    }
+    
+    const rangeKey = `${calendarView}_${format(rangeStart, "yyyy-MM-dd")}_to_${format(rangeEnd, "yyyy-MM-dd")}`;
+
+    // Cache fallback
+    const CACHE_KEY = `calendar_cache_${profile.id}_${rangeKey}`;
+    const cachedData = sessionStorage.getItem(CACHE_KEY);
+    
+    if (cachedData) {
+      try {
+        const parsed = JSON.parse(cachedData);
+        // We still need to merge with local pending records
+        const enhancedApps = await syncService.injectPendingRecords("appointments", parsed.appointments || []);
+        setAppointments(enhancedApps);
+        setTimeBlocks(parsed.timeBlocks || []);
+        setLoading(false);
+        const time = performance.now() - loadStart;
+        console.log(`🚀 [CALENDAR] Loaded from ${isRestricted ? 'OFFLINE CACHE' : 'BUSINESS CACHE'} in ${time.toFixed(2)}ms`);
+        if (isRestricted) return; // Stop if restricted, else proceed to background sync
+      } catch (e) {
+        console.warn("[Calendar] Cache parse failed", e);
       }
     }
 
-    if (showToast) toast.loading("Syncing Ops...", { id: "sync-cal" });
+    if (isRestricted) {
+      console.warn(`[Calendar] Fetch skipped. System status: ${systemStatus}`);
+      setLoading(false);
+      return;
+    }
+
+    // Anti-flicker/Anti-duplicate check
+    // If we are already listening to this exact range, do nothing
+    if (sessionStorage.getItem(`active_range_listener`) === rangeKey && appointmentsUnsubscribe.current) {
+        return;
+    }
+
+    // Clean up old listeners
+    if (appointmentsUnsubscribe.current) appointmentsUnsubscribe.current();
+    if (blocksUnsubscribe.current) blocksUnsubscribe.current();
+
+    if (showToast) toast.loading("Syncing Live Ops...", { id: "sync-cal" });
+    console.log(`🔥 [CALENDAR] Visible Range Listening: ${rangeKey} (docs fetched only for this range)`);
+    
     setLoading(true);
     setFetchError(null);
-    try {
-      const startOfRange = startOfMonth(subMonths(new Date(), 1));
-      const endOfRange = endOfMonth(addMonths(new Date(), 2));
 
-      // Fetch each piece individually with its own error handling to be resilient
-      const fetchAppointments = getDocs(query(
-        collection(db, "appointments"), 
-        where("scheduledAt", ">=", Timestamp.fromDate(startOfRange)),
-        where("scheduledAt", "<=", Timestamp.fromDate(endOfRange)),
-        orderBy("scheduledAt", "asc"),
-        limit(500)
-      )).catch(e => {
-        console.error("Failed to fetch appointments:", e);
-        return null;
-      });
+    // 1. Appointments Listener
+    const appQuery = query(
+      collection(db, "appointments"), 
+      where("scheduledAt", ">=", Timestamp.fromDate(rangeStart)),
+      where("scheduledAt", "<=", Timestamp.fromDate(rangeEnd)),
+      orderBy("scheduledAt", "asc")
+    );
 
-      const fetchTimeBlocks = getDocs(query(collection(db, "blocked_dates"), limit(100))).catch(e => {
-        console.error("Failed to fetch time blocks:", e);
-        return null;
-      });
-
-      const fetchClients = getDocs(query(collection(db, "clients"), limit(200))).catch(e => {
-        console.error("Failed to fetch clients:", e);
-        return null;
-      });
-
-      const fetchServices = getDocs(collection(db, "services")).catch(e => {
-        console.error("Failed to fetch services:", e);
-        return null;
-      });
-
-      const fetchAddons = getDocs(collection(db, "addons")).catch(e => {
-        console.error("Failed to fetch addons:", e);
-        return null;
-      });
-
-      const fetchSettings = getDoc(doc(db, "settings", "business")).catch(e => {
-        console.error("Failed to fetch settings:", e);
-        return null;
-      });
-
-      const [apptsSnap, tbSnap, clientsSnap, servicesSnap, addonsSnap, settingsSnap] = await Promise.all([
-        fetchAppointments,
-        fetchTimeBlocks,
-        fetchClients,
-        fetchServices,
-        fetchAddons,
-        fetchSettings
-      ]);
-
-      const appointmentsData = apptsSnap ? apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
-      const timeBlocksData = tbSnap ? tbSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
-      const clientsData = clientsSnap ? clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
-      const servicesData = servicesSnap ? servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => s.isActive) : [];
-      const addonsData = addonsSnap ? addonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((a: any) => a.isActive) : [];
-      const businessSettings = settingsSnap?.exists() ? (settingsSnap.data() as BusinessSettings) : null;
-
-      if (apptsSnap === null) {
-        setFetchError("Calendar could not load appointments. Showing local schedule view.");
-      }
-
-      setAppointments(appointmentsData);
-      setTimeBlocks(timeBlocksData);
-      setClients(clientsData);
-      setServices(servicesData);
-      setAddons(addonsData);
+    appointmentsUnsubscribe.current = onSnapshot(appQuery, async (snap) => {
+      let data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
-      if (businessSettings) setSettings(businessSettings);
+      // Merge pending local appointments
+      data = await syncService.injectPendingRecords("appointments", data);
       
-      // Save to Session Cache
-      sessionStorage.setItem(CACHE_KEY, JSON.stringify({
-        appointments: appointmentsData,
-        timeBlocks: timeBlocksData,
-        clients: clientsData,
-        services: servicesData,
-        addons: addonsData,
-        settings: businessSettings
-      }));
-      sessionStorage.setItem(`${CACHE_KEY}_time`, Date.now().toString());
-
-      if (showToast) toast.success("Ops Synchronized", { id: "sync-cal" });
-    } catch (error: any) {
-      console.error("Error fetching calendar data:", error);
-      if (error?.message?.includes("Quota limit exceeded")) {
-        toast.error("Calendar Sync Failed: Quota exceeded");
-        setFetchError("Firebase quota failure. Showing cached or empty schedule.");
-      } else if (showToast) {
-        toast.error("Sync Failed", { id: "sync-cal" });
-      }
-    } finally {
+      setAppointments(data);
       setLoading(false);
-    }
+      
+      // Update cache
+      const currentCache = JSON.parse(sessionStorage.getItem(CACHE_KEY) || '{}');
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ...currentCache, appointments: data }));
+      
+      console.log(`📡 [CALENDAR] Appointments Updated: ${data.length} docs for ${rangeKey}`);
+    }, (err) => {
+      console.error("Calendar listener failed:", err);
+      handleFirestoreError(err, OperationType.LIST, "appointments");
+      setFetchError("Sync intermittent. Check connection.");
+    });
+
+    // 2. Time Blocks Listener
+    const blocksQuery = query(
+      collection(db, "blocked_dates"),
+      where("date", ">=", format(rangeStart, "yyyy-MM-dd")),
+      where("date", "<=", format(rangeEnd, "yyyy-MM-dd"))
+    );
+
+    blocksUnsubscribe.current = onSnapshot(blocksQuery, (snap) => {
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setTimeBlocks(data);
+      // Update cache
+      const currentCache = JSON.parse(sessionStorage.getItem(CACHE_KEY) || '{}');
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ...currentCache, timeBlocks: data }));
+    });
+
+    // 3. Clients - We use a one-time fetch or existing Registry cache to save quota
+    const fetchVisibleClients = async () => {
+        const registryCache = sessionStorage.getItem('clients_registry_cache');
+        if (registryCache) {
+            setClients(JSON.parse(registryCache));
+            return;
+        }
+        
+        try {
+          console.log("🔥 [CALENDAR] Fetching client list for display mapping");
+          const clientsSnap = await getDocs(query(collection(db, "clients"), limit(200)));
+          const clientsData = clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setClients(clientsData);
+          sessionStorage.setItem('clients_registry_cache', JSON.stringify(clientsData));
+          sessionStorage.setItem('clients_registry_cache_time', Date.now().toString());
+        } catch (e) {
+          console.warn("[Calendar] Client fetch failed, likely offline");
+        }
+    };
+    fetchVisibleClients();
+
+    sessionStorage.setItem(`active_range_listener`, rangeKey);
+    if (showToast) toast.success("Live Sync Active", { id: "sync-cal" });
   };
 
   useEffect(() => {
-    if (authLoading || !profile) return;
-    fetchCalendarData();
+    if (authLoading || !profile || !isLoaded) return;
+    syncCalendarData();
     
-    return () => {};
-  }, [profile, authLoading]);
+    return () => {
+      if (appointmentsUnsubscribe.current) appointmentsUnsubscribe.current();
+      if (blocksUnsubscribe.current) blocksUnsubscribe.current();
+      sessionStorage.removeItem(`active_range_listener`);
+    };
+  }, [profile, authLoading, isLoaded, calendarView, calendarDate]);
 
   // Auto-calculate travel fee when address changes
   useEffect(() => {
@@ -1229,7 +1264,13 @@ export default function Calendar() {
 
           const gRes = await syncWithGoogle(appointmentData, editingAppointment.googleEventId);
           if (gRes?.id) appointmentData.googleEventId = gRes.id;
-          await updateDoc(doc(db, "appointments", editingAppointment.id), appointmentData);
+          try {
+            await updateDoc(doc(db, "appointments", editingAppointment.id), appointmentData);
+          } catch (err) {
+            console.warn("Direct update failed, enqueuing...", err);
+            await syncService.enqueueTask("appointments", appointmentData, 'update', editingAppointment.id);
+            toast.info("Offline: Update saved locally and will sync later");
+          }
           
           await createNotification({
             userId: profile!.id,
@@ -1318,69 +1359,78 @@ export default function Calendar() {
             confirmation: "pending"
           };
 
-          const docRef = await addDoc(collection(db, "appointments"), {
-            ...appointmentData,
-            createdAt: serverTimestamp(),
-          });
+          try {
+            const docRef = await addDoc(collection(db, "appointments"), {
+              ...appointmentData,
+              createdAt: serverTimestamp(),
+            });
 
-          await createNotification({
-            userId: profile!.id,
-            title: "New Appointment",
-            message: `New booking for ${appointmentData.customerName} on ${safeFormat(startAt, "MMM do")}`,
-            type: "booking",
-            relatedId: docRef.id,
-            relatedType: "appointment"
-          });
+            await createNotification({
+              userId: profile!.id,
+              title: "New Appointment",
+              message: `New booking for ${appointmentData.customerName} on ${safeFormat(startAt, "MMM do")}`,
+              type: "booking",
+              relatedId: docRef.id,
+              relatedType: "appointment"
+            });
 
-          // Attempt to send confirmation SMS
-          if (client?.phone) {
-            const smsData = {
-              clientName: appointmentData.customerName || "Customer",
-              businessName: settings?.businessName || "DetailFlow",
-              appointmentDate: safeFormat(startAt, "MMM do, yyyy"),
-              appointmentTime: safeFormat(startAt, "h:mm a"),
-              serviceName: appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service",
-              vehicle: appointmentData.vehicleNames?.length ? appointmentData.vehicleNames[0] : ""
-            };
+            // Attempt to send confirmation SMS
+            if (client?.phone) {
+              const smsData = {
+                clientName: appointmentData.customerName || "Customer",
+                businessName: settings?.businessName || "DetailFlow",
+                appointmentDate: safeFormat(startAt, "MMM do, yyyy"),
+                appointmentTime: safeFormat(startAt, "h:mm a"),
+                serviceName: appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service",
+                vehicle: appointmentData.vehicleNames?.length ? appointmentData.vehicleNames[0] : ""
+              };
 
-            messagingService.sendTemplateSms(
-              client.phone,
-              "booked",
-              smsData,
-              docRef.id,
-              client.id
-            ).then(async (res: any) => {
-              if (res.success) {
-                await updateDoc(docRef, { "reminders.confirmation": "sent" });
-              } else {
+              messagingService.sendTemplateSms(
+                client.phone,
+                "booked",
+                smsData,
+                docRef.id,
+                client.id
+              ).then(async (res: any) => {
+                if (res.success) {
+                  await updateDoc(docRef, { "reminders.confirmation": "sent" });
+                } else {
+                  await updateDoc(docRef, { "reminders.confirmation": "failed" });
+                }
+              }).catch(async (e) => {
                 await updateDoc(docRef, { "reminders.confirmation": "failed" });
-              }
-            }).catch(async (e) => {
-              await updateDoc(docRef, { "reminders.confirmation": "failed" });
+              });
+            } else {
+               await updateDoc(docRef, { "reminders.confirmation": "skipped" });
+            }
+
+            // Trigger Notification
+            await createNotification({
+              userId: profile!.id,
+              title: "New Booking",
+              message: `New booking for ${appointmentData.customerName} scheduled for ${safeFormat(startAt, "MMM d, h:mm a")}`,
+              type: "booking",
+              relatedId: appointmentData.clientId || appointmentData.customerId,
+              relatedType: "appointment"
             });
-          } else {
-             await updateDoc(docRef, { "reminders.confirmation": "skipped" });
+
+            if (activeLeadId) {
+              await updateDoc(doc(db, "leads", activeLeadId), {
+                status: "converted",
+                convertedAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              });
+            }
+
+            toast.success("Appointment booked!");
+          } catch (err) {
+            console.warn("Direct add failed, enqueuing...", err);
+            await syncService.enqueueTask("appointments", {
+              ...appointmentData,
+              createdAt: Date.now()
+            }, 'create');
+            toast.info("Offline: Booking saved locally and will sync later");
           }
-
-          // Trigger Notification
-          await createNotification({
-            userId: profile!.id,
-            title: "New Booking",
-            message: `New booking for ${appointmentData.customerName} scheduled for ${safeFormat(startAt, "MMM d, h:mm a")}`,
-            type: "booking",
-            relatedId: appointmentData.clientId || appointmentData.customerId,
-            relatedType: "appointment"
-          });
-
-          if (activeLeadId) {
-            await updateDoc(doc(db, "leads", activeLeadId), {
-              status: "converted",
-              convertedAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            });
-          }
-
-          toast.success("Appointment created!");
         }
       }
       setShowAddDialog(false);
@@ -1909,6 +1959,8 @@ export default function Calendar() {
   }, [groupedEventsByDay, calendarView, date]);
 
   const monthDayPropGetter = (day: Date) => {
+    const isToday = isSameDay(day, new Date());
+    
     if (calendarView === "month" && !isSameMonth(day, date || new Date())) {
       return {
         className: "opacity-0 pointer-events-none",
@@ -1918,6 +1970,18 @@ export default function Calendar() {
         }
       };
     }
+
+    if (isToday) {
+      return {
+        className: "relative overflow-hidden shadow-[inset_0_0_20px_rgba(42,108,255,0.3)] border-2 border-[#2A6CFF] ring-2 ring-[#2A6CFF]/20",
+        style: {
+          minHeight: "160px",
+          backgroundColor: 'rgba(42, 108, 255, 0.05)',
+          zIndex: 10
+        }
+      };
+    }
+
     return {
       className: "relative overflow-hidden",
       style: {
@@ -1936,7 +2000,17 @@ export default function Calendar() {
 
     return (
       <div className="flex items-center justify-between w-full px-3 py-2">
-        <span className={cn("rbc-button-link text-[11px] font-black", isToday ? "text-white text-sm" : "text-white/40")}>{label}</span>
+        <div className={cn(
+          "flex items-center justify-center transition-all duration-300",
+          isToday ? "w-8 h-8 rounded-full bg-primary shadow-glow-blue scale-110" : ""
+        )}>
+          <span className={cn(
+            "rbc-button-link text-[11px] font-black tracking-widest", 
+            isToday ? "text-white text-xs" : "text-white/40"
+          )}>
+            {label}
+          </span>
+        </div>
         {moreCount > 0 && (
           <div 
             className="text-[9px] font-black uppercase text-primary bg-primary/10 rounded-md px-2 py-1 cursor-pointer hover:bg-primary/20 transition-all border border-primary/20 flex items-center gap-1.5 leading-none shadow-sm z-50 whitespace-nowrap"
@@ -1953,12 +2027,21 @@ export default function Calendar() {
     );
   };
 
+  const getSystemStatusLabel = () => {
+    switch (systemStatus) {
+      case 'offline': return "Offline Mode • Data Cached";
+      case 'quota-exhausted': return "Quota Exhausted • Viewing Cached Data";
+      case 'permission-denied': return "Permission Error";
+      default: return "Optimal";
+    }
+  };
+
   return (
     <div className="w-full space-y-10 pb-24">
       <PageHeader 
         title="Job SCHEDULE" 
         accentWord="SCHEDULE" 
-        subtitle="Route & Booking Management"
+        subtitle={`System Status: ${getSystemStatusLabel()} • Route & Booking Management`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 bg-card p-1.5 rounded-2xl border border-white/5 shadow-xl overflow-x-auto no-scrollbar max-w-full">
@@ -2017,7 +2100,7 @@ export default function Calendar() {
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={() => fetchCalendarData(true)}
+            onClick={() => syncCalendarData(true)}
             className="ml-auto h-8 text-[9px] font-black uppercase tracking-widest bg-red-500/20 text-red-500 hover:bg-red-500/30"
           >
             Retry Sync
@@ -2197,9 +2280,17 @@ export default function Calendar() {
                     }
                   }}
                   view={calendarView as any}
-                  onView={(v) => setCalendarView(v as string)}
+                  onView={(v) => {
+                    setCalendarView(v as string);
+                  }}
                   date={date || new Date()}
-                  onNavigate={(d) => setDate(d)}
+                  onNavigate={(d) => {
+                    setDate(d);
+                    setCalendarDate(d);
+                  }}
+                  onRangeChange={(range) => {
+                    // Handled by useEffect dependency on calendarDate/calendarView
+                  }}
                   eventPropGetter={eventPropGetter}
                   components={{
                     event: CalendarEvent,

@@ -33,60 +33,80 @@ import { PageHeader } from "../components/PageHeader";
 import { ShieldAlert } from "lucide-react";
 
 export default function Reports() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, systemStatus, settings: authSettings, canAccessAdmin } = useAuth();
   const [timeRange, setTimeRange] = useState("this_month");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
 
-  if (authLoading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (authLoading) return <div className="flex items-center justify-center h-screen bg-black">
+    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-primary"></div>
+  </div>;
 
-  if (!profile || (profile.role !== "admin" && profile.role !== "manager")) {
+  const canAccess = canAccessAdmin;
+
+  if (!profile || !canAccess) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
         <ShieldAlert className="w-16 h-16 text-red-500" />
-        <h2 className="text-2xl font-black text-white">Access Denied</h2>
-        <p className="text-white font-medium text-center max-w-md">
-          You do not have permission to access business reports. Please contact an administrator if you believe this is an error.
+        <h2 className="text-2xl font-black text-white uppercase tracking-tight">Access Restricted</h2>
+        <p className="text-white/60 font-medium text-center max-w-md px-6">
+          Administrative-only protocol is active. This ledger is restricted to owners and core administrators.
         </p>
-        <Button onClick={() => window.history.back()} variant="outline">Go Back</Button>
+        <Button onClick={() => window.history.back()} variant="outline" className="border-white/10 text-white/40 hover:text-white">Go Back</Button>
       </div>
     );
   }
 
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+
   useEffect(() => {
-    if (authLoading || !profile || (profile.role !== "admin" && profile.role !== "manager")) return;
+    if (authLoading || !profile || !canAccess) return;
 
-    const now = new Date();
-    let start = startOfMonth(now);
-    let end = endOfMonth(now);
-
-    if (timeRange === "last_month") {
-      start = startOfMonth(subMonths(now, 1));
-      end = endOfMonth(subMonths(now, 1));
-    }
-
-    const qAppts = query(
-      collection(db, "appointments"),
-      where("scheduledAt", ">=", Timestamp.fromDate(start)),
-      where("scheduledAt", "<=", Timestamp.fromDate(end))
-    );
-
-    const qExpenses = query(
-      collection(db, "expenses"),
-      where("date", ">=", Timestamp.fromDate(start)),
-      where("date", "<=", Timestamp.fromDate(end))
-    );
-
+    const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
+    
     const fetchReportsData = async () => {
+      if (isRestricted) {
+        console.warn("[Reports] Performance mode: Skipping aggregate business intelligence queries");
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      const now = new Date();
+      let start = startOfMonth(now);
+      let end = endOfMonth(now);
+
+      if (timeRange === "last_month") {
+        start = startOfMonth(subMonths(now, 1));
+        end = endOfMonth(subMonths(now, 1));
+      }
+
+      console.log(`🔥 FIRESTORE READ [Reports]: Aggregate metrics for ${timeRange}`);
+
+      const qAppts = query(
+        collection(db, "appointments"),
+        where("scheduledAt", ">=", Timestamp.fromDate(start)),
+        where("scheduledAt", "<=", Timestamp.fromDate(end))
+      );
+
+      const qExpenses = query(
+        collection(db, "expenses"),
+        where("date", ">=", Timestamp.fromDate(start)),
+        where("date", "<=", Timestamp.fromDate(end))
+      );
+
       try {
-        const [apptsSnap, expensesSnap] = await Promise.all([
+        const [apptsSnap, expensesSnap, settingsSnap] = await Promise.all([
           getDocs(qAppts).catch(e => handleFirestoreError(e, OperationType.LIST, "appointments")),
-          getDocs(qExpenses).catch(e => handleFirestoreError(e, OperationType.LIST, "expenses"))
+          getDocs(qExpenses).catch(e => handleFirestoreError(e, OperationType.LIST, "expenses")),
+          getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"))
         ]);
-        if (!apptsSnap || !expensesSnap) return;
-        setAppointments(apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
-        setExpenses(expensesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense)));
+
+        if (apptsSnap) setAppointments(apptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment)));
+        if (expensesSnap) setExpenses(expensesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense)));
+        if (settingsSnap && settingsSnap.exists()) setSettings(settingsSnap.data() as BusinessSettings);
+        
         setLoading(false);
       } catch (error) {
         console.error("Error fetching reports data:", error);
@@ -95,18 +115,7 @@ export default function Reports() {
     };
 
     fetchReportsData();
-    return () => {};
-  }, [timeRange, profile, authLoading]);
-
-  const [settings, setSettings] = useState<BusinessSettings | null>(null);
-
-  useEffect(() => {
-    const fetchSettings = async () => {
-      const snap = await getDoc(doc(db, "settings", "business"));
-      if (snap.exists()) setSettings(snap.data() as BusinessSettings);
-    };
-    fetchSettings();
-  }, []);
+  }, [timeRange, profile, authLoading, systemStatus]);
 
   const totalSales = appointments
     .filter(a => a.status === "completed" || a.status === "paid")

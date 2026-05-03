@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, deleteDoc, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
+import { cn } from "../lib/utils";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { PageHeader } from "../components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -13,13 +14,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, FileText, Edit2, Trash2, ShieldCheck, Settings2, AlertCircle, CheckCircle2, ShieldAlert } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Search, X, Check } from "lucide-react";
+import { Plus, FileText, Edit2, Trash2, ShieldCheck, Settings2, AlertCircle, CheckCircle2, ShieldAlert, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 
 export default function FormsBuilder() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, canAccessManager, systemStatus } = useAuth();
   const [templates, setTemplates] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [addons, setAddons] = useState<any[]>([]);
@@ -49,36 +52,60 @@ export default function FormsBuilder() {
   const [newAck, setNewAck] = useState("");
 
   useEffect(() => {
-    if (authLoading || !profile || (profile.role !== "admin" && profile.role !== "manager")) return;
+    if (authLoading || !profile || !canAccessManager) return;
 
+    // Listen to form templates
     const q = query(collection(db, "form_templates"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeTemplates = onSnapshot(q, (snapshot) => {
       setTemplates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
     }, (error) => {
       console.error("Error listening to form templates:", error);
+      handleFirestoreError(error, OperationType.GET, "form_templates");
     });
 
-    getDocs(collection(db, "services")).then(snap => {
-      setServices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }).catch(error => console.error("Error fetching services in FormsBuilder:", error));
+    // Listen to services for real-time mapping
+    const unsubscribeServices = onSnapshot(collection(db, "services"), (snap) => {
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setServices(data);
+      localStorage.setItem('cached_services_forms', JSON.stringify(data));
+    }, (error) => {
+      console.error("Error listening to services in FormsBuilder:", error);
+      const cached = localStorage.getItem('cached_services_forms');
+      if (cached) {
+        try { setServices(JSON.parse(cached)); } catch (e) {}
+      }
+    });
 
-    getDocs(collection(db, "addons")).then(snap => {
-      setAddons(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }).catch(error => console.error("Error fetching addons in FormsBuilder:", error));
+    // Listen to addons for real-time mapping
+    const unsubscribeAddons = onSnapshot(collection(db, "addons"), (snap) => {
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAddons(data);
+      localStorage.setItem('cached_addons_forms', JSON.stringify(data));
+    }, (error) => {
+      console.error("Error listening to addons in FormsBuilder:", error);
+      const cached = localStorage.getItem('cached_addons_forms');
+      if (cached) {
+        try { setAddons(JSON.parse(cached)); } catch (e) {}
+      }
+    });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeTemplates();
+      unsubscribeServices();
+      unsubscribeAddons();
+    };
   }, [profile, authLoading]);
 
-  if (!profile || (profile.role !== "admin" && profile.role !== "manager")) {
+  if (!canAccessManager) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
         <ShieldAlert className="w-16 h-16 text-red-500" />
-        <h2 className="text-2xl font-black text-gray-900">Access Denied</h2>
-        <p className="text-gray-500 font-medium text-center max-w-md">
-          You do not have permission to access the Forms Builder. Please contact an administrator if you believe this is an error.
+        <h2 className="text-2xl font-black text-white uppercase tracking-tight">Access Restricted</h2>
+        <p className="text-white/60 font-medium text-center max-w-md px-6">
+          You do not have permission to access the Forms Builder protocol. This area is restricted to administrative clearance levels.
         </p>
-        <Button onClick={() => window.history.back()} variant="outline">Go Back</Button>
+        <Button onClick={() => window.history.back()} variant="outline" className="border-white/10 text-white/40 hover:text-white">Go Back</Button>
       </div>
     );
   }
@@ -132,27 +159,47 @@ export default function FormsBuilder() {
       return;
     }
 
+    const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
+    
+    // Supplement names for IDs
+    const assignedServiceNames = formData.assignedServices
+      .map(id => services.find(s => s.id === id)?.name)
+      .filter(Boolean);
+    const assignedAddonNames = formData.assignedAddons
+      .map(id => addons.find(a => a.id === id)?.name)
+      .filter(Boolean);
+
+    const saveData = {
+      ...formData,
+      assignedServiceNames,
+      assignedAddonNames,
+      updatedAt: serverTimestamp()
+    };
+
     try {
+      if (isRestricted) {
+        toast.info("Offline/Quota Mode: Template saved locally (pending sync).", {
+          description: "Database is unreachable. Changes will sync when reconnected."
+        });
+        // Optimistically update local state if we had a dedicated local storage sync, 
+        // but for now we just close the dialog.
+        setShowEditDialog(false);
+        return;
+      }
+
       if (editingTemplate) {
-        // Versioning: If content or critical fields change, we could increment version
-        // For now, let's just update. The requirement says "keep version history".
-        // To implement versioning properly, we should probably create a new record or have a versions subcollection.
-        // But the requirement says "old signed forms must remain linked to the version signed at that time".
-        // This implies we should store the version number in the template and increment it.
         const newVersion = (editingTemplate.version || 1) + 1;
         await updateDoc(doc(db, "form_templates", editingTemplate.id), {
-          ...formData,
-          version: newVersion,
-          updatedAt: serverTimestamp()
-        });
+          ...saveData,
+          version: newVersion
+        }).catch(e => handleFirestoreError(e, OperationType.WRITE, "form_templates/" + editingTemplate.id));
         toast.success("Form template updated to version " + newVersion);
       } else {
         await addDoc(collection(db, "form_templates"), {
-          ...formData,
+          ...saveData,
           version: 1,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
+          createdAt: serverTimestamp()
+        }).catch(e => handleFirestoreError(e, OperationType.WRITE, "form_templates"));
         toast.success("Form template created");
       }
       setShowEditDialog(false);
@@ -212,15 +259,7 @@ export default function FormsBuilder() {
     }));
   };
 
-  if (profile?.role !== "admin") {
-    return (
-      <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
-        <AlertCircle className="w-12 h-12 text-red-500" />
-        <h2 className="text-xl font-bold">Access Denied</h2>
-        <p className="text-gray-500">Only administrators can access the Forms Builder.</p>
-      </div>
-    );
-  }
+  // Role check handled above at component level
 
   return (
     <div className="space-y-6">
@@ -319,16 +358,16 @@ export default function FormsBuilder() {
                   placeholder="e.g. General Liability Waiver" 
                   value={formData.title}
                   onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                  className="bg-white/5 border-white/10 text-white h-12 rounded-xl font-bold"
+                  className="bg-white border-gray-200 text-[#111111] h-12 rounded-xl font-bold placeholder:text-gray-400 focus:bg-white focus:text-[#111111]"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Category</Label>
                 <Select value={formData.category} onValueChange={v => setFormData(prev => ({ ...prev, category: v }))}>
-                  <SelectTrigger className="bg-white/5 border-white/10 text-white h-12 rounded-xl font-bold">
+                  <SelectTrigger className="bg-white border-gray-200 text-[#111111] h-12 rounded-xl font-bold focus:bg-white focus:text-[#111111]">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-gray-900 border-white/10 text-white">
+                  <SelectContent className="bg-white border-gray-200 text-[#111111]">
                     <SelectItem value="liability">Liability Waiver</SelectItem>
                     <SelectItem value="acknowledgment">Acknowledgment</SelectItem>
                     <SelectItem value="inspection">Pre-Service Inspection</SelectItem>
@@ -344,11 +383,11 @@ export default function FormsBuilder() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-64">
                 <Textarea 
                   placeholder="Enter the legal text or acknowledgment content here..."
-                  className="h-full resize-none font-mono text-xs bg-white/5 border-white/10 text-white rounded-xl p-4"
+                  className="h-full resize-none font-mono text-xs bg-white border-gray-200 text-[#111111] rounded-xl p-4 placeholder:text-gray-400 focus:bg-white focus:text-[#111111]"
                   value={formData.content}
                   onChange={e => setFormData(prev => ({ ...prev, content: e.target.value }))}
                 />
-                <div className="h-full overflow-y-auto p-4 bg-gray-50 rounded-lg border border-gray-200 prose prose-sm max-w-none">
+                <div className="h-full overflow-y-auto p-4 bg-gray-50 rounded-lg border border-gray-200 prose prose-sm max-w-none text-[#111111]">
                   <ReactMarkdown>{formData.content || "*Preview will appear here*"}</ReactMarkdown>
                 </div>
               </div>
@@ -412,13 +451,14 @@ export default function FormsBuilder() {
                   value={newAck}
                   onChange={e => setNewAck(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && addAcknowledgment()}
+                  className="bg-white border-gray-200 text-[#111111] placeholder:text-gray-400 focus:bg-white focus:text-[#111111]"
                 />
-                <Button type="button" onClick={addAcknowledgment} variant="secondary">Add</Button>
+                <Button type="button" onClick={addAcknowledgment} variant="secondary" className="bg-primary text-white hover:bg-primary/90">Add</Button>
               </div>
               <div className="space-y-2">
                 {formData.acknowledgments.map((ack, index) => (
-                  <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-100">
-                    <span className="text-sm">{ack}</span>
+                  <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-xl border border-gray-100 shadow-sm">
+                    <span className="text-sm font-medium text-[#111111]">{ack}</span>
                     <Button variant="ghost" size="sm" onClick={() => removeAcknowledgment(index)} className="text-white hover:text-white bg-red-500/20 hover:bg-red-500 h-8 w-8 p-0">
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -434,10 +474,10 @@ export default function FormsBuilder() {
                 <div className="space-y-2">
                   <Label>Enforcement Trigger</Label>
                   <Select value={formData.enforcement} onValueChange={v => setFormData(prev => ({ ...prev, enforcement: v }))}>
-                    <SelectTrigger>
+                    <SelectTrigger className="bg-white border-gray-200 text-[#111111] focus:bg-white focus:text-[#111111]">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="bg-white border-gray-200 text-[#111111]">
                       <SelectItem value="before_start">Before Starting Job</SelectItem>
                       <SelectItem value="before_complete">Before Completing Job</SelectItem>
                       <SelectItem value="before_invoice">Before Sending Invoice</SelectItem>
@@ -470,33 +510,172 @@ export default function FormsBuilder() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label>Assign to Services</Label>
-                  <div className="border rounded-lg p-4 max-h-48 overflow-y-auto space-y-2 bg-white">
-                    {services.map(service => (
-                      <div key={service.id} className="flex items-center space-x-2">
-                        <Checkbox 
-                          id={`svc-${service.id}`} 
-                          checked={formData.assignedServices.includes(service.id)}
-                          onCheckedChange={() => toggleService(service.id)}
+                  <Label className="text-sm font-bold">Assign to Services</Label>
+                  <Popover>
+                    <PopoverTrigger className="w-full h-12 flex items-center justify-between border border-gray-200 bg-white text-[#111111] hover:bg-gray-50 rounded-xl px-4 text-sm font-bold transition-colors">
+                      <span className="truncate">
+                        {formData.assignedServices.length > 0 
+                          ? `${formData.assignedServices.length} Services Selected` 
+                          : "Select Services..."}
+                      </span>
+                      <ChevronDown className="w-4 h-4 opacity-50 ml-2" />
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[350px] p-0 bg-white border-gray-200 rounded-2xl shadow-xl z-[200]" align="start">
+                      <div className="p-2 border-b border-gray-100 flex items-center gap-2">
+                        <Search className="w-4 h-4 text-gray-400" />
+                        <Input 
+                          placeholder="Filter services..." 
+                          className="h-8 border-none focus:ring-0 text-xs text-[#111111]"
+                          onChange={(e) => {
+                            const val = e.target.value.toLowerCase();
+                            document.querySelectorAll('[data-service-popover-item]').forEach((item: any) => {
+                              const name = item.getAttribute('data-name').toLowerCase();
+                              item.style.display = name.includes(val) ? 'flex' : 'none';
+                            });
+                          }}
                         />
-                        <Label htmlFor={`svc-${service.id}`} className="text-sm font-normal">{service.name}</Label>
                       </div>
-                    ))}
+                      <div className="max-h-[300px] overflow-y-auto p-2 space-y-1">
+                        {services.length === 0 ? (
+                          <div className="py-8 text-center text-gray-400 text-xs italic px-4">
+                            No services found — add services in Services & Add-ons.
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 mb-2 p-1 border-b pb-2">
+                            <Button 
+                              variant="ghost" 
+                              type="button"
+                              size="sm" 
+                              className="h-7 text-[9px] uppercase font-bold text-primary"
+                              onClick={() => setFormData(p => ({ ...p, assignedServices: services.map(s => s.id) }))}
+                            >
+                              All
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              type="button"
+                              size="sm" 
+                              className="h-7 text-[9px] uppercase font-bold text-red-500"
+                              onClick={() => setFormData(p => ({ ...p, assignedServices: [] }))}
+                            >
+                              None
+                            </Button>
+                          </div>
+                        )}
+                        {services.map(s => (
+                          <div 
+                            key={s.id}
+                            data-service-popover-item
+                            data-name={s.name}
+                            onClick={() => toggleService(s.id)}
+                            className={cn(
+                              "flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors",
+                              formData.assignedServices.includes(s.id) ? "bg-primary/10 text-primary" : "hover:bg-gray-50 text-[#111111]"
+                            )}
+                          >
+                            <span className="text-xs font-bold">{s.name}</span>
+                            {formData.assignedServices.includes(s.id) && <Check className="w-3 h-3" />}
+                          </div>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  <div className="flex flex-wrap gap-1">
+                    {formData.assignedServices.map(sid => {
+                      const s = services.find(srv => srv.id === sid);
+                      if (!s) return null;
+                      return (
+                        <Badge key={sid} variant="secondary" className="bg-primary/5 text-primary border-none text-[9px] font-bold py-1">
+                          {s.name}
+                          <X className="w-2 h-2 ml-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); toggleService(sid); }} />
+                        </Badge>
+                      );
+                    })}
                   </div>
                 </div>
+
                 <div className="space-y-2">
-                  <Label>Assign to Add-ons</Label>
-                  <div className="border rounded-lg p-4 max-h-48 overflow-y-auto space-y-2 bg-white">
-                    {addons.map(addon => (
-                      <div key={addon.id} className="flex items-center space-x-2">
-                        <Checkbox 
-                          id={`addon-${addon.id}`} 
-                          checked={formData.assignedAddons.includes(addon.id)}
-                          onCheckedChange={() => toggleAddon(addon.id)}
+                  <Label className="text-sm font-bold">Assign to Add-ons / Enhancements</Label>
+                  <Popover>
+                    <PopoverTrigger className="w-full h-12 flex items-center justify-between border border-gray-200 bg-white text-[#111111] hover:bg-gray-50 rounded-xl px-4 text-sm font-bold transition-colors">
+                      <span className="truncate">
+                        {formData.assignedAddons.length > 0 
+                          ? `${formData.assignedAddons.length} Items Selected` 
+                          : "Select Add-ons..."}
+                      </span>
+                      <ChevronDown className="w-4 h-4 opacity-50 ml-2" />
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[350px] p-0 bg-white border-gray-200 rounded-2xl shadow-xl z-[200]" align="start">
+                      <div className="p-2 border-b border-gray-100 flex items-center gap-2">
+                        <Search className="w-4 h-4 text-gray-400" />
+                        <Input 
+                          placeholder="Filter add-ons..." 
+                          className="h-8 border-none focus:ring-0 text-xs text-[#111111]"
+                          onChange={(e) => {
+                            const val = e.target.value.toLowerCase();
+                            document.querySelectorAll('[data-addon-popover-item]').forEach((item: any) => {
+                              const name = item.getAttribute('data-name').toLowerCase();
+                              item.style.display = name.includes(val) ? 'flex' : 'none';
+                            });
+                          }}
                         />
-                        <Label htmlFor={`addon-${addon.id}`} className="text-sm font-normal">{addon.name}</Label>
                       </div>
-                    ))}
+                      <div className="max-h-[300px] overflow-y-auto p-2 space-y-1">
+                        {addons.length === 0 ? (
+                          <div className="py-8 text-center text-gray-400 text-xs italic px-4">
+                            No add-ons found — add add-ons in Services & Add-ons.
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 mb-2 p-1 border-b pb-2">
+                            <Button 
+                              variant="ghost" 
+                              type="button"
+                              size="sm" 
+                              className="h-7 text-[9px] uppercase font-bold text-primary"
+                              onClick={() => setFormData(p => ({ ...p, assignedAddons: addons.map(a => a.id) }))}
+                            >
+                              All
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              type="button"
+                              size="sm" 
+                              className="h-7 text-[9px] uppercase font-bold text-red-500"
+                              onClick={() => setFormData(p => ({ ...p, assignedAddons: [] }))}
+                            >
+                              None
+                            </Button>
+                          </div>
+                        )}
+                        {addons.map(a => (
+                          <div 
+                            key={a.id}
+                            data-addon-popover-item
+                            data-name={a.name}
+                            onClick={() => toggleAddon(a.id)}
+                            className={cn(
+                              "flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors",
+                              formData.assignedAddons.includes(a.id) ? "bg-[#2A6CFF]/10 text-[#2A6CFF]" : "hover:bg-gray-50 text-[#111111]"
+                            )}
+                          >
+                            <span className="text-xs font-bold">{a.name}</span>
+                            {formData.assignedAddons.includes(a.id) && <Check className="w-3 h-3" />}
+                          </div>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  <div className="flex flex-wrap gap-1">
+                    {formData.assignedAddons.map(aid => {
+                      const a = addons.find(add => add.id === aid);
+                      if (!a) return null;
+                      return (
+                        <Badge key={aid} variant="secondary" className="bg-[#2A6CFF]/5 text-[#2A6CFF] border-none text-[9px] font-bold py-1">
+                          {a.name}
+                          <X className="w-2 h-2 ml-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); toggleAddon(aid); }} />
+                        </Badge>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

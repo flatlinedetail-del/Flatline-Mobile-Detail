@@ -295,7 +295,20 @@ export default function ProtectedClients() {
                 </TableCell>
                 <TableCell>
                   {row.rule ? (
-                    <Switch checked={row.isActive} disabled />
+                    <Switch 
+                      checked={row.isActive} 
+                      onCheckedChange={async (val) => {
+                        try {
+                          await updateDoc(doc(db, "protected_clients", row.ruleId), { isActive: val, updatedAt: serverTimestamp() });
+                          toast.success(`Risk protection ${val ? 'activated' : 'deactivated'}`);
+                          // No need to update local state as listener will catch it (if onSnapshot is used)
+                          // Wait, ProtectedClients uses getDocs in useEffect. I should update local state manually or use onSnapshot.
+                          setProtectedClients(prev => prev.map(p => p.id === row.ruleId ? { ...p, isActive: val } : p));
+                        } catch (err) {
+                          toast.error("Failed to update protection status");
+                        }
+                      }}
+                    />
                   ) : (
                     <span className="text-white/20 text-xs">-</span>
                   )}

@@ -315,17 +315,19 @@ export default function PublicBooking() {
         const addonsSnap = await getDocs(query(collection(db, "addons")));
         setAddons(addonsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AddOn)).filter(a => a.isActive));
 
-         const apptsSnap = await getDocs(query(collection(db, "appointments"), where("scheduledAt", ">=", new Date())));
+         const today = new Date();
+         const ninetyDaysOut = new Date();
+         ninetyDaysOut.setDate(ninetyDaysOut.getDate() + 90);
+         
+         const apptsSnap = await getDocs(query(
+           collection(db, "appointments"), 
+           where("scheduledAt", ">=", today),
+           where("scheduledAt", "<=", ninetyDaysOut)
+         ));
         setAppointments(apptsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
         const blockedSnap = await getDocs(query(collection(db, "blocked_dates"), where("start", ">=", new Date())));
         setBlockedDates(blockedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-        const protectedSnap = await getDocs(collection(db, "protected_clients"));
-        setProtectedClients(protectedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-        const clientsSnap = await getDocs(collection(db, "clients"));
-        setAllClients(clientsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (error) {
         console.error("Error fetching data for booking:", error);
         toast.error("Failed to load booking information.");

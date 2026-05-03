@@ -36,6 +36,7 @@ import {
   RefreshCcw
 } from "lucide-react";
 import { toast } from "sonner";
+import { syncService } from "../services/syncService";
 import { format, addDays } from "date-fns";
 import { Lead } from "../types";
 import { useNavigate } from "react-router-dom";
@@ -95,7 +96,10 @@ export default function Leads() {
     try {
       const q = query(collection(db, "leads"), orderBy("createdAt", "desc"), limit(100));
       const snapshot = await getDocs(q);
-      const leadsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
+      let leadsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Lead));
+      
+      // Merge pending offline leads
+      leadsData = await syncService.injectPendingRecords("leads", leadsData);
       
       setLeads(leadsData);
       
@@ -144,27 +148,42 @@ export default function Leads() {
 
     try {
       if (editingLead) {
-        await updateDoc(doc(db, "leads", editingLead.id), leadData);
-        toast.success("Lead updated successfully");
+        try {
+          await updateDoc(doc(db, "leads", editingLead.id), leadData);
+          toast.success("Lead updated successfully");
+        } catch (err) {
+          console.warn("Direct update failed, enqueuing...", err);
+          await syncService.enqueueTask("leads", leadData, 'update', editingLead.id);
+          toast.info("Offline: Update saved locally and will sync later");
+        }
       } else {
-        const docRef = await addDoc(collection(db, "leads"), {
-          ...leadData,
-          createdAt: serverTimestamp(),
-          createdBy: profile?.uid,
-          nextFollowUpAt: Timestamp.fromDate(addDays(new Date(), 1)),
-        });
+        try {
+          const docRef = await addDoc(collection(db, "leads"), {
+            ...leadData,
+            createdAt: serverTimestamp(),
+            createdBy: profile?.uid,
+            nextFollowUpAt: Timestamp.fromDate(addDays(new Date(), 1)),
+          });
 
-        // Trigger Notification
-        await createNotification({
-          userId: profile!.id,
-          title: "New Opportunity Detected",
-          message: `New lead ${leadData.name} initialized via ${leadData.source}`,
-          type: "client",
-          relatedId: docRef.id,
-          relatedType: "lead"
-        });
+          // Trigger Notification
+          await createNotification({
+            userId: profile!.id,
+            title: "New Opportunity Detected",
+            message: `New lead ${leadData.name} initialized via ${leadData.source}`,
+            type: "client",
+            relatedId: docRef.id,
+            relatedType: "lead"
+          });
 
-        toast.success("Lead added successfully");
+          toast.success("Lead added successfully");
+        } catch (err) {
+          console.warn("Direct add failed, enqueuing...", err);
+          await syncService.enqueueTask("leads", {
+            ...leadData,
+            createdAt: Date.now()
+          }, 'create');
+          toast.info("Offline: Lead saved locally and will sync later");
+        }
       }
       
       // Invalidate cache

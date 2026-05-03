@@ -143,7 +143,7 @@ function SmallCardWrapper({
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, services: allServicesContext, addons: allAddonsContext } = useAuth();
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -233,8 +233,13 @@ export default function JobDetail() {
   // Deployment Intelligence State
   const [isAnalyzingDeployment, setIsAnalyzingDeployment] = useState(false);
   const [isAddingSelection, setIsAddingSelection] = useState(false);
-  const [allServices, setAllServices] = useState<Service[]>([]);
-  const [allAddons, setAllAddons] = useState<AddOn[]>([]);
+  const [allServices, setAllServices] = useState<Service[]>(allServicesContext || []);
+  const [allAddons, setAllAddons] = useState<AddOn[]>(allAddonsContext || []);
+  
+  useEffect(() => {
+    if (allServicesContext?.length) setAllServices(allServicesContext);
+    if (allAddonsContext?.length) setAllAddons(allAddonsContext);
+  }, [allServicesContext, allAddonsContext]);
   const [selectedNewType, setSelectedNewType] = useState<"service" | "addon">("service");
   const [selectedNewId, setSelectedNewId] = useState("");
   const [editingAddonQty, setEditingAddonQty] = useState<{id: string, name: string, qty: number, pricingType?: string} | null>(null);
@@ -253,21 +258,14 @@ export default function JobDetail() {
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [isPaymentSelectionOpen, setIsPaymentSelectionOpen] = useState(false);
   const [currentInvoice, setCurrentInvoice] = useState<any>(null);
+  const [smsSettings, setSmsSettings] = useState<any>(null);
+  const [isSendingSms, setIsSendingSms] = useState(false);
+  const [showManualSmsDialog, setShowManualSmsDialog] = useState(false);
+  const [manualSmsBody, setManualSmsBody] = useState("");
+  const [selectedSmsTemplate, setSelectedSmsTemplate] = useState("custom");
 
   useEffect(() => {
-    const fetchAllOptions = async () => {
-      try {
-        const [sSnap, aSnap] = await Promise.all([
-          getDocs(collection(db, "services")),
-          getDocs(collection(db, "addons"))
-        ]);
-        setAllServices(sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
-        setAllAddons(aSnap.docs.map(d => ({ id: d.id, ...d.data() } as AddOn)));
-      } catch (err) {
-        console.error("Error fetching service options:", err);
-      }
-    };
-    fetchAllOptions();
+    // Services and Addons are loaded globally via useAuth contexts
   }, []);
 
   const handleAddLiveItem = async () => {
@@ -1281,6 +1279,70 @@ export default function JobDetail() {
     setCancellationFee(fee);
   };
 
+  const handleSendManualSms = async () => {
+    if (!job?.customerPhone || !manualSmsBody.trim()) {
+      toast.error("Body and phone number required");
+      return;
+    }
+    
+    setIsSendingSms(true);
+    try {
+      const res = await messagingService.sendSms({
+        to: job.customerPhone,
+        body: manualSmsBody
+      });
+      
+      toast.success("SMS Sent!");
+      setShowManualSmsDialog(false);
+      setManualSmsBody("");
+      setSelectedSmsTemplate("custom");
+      
+      // Log it
+      await addDoc(collection(db, "communication_logs"), {
+        clientId: job.clientId || "walk-in",
+        appointmentId: job.id,
+        type: "manual_custom",
+        content: manualSmsBody,
+        status: "sent",
+        messageId: (res as any)?.messageId || "sent",
+        createdAt: serverTimestamp()
+      });
+    } catch (err: any) {
+      console.error("SMS Error:", err);
+      toast.error("Failed: " + err.message);
+    } finally {
+      setIsSendingSms(false);
+    }
+  };
+
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedSmsTemplate(templateId);
+    if (templateId === "custom") {
+      setManualSmsBody("");
+      return;
+    }
+
+    const templateContent = smsSettings?.templates?.[templateId] || "";
+    if (templateContent) {
+      // Basic parsing for preview in textarea
+      const scheduledDate = job.scheduledAt?.toDate ? job.scheduledAt.toDate() : new Date(job.scheduledAt);
+      const data = {
+        clientName: getClientDisplayName(job),
+        businessName: businessSettings?.businessName || "DetailFlow",
+        appointmentDate: format(scheduledDate, "MMMM do"),
+        appointmentTime: format(scheduledDate, "h:mm a"),
+        serviceName: job.serviceNames?.[0] || "detail",
+        vehicle: job.vehicleInfo || "vehicle",
+      };
+      
+      let parsed = templateContent;
+      Object.entries(data).forEach(([key, val]) => {
+        parsed = parsed.replace(new RegExp(`{${key}}`, "g"), val);
+      });
+      setManualSmsBody(parsed);
+    }
+  };
+
   const handleWaitlistAction = async (action: "offerOriginal" | "offerSuggested" | "approveBackup" | "decline") => {
     setIsUpdating(true);
     try {
@@ -1622,19 +1684,7 @@ export default function JobDetail() {
     fetchMetadata();
 
     // Fetch all services and addons for manual addition
-    const fetchServices = async () => {
-      try {
-        const [servSnap, addSnap] = await Promise.all([
-          getDocs(collection(db, "services")),
-          getDocs(collection(db, "addons"))
-        ]);
-        setAllServices(servSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Service)));
-        setAllAddons(addSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AddOn)));
-      } catch (err) {
-        console.error("Error fetching services:", err);
-      }
-    };
-    fetchServices();
+    // Services and addons are populated via useAuth context.
 
     // Real-time job listener
     const docRef = doc(db, "appointments", id);
@@ -1658,6 +1708,10 @@ export default function JobDetail() {
           }
           if (integrationsSnap.exists()) {
             setIntegrationSettings(integrationsSnap.data());
+          }
+          const smsSnap = await getDoc(doc(db, "settings", "communications"));
+          if (smsSnap.exists()) {
+            setSmsSettings(smsSnap.data());
           }
         }
 
@@ -2009,6 +2063,48 @@ export default function JobDetail() {
       if (newStatus === "completed") {
         await handleConvertJobToInvoice();
         
+        // --- WARRANTY AUTO-CREATION BEGIN ---
+        try {
+          const { warrantyService } = await import("../services/warrantyService");
+          const selectedSvcIds = job.serviceIds || [];
+          const matchedServices = allServices.filter(s => selectedSvcIds.includes(s.id));
+          
+          for (const svc of matchedServices) {
+            if ((svc as any).hasWarranty) {
+              const baseDate = job.scheduledAt?.toDate ? job.scheduledAt.toDate().getTime() : Date.now();
+              const expDate = baseDate + ((svc as any).warrantyLengthMonths || 12) * 30 * 24 * 60 * 60 * 1000;
+              
+              const maintRequired = (svc as any).warrantyMaintenanceRequired ?? false;
+              // Usually the maintenance returns are also configured there
+              const maintInterval = Number((svc as any).maintenanceIntervalDays || 365);
+              
+              await warrantyService.createWarranty({
+                clientId: job.clientId || job.customerId,
+                vehicleId: activeVehicleId || job.vehicleId || job.vehicleIds?.[0] || "",
+                jobId: id!,
+                invoiceId: currentInvoice?.id || "",
+                serviceId: svc.id!,
+                serviceName: svc.name,
+                warrantyType: (svc as any).warrantyType || "Standard Warranty",
+                warrantyLengthMonths: (svc as any).warrantyLengthMonths || 12,
+                startDate: baseDate,
+                expirationDate: expDate,
+                coverageDetails: (svc as any).warrantyCoverageDetails || "Standard coverage.",
+                exclusions: "",
+                maintenanceRequired: maintRequired,
+                maintenanceIntervalDays: maintInterval,
+                lastMaintenanceDate: null,
+                nextMaintenanceDate: maintRequired ? baseDate + (maintInterval * 24 * 60 * 60 * 1000) : null,
+                missedMaintenance: false
+              });
+              toast.success(`Warranty automatically generated for ${svc.name}`);
+            }
+          }
+        } catch(e) {
+          console.error("Auto Warranty Generation failed:", e);
+        }
+        // --- WARRANTY AUTO-CREATION END ---
+
         if (job.customerEmail) {
           messagingService.sendEmail({
             to: job.customerEmail,
@@ -3994,13 +4090,73 @@ export default function JobDetail() {
             <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
               <CardHeader className="bg-black/20 border-b border-white/5 p-6 flex flex-row items-center justify-between">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Client Communication</CardTitle>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Automated Client Communication</span>
-                  <Switch 
-                    checked={!job.smsAutomationPaused || false}
-                    onCheckedChange={toggleSmsAutomation}
-                    className="data-[state=checked]:bg-primary"
-                  />
+                <div className="flex items-center gap-4">
+                  <Dialog open={showManualSmsDialog} onOpenChange={setShowManualSmsDialog}>
+                    <DialogTrigger render={
+                      <Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase tracking-widest border-primary/30 text-primary bg-primary/5 hover:bg-primary hover:text-white transition-all">
+                        <MessageSquare className="w-3 h-3 mr-1" />
+                        Send Custom SMS
+                      </Button>
+                    } />
+                    <DialogContent className="max-w-md bg-card border-white/10 rounded-[2.5rem] shadow-2xl p-0 overflow-hidden">
+                      <DialogHeader className="bg-black/20 border-b border-white/5 p-8 pb-6">
+                        <DialogTitle className="text-2xl font-black text-white uppercase tracking-tighter">Secure Messenger</DialogTitle>
+                        <p className="text-[10px] text-white font-black uppercase tracking-widest">Technician-to-Client Communication</p>
+                      </DialogHeader>
+                      <div className="p-8 space-y-6">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Message Template</Label>
+                          <Select value={selectedSmsTemplate} onValueChange={handleTemplateSelect}>
+                            <SelectTrigger className="bg-black/40 border-white/10 text-white rounded-xl h-12 text-xs uppercase font-bold tracking-tight">
+                              <SelectValue placeholder="Select a template" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-card border-white/10 text-white">
+                              <SelectItem value="custom">-- Custom Message --</SelectItem>
+                              {smsSettings?.templates && Object.keys(smsSettings.templates).map(tId => (
+                                <SelectItem key={tId} value={tId} className="capitalize">{tId.replace(/_/g, " ")}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Message Body</Label>
+                          <textarea
+                            className="w-full h-40 bg-black/40 border border-white/10 text-white rounded-2xl p-4 text-xs font-medium resize-none focus:ring-2 focus:ring-primary focus:border-transparent custom-scrollbar"
+                            placeholder="Type your message to the client..."
+                            value={manualSmsBody}
+                            onChange={(e) => setManualSmsBody(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                          <Button 
+                            variant="outline" 
+                            className="flex-1 h-12 rounded-xl border-white/10 text-white hover:bg-white/5 font-black uppercase tracking-widest text-[10px]"
+                            onClick={() => setShowManualSmsDialog(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button 
+                            className="flex-1 h-12 rounded-xl bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[10px] shadow-glow-blue"
+                            disabled={isSendingSms || !manualSmsBody.trim()}
+                            onClick={handleSendManualSms}
+                          >
+                            {isSendingSms ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Zap className="w-3 h-3 mr-2" />}
+                            Execute Outbound SMS
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <div className="flex items-center gap-2 border-l border-white/10 pl-4">
+                    <span className="text-[9px] font-black text-white uppercase tracking-[0.2em] hidden sm:inline">Automated Client Communication</span>
+                    <Switch 
+                      checked={!job.smsAutomationPaused || false}
+                      onCheckedChange={toggleSmsAutomation}
+                      className="scale-90"
+                    />
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="p-6">
@@ -4101,7 +4257,6 @@ export default function JobDetail() {
                                 checked={job.reminderAutomationPrefs?.[prefKey] ?? true}
                                 onCheckedChange={(val) => toggleReminderAutomation(prefKey as any, val)}
                                 disabled={job.smsAutomationPaused}
-                                className="data-[state=checked]:bg-primary"
                               />
                             )}
                           </div>

@@ -43,6 +43,7 @@ import { paymentService } from "../services/paymentService";
 import { toast } from "sonner";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
+import { syncService } from "../services/syncService";
 import { format } from "date-fns";
 import { Invoice, Client, Vehicle, Service, AddOn, BusinessSettings, LineItem } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
@@ -65,7 +66,7 @@ import {
 
 export default function Invoices() {
   const navigate = useNavigate();
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, systemStatus } = useAuth();
   const location = useLocation();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -78,39 +79,53 @@ export default function Invoices() {
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
 
   const fetchInvoicesData = async (showToast = false) => {
+    // Performance marker
+    const loadStart = performance.now();
+    const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
+
     // Check cache first if not performing a manual sync
-    if (!showToast) {
-      const cached = sessionStorage.getItem('invoices_cache');
-      const cacheTime = sessionStorage.getItem('invoices_cache_time');
-      const now = Date.now();
-      
-      if (cached && cacheTime && now - Number(cacheTime) < 5 * 60 * 1000) { // 5 min cache
-        setInvoices(JSON.parse(cached));
-        setLoading(false);
+    const cached = sessionStorage.getItem('invoices_cache');
+    const cacheTime = sessionStorage.getItem('invoices_cache_time');
+    const now = Date.now();
+    const isCacheFresh = cached && cacheTime && now - Number(cacheTime) < 5 * 60 * 1000;
+    
+    if (isCacheFresh || (cached && isRestricted)) {
+      try {
+        let invoicesData = JSON.parse(cached || '[]');
+        invoicesData = await syncService.injectPendingRecords("invoices", invoicesData);
+        setInvoices(invoicesData);
         
-        // Also try to get settings from cache if available
         const cachedSettings = sessionStorage.getItem('business_settings_cache');
         if (cachedSettings) {
           setSettings(JSON.parse(cachedSettings));
-        } else {
-          // If settings missing, fetch them
-          const settingsSnap = await getDoc(doc(db, "settings", "business")).catch(e => handleFirestoreError(e, OperationType.GET, "settings/business"));
-          if (settingsSnap && settingsSnap.exists()) {
-            const sData = settingsSnap.data() as BusinessSettings;
-            setSettings(sData);
-            sessionStorage.setItem('business_settings_cache', JSON.stringify(sData));
-          }
         }
-        return;
+        
+        setLoading(false);
+        const time = performance.now() - loadStart;
+        console.log(`🚀 [INVOICES] Loaded from ${isRestricted ? 'OFFLINE CACHE' : 'LEDGER CACHE'} in ${time.toFixed(2)}ms`);
+        if (isRestricted) return;
+      } catch (e) {
+        console.warn("[Invoices] Cache parse failed", e);
       }
+    }
+
+    if (isRestricted) {
+      console.warn(`[Invoices] Fetch skipped. System status: ${systemStatus}`);
+      setLoading(false);
+      return;
     }
 
     if (showToast) toast.loading("Syncing Ledger...", { id: "sync-invoices" });
     try {
+      console.log("🔥 FIRESTORE READ [Invoices]: Fetching latest 50 records");
       const queryRef = query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(50));
       const snap = await getDocs(queryRef).catch(e => handleFirestoreError(e, OperationType.LIST, "invoices"));
       if (!snap) return;
-      const invoicesData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
+      let invoicesData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
+      
+      // Merge offline pending invoices
+      invoicesData = await syncService.injectPendingRecords("invoices", invoicesData);
+      
       setInvoices(invoicesData);
       
       // Update cache

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, updateDoc, doc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Client, CommunicationLog } from "../types";
@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
 import { messagingService } from "../services/messagingService";
 
 interface ClientCommunicationProps {
@@ -56,6 +57,16 @@ export function ClientCommunication({ client }: ClientCommunicationProps) {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim()) return;
+
+    if (type === "sms" && !client.smsConsent) {
+      toast.error("Client has not provided SMS consent. Transmission aborted.");
+      return;
+    }
+
+    if (type === "sms" && client.smsOptOut) {
+      toast.error("Client has opted out of SMS. Transmission aborted.");
+      return;
+    }
 
     setIsSending(true);
     try {
@@ -132,6 +143,62 @@ export function ClientCommunication({ client }: ClientCommunicationProps) {
 
   return (
     <div className="space-y-6">
+      {/* Communication Preferences */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-primary/5 rounded-2xl border border-primary/10 mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/60">SMS Authorization</p>
+            <p className="text-[9px] text-white/30 font-medium uppercase tracking-wide">
+              {client.smsOptOut ? "Opted Out" : client.smsConsent ? "Consent Verified" : "Pending Consent"}
+            </p>
+          </div>
+          <Switch 
+            disabled={client.smsOptOut}
+            checked={client.smsConsent ?? false}
+            onCheckedChange={async (val) => {
+              try {
+                await updateDoc(doc(db, "clients", client.id), { 
+                  smsConsent: val,
+                  updatedAt: serverTimestamp() 
+                });
+                toast.success(val ? "SMS Consent Granted" : "SMS Consent Revoked");
+              } catch (err) {
+                toast.error("Failed to update consent status");
+              }
+            }}
+            className="data-[state=checked]:bg-emerald-500"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Preferred Channel</p>
+          </div>
+          <Select 
+            value={client.preferredContactMethod || "email"} 
+            onValueChange={async (val) => {
+              try {
+                await updateDoc(doc(db, "clients", client.id), { 
+                  preferredContactMethod: val,
+                  updatedAt: serverTimestamp() 
+                });
+                toast.success("Contact preference updated");
+              } catch (err) {
+                toast.error("Failed to update preference");
+              }
+            }}
+          >
+            <SelectTrigger className="w-[140px] bg-black/40 border-white/10 text-white h-9 rounded-xl text-[10px] font-black uppercase">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-900 border-white/10 text-white">
+              <SelectItem value="email" className="text-[10px] uppercase font-black">Email Only</SelectItem>
+              <SelectItem value="sms" className="text-[10px] uppercase font-black">SMS Only</SelectItem>
+              <SelectItem value="both" className="text-[10px] uppercase font-black">Dual Channel</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2 bg-black/40 p-1 rounded-xl h-12">
           <TabsTrigger 

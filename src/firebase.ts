@@ -16,6 +16,15 @@ export const db = initializeFirestore(app, {
   useFetchStreams: false,
 } as any, firebaseConfig.firestoreDatabaseId);
 
+import { enableMultiTabIndexedDbPersistence } from "firebase/firestore";
+enableMultiTabIndexedDbPersistence(db).catch((err) => {
+  if (err.code === 'failed-precondition') {
+    console.warn("Firestore persistence failed-precondition (multiple tabs).");
+  } else if (err.code === 'unimplemented') {
+    console.warn("Firestore persistence unimplemented.");
+  }
+});
+
 export const storage = getStorage(app);
 
 // Error Handling Utilities

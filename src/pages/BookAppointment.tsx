@@ -11,6 +11,7 @@ import {
   Bell, Info, AlertCircle, Wrench, ShieldCheck, Droplets,
   ChevronDown, ChevronUp
 } from "lucide-react";
+import { syncService } from "../services/syncService";
 import { format, addHours } from "date-fns";
 import { motion, AnimatePresence } from "motion/react";
 import { messagingService } from "../services/messagingService";
@@ -1156,54 +1157,66 @@ export default function BookAppointment() {
         depositRecord: recordedDeposit || null
       };
 
-      const docRef = await addDoc(collection(db, "appointments"), appointmentData);
+      try {
+        const docRef = await addDoc(collection(db, "appointments"), appointmentData);
+        
+        // Attempt to send notifications
+        if (client?.email) {
+          messagingService.sendEmail({
+            to: client.email,
+            subject: `Appointment Confirmed: ${appointmentData.customerName}`,
+            html: `<p>Hi ${appointmentData.customerName},</p><p>Your appointment has been confirmed for <strong>${format(startAt, "MMMM do, yyyy 'at' h:mm a")}</strong>.</p><p>Address: ${appointmentData.address}</p><p>Thank you for choosing ${settings?.businessName || "us"}!</p>`,
+          }).catch(e => console.error("Email failed", e));
+        }
 
-      // Attempt to send notifications
-      if (client?.email) {
-        messagingService.sendEmail({
-          to: client.email,
-          subject: `Appointment Confirmed: ${appointmentData.customerName}`,
-          html: `<p>Hi ${appointmentData.customerName},</p><p>Your appointment has been confirmed for <strong>${format(startAt, "MMMM do, yyyy 'at' h:mm a")}</strong>.</p><p>Address: ${appointmentData.address}</p><p>Thank you for choosing ${settings?.businessName || "us"}!</p>`,
-        }).catch(e => console.error("Email failed", e));
-      }
-
-      if (client?.phone) {
-        const serviceText = appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service";
-        const messageBody = `DetailFlow: Your appointment is confirmed for ${format(startAt, "MMM do, yyyy")} at ${format(startAt, "h:mm a")} for ${serviceText}. Reply STOP to opt out.`;
-        messagingService.sendSms({
-          to: client.phone,
-          body: messageBody
-        }).then(async (res: any) => {
-          console.log("Booking Confirmed SMS sent successfully to:", client.phone);
-          await addDoc(collection(db, "communication_logs"), {
-            clientId: client?.id || "walk-in",
-            appointmentId: docRef.id,
-            type: "confirmation",
-            content: messageBody,
-            status: "sent",
-            messageId: res?.messageId || "sent",
-            createdAt: serverTimestamp()
+        if (client?.phone) {
+          const serviceText = appointmentData.serviceNames?.length ? appointmentData.serviceNames.join(", ") : "service";
+          const messageBody = `DetailFlow: Your appointment is confirmed for ${format(startAt, "MMM do, yyyy")} at ${format(startAt, "h:mm a")} for ${serviceText}. Reply STOP to opt out.`;
+          messagingService.sendSms({
+            to: client.phone,
+            body: messageBody
+          }).then(async (res: any) => {
+            console.log("Booking Confirmed SMS sent successfully to:", client.phone);
+            await addDoc(collection(db, "communication_logs"), {
+              clientId: client?.id || "walk-in",
+              appointmentId: docRef.id,
+              type: "confirmation",
+              content: messageBody,
+              status: "sent",
+              messageId: res?.messageId || "sent",
+              createdAt: serverTimestamp()
+            });
+            await updateDoc(docRef, { "reminders.confirmation": "sent" });
+          }).catch(async (e) => {
+            console.error("Booking Confirmed SMS failed to send:", e);
+            await addDoc(collection(db, "communication_logs"), {
+              clientId: client?.id || "walk-in",
+              appointmentId: docRef.id,
+              type: "confirmation",
+              content: messageBody,
+              status: "failed",
+              errorDetail: e.message || String(e),
+              createdAt: serverTimestamp()
+            });
+            await updateDoc(docRef, { "reminders.confirmation": "failed" });
           });
-          await updateDoc(docRef, { "reminders.confirmation": "sent" });
-        }).catch(async (e) => {
-          console.error("Booking Confirmed SMS failed to send:", e);
-          await addDoc(collection(db, "communication_logs"), {
-            clientId: client?.id || "walk-in",
-            appointmentId: docRef.id,
-            type: "confirmation",
-            content: messageBody,
-            status: "failed",
-            errorDetail: e.message || String(e),
-            createdAt: serverTimestamp()
-          });
-          await updateDoc(docRef, { "reminders.confirmation": "failed" });
-        });
-      } else {
-        await updateDoc(docRef, { "reminders.confirmation": "skipped" });
-      }
+        } else {
+          await updateDoc(docRef, { "reminders.confirmation": "skipped" });
+        }
 
-      toast.success("Appointment successfully created!");
-      navigate("/calendar");
+        toast.success("Appointment successfully created!");
+        navigate("/calendar");
+        return;
+      } catch (err) {
+        console.warn("Direct add failed, enqueuing...", err);
+        await syncService.enqueueTask("appointments", {
+          ...appointmentData,
+          createdAt: Date.now()
+        }, 'create');
+        toast.info("Offline: Booking saved locally and will sync later");
+        navigate("/calendar");
+        return;
+      }
     } catch (err) {
       console.error("Error creating appointment:", err);
       toast.error("An error occurred preserving this record.");

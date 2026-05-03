@@ -151,21 +151,73 @@
     color: #FFFFFF;
   }
 
-  /* EXCEPTIONS: Content inside white or light containers (like Invoices) must stay dark */
-  [class*="bg-white"] p, 
-  [class*="bg-white"] span:not(.lucide), 
-  [class*="bg-white"] label,
-  [class*="bg-white"] th,
-  [class*="bg-white"] td,
-  [class*="bg-gray-50"] p,
-  [class*="bg-gray-50"] span:not(.lucide),
-  .bg-white p, .bg-white span, .bg-white div {
-    color: inherit;
+  /* EXCEPTIONS: Content inside white or light containers must stay dark */
+  .bg-white, 
+  .bg-gray-50,
+  .bg-slate-50 {
+    & p, & span:not(.lucide), & th, & td, & li, & h1, & h2, & h3, & h4, & h5, & h6 {
+      color: #111111 !important;
+    }
+    
+    & label {
+      color: #222222 !important;
+    }
+
+    & ::placeholder {
+      color: #666666 !important;
+      opacity: 1 !important;
+    }
+
+    & input, & textarea, & select {
+      color: #111111 !important;
+    }
+
+    /* Handle labels that explicitly use white/40 or white/60 opacity classes */
+    & .text-white\/40, 
+    & .text-white\/60,
+    & .text-gray-400,
+    & .text-gray-500 {
+      color: #666666 !important;
+    }
+
+    /* Fixed for Switch/Checkbox labels in Forms Builder */
+    & [data-slot="label"] {
+      color: #222222 !important;
+      opacity: 1 !important;
+    }
+  }
+
+  /* FORCE SIDEBAR TEXT TO BE FULLY WHITE FOREVER */
+  .bg-sidebar p,
+  .bg-sidebar span,
+  .bg-sidebar h1,
+  .bg-sidebar h2,
+  .bg-sidebar h3,
+  .bg-sidebar h4,
+  .bg-sidebar h5,
+  .bg-sidebar h6,
+  .bg-sidebar label,
+  .bg-sidebar .lucide,
+  .bg-sidebar a.group span,
+  .bg-sidebar a.group svg {
+    color: #FFFFFF !important;
+    opacity: 1 !important;
+  }
+
+
+  /* Specific fix for dropdowns if they are in light mode (rare but possible) */
+  [data-slot="select-content"].bg-white {
+    & [data-slot="select-item"] {
+      color: #111111 !important;
+    }
+    & [data-slot="select-label"] {
+      color: #666666 !important;
+    }
   }
 
   /* Ensure placeholders are clearly visible on dark backgrounds */
   ::placeholder {
-    color: rgba(255, 255, 255, 0.6) !important;
+    color: rgba(255, 255, 255, 0.4) !important;
     opacity: 1 !important;
   }
 

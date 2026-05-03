@@ -1,6 +1,32 @@
 import { Timestamp, FieldValue } from "firebase/firestore";
 
-export interface TimeBlock {
+export type SyncStatus = "synced" | "pending" | "failed";
+
+export interface UserProfile extends SyncMetadata {
+  uid: string;
+  id: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+  role: "owner" | "admin" | "manager" | "technician" | "office" | "read-only";
+  provider?: string;
+  lastLoginAt?: any;
+  isOwner?: boolean;
+  isAdmin?: boolean;
+  accessLevel?: string;
+  createdAt: Timestamp | FieldValue;
+  lastLogin?: Timestamp | FieldValue;
+}
+
+export interface SyncMetadata {
+  localId?: string;
+  syncStatus?: SyncStatus;
+  lastSyncAttempt?: Timestamp | FieldValue;
+  retryCount?: number;
+  syncError?: string;
+}
+
+export interface TimeBlock extends SyncMetadata {
   id: string;
   title: string;
   type: "time_off" | "busy" | "unavailable";
@@ -77,6 +103,11 @@ export interface Service {
   depositType?: "fixed" | "percentage";
   depositAmount?: number;
   weatherSensitivity?: WeatherSensitivity;
+  hasWarranty?: boolean;
+  warrantyLengthMonths?: number;
+  warrantyType?: string;
+  warrantyCoverageDetails?: string;
+  warrantyMaintenanceRequired?: boolean;
 }
 
 export interface AddOn {
@@ -107,7 +138,7 @@ export interface ClientCategory {
   isActive: boolean;
 }
 
-export interface Client {
+export interface Client extends SyncMetadata {
   id: string;
   name: string;
   firstName?: string;
@@ -165,6 +196,9 @@ export interface Client {
   isOneTime?: boolean;
   gallery?: string[];
   riskLevel?: "low" | "medium" | "high";
+  smsConsent?: boolean;
+  smsOptOut?: boolean;
+  preferredContactMethod?: "email" | "sms" | "both" | "none";
 }
 
 export interface Vehicle {
@@ -184,7 +218,7 @@ export interface Vehicle {
   notes?: string;
 }
 
-export interface Customer {
+export interface Customer extends SyncMetadata {
   id: string;
   name: string;
   email: string;
@@ -286,7 +320,7 @@ export interface CustomFee {
   isTaxable?: boolean;
 }
 
-export interface Appointment {
+export interface Appointment extends SyncMetadata {
   id: string;
   customerId: string;
   clientId?: string; // New unified reference
@@ -404,6 +438,17 @@ export interface Appointment {
     businessHoursSnapshot?: any;
   };
   invoiceNumber?: string;
+  smsStatus?: {
+    confirmationSent?: boolean;
+    reminderSent?: boolean;
+    onTheWaySent?: boolean;
+    arrivedSent?: boolean;
+    reviewRequestSent?: boolean;
+    completedSent?: boolean;
+    rescheduleSent?: boolean;
+    canceledSent?: boolean;
+    noShowFeeSent?: boolean;
+  };
 }
 
 export interface JobProductCost {
@@ -439,7 +484,7 @@ export interface LineItem {
   protocolAccepted: boolean;
 }
 
-export interface Invoice {
+export interface Invoice extends SyncMetadata {
   id: string;
   clientId: string;
   appointmentId?: string;
@@ -565,6 +610,7 @@ export interface BusinessSettings {
   businessEmail?: string;
   logoUrl?: string;
   showLogoOnDocuments?: boolean;
+  adminOnlyAccess?: boolean;
   watermarkSettings?: WatermarkSettings;
   taxRate: number;
   serviceFeeLabel?: string; // New: Display name for the primary service/travel fee
@@ -643,6 +689,14 @@ export interface BusinessSettings {
     start: string; // "HH:mm"
     end: string;   // "HH:mm"
     daysEnabled: number[]; // 0-6 (Sun-Sat)
+  };
+  twilioSettings?: {
+    enabled: boolean;
+    accountSid: string;
+    authToken: string;
+    phoneNumber: string;
+    businessPhone?: string; // default business phone number
+    testPhone?: string;
   };
   businessHours?: {
     monday: { isOpen: boolean; openTime: string; closeTime: string; };
@@ -813,7 +867,7 @@ export interface AppNotification {
   createdAt: Timestamp | FieldValue;
 }
 
-export interface CommunicationLog {
+export interface CommunicationLog extends SyncMetadata {
   id: string;
   clientId: string;
   type: "sms" | "email" | "note" | "alert";

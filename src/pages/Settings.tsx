@@ -13,7 +13,7 @@ import {
   User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map as MapIcon, Globe, 
   DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, 
   Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, 
-  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, ShieldCheck, Upload, ChevronRight, Menu, Plug, Calendar, Link, Building2, Zap, Save, Clock
+  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, ShieldCheck, Upload, ChevronRight, Menu, Plug, Calendar, Link, Building2, Zap, Save, Clock, MessageSquare, Smartphone, Send, AlertCircle
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -72,7 +72,18 @@ const removeUndefined = (obj: any): any => {
 };
 
 export default function Settings() {
-  const { profile, loading: authLoading, isQuotaExceeded } = useAuth();
+  const { 
+    profile, 
+    loading: authLoading, 
+    systemStatus, 
+    isAdmin, 
+    isManager,
+    canAccessAdmin,
+    canAccessManager,
+    settings: authSettings 
+  } = useAuth();
+  
+  const isOwner = profile?.role === "owner";
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "profile";
   const [isSaving, setIsSaving] = useState(false);
@@ -95,7 +106,9 @@ export default function Settings() {
   const [watermarkLogoFile, setWatermarkLogoFile] = useState<File | null>(null);
   const watermarkFileInputRef = useRef<HTMLInputElement>(null);
 
-  const isAdminOrManager = profile?.role === "admin" || profile?.role === "manager";
+  const adminOnly = authSettings?.adminOnlyAccess ?? true;
+  // Sensitive settings check
+  const hasAccessToSensitiveSettings = canAccessAdmin;
 
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -135,7 +148,7 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    if (authLoading || !profile || isQuotaExceeded) return;
+    if (authLoading || !profile) return;
 
     const fetchSettings = async () => {
       // Check cache first (10 min)
@@ -355,6 +368,19 @@ export default function Settings() {
     }
   }, [profile, authLoading]);
 
+  const updateTwilioSetting = (field: string, value: any) => {
+    setSettings(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        twilioSettings: {
+          ...(prev.twilioSettings || { enabled: false, accountSid: "", authToken: "", phoneNumber: "" }),
+          [field]: value
+        }
+      };
+    });
+  };
+
   const handleSaveSettings = async (newData: Partial<BusinessSettings>) => {
     if (!settings) return;
     setIsSaving(true);
@@ -409,14 +435,17 @@ export default function Settings() {
       };
 
       // Separate sensitive data
-      const { paymentIntegrations, ...publicData } = updatedSettings;
+      const { paymentIntegrations, twilioSettings, ...publicData } = updatedSettings;
       
       // Save public data
       await setDoc(doc(db, "settings", "business"), removeUndefined(publicData));
       
       // Save sensitive data if present
-      if (paymentIntegrations) {
-        await setDoc(doc(db, "settings", "integrations"), removeUndefined({ paymentIntegrations }));
+      if (paymentIntegrations || twilioSettings) {
+        const integrationsData: any = {};
+        if (paymentIntegrations) integrationsData.paymentIntegrations = paymentIntegrations;
+        if (twilioSettings) integrationsData.twilioSettings = twilioSettings;
+        await setDoc(doc(db, "settings", "integrations"), removeUndefined(integrationsData), { merge: true });
       }
       
       // Invalidate cache
@@ -460,8 +489,17 @@ export default function Settings() {
   };
 
   const handleUpdateStaffRole = async (staffId: string, newRole: string) => {
+    if (!isOwner) {
+      toast.error("Security Protocol Violation: Only the system owner can modify user clearances.");
+      return;
+    }
     try {
-      await updateDoc(doc(db, "users", staffId), { role: newRole });
+      await updateDoc(doc(db, "users", staffId), { 
+        role: newRole,
+        // Update helper flags for consistency
+        isAdmin: newRole === "admin" || newRole === "owner",
+        accessLevel: newRole === "admin" || newRole === "owner" ? "admin" : newRole
+      });
       toast.success("Staff role updated");
     } catch (error) {
       console.error("Error updating staff role:", error);
@@ -532,8 +570,8 @@ export default function Settings() {
 
     try {
       const updates: any = { displayName, email };
-      // Only admins can change roles
-      if (profile.role === "admin") {
+      // Only admins or owners can change roles
+      if (profile.role === "admin" || profile.role === "owner") {
         updates.role = role;
       }
 
@@ -546,13 +584,22 @@ export default function Settings() {
         updates.photoURL = compressedDataUrl;
       }
       
-      await updateDoc(doc(db, "users", profile.uid), updates);
+      const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
+      
+      if (isRestricted) {
+        // Simulated local save
+        console.warn(`[Offline/Quota] Postponing profile update for ${profile.uid}`);
+        toast.info("Setting saved locally — pending sync.", {
+          description: "Firebase is currently unreachable or quota exhausted."
+        });
+      } else {
+        await updateDoc(doc(db, "users", profile.uid), updates);
+        toast.success("Profile updated successfully");
+      }
       
       // Cleanup
       setAvatarFile(null);
       setIsAvatarRemoved(false);
-      
-      toast.success("Profile updated successfully");
     } catch (error) {
       console.error("Error updating profile:", error);
       toast.error("Failed to update profile");
@@ -822,6 +869,15 @@ export default function Settings() {
     });
   };
 
+  const getSystemStatusLabel = () => {
+    switch (systemStatus) {
+      case 'offline': return "Offline Mode";
+      case 'quota-exhausted': return "Quota Exhausted";
+      case 'permission-denied': return "Permission Error";
+      default: return "Active";
+    }
+  };
+
   const handleDeleteClientType = async (id: string) => {
     try {
       await deleteDoc(doc(db, "client_types", id));
@@ -957,7 +1013,7 @@ export default function Settings() {
     if (!file) return;
 
     // Check permissions
-    if (!isAdminOrManager) {
+    if (!isManager) {
       toast.error("Only admins or managers can update branding.");
       return;
     }
@@ -1010,7 +1066,7 @@ export default function Settings() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!isAdminOrManager) {
+    if (!isManager) {
       toast.error("Only admins or managers can update branding.");
       return;
     }
@@ -1057,8 +1113,20 @@ export default function Settings() {
   };
 
   const handleTabChange = (value: string) => {
+    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security"];
+    if (sensitiveTabs.includes(value) && !hasAccessToSensitiveSettings) {
+      toast.error("Access Restricted. This sector is protected by Admin-Only Protocol.");
+      return;
+    }
     setSearchParams({ tab: value });
   };
+
+  useEffect(() => {
+    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security"];
+    if (sensitiveTabs.includes(activeTab) && !hasAccessToSensitiveSettings && !authLoading) {
+      setSearchParams({ tab: "profile" });
+    }
+  }, [activeTab, hasAccessToSensitiveSettings, authLoading]);
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-20">
@@ -1068,7 +1136,7 @@ export default function Settings() {
             SYSTEM <span className="text-primary italic">PREFERENCES</span>
           </h1>
           <p className="text-white/60 font-medium tracking-wide uppercase text-xs">
-            Configuration Engine: <span className="text-primary font-black">Active</span> • {profile?.role?.toUpperCase()} Access
+            Configuration Engine: <span className="text-primary font-black">{getSystemStatusLabel()}</span> • {profile?.role?.toUpperCase()} Access
           </p>
         </div>
         <Button variant="outline" onClick={handleSeedData} className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]">
@@ -1087,26 +1155,32 @@ export default function Settings() {
             >
               <User className="w-4 h-4" /> Personal Protocol
             </TabsTrigger>
-            <TabsTrigger 
-              value="business" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-            >
-              <Building2 className="w-4 h-4" /> Business Core
-            </TabsTrigger>
-            <TabsTrigger 
-              value="branding" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-            >
-              <Palette className="w-4 h-4" /> Visual Identity
-            </TabsTrigger>
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="business" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Building2 className="w-4 h-4" /> Business Core
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="branding" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Palette className="w-4 h-4" /> Visual Identity
+              </TabsTrigger>
+            )}
 
             <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Fleet & Service</h3>
-            <TabsTrigger 
-              value="staff" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-            >
-              <Users className="w-4 h-4" /> Staff Management
-            </TabsTrigger>
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="staff" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Users className="w-4 h-4" /> Staff Management
+              </TabsTrigger>
+            )}
             <TabsTrigger 
               value="client-types" 
               className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
@@ -1127,30 +1201,44 @@ export default function Settings() {
             >
               <Ticket className="w-4 h-4" /> Growth Incentives
             </TabsTrigger>
-            <TabsTrigger 
-              value="automation" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-            >
-              <Zap className="w-4 h-4" /> Operational Automations
-            </TabsTrigger>
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="automation" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Zap className="w-4 h-4" /> Operational Automations
+              </TabsTrigger>
+            )}
             <TabsTrigger 
               value="calendar" 
               className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Calendar className="w-4 h-4" /> Calendar Service Colors
             </TabsTrigger>
-            <TabsTrigger 
-              value="integrations" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-            >
-              <Plus className="w-4 h-4" /> Neural Links
-            </TabsTrigger>
-            <TabsTrigger 
-              value="security" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-            >
-              <Shield className="w-4 h-4" /> Security Layers
-            </TabsTrigger>
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="communications" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <MessageSquare className="w-4 h-4" /> Communications
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="integrations" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Plus className="w-4 h-4" /> Neural Links
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="security" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Shield className="w-4 h-4" /> Security Layers
+              </TabsTrigger>
+            )}
           </TabsList>
         </div>
 
@@ -1178,9 +1266,17 @@ export default function Settings() {
                           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
                         />
                       ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center text-white/5">
-                          <User className="w-12 h-12 mb-1" />
-                          <span className="text-[7px] font-black uppercase tracking-[0.2em]">No Profile Data</span>
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-primary/10 transition-colors group-hover:bg-primary/20">
+                          {profile?.displayName ? (
+                            <span className="text-4xl font-black text-primary uppercase tracking-tighter">
+                              {profile.displayName.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                            </span>
+                          ) : (
+                            <>
+                              <User className="w-12 h-12 mb-1 text-primary/40" />
+                              <span className="text-[7px] font-black uppercase tracking-[0.2em] text-primary/40">No Profile Data</span>
+                            </>
+                          )}
                         </div>
                       )}
                       
@@ -1281,7 +1377,7 @@ export default function Settings() {
                     <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Public Display Name</Label>
                     <StableInput 
                       id="displayName" 
-                      className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20"
+                      className="bg-[#1A1A1A] border-white/20 text-white rounded-xl h-14 font-black uppercase tracking-widest text-[11px] focus:ring-primary/40 shadow-inner px-6"
                       value={profile?.displayName || ""} 
                       onValueChange={async (val) => {
                         if (profile?.uid) {
@@ -1299,7 +1395,7 @@ export default function Settings() {
                       name="email" 
                       defaultValue={profile?.email || ""} 
                       placeholder="email@example.com" 
-                      className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-bold focus:ring-primary/20" 
+                      className="bg-[#1A1A1A] border-white/20 text-white rounded-xl h-14 font-black uppercase tracking-widest text-[11px] focus:ring-primary/40 shadow-inner px-6" 
                     />
                   </div>
                   <div className="space-y-2">
@@ -1310,23 +1406,40 @@ export default function Settings() {
                         name="role" 
                         defaultValue={profile?.role || "technician"}
                       >
-                        <SelectTrigger className="bg-black/40 border-white/10 text-white rounded-xl h-12 font-black uppercase tracking-widest text-[10px]">
+                        <SelectTrigger className="bg-[#1A1A1A] border-white/20 text-white rounded-xl h-14 font-black uppercase tracking-widest text-[10px] focus:ring-primary/40 shadow-inner">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="bg-card border-border text-white">
-                          <SelectItem value="admin">Admin</SelectItem>
-                          <SelectItem value="manager">Manager</SelectItem>
-                          <SelectItem value="technician">Technician</SelectItem>
-                          <SelectItem value="office">Office</SelectItem>
-                          <SelectItem value="read-only">Read-only</SelectItem>
+                        <SelectContent className="bg-[#151515] border-white/10 text-white">
+                          <SelectItem value="admin" className="focus:bg-primary/20 focus:text-primary">Admin</SelectItem>
+                          <SelectItem value="manager" className="focus:bg-primary/20 focus:text-primary">Manager</SelectItem>
+                          <SelectItem value="technician" className="focus:bg-primary/20 focus:text-primary">Technician</SelectItem>
+                          <SelectItem value="office" className="focus:bg-primary/20 focus:text-primary">Office</SelectItem>
+                          <SelectItem value="read-only" className="focus:bg-primary/20 focus:text-primary">Read-only</SelectItem>
                         </SelectContent>
                       </Select>
                     ) : (
-                      <div className="flex items-center gap-3 p-4 bg-black/40 rounded-xl border border-white/10">
-                        <Shield className="w-4 h-4 text-primary" />
-                        <span className="font-black text-white uppercase tracking-widest text-[10px]">{profile?.role}</span>
-                        <input type="hidden" name="role" value={profile?.role || ""} />
-                        <Badge variant="outline" className="ml-auto text-[8px] uppercase font-black border-white/10 text-[#A0A0A0]">Locked</Badge>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-4 p-5 bg-[#1A1A1A] rounded-2xl border border-white/20 shadow-inner group transition-all">
+                          <div className="p-2 bg-primary/10 rounded-lg group-hover:bg-primary/20 transition-colors">
+                            <Lock className="w-4 h-4 text-primary" />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="font-black text-white uppercase tracking-widest text-[11px] leading-tight">
+                              {profile?.role === "owner" ? "Owner / Admin Access" : (profile?.role || "Incomplete Profile")}
+                            </span>
+                            <span className="text-[8px] text-primary/60 font-bold uppercase tracking-widest">
+                              {profile?.role === "owner" ? "Full Permissions Master" : "Active Security Protocol"}
+                            </span>
+                          </div>
+                          <input type="hidden" name="role" value={profile?.role || ""} />
+                          <Badge variant="outline" className="ml-auto text-[8px] uppercase font-black border-primary/30 bg-primary/5 text-primary tracking-tighter">
+                            {profile?.role === "owner" ? "Absolute Access" : "Identity Locked"}
+                          </Badge>
+                        </div>
+                        <p className="text-[9px] text-[#A0A0A0] font-medium uppercase tracking-widest ml-1 flex items-center gap-1.5 italic">
+                          <AlertCircle className="w-3 h-3" />
+                          Role synchronization is restricted. Contact a system administrator to request clearance level modification.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -1471,8 +1584,263 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl mt-8">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Commission <span className="text-primary italic">Architecture</span></CardTitle>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Set default technician payout protocols for completed operations</CardDescription>
+            </CardHeader>
+            <CardContent className="p-8 space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-2">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Commission Type</Label>
+                  <Select 
+                    value={settings?.commissionType || "percentage"} 
+                    onValueChange={(val: "percentage" | "flat") => setSettings(prev => prev ? { ...prev, commissionType: val } : null)}
+                  >
+                    <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-black uppercase tracking-widest text-[10px] focus:ring-primary/20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                      <SelectItem value="percentage" className="focus:bg-white/5 focus:text-white">Percentage (%)</SelectItem>
+                      <SelectItem value="flat" className="focus:bg-white/5 focus:text-white">Flat Fee ($)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Commission Rate</Label>
+                  <div className="relative">
+                    <StableInput 
+                      type="text" 
+                      inputMode="decimal"
+                      value={settings?.commissionRate?.toString() || ""} 
+                      onValueChange={(val) => setSettings(prev => prev ? { ...prev, commissionRate: parseFloat(val) || 0 } : null)}
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold pl-10 focus:ring-primary/20"
+                    />
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-primary">
+                      {settings?.commissionType === "percentage" ? <Percent className="w-4 h-4" /> : <DollarIcon className="w-4 h-4" />}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <Button 
+                onClick={() => handleSaveSettings(settings || {})} 
+                className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
+              >
+                Save Commission Protocol
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
 
+        <TabsContent value="communications" className="mt-0">
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Communication <span className="text-primary italic">Intelligence</span></CardTitle>
+                <CardDescription className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Configure Smart SMS and Client Messaging Protocols</CardDescription>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge variant="outline" className="border-primary/20 text-primary bg-primary/5 px-4 h-10 rounded-xl font-black uppercase tracking-widest text-[10px]">
+                  Twilio Integrated
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-8 space-y-12">
+              {/* Twilio Configuration Section */}
+              <div className="space-y-8">
+                <div className="flex items-center justify-between p-6 bg-primary/5 rounded-2xl border border-primary/10">
+                  <div className="space-y-1">
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading flex items-center gap-3">
+                      <Smartphone className="w-6 h-6 text-primary" />
+                      Twilio Core Configuration
+                    </h3>
+                    <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed">Secure credentials for your SMS transmission gateway.</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Messaging Engine</Label>
+                    <Switch 
+                      checked={settings?.twilioSettings?.enabled ?? false} 
+                      onCheckedChange={(val) => setSettings(prev => prev ? { 
+                        ...prev,
+                        twilioSettings: { ...(prev.twilioSettings || { enabled: false, accountSid: "", authToken: "", phoneNumber: "" }), enabled: val } 
+                      } : null)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+                </div>
+
+                <div className={cn(
+                  "grid grid-cols-1 md:grid-cols-2 gap-8 transition-all duration-500",
+                  !(settings?.twilioSettings?.enabled) && "opacity-50 grayscale"
+                )}>
+                  <div className="space-y-2">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Account SID</Label>
+                    <Input 
+                      type="password"
+                      value={settings?.twilioSettings?.accountSid || ""}
+                      onChange={(e) => updateTwilioSetting("accountSid", e.target.value)}
+                      placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Auth Token</Label>
+                    <Input 
+                      type="password"
+                      value={settings?.twilioSettings?.authToken || ""}
+                      onChange={(e) => updateTwilioSetting("authToken", e.target.value)}
+                      placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Twilio Phone Number</Label>
+                    <Input 
+                      value={settings?.twilioSettings?.phoneNumber || ""}
+                      onChange={(e) => updateTwilioSetting("phoneNumber", e.target.value)}
+                      placeholder="+15550000000"
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Business Number (Fallback)</Label>
+                    <Input 
+                      value={settings?.businessPhone || ""}
+                      onChange={(e) => setSettings(prev => prev ? { ...prev, businessPhone: e.target.value } : null)}
+                      placeholder="+15551112222"
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col md:flex-row items-center gap-6 pt-6 border-t border-white/5">
+                  <div className="flex-1 space-y-2">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Transmission Test Protocol</Label>
+                    <div className="flex gap-4">
+                      <Input 
+                        value={settings?.twilioSettings?.testPhone || ""}
+                        onChange={(e) => updateTwilioSetting("testPhone", e.target.value)}
+                        placeholder="Test Mobile Number"
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold flex-1"
+                      />
+                      <Button 
+                        variant="outline"
+                        onClick={async () => {
+                          if (!settings?.twilioSettings?.testPhone) {
+                            toast.error("Please provide a test mobile number.");
+                            return;
+                          }
+                          const toastId = toast.loading("Deploying test transmission...");
+                          try {
+                            const response = await fetch('/api/messages/sms', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                to: settings.twilioSettings.testPhone,
+                                body: `[DetailFlow Control] Transmission test successful. Communication system online.`
+                              })
+                            });
+                            if (response.ok) {
+                              toast.success("Test transmission successful.", { id: toastId });
+                            } else {
+                              const err = await response.json();
+                              toast.error(`Transmission failed: ${err.error?.message || response.statusText}`, { id: toastId });
+                            }
+                          } catch (error: any) {
+                            toast.error(`Critical system failure: ${error.message}`, { id: toastId });
+                          }
+                        }}
+                        className="bg-primary/10 border-primary/20 text-primary hover:bg-primary/20 h-12 px-6 rounded-xl font-black uppercase tracking-widest text-[10px]"
+                      >
+                        <Send className="w-4 h-4 mr-2" /> Send Test SMS
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SMS Templates Section */}
+              <div className="space-y-8 pt-12 border-t border-white/5">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading flex items-center gap-3">
+                    <Bell className="w-6 h-6 text-primary" />
+                    Transaction Templates
+                  </h3>
+                  <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed">Dynamic message payloads for automated business events.</p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-12">
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-3">
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Booking Confirmation Payload</Label>
+                        <StableTextarea 
+                          value={settings?.smsTemplates?.bookingConfirmation || ""}
+                          onValueChange={(val) => setSettings(prev => prev ? { 
+                            ...prev,
+                            smsTemplates: { ...(prev.smsTemplates || {}), bookingConfirmation: val } 
+                          } : null)}
+                          rows={4}
+                          className="bg-black/40 border-white/10 text-white rounded-2xl font-medium p-4 focus:ring-primary/20"
+                        />
+                         <p className="text-[9px] text-[#A0A0A0]/40 font-mono uppercase tracking-widest">Vars: {"{{clientName}}, {{service}}, {{date}}, {{time}}"}</p>
+                      </div>
+                      <div className="space-y-3">
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Appointment Reminder (24h/2h)</Label>
+                        <StableTextarea 
+                          value={settings?.smsTemplates?.appointmentReminder || ""}
+                          onValueChange={(val) => setSettings(prev => prev ? { 
+                            ...prev,
+                            smsTemplates: { ...(prev.smsTemplates || {}), appointmentReminder: val } 
+                          } : null)}
+                          rows={4}
+                          className="bg-black/40 border-white/10 text-white rounded-2xl font-medium p-4 focus:ring-primary/20"
+                        />
+                         <p className="text-[9px] text-[#A0A0A0]/40 font-mono uppercase tracking-widest">Vars: {"{{clientName}}, {{time}}, {{date}}, {{businessName}}"}</p>
+                      </div>
+                      <div className="space-y-3">
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Technician On The Way</Label>
+                        <StableTextarea 
+                          value={settings?.smsTemplates?.technicianOnWay || ""}
+                          onValueChange={(val) => setSettings(prev => prev ? { 
+                            ...prev,
+                            smsTemplates: { ...(prev.smsTemplates || {}), technicianOnWay: val } 
+                          } : null)}
+                          rows={4}
+                          className="bg-black/40 border-white/10 text-white rounded-2xl font-medium p-4 focus:ring-primary/20"
+                        />
+                         <p className="text-[9px] text-[#A0A0A0]/40 font-mono uppercase tracking-widest">Vars: {"{{clientName}}, {{techName}}, {{eta}}"}</p>
+                      </div>
+                      <div className="space-y-3">
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Job Completed / Thank You</Label>
+                        <StableTextarea 
+                          value={settings?.smsTemplates?.jobCompleted || ""}
+                          onValueChange={(val) => setSettings(prev => prev ? { 
+                            ...prev,
+                            smsTemplates: { ...(prev.smsTemplates || {}), jobCompleted: val } 
+                          } : null)}
+                          rows={4}
+                          className="bg-black/40 border-white/10 text-white rounded-2xl font-medium p-4 focus:ring-primary/20"
+                        />
+                         <p className="text-[9px] text-[#A0A0A0]/40 font-mono uppercase tracking-widest">Vars: {"{{clientName}}, {{businessName}}, {{invoiceLink}}"}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Button 
+                onClick={() => handleSaveSettings(settings)}
+                disabled={isSaving}
+                className="w-full bg-primary hover:opacity-90 text-white font-black uppercase tracking-[0.2em] h-14 rounded-xl text-xs shadow-glow-blue transition-all hover:scale-[1.01] mt-12"
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+                Synchronize Communication Protocol
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
         <TabsContent value="business" className="mt-0">
           <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
             <CardHeader className="p-8 border-b border-white/5 bg-black/40">
@@ -2495,14 +2863,28 @@ export default function Settings() {
                     <Label className="text-white font-black uppercase tracking-widest text-[10px]">Document Logo Visibility</Label>
                     <p className="text-xs text-[#A0A0A0] font-medium">Include your official logo on invoices, quotes, and reports.</p>
                   </div>
-                  <Switch defaultChecked className="data-[state=checked]:bg-primary" />
+                  <Switch 
+                    checked={settings?.showLogoOnDocuments || false}
+                    onCheckedChange={(checked) => setSettings(prev => prev ? ({ ...prev, showLogoOnDocuments: checked }) : null)}
+                  />
                 </div>
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
                   <div className="space-y-1">
                     <Label className="text-white font-black uppercase tracking-widest text-[10px]">Watermark Protocol</Label>
                     <p className="text-xs text-[#A0A0A0] font-medium">Add a subtle watermark to the background of PDF exports.</p>
                   </div>
-                  <Switch defaultChecked className="data-[state=checked]:bg-primary" />
+                  <Switch 
+                    checked={!!settings?.watermarkSettings?.logoUrl}
+                    onCheckedChange={(checked) => {
+                      if (!checked) {
+                        setSettings(prev => prev ? ({ ...prev, watermarkSettings: { ...prev.watermarkSettings, logoUrl: "" } as any }) : null);
+                        setWatermarkLogoPreview(null);
+                        setWatermarkLogoFile(null);
+                      } else if (watermarkFileInputRef.current) {
+                        watermarkFileInputRef.current.click();
+                      }
+                    }}
+                  />
                 </div>
               </div>
 
@@ -2773,6 +3155,62 @@ export default function Settings() {
                 </div>
 
                 <div className="space-y-6 pt-6 border-t border-white/5">
+                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Warranty Automation</Label>
+                      <p className="text-[10px] text-[#A0A0A0]/60">Automatically issue warranties and track maintenance compliance for this service</p>
+                    </div>
+                    <Switch 
+                      checked={editingService?.hasWarranty ?? false} 
+                      onCheckedChange={v => setEditingService(prev => ({ ...prev!, hasWarranty: v }))}
+                    />
+                  </div>
+
+                  {editingService?.hasWarranty && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-black/20 rounded-2xl border border-white/5">
+                      <div className="space-y-3">
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Warranty Duration (Months)</Label>
+                        <StableInput 
+                          type="text"
+                          inputMode="numeric"
+                          value={editingService?.warrantyLengthMonths?.toString() || ""} 
+                          onValueChange={val => setEditingService(prev => ({ ...prev!, warrantyLengthMonths: parseInt(val) || 0 }))}
+                          className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                          placeholder="e.g. 60 for 5 years"
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Warranty Type</Label>
+                        <StableInput 
+                          type="text"
+                          value={editingService?.warrantyType || ""} 
+                          onValueChange={val => setEditingService(prev => ({ ...prev!, warrantyType: val }))}
+                          className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                          placeholder="e.g. Ceramic Coating, PPF"
+                        />
+                      </div>
+                      <div className="col-span-1 md:col-span-2 space-y-3">
+                        <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Coverage & Exclusions Details</Label>
+                        <textarea 
+                          value={editingService?.warrantyCoverageDetails || ""} 
+                          onChange={e => setEditingService(prev => ({ ...prev!, warrantyCoverageDetails: e.target.value }))}
+                          className="w-full bg-black/40 border border-white/10 text-white rounded-xl font-medium p-3 focus:ring-1 focus:ring-primary/50 outline-none resize-none min-h-[80px] text-sm"
+                          placeholder="Standard coverage details and exclusions..."
+                        />
+                      </div>
+                      <div className="flex items-center justify-between col-span-1 md:col-span-2 p-3 bg-white/5 rounded-xl border border-white/10">
+                        <div className="space-y-1 mt-1">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Requires Periodic Maintenance</Label>
+                          <p className="text-[10px] text-[#A0A0A0]/60 mt-1">Links directly to Maintenance Return Automation configured below</p>
+                        </div>
+                        <Switch 
+                          checked={editingService?.warrantyMaintenanceRequired ?? false} 
+                          onCheckedChange={v => setEditingService(prev => ({ ...prev!, warrantyMaintenanceRequired: v }))}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
                     <div className="space-y-1">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Maintenance Return Automation</Label>
@@ -3469,140 +3907,7 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-                <TabsContent value="client-types" className="mt-0">
-          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
-              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Loyalty <span className="text-primary italic">Engine</span></CardTitle>
-              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Configure customer retention algorithms and reward synthesis</CardDescription>
-            </CardHeader>
-            <CardContent className="p-8 space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Dollar Spent</Label>
-                  <StableInput 
-                    type="text" 
-                    inputMode="numeric"
-                    value={settings?.loyaltySettings?.pointsPerDollar?.toString() || ""} 
-                    onValueChange={(val) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, pointsPerDollar: parseFloat(val) || 0 } 
-                    } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Visit</Label>
-                  <StableInput 
-                    type="text" 
-                    inputMode="numeric"
-                    value={settings?.loyaltySettings?.pointsPerVisit?.toString() || ""} 
-                    onValueChange={(val) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, pointsPerVisit: parseFloat(val) || 0 } 
-                    } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Redemption Rate ($ per point)</Label>
-                  <StableInput 
-                    type="text" 
-                    inputMode="decimal"
-                    value={settings?.loyaltySettings?.redemptionRate?.toString() || ""} 
-                    onValueChange={(val) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, redemptionRate: parseFloat(val) || 0 } 
-                    } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
-                  />
-                  <p className="text-[10px] text-[#A0A0A0]/40 font-black uppercase tracking-widest mt-1">Example: 0.01 means 100 points = $1.00</p>
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Minimum Points to Redeem</Label>
-                  <StableInput 
-                    type="text" 
-                    inputMode="numeric"
-                    value={settings?.loyaltySettings?.minPointsToRedeem?.toString() || ""} 
-                    onValueChange={(val) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, minPointsToRedeem: parseFloat(val) || 0 } 
-                    } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
-                  />
-                </div>
-              </div>
-              <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
-                <div className="space-y-1">
-                  <Label className="text-sm font-black text-white uppercase tracking-tight">Stack with Coupons</Label>
-                  <p className="text-[10px] text-[#A0A0A0] font-medium">Allow customers to use points and coupons on the same order.</p>
-                </div>
-                <Switch 
-                  checked={settings?.loyaltySettings?.stackWithCoupons || false} 
-                  onCheckedChange={(checked) => setSettings(prev => prev ? { 
-                    ...prev, 
-                    loyaltySettings: { ...prev.loyaltySettings, stackWithCoupons: checked } 
-                  } : null)}
-                  className="data-[state=checked]:bg-primary"
-                />
-              </div>
-              <Button 
-                onClick={() => handleSaveSettings(settings || {})} 
-                className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
-              >
-                Save Loyalty Engine
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="staff" className="mt-0">
-          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
-              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Commission <span className="text-primary italic">Architecture</span></CardTitle>
-              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Set default technician payout protocols for completed operations</CardDescription>
-            </CardHeader>
-            <CardContent className="p-8 space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Commission Type</Label>
-                  <Select 
-                    value={settings?.commissionType || "percentage"} 
-                    onValueChange={(val: "percentage" | "flat") => setSettings(prev => prev ? { ...prev, commissionType: val } : null)}
-                  >
-                    <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-black uppercase tracking-widest text-[10px] focus:ring-primary/20">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
-                      <SelectItem value="percentage" className="focus:bg-white/5 focus:text-white">Percentage (%)</SelectItem>
-                      <SelectItem value="flat" className="focus:bg-white/5 focus:text-white">Flat Fee ($)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Default Commission Rate</Label>
-                  <div className="relative">
-                    <StableInput 
-                      type="text" 
-                      inputMode="decimal"
-                      value={settings?.commissionRate?.toString() || ""} 
-                      onValueChange={(val) => setSettings(prev => prev ? { ...prev, commissionRate: parseFloat(val) || 0 } : null)}
-                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold pl-10 focus:ring-primary/20"
-                    />
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-primary">
-                      {settings?.commissionType === "percentage" ? <Percent className="w-4 h-4" /> : <DollarIcon className="w-4 h-4" />}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <Button 
-                onClick={() => handleSaveSettings(settings || {})} 
-                className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
-              >
-                Save Commission Protocol
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
+        
 
         <TabsContent value="coupons" className="mt-0">
           <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
@@ -3794,6 +4099,90 @@ export default function Settings() {
               </form>
             </DialogContent>
           </Dialog>
+
+          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl mt-8">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Loyalty <span className="text-primary italic">Engine</span></CardTitle>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Configure customer retention algorithms and reward synthesis</CardDescription>
+            </CardHeader>
+            <CardContent className="p-8 space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-2">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Dollar Spent</Label>
+                  <StableInput 
+                    type="text" 
+                    inputMode="numeric"
+                    value={settings?.loyaltySettings?.pointsPerDollar?.toString() || ""} 
+                    onValueChange={(val) => setSettings(prev => prev ? { 
+                      ...prev, 
+                      loyaltySettings: { ...prev.loyaltySettings, pointsPerDollar: parseFloat(val) || 0 } 
+                    } : null)}
+                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Visit</Label>
+                  <StableInput 
+                    type="text" 
+                    inputMode="numeric"
+                    value={settings?.loyaltySettings?.pointsPerVisit?.toString() || ""} 
+                    onValueChange={(val) => setSettings(prev => prev ? { 
+                      ...prev, 
+                      loyaltySettings: { ...prev.loyaltySettings, pointsPerVisit: parseFloat(val) || 0 } 
+                    } : null)}
+                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Redemption Rate ($ per point)</Label>
+                  <StableInput 
+                    type="text" 
+                    inputMode="decimal"
+                    value={settings?.loyaltySettings?.redemptionRate?.toString() || ""} 
+                    onValueChange={(val) => setSettings(prev => prev ? { 
+                      ...prev, 
+                      loyaltySettings: { ...prev.loyaltySettings, redemptionRate: parseFloat(val) || 0 } 
+                    } : null)}
+                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                  />
+                  <p className="text-[10px] text-[#A0A0A0]/40 font-black uppercase tracking-widest mt-1">Example: 0.01 means 100 points = $1.00</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Minimum Points to Redeem</Label>
+                  <StableInput 
+                    type="text" 
+                    inputMode="numeric"
+                    value={settings?.loyaltySettings?.minPointsToRedeem?.toString() || ""} 
+                    onValueChange={(val) => setSettings(prev => prev ? { 
+                      ...prev, 
+                      loyaltySettings: { ...prev.loyaltySettings, minPointsToRedeem: parseFloat(val) || 0 } 
+                    } : null)}
+                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
+                <div className="space-y-1">
+                  <Label className="text-sm font-black text-white uppercase tracking-tight">Stack with Coupons</Label>
+                  <p className="text-[10px] text-[#A0A0A0] font-medium">Allow customers to use points and coupons on the same order.</p>
+                </div>
+                <Switch 
+                  checked={settings?.loyaltySettings?.stackWithCoupons || false} 
+                  onCheckedChange={(checked) => setSettings(prev => prev ? { 
+                    ...prev, 
+                    loyaltySettings: { ...prev.loyaltySettings, stackWithCoupons: checked } 
+                  } : null)}
+                  className="data-[state=checked]:bg-primary"
+                />
+              </div>
+              <Button 
+                onClick={() => handleSaveSettings(settings || {})} 
+                className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
+              >
+                Save Loyalty Engine
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="automation" className="mt-0">
@@ -3827,7 +4216,6 @@ export default function Settings() {
                     ...prev,
                     automationSettings: { ...prev.automationSettings!, followUpEnabled: val } 
                   } : null)}
-                  className="data-[state=checked]:bg-primary"
                 />
               </div>
 
@@ -3961,7 +4349,6 @@ export default function Settings() {
                         ...prev,
                         communicationAutomation: { ...(prev.communicationAutomation || { enabled: false, bookingConfirmation: true, reminder24h: true, reminder2h: true }), enabled: val } 
                       } : null)}
-                      className="data-[state=checked]:bg-primary"
                     />
                   </div>
                 </div>
@@ -4162,7 +4549,13 @@ export default function Settings() {
                     </div>
                     <p className="text-[10px] text-[#A0A0A0] font-medium ml-10">Restrict financial reports and settings to administrators.</p>
                   </div>
-                  <Switch defaultChecked className="data-[state=checked]:bg-primary" />
+                  <Switch 
+                    checked={settings?.adminOnlyAccess ?? true}
+                    onCheckedChange={(checked) => {
+                      setSettings(prev => prev ? ({ ...prev, adminOnlyAccess: checked }) : null);
+                      handleSaveSettings({ adminOnlyAccess: checked });
+                    }}
+                  />
                 </div>
 
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">

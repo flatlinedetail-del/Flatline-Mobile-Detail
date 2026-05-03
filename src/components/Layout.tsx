@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import AIAssistant from "./AIAssistant";
 import GlobalSearch from "./GlobalSearch";
 import Logo from "./Logo";
+import { SyncIndicator } from "./SyncIndicator";
 
 const navigationGroups = [
   {
@@ -21,7 +22,7 @@ const navigationGroups = [
       { name: "Clients", href: "/clients", icon: Users },
       { name: "Risk Management", href: "/protected-clients", icon: ShieldAlert, adminOnly: true },
       { name: "Communications", href: "/communications", icon: MessagesSquare },
-      { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck, adminOnly: true },
+      { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck },
     ]
   },
   {
@@ -83,7 +84,7 @@ function NotificationBell() {
 }
 
 export default function Layout() {
-  const { logout, profile, isQuotaExceeded } = useAuth();
+  const { logout, profile, systemStatus, canAccessAdmin, canAccessManager } = useAuth();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -102,10 +103,8 @@ export default function Layout() {
     });
   };
 
-  const isAdminOrManager = profile?.role === "admin" || profile?.role === "manager";
-
   const renderNavItem = (item: any, isMobile = false) => {
-    if (item.adminOnly && !isAdminOrManager) return null;
+    if (item.adminOnly && !canAccessAdmin) return null;
 
     const isActive = location.pathname === item.href.split('?')[0] && 
                      (item.href.includes('?') ? location.search === `?${item.href.split('?')[1]}` : true);
@@ -118,23 +117,20 @@ export default function Layout() {
         to={item.href}
         onClick={() => isMobile && setIsMobileMenuOpen(false)}
         className={cn(
-          "flex items-center rounded-xl text-sm font-medium transition-all duration-300 group relative",
+          "flex items-center rounded-xl text-sm font-medium transition-all duration-300 group relative text-white",
           isActive
-            ? "bg-[#0A4DFF] text-white shadow-glow-blue"
+            ? "bg-[#0A4DFF] shadow-glow-blue"
             : isWaitlistGlow
-              ? "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
-              : "text-white hover:bg-white/5 hover:text-white",
+              ? "bg-amber-500/40 hover:bg-amber-500/60"
+              : "hover:bg-white/10",
           isSidebarCollapsed && !isMobile ? "justify-center w-12 h-12 mx-auto" : "gap-3 px-3 py-2.5 w-full",
           isWaitlistGlow && !isActive && "animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.3)] border border-amber-500/20"
         )}
         title={isSidebarCollapsed && !isMobile ? item.name : undefined}
       >
-        <item.icon className={cn("w-5 h-5 transition-transform group-hover:scale-110 shrink-0", isActive ? "text-white" : isWaitlistGlow ? "text-amber-500" : "text-white")} />
+        <item.icon className="w-5 h-5 transition-transform group-hover:scale-110 shrink-0 text-white" />
         {(!isSidebarCollapsed || isMobile) && (
-          <span className={cn(
-            "tracking-tight font-bold truncate flex-1",
-            isActive ? "text-white" : isWaitlistGlow ? "text-amber-500" : "text-white group-hover:text-white"
-          )}>
+          <span className="tracking-tight font-bold truncate flex-1 text-white">
             {item.name}
           </span>
         )}
@@ -147,17 +143,44 @@ export default function Layout() {
     );
   };
 
+  const getSystemStatusBanner = () => {
+    if (systemStatus === 'normal') return null;
+
+    let message = "";
+    let bgColor = "bg-red-600";
+    let icon = <ShieldAlert className="w-4 h-4 animate-pulse" />;
+
+    switch (systemStatus) {
+      case 'offline':
+        message = "Offline mode — showing cached data";
+        bgColor = "bg-amber-600";
+        break;
+      case 'permission-denied':
+        message = "Database permission issue";
+        bgColor = "bg-red-700";
+        break;
+      case 'quota-exhausted':
+        message = "Firestore quota exhausted • Database operations restricted • Using cached data";
+        bgColor = "bg-red-600";
+        break;
+      default:
+        return null;
+    }
+
+    return (
+      <div className={cn(bgColor, "text-white px-6 py-2 flex items-center justify-center gap-3 animate-in fade-in slide-in-from-top duration-500 sticky top-0 z-[100] shadow-lg")}>
+        {icon}
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-center">
+          {message}
+        </p>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col font-sans selection:bg-primary selection:text-white">
-      {/* Quota Exhausted Banner */}
-      {isQuotaExceeded && (
-        <div className="bg-red-600 text-white px-6 py-2 flex items-center justify-center gap-3 animate-in fade-in slide-in-from-top duration-500 sticky top-0 z-[100] shadow-lg">
-          <ShieldAlert className="w-4 h-4 animate-pulse" />
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-center">
-            System Alert: Firestore Daily Quota Exhausted • Database operations restricted until reset • System using cached data
-          </p>
-        </div>
-      )}
+      {/* System Status Banner */}
+      {getSystemStatusBanner()}
       
       <div className="flex-1 flex min-w-0 h-full">
         {/* Sidebar for Desktop */}
@@ -172,7 +195,9 @@ export default function Layout() {
           </div>
           <nav className={cn("flex-1 space-y-6 overflow-y-auto custom-scrollbar pb-6 transition-all duration-300", isSidebarCollapsed ? "px-2" : "px-4")}>
             {navigationGroups.map((group) => {
-              const hasVisibleItems = group.items.some(item => !item.adminOnly || isAdminOrManager);
+              const hasVisibleItems = group.items.some(item => 
+                (!item.adminOnly || canAccessAdmin)
+              );
               if (!hasVisibleItems) return null;
               return (
                 <div key={group.title} className={cn("space-y-2", isSidebarCollapsed && "flex flex-col items-center")}>
@@ -189,54 +214,51 @@ export default function Layout() {
             })}
           </nav>
           <div className="p-4 border-t border-sidebar-border bg-black/20">
-            {!isSidebarCollapsed ? (
-              <div className="flex items-center gap-4 mb-6 px-2">
-                <div className="relative group shrink-0">
-                  <div className="w-10 h-10 bg-[#0A4DFF]/20 rounded-xl overflow-hidden ring-2 ring-[#0A4DFF]/20 group-hover:ring-[#0A4DFF]/50 transition-all duration-300">
-                    {profile?.photoURL ? (
-                      <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-[#0A4DFF] font-bold">
-                        {profile?.displayName?.charAt(0)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-sidebar rounded-full shadow-sm"></div>
+            <Link 
+              to="/settings?tab=profile" 
+              className={cn(
+                "flex items-center gap-4 mb-6 px-2 py-2 rounded-2xl hover:bg-white/5 transition-all duration-300 group/profile overflow-hidden",
+                isSidebarCollapsed && "justify-center px-0"
+              )}
+            >
+              <div className="relative shrink-0">
+                <div className="w-10 h-10 bg-[#0A4DFF]/20 rounded-xl overflow-hidden ring-2 ring-[#0A4DFF]/20 group-hover/profile:ring-[#0A4DFF]/50 transition-all duration-300 flex items-center justify-center">
+                  {profile?.photoURL ? (
+                    <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-[#0A4DFF] font-black text-sm uppercase">
+                      {profile?.displayName?.split(' ').map(n => n[0]).join('').slice(0, 2) || profile?.email?.charAt(0).toUpperCase() || "?"}
+                    </div>
+                  )}
                 </div>
+                <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-sidebar rounded-full shadow-sm ring-1 ring-black/20"></div>
+              </div>
+              
+              {!isSidebarCollapsed && (
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-white truncate tracking-tight">{profile?.displayName}</p>
-                  <p className="text-[10px] text-[#0A4DFF] truncate uppercase tracking-widest font-black">{profile?.role}</p>
+                  <p className="text-sm font-bold text-white truncate tracking-tight transition-colors">
+                    {profile?.displayName || profile?.email?.split('@')[0] || "User"}
+                  </p>
+                  <p className="text-[10px] text-white truncate uppercase tracking-widest font-black flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-primary animate-pulse"></span>
+                    {profile?.role === "owner" ? "OWNER / ADMIN" : (profile?.role || "Member")}
+                  </p>
                 </div>
-              </div>
-            ) : (
-              <div className="flex justify-center mb-6">
-                <div className="relative group shrink-0">
-                  <div className="w-10 h-10 bg-[#0A4DFF]/20 rounded-xl overflow-hidden ring-2 ring-[#0A4DFF]/20 group-hover:ring-[#0A4DFF]/50">
-                    {profile?.photoURL ? (
-                      <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-[#0A4DFF] font-bold">
-                        {profile?.displayName?.charAt(0)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-sidebar rounded-full shadow-sm"></div>
-                </div>
-              </div>
-            )}
+              )}
+            </Link>
             
             <Button 
               variant="ghost" 
               className={cn(
-                "text-white hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-300 group",
+                "text-white hover:text-white hover:bg-white/10 rounded-xl transition-all duration-300 group",
                 isSidebarCollapsed ? "w-12 h-12 mx-auto justify-center px-0 flex" : "w-full justify-start"
               )} 
               onClick={logout}
               title={isSidebarCollapsed ? "Sign Out" : undefined}
             >
-              <LogOut className={cn("w-5 h-5 transition-transform shrink-0", !isSidebarCollapsed && "mr-3", isSidebarCollapsed && "group-hover:scale-110")} />
+              <LogOut className={cn("w-5 h-5 transition-transform shrink-0 text-white", !isSidebarCollapsed && "mr-3", isSidebarCollapsed && "group-hover:scale-110")} />
               {!isSidebarCollapsed && (
-                <span className="font-bold text-xs uppercase tracking-widest">
+                <span className="font-bold text-xs uppercase tracking-widest text-white">
                   Sign Out
                 </span>
               )}
@@ -249,7 +271,7 @@ export default function Layout() {
           {/* Top Header */}
           <header className={cn(
             "bg-sidebar/95 backdrop-blur-xl border-b border-white/5 px-6 md:px-10 py-4 flex items-center justify-between sticky z-10 h-20",
-            isQuotaExceeded ? "top-0" : "top-0"
+            systemStatus !== 'normal' ? "top-[36px]" : "top-0"
           )}>
           <div className="flex items-center gap-6 flex-1">
             <Button 
@@ -271,6 +293,7 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-3 md:gap-6">
+            <SyncIndicator />
             <div className="flex items-center gap-2">
               <Sheet open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
                 <NotificationBell />
@@ -305,7 +328,9 @@ export default function Layout() {
                 </div>
                 <nav className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-180px)] custom-scrollbar">
                   {navigationGroups.map((group) => {
-                    const hasVisibleItems = group.items.some(item => !item.adminOnly || isAdminOrManager);
+                    const hasVisibleItems = group.items.some(item => 
+                      (!item.adminOnly || canAccessAdmin)
+                    );
                     if (!hasVisibleItems) return null;
                     return (
                       <div key={group.title} className="space-y-2">
