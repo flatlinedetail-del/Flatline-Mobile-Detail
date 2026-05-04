@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, query, where, onSnapshot, orderBy, Timestamp } from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy, limit, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { AppNotification } from "../types";
 import { useAuth } from "./useAuth";
