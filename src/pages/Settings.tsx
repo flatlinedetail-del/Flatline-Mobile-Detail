@@ -1,19 +1,54 @@
 import { useState, useEffect, useRef } from "react";
-import { doc, updateDoc, getDoc, setDoc, collection, query, onSnapshot, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
-import { db, auth, storage, handleFirestoreError, OperationType } from "../firebase";
+import { doc, updateDoc, getDoc, setDoc, collection, query, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { 
-  User, Settings as SettingsIcon, Shield, Bell, CreditCard, Database, Map as MapIcon, Globe, 
-  DatabaseZap, Loader2, Palette, Image as ImageIcon, Layout, Truck, MapPin, Plus, 
-  Trash2, Edit2, Check, X, Star, Percent, DollarSign as DollarIcon, ClipboardList, 
-  Tag, Ticket, Lock, Eye, EyeOff, Users, ShieldAlert, ShieldCheck, Upload, ChevronRight, Menu, Plug, Calendar, Link, Building2, Zap, Save, Clock, MessageSquare, Smartphone, Send, AlertCircle
+  User, 
+  Shield, 
+  Bell, 
+  CreditCard, 
+  Database, 
+  Globe, 
+  DatabaseZap, 
+  Loader2, 
+  Palette, 
+  Layout, 
+  Truck, 
+  Plus, 
+  Trash2, 
+  Edit2, 
+  Check, 
+  Star, 
+  Percent, 
+  ClipboardList, 
+  Tag, 
+  Ticket, 
+  Lock, 
+  Users, 
+  ShieldAlert, 
+  ShieldCheck, 
+  Upload, 
+  Calendar, 
+  Link, 
+  Building2, 
+  Zap, 
+  Save, 
+  Clock, 
+  MessageSquare, 
+  Smartphone, 
+  Send, 
+  AlertCircle, 
+  ArrowUp, 
+  ArrowDown,
+  Image as ImageIcon,
+  DollarSign as DollarIcon
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -23,7 +58,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
-import { resizeImage, cn, formatPhoneNumber, formatCurrency } from "../lib/utils";
+import { cn } from "../lib/utils";
 import { StandardInput } from "../components/StandardInput";
 import { StableInput } from "../components/StableInput";
 import { StableTextarea } from "../components/StableTextarea";
@@ -31,9 +66,11 @@ import { NumberInput } from "../components/NumberInput";
 import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon } from "../types";
 import { migrateDataToClients } from "../services/clientService";
 import { processFollowUps } from "../services/automationService";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { GripVertical, ArrowUp, ArrowDown } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+
+import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
+import { linkGoogleCalendar, getGoogleCalendarToken, unlinkGoogleCalendar } from "../services/googleCalendarService";
+import MapZoneEditor from "../components/MapZoneEditor";
 
 const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
   { label: "Small", value: "small" },
@@ -41,21 +78,6 @@ const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
   { label: "Large", value: "large" },
   { label: "Extra Large", value: "extra_large" },
 ];
-
-import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
-import { 
-  AlertDialog, 
-  AlertDialogAction, 
-  AlertDialogCancel, 
-  AlertDialogContent, 
-  AlertDialogDescription, 
-  AlertDialogFooter, 
-  AlertDialogHeader, 
-  AlertDialogTitle, 
-  AlertDialogTrigger 
-} from "@/components/ui/alert-dialog";
-import { linkGoogleCalendar, getGoogleCalendarToken, unlinkGoogleCalendar } from "../services/googleCalendarService";
-import MapZoneEditor from "../components/MapZoneEditor";
 
 const removeUndefined = (obj: any): any => {
   if (Array.isArray(obj)) {
@@ -575,13 +597,13 @@ export default function Settings() {
         updates.role = role;
       }
 
-      // Handle avatar updates
+      // Handle avatar updates via Firebase Storage
       if (isAvatarRemoved) {
         updates.photoURL = null;
       } else if (avatarPreview && avatarFile) {
-        // Resize and update avatar base64
-        const compressedDataUrl = await resizeImage(avatarPreview, 200);
-        updates.photoURL = compressedDataUrl;
+        const storageRef = ref(storage, `avatars/${profile?.uid}`);
+        const uploadTask = await uploadBytes(storageRef, avatarFile);
+        updates.photoURL = await getDownloadURL(uploadTask.ref);
       }
       
       const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
@@ -969,13 +991,17 @@ export default function Settings() {
       let finalLogoUrl = settings.logoUrl;
       let finalWatermarkLogoUrl = settings.watermarkSettings?.logoUrl;
 
-      // If a new logo file was selected, we should eventually upload to Storage
+      // Real Firebase Storage Uploads
       if (logoPreview && logoFile) {
-        finalLogoUrl = await resizeImage(logoPreview, 800);
+        const storageRef = ref(storage, `branding/logos/${profile?.uid}_${Date.now()}`);
+        const uploadTask = await uploadBytes(storageRef, logoFile);
+        finalLogoUrl = await getDownloadURL(uploadTask.ref);
       }
 
       if (watermarkLogoPreview && watermarkLogoFile) {
-        finalWatermarkLogoUrl = await resizeImage(watermarkLogoPreview, 800);
+        const storageRef = ref(storage, `branding/watermarks/${profile?.uid}_${Date.now()}`);
+        const uploadTask = await uploadBytes(storageRef, watermarkLogoFile);
+        finalWatermarkLogoUrl = await getDownloadURL(uploadTask.ref);
       }
 
       await handleSaveSettings({ 
@@ -1200,6 +1226,12 @@ export default function Settings() {
               className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Ticket className="w-4 h-4" /> Growth Incentives
+            </TabsTrigger>
+            <TabsTrigger 
+              value="loyalty" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Star className="w-4 h-4" /> Loyalty Engine
             </TabsTrigger>
             {hasAccessToSensitiveSettings && (
               <TabsTrigger 
@@ -3907,7 +3939,98 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        
+        <TabsContent value="loyalty" className="mt-0">
+          <div className="space-y-8 max-w-4xl">
+            <div className="space-y-2">
+              <h2 className="text-3xl font-black text-white uppercase tracking-tighter text-glow">Loyalty <span className="text-primary italic">Architecture</span></h2>
+              <p className="text-[#A0A0A0] text-sm font-medium">Configure customer retention algorithms and reward synthesis protocols.</p>
+            </div>
+
+            <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+              <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+                <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Loyalty <span className="text-primary italic">Engine</span></CardTitle>
+                <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Configure customer retention algorithms and reward synthesis</CardDescription>
+              </CardHeader>
+              <CardContent className="p-8 space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-2">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Dollar Spent</Label>
+                    <StableInput 
+                      type="text" 
+                      inputMode="numeric"
+                      value={settings?.loyaltySettings?.pointsPerDollar?.toString() || ""} 
+                      onValueChange={(val) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        loyaltySettings: { ...prev.loyaltySettings, pointsPerDollar: parseFloat(val) || 0 } 
+                      } : null)}
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Visit</Label>
+                    <StableInput 
+                      type="text" 
+                      inputMode="numeric"
+                      value={settings?.loyaltySettings?.pointsPerVisit?.toString() || ""} 
+                      onValueChange={(val) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        loyaltySettings: { ...prev.loyaltySettings, pointsPerVisit: parseFloat(val) || 0 } 
+                      } : null)}
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Redemption Rate ($ per point)</Label>
+                    <StableInput 
+                      type="text" 
+                      inputMode="decimal"
+                      value={settings?.loyaltySettings?.redemptionRate?.toString() || ""} 
+                      onValueChange={(val) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        loyaltySettings: { ...prev.loyaltySettings, redemptionRate: parseFloat(val) || 0 } 
+                      } : null)}
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                    />
+                    <p className="text-[10px] text-[#A0A0A0]/40 font-black uppercase tracking-widest mt-1">Example: 0.01 means 100 points = $1.00</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Minimum Points to Redeem</Label>
+                    <StableInput 
+                      type="text" 
+                      inputMode="numeric"
+                      value={settings?.loyaltySettings?.minPointsToRedeem?.toString() || ""} 
+                      onValueChange={(val) => setSettings(prev => prev ? { 
+                        ...prev, 
+                        loyaltySettings: { ...prev.loyaltySettings, minPointsToRedeem: parseFloat(val) || 0 } 
+                      } : null)}
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-black text-white uppercase tracking-tight">Stack with Coupons</Label>
+                    <p className="text-[10px] text-[#A0A0A0] font-medium">Allow customers to use points and coupons on the same order.</p>
+                  </div>
+                  <Switch 
+                    checked={settings?.loyaltySettings?.stackWithCoupons || false} 
+                    onCheckedChange={(checked) => setSettings(prev => prev ? { 
+                      ...prev, 
+                      loyaltySettings: { ...prev.loyaltySettings, stackWithCoupons: checked } 
+                    } : null)}
+                    className="data-[state=checked]:bg-primary"
+                  />
+                </div>
+                <Button 
+                  onClick={() => handleSaveSettings(settings || {})} 
+                  className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
+                >
+                  <Save className="w-4 h-4 mr-2" /> Save Loyalty Protocol
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         <TabsContent value="coupons" className="mt-0">
           <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
@@ -4100,89 +4223,6 @@ export default function Settings() {
             </DialogContent>
           </Dialog>
 
-          <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl mt-8">
-            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
-              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Loyalty <span className="text-primary italic">Engine</span></CardTitle>
-              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Configure customer retention algorithms and reward synthesis</CardDescription>
-            </CardHeader>
-            <CardContent className="p-8 space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Dollar Spent</Label>
-                  <StableInput 
-                    type="text" 
-                    inputMode="numeric"
-                    value={settings?.loyaltySettings?.pointsPerDollar?.toString() || ""} 
-                    onValueChange={(val) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, pointsPerDollar: parseFloat(val) || 0 } 
-                    } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Points Per Visit</Label>
-                  <StableInput 
-                    type="text" 
-                    inputMode="numeric"
-                    value={settings?.loyaltySettings?.pointsPerVisit?.toString() || ""} 
-                    onValueChange={(val) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, pointsPerVisit: parseFloat(val) || 0 } 
-                    } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Redemption Rate ($ per point)</Label>
-                  <StableInput 
-                    type="text" 
-                    inputMode="decimal"
-                    value={settings?.loyaltySettings?.redemptionRate?.toString() || ""} 
-                    onValueChange={(val) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, redemptionRate: parseFloat(val) || 0 } 
-                    } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
-                  />
-                  <p className="text-[10px] text-[#A0A0A0]/40 font-black uppercase tracking-widest mt-1">Example: 0.01 means 100 points = $1.00</p>
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Minimum Points to Redeem</Label>
-                  <StableInput 
-                    type="text" 
-                    inputMode="numeric"
-                    value={settings?.loyaltySettings?.minPointsToRedeem?.toString() || ""} 
-                    onValueChange={(val) => setSettings(prev => prev ? { 
-                      ...prev, 
-                      loyaltySettings: { ...prev.loyaltySettings, minPointsToRedeem: parseFloat(val) || 0 } 
-                    } : null)}
-                    className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
-                  />
-                </div>
-              </div>
-              <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 group hover:border-primary/30 transition-all">
-                <div className="space-y-1">
-                  <Label className="text-sm font-black text-white uppercase tracking-tight">Stack with Coupons</Label>
-                  <p className="text-[10px] text-[#A0A0A0] font-medium">Allow customers to use points and coupons on the same order.</p>
-                </div>
-                <Switch 
-                  checked={settings?.loyaltySettings?.stackWithCoupons || false} 
-                  onCheckedChange={(checked) => setSettings(prev => prev ? { 
-                    ...prev, 
-                    loyaltySettings: { ...prev.loyaltySettings, stackWithCoupons: checked } 
-                  } : null)}
-                  className="data-[state=checked]:bg-primary"
-                />
-              </div>
-              <Button 
-                onClick={() => handleSaveSettings(settings || {})} 
-                className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 px-10 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-[1.02]"
-              >
-                Save Loyalty Engine
-              </Button>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="automation" className="mt-0">

@@ -56,32 +56,48 @@ export async function processFollowUps() {
         
         const client = { id: clientSnap.id, ...clientSnap.data() } as Client;
 
-        // 4. Determine content
-        let emailBody = automation.emailBody || "";
-        emailBody = emailBody.replace("{{firstName}}", client.firstName || client.name);
-        emailBody = emailBody.replace("{{businessName}}", settings.businessName);
-
-        // Add review link if applicable
-        if (automation.includeReviewLink && (client.isOneTime || !client.legacyId)) {
-          emailBody += `\n\nWe'd love to hear your feedback! Please leave us a review here: ${automation.googleReviewUrl}`;
-        }
+        // 4. Determine content based on channel
+        const businessName = settings.businessName || "DetailFlow";
+        const clientFirstName = client.firstName || client.name || "Customer";
 
         // 4.5 Actually send
         if (automation.channels === 'email' || automation.channels === 'both') {
           if (client.email) {
+            let emailBody = automation.emailBody || "";
+            emailBody = emailBody.replace("{{firstName}}", clientFirstName);
+            emailBody = emailBody.replace("{{businessName}}", businessName);
+            
+            // Add review link if applicable
+            if (automation.includeReviewLink && (client.isOneTime || !client.legacyId)) {
+              if (automation.googleReviewUrl) {
+                emailBody += `\n\nWe'd love to hear your feedback! Please leave us a review here: ${automation.googleReviewUrl}`;
+              }
+            }
+
             await messagingService.sendEmail({
               to: client.email,
-              subject: `${settings.businessName} - Following Up`,
-              text: emailBody, // using text to preserve newlines naturally since it's just a raw template
+              subject: automation.emailSubject?.replace("{{firstName}}", clientFirstName) || `${businessName} - Following Up`,
+              text: emailBody, 
             }).catch(e => console.error("Follow-up email failed", e));
           }
         }
 
         if (automation.channels === 'sms' || automation.channels === 'both') {
           if (client.phone) {
+            let smsBody = automation.smsBody || automation.emailBody || ""; // Fallback to email body if sms body is missing
+            smsBody = smsBody.replace("{{firstName}}", clientFirstName);
+            smsBody = smsBody.replace("{{businessName}}", businessName);
+
+            // Add short review link if applicable
+            if (automation.includeReviewLink && (client.isOneTime || !client.legacyId)) {
+              if (automation.googleReviewUrl) {
+                smsBody += `\n\nReview: ${automation.googleReviewUrl}`;
+              }
+            }
+
             await messagingService.sendSms({
               to: client.phone,
-              body: emailBody
+              body: smsBody
             }).catch(e => console.error("Follow-up SMS failed", e));
           }
         }
@@ -92,7 +108,7 @@ export async function processFollowUps() {
           clientId: client.id,
           type: "follow_up",
           channel: automation.channels,
-          content: emailBody,
+          content: "Automated message sent",
           sentAt: serverTimestamp(),
           status: "sent"
         });
