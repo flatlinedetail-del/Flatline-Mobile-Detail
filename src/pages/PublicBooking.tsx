@@ -282,9 +282,7 @@ export default function PublicBooking() {
         id: 'client-risk-' + registeredClient.id,
         isActive: true,
         protectionLevel: inherentRisk,
-        riskReason: "Risk level detected on client profile.",
-        requiredDepositValue: 25,
-        requiredDepositType: "percentage"
+        riskReason: "Risk level detected on client profile."
       });
     } else {
       setMatchedRiskRule(null);
@@ -715,8 +713,10 @@ export default function PublicBooking() {
     let isRequired = false;
     let source = "service";
 
-    // 1. Check matched risk rule FIRST (Manual Adjustment)
-    if (matchedRiskRule) {
+    const hasRiskDeposit = matchedRiskRule && Number(matchedRiskRule.requiredDepositValue || 0) > 0;
+
+    // 1. Check matched risk rule FIRST. Risk deposits take priority and never stack.
+    if (hasRiskDeposit) {
       isRequired = true;
       amount = matchedRiskRule.requiredDepositValue || 0;
       type = matchedRiskRule.requiredDepositType || "fixed";
@@ -1148,8 +1148,8 @@ export default function PublicBooking() {
                       <div className="space-y-4">
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Request a Date & Time</Label>
                         <div className="space-y-2">
-                          <div className="relative">
-                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary pointer-events-none z-10" />
+                          <div className="relative group">
+                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary opacity-100 pointer-events-none z-10 group-focus-within:text-primary" />
                             <Input
                               type="datetime-local"
                               value={scheduledAt}
@@ -1242,7 +1242,7 @@ export default function PublicBooking() {
                                         id="flexibleSameDay" 
                                         checked={flexibleSameDay} 
                                         onCheckedChange={(c) => setFlexibleSameDay(c as boolean)} 
-                                        className="h-5 w-5 border-2 border-red-300 data-[state=checked]:bg-red-800 data-[state=checked]:border-red-800"
+                                        className="h-5 w-5 border-2 border-primary focus-visible:ring-primary/30 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                                       />
                                       <Label htmlFor="flexibleSameDay" className="text-sm font-bold text-red-900 cursor-pointer">
                                         I am flexible for ANY TIME on my requested day
@@ -1466,7 +1466,9 @@ export default function PublicBooking() {
                             <p className={cn("text-sm font-bold mt-1", matchedRiskRule.protectionLevel === "Block Booking" ? "text-white" : "text-gray-800")}>
                               {matchedRiskRule.protectionLevel === "Block Booking" 
                                 ? "This account has been restricted. We are not accepting new automated bookings for this client at this time. Please contact us directly."
-                                : <>Based on our risk management protocols, a deposit of <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> is required to secure this booking.</>
+                                : depositInfo.source === "risk_rule"
+                                  ? <>Based on our risk management protocols, a deposit of <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> is required to secure this booking.</>
+                                  : "This client has a risk flag on file. No risk-management deposit requirement is configured for this booking."
                               }
                             </p>
                           </div>
