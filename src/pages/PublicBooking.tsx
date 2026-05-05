@@ -20,6 +20,73 @@ import Logo from "../components/Logo";
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
 
+type PublicVehicleSize = "coupe" | "sedan" | "suv_small" | "suv_large" | "truck" | "van" | "luxury";
+
+type PublicBookingVehicle = {
+  year?: string;
+  make?: string;
+  model?: string;
+  type?: string;
+  bodyStyle?: string;
+  vehicleInfo?: string;
+};
+
+const TRUCK_KEYWORDS = [
+  "gmc sierra",
+  "sierra hd",
+  "chevy silverado",
+  "chevrolet silverado",
+  "silverado",
+  "silverado hd",
+  "ford f-150",
+  "ford f150",
+  "f-150",
+  "f150",
+  "1500",
+  "2500",
+  "3500",
+  "hd",
+  "heavy duty",
+  "dually",
+  "pickup",
+  "truck",
+];
+
+const VAN_KEYWORDS = ["sprinter", "transit", "promaster", "cargo van", "minivan", "van"];
+const LARGE_SUV_KEYWORDS = ["tahoe", "suburban", "yukon", "expedition", "escalade", "navigator", "sequoia", "armada", "large suv", "full-size suv", "full size suv"];
+const SMALL_SUV_KEYWORDS = ["suv", "crossover", "rav4", "cr-v", "crv", "rogue", "equinox", "escape", "forester", "tucson", "sportage", "cherokee"];
+const COUPE_KEYWORDS = ["coupe", "compact", "hatchback"];
+const LUXURY_VEHICLE_KEYWORDS = ["aston martin", "ferrari", "lamborghini", "bentley", "rolls royce", "rolls-royce", "porsche", "mclaren", "maserati", "maybach", "lotus", "bugatti", "luxury", "exotic"];
+
+const buildVehicleSource = (vehicle: PublicBookingVehicle) =>
+  [
+    vehicle.year,
+    vehicle.make,
+    vehicle.model,
+    vehicle.type,
+    vehicle.bodyStyle,
+    vehicle.vehicleInfo,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+const hasVehicleKeyword = (source: string, keywords: string[]) =>
+  keywords.some(keyword => source.includes(keyword));
+
+const detectPublicVehicleSize = (vehicle: PublicBookingVehicle): PublicVehicleSize => {
+  const source = buildVehicleSource(vehicle);
+
+  if (hasVehicleKeyword(source, VAN_KEYWORDS)) return "van";
+  if (hasVehicleKeyword(source, TRUCK_KEYWORDS)) return "truck";
+  if (hasVehicleKeyword(source, LUXURY_VEHICLE_KEYWORDS)) return "luxury";
+  if (hasVehicleKeyword(source, LARGE_SUV_KEYWORDS)) return "suv_large";
+  if (hasVehicleKeyword(source, SMALL_SUV_KEYWORDS)) return "suv_small";
+  if (hasVehicleKeyword(source, COUPE_KEYWORDS)) return "coupe";
+
+  return "sedan";
+};
+
 const getVehicleImage = (size: string) => {
   switch (size) {
     case 'coupe': return 'https://images.unsplash.com/photo-1610444391624-9dfc1fbced24?auto=format&fit=crop&q=80&w=800';
@@ -131,11 +198,14 @@ export default function PublicBooking() {
     lng: 0,
     vehicleInfo: "",
     vehicleSize: "sedan",
+    vehicleYear: "",
+    vehicleMake: "",
+    vehicleModel: "",
     vehicleColor: "",
     vehiclePlate: ""
   });
   
-  const [clientGoal, setClientGoal] = useState("");
+  const [clientGoals, setClientGoals] = useState<string[]>([]);
   const [condition, setCondition] = useState({
     interior: "",
     exterior: "",
@@ -160,9 +230,13 @@ export default function PublicBooking() {
   const [clientNote, setClientNote] = useState("");
   const [alternativeTimes, setAlternativeTimes] = useState<Date[]>([]);
   const [isBackupAvailable, setIsBackupAvailable] = useState<boolean | null>(null);
+  const [selectedVehicleKey, setSelectedVehicleKey] = useState("");
+  const [vehicleSizeManuallyChanged, setVehicleSizeManuallyChanged] = useState(false);
 
   const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
   const recommendationAddonIdsRef = useRef<string[]>([]);
+  const clientGoal = clientGoals.join(", ");
+  const bookingNavButtonClass = "bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105";
 
   const [protectedClients, setProtectedClients] = useState<any[]>([]);
   const [allClients, setAllClients] = useState<any[]>([]);
@@ -212,6 +286,33 @@ export default function PublicBooking() {
       setMatchedRiskRule(null);
     }
   }, [clientInfo.email, clientInfo.phone, protectedClients, allClients]);
+
+  const handleVehicleSelect = (vehicle: PublicBookingVehicle) => {
+    const vehicleInfo = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim();
+    const vehicleKey = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join("|").toLowerCase();
+    const isBrandNewVehicle = vehicleKey !== selectedVehicleKey;
+    const detectedVehicleSize = detectPublicVehicleSize({ ...vehicle, vehicleInfo });
+
+    setClientInfo(prev => ({
+      ...prev,
+      vehicleInfo,
+      vehicleSize: isBrandNewVehicle || !vehicleSizeManuallyChanged ? detectedVehicleSize : prev.vehicleSize,
+      vehicleYear: vehicle.year || "",
+      vehicleMake: vehicle.make || "",
+      vehicleModel: vehicle.model || ""
+    }));
+    setSelectedVehicleKey(vehicleKey);
+
+    if (isBrandNewVehicle) {
+      setVehicleSizeManuallyChanged(false);
+    }
+  };
+
+  const toggleClientGoal = (goal: string) => {
+    setClientGoals(prev => (
+      prev.includes(goal) ? prev.filter(item => item !== goal) : [...prev, goal]
+    ));
+  };
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -477,6 +578,7 @@ export default function PublicBooking() {
         completedTasks: {},
         bookingFunnelData: {
           clientGoal,
+          clientGoals,
           condition,
           recommendedServiceId: recommendedChoice.recommendedService?.id || null,
           lowerCostServiceId: recommendedChoice.lowerCostService?.id || null,
@@ -705,12 +807,15 @@ export default function PublicBooking() {
                     <CardContent className="p-8 space-y-6">
                       <div className="space-y-4">
                         <VehicleSelector 
-                          onSelect={(v) => setClientInfo(prev => ({ ...prev, vehicleInfo: `${v.year} ${v.make} ${v.model}` }))}
+                          onSelect={handleVehicleSelect}
                         />
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="space-y-2">
                             <Label className="text-gray-900 font-bold">Vehicle Size</Label>
-                            <Select value={clientInfo.vehicleSize} onValueChange={v => setClientInfo(prev => ({...prev, vehicleSize: v}))}>
+                            <Select value={clientInfo.vehicleSize} onValueChange={v => {
+                              setVehicleSizeManuallyChanged(true);
+                              setClientInfo(prev => ({...prev, vehicleSize: v}));
+                            }}>
                               <SelectTrigger className="border-gray-300 text-gray-900 focus:ring-primary/20">
                                 <SelectValue placeholder="Select Size" />
                               </SelectTrigger>
@@ -754,7 +859,7 @@ export default function PublicBooking() {
               {/* STEP 2: NEEDS */}
               {step === 2 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
-                  <AssistantBubble text="Got it! What are the main goals for this detail? Select the option that best fits." />
+                  <AssistantBubble text="Got it! What are the main goals for this detail? Select all that apply." />
                   
                   <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
                     <CardContent className="p-8 space-y-6">
@@ -773,9 +878,9 @@ export default function PublicBooking() {
                             key={goal}
                             className={cn(
                               "p-4 rounded-xl border-2 transition-all cursor-pointer font-bold text-center",
-                              clientGoal === goal ? "border-primary bg-primary/5 text-primary shadow-glow-blue" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
+                              clientGoals.includes(goal) ? "border-primary bg-primary/5 text-primary shadow-glow-blue" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
                             )}
-                            onClick={() => setClientGoal(goal)}
+                            onClick={() => toggleClientGoal(goal)}
                           >
                             {goal}
                           </div>
@@ -783,11 +888,11 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(1)}>Back</Button>
+                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(1)}>Back</Button>
                         <Button 
                           type="button" 
-                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
-                          disabled={!clientGoal}
+                          className={bookingNavButtonClass}
+                          disabled={clientGoals.length === 0}
                           onClick={() => setStep(3)}
                         >
                           Next <ArrowRight className="w-5 h-5 ml-2" />
@@ -895,7 +1000,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(2)}>Back</Button>
+                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(2)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
@@ -975,7 +1080,7 @@ export default function PublicBooking() {
                       )}
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(3)}>Back</Button>
+                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(3)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
@@ -1130,7 +1235,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(4)}>Back</Button>
+                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(4)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105 disabled:opacity-50"
@@ -1199,7 +1304,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(5)}>Back</Button>
+                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(5)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
@@ -1317,7 +1422,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(6)}>Back</Button>
+                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(6)}>Back</Button>
                         <Button 
                           type="submit" 
                           form="booking-form"
@@ -1360,12 +1465,12 @@ export default function PublicBooking() {
                {/* Show Recommendation Panel starting Step 3 or 4 */}
                {(step >= 3 && recommendedChoice.recommendedService) && (
                  <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-900 text-xs font-black uppercase tracking-widest gap-2 border border-emerald-200 shadow-sm">
-                      <Star className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600" />
+                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-black uppercase tracking-widest gap-2 border border-primary/20 shadow-glow-blue">
+                      <Star className="w-3.5 h-3.5 fill-primary text-primary" />
                       Recommended for your vehicle
                     </div>
                     
-                    <Card className="border-2 border-emerald-500 shadow-xl overflow-hidden rounded-3xl bg-white transition-all">
+                    <Card className="border-2 border-primary shadow-glow-blue overflow-hidden rounded-3xl bg-white transition-all">
                       <CardContent className="p-6">
                         <div className="flex justify-between items-start mb-4">
                           <div>
@@ -1391,7 +1496,7 @@ export default function PublicBooking() {
                           <div className="space-y-1.5 mb-4 px-2">
                             {recommendedChoice.recommendedService.description.split('\n').filter(Boolean).map((item, idx) => (
                               <div key={idx} className="flex items-start gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                                 <span className="text-sm font-medium text-gray-700">{item.replace(/^-\s*/, '')}</span>
                               </div>
                             ))}
@@ -1412,7 +1517,7 @@ export default function PublicBooking() {
                         <Button 
                           type="button" 
                           onClick={handleAcceptRecommendation}
-                          className="w-full mt-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-lg shadow-emerald-200 group"
+                          className="w-full mt-6 bg-primary hover:bg-[#2A6CFF] focus-visible:ring-primary/30 text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-glow-blue transition-all hover:scale-105 group"
                         >
                           Accept Recommendation
                           <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
