@@ -1,14 +1,11 @@
 import React from "react";
 import { cn } from "@/lib/utils";
 import { useSettings } from "../hooks/useSettings";
-import type { BusinessSettings } from "../types";
 
 interface LogoProps {
   className?: string;
   variant?: "full" | "icon";
   color?: "default" | "white";
-  brand?: "platform" | "business";
-  settingsOverride?: BusinessSettings | null;
   scaleOverride?: number;
   xOverride?: number;
   yOverride?: number;
@@ -18,27 +15,23 @@ export default function Logo({
   className, 
   variant = "full", 
   color = "default",
-  brand = "platform",
-  settingsOverride,
   scaleOverride,
   xOverride,
   yOverride
 }: LogoProps) {
-  const { settings: authSettings } = useSettings();
-  const settings = settingsOverride ?? authSettings;
+  const { settings } = useSettings();
   const primaryColor = color === "white" ? "#FFFFFF" : "#0F172A"; // Slate 900
   const accentColor = "#0A4DFF"; // DetailFlow Blue
 
-  const isBusinessBrand = brand === "business";
-  const businessName = isBusinessBrand ? (settings?.businessName || "DETAILFLOW") : "DETAILFLOW";
+  const businessName = settings?.businessName || "DETAILFLOW";
   const firstWord = businessName.split(" ")[0];
-  const restOfName = isBusinessBrand ? (businessName.split(" ").slice(1).join(" ") || "BUSINESS BRAND") : "OPERATIONS OS";
+  const restOfName = businessName.split(" ").slice(1).join(" ") || "OPERATIONS OS";
 
   const scale = scaleOverride ?? settings?.logoSettings?.scale ?? 1;
   const x = xOverride ?? settings?.logoSettings?.x ?? 0;
   const y = yOverride ?? settings?.logoSettings?.y ?? 0;
 
-  if (isBusinessBrand && settings?.logoUrl) {
+  if (settings?.logoUrl) {
     return (
       <div className={cn("flex items-center gap-3", className)}>
         <div className={cn(variant === "full" ? "h-12 w-12" : "h-10 w-10", "flex-shrink-0 relative overflow-hidden")}>

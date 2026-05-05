@@ -19,39 +19,31 @@ const navigationGroups = [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Calendar", href: "/calendar", icon: Calendar },
       { name: "Waitlist", href: "/waitlist", icon: ClipboardList },
-      { name: "Jobs / Bookings", href: "/book-appointment", icon: Building2 },
       { name: "Clients", href: "/clients", icon: Users },
-      { name: "Leads", href: "/leads", icon: UserPlus },
       { name: "Risk Management", href: "/protected-clients", icon: ShieldAlert, adminOnly: true },
       { name: "Communications", href: "/communications", icon: MessagesSquare },
       { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck },
     ]
   },
   {
-    title: "SALES & MONEY",
+    title: "SALES & GROWTH",
     items: [
-      { name: "Smart Quote", href: "/quotes", icon: FileText },
-      { name: "Invoices", href: "/invoices", icon: Receipt },
-      { name: "Expenses", href: "/expenses", icon: Wallet },
-      { name: "Coupons", href: "/settings?tab=coupons", icon: Ticket, adminOnly: true },
+      { name: "Leads", href: "/leads", icon: UserPlus },
       { name: "Marketing", href: "/marketing", icon: MessageSquare },
+      { name: "Smart Quote", href: "/quotes", icon: FileText },
     ]
   },
   {
-    title: "BUSINESS SETUP",
+    title: "FINANCE",
     items: [
-      { name: "Services & Add-Ons", href: "/settings?tab=services", icon: ClipboardList, adminOnly: true },
-      { name: "Warranty Tracking", href: "/clients?view=warranty", icon: ShieldCheck },
-      { name: "Staff Management", href: "/settings?tab=staff", icon: Users, adminOnly: true },
-      { name: "Automations", href: "/settings?tab=automation", icon: Zap, adminOnly: true },
-      { name: "Integrations", href: "/settings?tab=integrations", icon: Plug, adminOnly: true },
+      { name: "Invoices", href: "/invoices", icon: Receipt },
+      { name: "Expenses", href: "/expenses", icon: Wallet },
     ]
   },
   {
     title: "REPORTING",
     items: [
       { name: "Reports", href: "/reports", icon: BarChart, adminOnly: true },
-      { name: "Pricing Insights", href: "/reports?view=pricing", icon: BarChart, adminOnly: true },
     ]
   },
   {
@@ -60,7 +52,12 @@ const navigationGroups = [
       { name: "Personal Profile", href: "/settings?tab=profile", icon: User },
       { name: "Business Profile", href: "/settings?tab=business", icon: Globe, adminOnly: true },
       { name: "Branding", href: "/settings?tab=branding", icon: Palette, adminOnly: true },
+      { name: "Staff Management", href: "/settings?tab=staff", icon: Users, adminOnly: true },
       { name: "Client Settings", href: "/settings?tab=client-types", icon: DatabaseZap, adminOnly: true },
+      { name: "Services & Add-Ons", href: "/settings?tab=services", icon: ClipboardList, adminOnly: true },
+      { name: "Coupons", href: "/settings?tab=coupons", icon: Ticket, adminOnly: true },
+      { name: "Automations", href: "/settings?tab=automation", icon: Zap, adminOnly: true },
+      { name: "Integrations", href: "/settings?tab=integrations", icon: Plug, adminOnly: true },
       { name: "Security", href: "/settings?tab=security", icon: Shield, adminOnly: true },
       { name: "Help", href: "/help", icon: HelpCircle },
     ]
@@ -95,7 +92,7 @@ export default function Layout() {
   const activeWaitlistCount = useWaitlistCount();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem('sidebarCollapsed');
-    return saved === null ? true : saved === 'true';
+    return saved === 'true';
   });
 
   const toggleSidebar = () => {
@@ -104,18 +101,6 @@ export default function Layout() {
       localStorage.setItem('sidebarCollapsed', String(next));
       return next;
     });
-  };
-
-  const handleNavSelection = (isMobile: boolean) => {
-    if (isMobile) {
-      setIsMobileMenuOpen(false);
-      return;
-    }
-
-    if (!isSidebarCollapsed) {
-      setIsSidebarCollapsed(true);
-      localStorage.setItem('sidebarCollapsed', 'true');
-    }
   };
 
   const renderNavItem = (item: any, isMobile = false) => {
@@ -130,7 +115,7 @@ export default function Layout() {
       <Link
         key={item.href}
         to={item.href}
-        onClick={() => handleNavSelection(isMobile)}
+        onClick={() => isMobile && setIsMobileMenuOpen(false)}
         className={cn(
           "flex items-center rounded-xl text-sm font-medium transition-all duration-300 group relative text-white",
           isActive
@@ -151,11 +136,6 @@ export default function Layout() {
         )}
         {(!isSidebarCollapsed || isMobile) && item.name === "Waitlist" && activeWaitlistCount > 0 && (
           <Badge className="bg-amber-500 text-white border-none py-0 px-1.5 h-5 text-[10px] font-black shrink-0">
-            {activeWaitlistCount}
-          </Badge>
-        )}
-        {isSidebarCollapsed && !isMobile && item.name === "Waitlist" && activeWaitlistCount > 0 && (
-          <Badge className="absolute -top-1 -right-1 bg-amber-500 text-white border-2 border-sidebar py-0 px-1 min-w-5 h-5 text-[10px] font-black rounded-full">
             {activeWaitlistCount}
           </Badge>
         )}

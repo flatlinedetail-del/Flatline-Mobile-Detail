@@ -79,74 +79,6 @@ const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
   { label: "Extra Large", value: "extra_large" },
 ];
 
-const COLOR_MAPPING_PRESETS = [
-  { label: "Blue", value: "#3b82f6" },
-  { label: "Purple", value: "#a855f7" },
-  { label: "Gold", value: "#eab308" },
-  { label: "Red", value: "#ef4444" },
-  { label: "Green", value: "#22c55e" },
-  { label: "Cyan", value: "#06b6d4" },
-  { label: "Pink", value: "#ec4899" },
-  { label: "Slate", value: "#64748b" },
-];
-
-const SERVICE_COLOR_PRESETS = [
-  { label: "Blue", value: "#3b82f6" },
-  { label: "Purple", value: "#a855f7" },
-  { label: "Gold", value: "#eab308" },
-  { label: "Red", value: "#ef4444" },
-  { label: "Green", value: "#22c55e" },
-  { label: "Cyan", value: "#06b6d4" },
-  { label: "Pink", value: "#ec4899" },
-  { label: "Slate", value: "#64748b" },
-];
-
-const DEFAULT_CALENDAR_COLORS: Record<string, string> = {
-  scheduled: "#3b82f6",
-  confirmed: "#10b981",
-  en_route: "#0A4DFF",
-  in_progress: "#f97316",
-  completed: "#22c55e",
-  canceled: "#ef4444",
-  vip: "#eab308",
-};
-
-const DEFAULT_SERVICE_COLORS: Record<string, string> = {
-  Exterior: "#3b82f6",
-  Interior: "#a855f7",
-  Ceramic: "#eab308",
-  Mold: "#ef4444",
-  Fleet: "#22c55e",
-};
-
-const isHexColor = (value?: string) => !!value && /^#[0-9a-fA-F]{6}$/.test(value);
-
-const getVisualCalendarColor = (value: string | undefined, fallback: string) => {
-  if (isHexColor(value)) return value;
-  const raw = value || fallback;
-  if (raw.includes("purple")) return "#a855f7";
-  if (raw.includes("yellow") || raw.includes("gold")) return "#eab308";
-  if (raw.includes("red")) return "#ef4444";
-  if (raw.includes("green")) return "#22c55e";
-  if (raw.includes("cyan")) return "#06b6d4";
-  if (raw.includes("pink")) return "#ec4899";
-  if (raw.includes("slate") || raw.includes("gray")) return "#64748b";
-  return "#3b82f6";
-};
-
-const getVisualServiceColor = (value: string | undefined, fallback: string) => {
-  if (isHexColor(value)) return value;
-  const raw = value || fallback;
-  if (raw.includes("purple")) return "#a855f7";
-  if (raw.includes("yellow") || raw.includes("gold")) return "#eab308";
-  if (raw.includes("red")) return "#ef4444";
-  if (raw.includes("green")) return "#22c55e";
-  if (raw.includes("cyan")) return "#06b6d4";
-  if (raw.includes("pink")) return "#ec4899";
-  if (raw.includes("slate") || raw.includes("gray")) return "#64748b";
-  return "#3b82f6";
-};
-
 const removeUndefined = (obj: any): any => {
   if (Array.isArray(obj)) {
     return obj.map(removeUndefined);
@@ -1090,7 +1022,7 @@ export default function Settings() {
         }
       });
 
-      toast.success("Business branding authorized and deployed.", { id: toastId });
+      toast.success("Branding authorized and deployed.", { id: toastId });
       setLogoFile(null); // Clear pending file
       setWatermarkLogoFile(null);
     } catch (error) {
@@ -1204,40 +1136,6 @@ export default function Settings() {
       };
     });
     if (watermarkFileInputRef.current) watermarkFileInputRef.current.value = "";
-  };
-
-  const handleCalendarColorChange = (key: string, color: string) => {
-    setSettings(prev => prev ? ({
-      ...prev,
-      calendarColors: {
-        ...(prev.calendarColors || {}),
-        [key]: color
-      }
-    }) : null);
-
-    handleSaveSettings({
-      calendarColors: {
-        ...(settings?.calendarColors || {}),
-        [key]: color
-      }
-    });
-  };
-
-  const handleServiceColorChange = (key: string, color: string) => {
-    setSettings(prev => prev ? ({
-      ...prev,
-      serviceColors: {
-        ...(prev.serviceColors || {}),
-        [key]: color
-      }
-    }) : null);
-
-    handleSaveSettings({
-      serviceColors: {
-        ...(settings?.serviceColors || {}),
-        [key]: color
-      }
-    });
   };
 
   const handleTabChange = (value: string) => {
@@ -2553,21 +2451,15 @@ export default function Settings() {
           <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
             <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Visual <span className="text-primary italic">Branding</span></CardTitle>
-              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Manage customer-facing business branding for invoices, quotes, booking, and documents</CardDescription>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Manage your business logo and document identity</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-10">
-              <div className="p-5 bg-primary/10 border border-primary/20 rounded-2xl">
-                <p className="text-white font-black uppercase tracking-widest text-[10px]">DetailFlow Platform Logo</p>
-                <p className="text-[#A0A0A0] text-xs font-medium mt-1">
-                  DetailFlow remains the permanent app shell and login identity. Uploads here update the customer-facing business logo only.
-                </p>
-              </div>
               {/* Premium Logo Manager */}
               <div className="space-y-8">
                 <div className="flex flex-col lg:flex-row gap-10">
                   {/* Logo Preview Canvas */}
                   <div className="flex-1 space-y-4">
-                    <Label className="text-white font-black uppercase tracking-widest text-[10px] opacity-40">Customer-Facing Business Logo Preview</Label>
+                    <Label className="text-white font-black uppercase tracking-widest text-[10px] opacity-40">System Preview Canvas</Label>
                     <div className={cn(
                       "relative w-full aspect-square md:aspect-video rounded-[2.5rem] border-2 border-dashed border-white/5 overflow-hidden shadow-2xl transition-all duration-500 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]",
                       logoAdjustments.background === 'dark' ? "bg-black" : 
@@ -2617,7 +2509,7 @@ export default function Settings() {
                   <div className="w-full lg:w-96 space-y-8 p-8 bg-white/5 rounded-[2.5rem] border border-white/5 backdrop-blur-sm">
                     <div className="space-y-6">
                       <div className="flex items-center justify-between">
-                        <h4 className="text-white font-black uppercase tracking-widest text-[11px]">Business Logo Adjustment Suite</h4>
+                        <h4 className="text-white font-black uppercase tracking-widest text-[11px]">Adjustment Suite</h4>
                         <Button 
                           variant="ghost" 
                           size="sm"
@@ -2751,7 +2643,7 @@ export default function Settings() {
                     className="bg-primary hover:opacity-90 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02] min-w-[200px]"
                   >
                     <Upload className="w-4 h-4 mr-2" />
-                    Upload Business Logo
+                    Deploy New Logo Asset
                   </Button>
                   {(logoPreview || settings?.logoUrl) && (
                     <Button 
@@ -2772,7 +2664,7 @@ export default function Settings() {
                     className="bg-white text-black hover:bg-gray-200 font-black h-12 px-10 rounded-xl uppercase tracking-widest text-[10px] shadow-xl transition-all hover:scale-[1.02]"
                   >
                     {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-                    Authorize & Deploy Business Branding
+                    Authorize & Deploy Branding
                   </Button>
                 </div>
 
@@ -2790,7 +2682,7 @@ export default function Settings() {
                     Requirement Parameters: PNG | WEBP | JPG (MAX 5MB)
                   </p>
                   <p className="text-white/20 text-[8px] font-black uppercase tracking-[0.2em] leading-relaxed italic">
-                    * Business logo adjustments are calculated locally. Permanent synchronization with cloud infrastructure requires primary authorization.
+                    * Interactive adjustments are calculated locally. Permanent synchronization with cloud infrastructure requires primary authorization.
                   </p>
                 </div>
               </div>
@@ -2803,14 +2695,14 @@ export default function Settings() {
                   </div>
                   <div>
                     <h4 className="text-sm font-black text-white uppercase tracking-widest">Client Profile Watermark</h4>
-                    <p className="text-[10px] text-[#A0A0A0] font-medium uppercase tracking-widest">Configure the large business watermark for client headers</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-medium uppercase tracking-widest">Configure the large background watermark for client headers</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                   <div className="space-y-6">
                     <div className="space-y-4">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Customer Watermark Asset</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Watermark Asset</Label>
                       <div className="flex items-center gap-6 p-6 bg-black/40 rounded-[2rem] border border-white/5">
                         <div className="w-24 h-24 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
                           {watermarkLogoPreview || settings?.watermarkSettings?.logoUrl ? (
@@ -3000,8 +2892,8 @@ export default function Settings() {
               <div className="space-y-10">
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
                   <div className="space-y-1">
-                    <Label className="text-white font-black uppercase tracking-widest text-[10px]">Document Business Logo Visibility</Label>
-                    <p className="text-xs text-[#A0A0A0] font-medium">Include your business logo on invoices, quotes, reports, and customer documents.</p>
+                    <Label className="text-white font-black uppercase tracking-widest text-[10px]">Document Logo Visibility</Label>
+                    <p className="text-xs text-[#A0A0A0] font-medium">Include your official logo on invoices, quotes, and reports.</p>
                   </div>
                   <Switch 
                     checked={settings?.showLogoOnDocuments || false}
@@ -3029,16 +2921,9 @@ export default function Settings() {
               </div>
 
               <div className="space-y-6">
-                <Label className="text-white font-black uppercase tracking-widest text-[10px]">Customer-Facing Logo Scale</Label>
+                <Label className="text-white font-black uppercase tracking-widest text-[10px]">Asset Scale in Documents</Label>
                 <div className="pt-4 px-2">
-                  <Slider 
-                    value={[logoAdjustments.scale]} 
-                    min={0.1}
-                    max={3}
-                    step={0.01}
-                    onValueChange={(vals) => setLogoAdjustments(prev => ({ ...prev, scale: vals[0] }))}
-                    className="[&_[role=slider]]:bg-primary" 
-                  />
+                  <Slider defaultValue={[50]} max={100} step={1} className="[&_[role=slider]]:bg-primary" />
                 </div>
                 <div className="flex justify-between text-[8px] text-[#A0A0A0]/20 font-black uppercase tracking-[0.2em]">
                   <span>Minimal</span>
@@ -3071,7 +2956,7 @@ export default function Settings() {
                 className="w-full bg-primary hover:opacity-90 text-white font-black uppercase tracking-[0.2em] h-14 rounded-xl text-xs shadow-glow-blue transition-all hover:scale-[1.01] mt-12"
               >
                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-                Authorize Final Business Branding Protocol
+                Authorize Final Branding Protocol
               </Button>
             </CardContent>
           </Card>
@@ -5096,66 +4981,32 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="p-8 space-y-6">
                 {[
-                  { key: 'scheduled', label: 'Scheduled', default: DEFAULT_CALENDAR_COLORS.scheduled },
-                  { key: 'confirmed', label: 'Confirmed', default: DEFAULT_CALENDAR_COLORS.confirmed },
-                  { key: 'en_route', label: 'En Route', default: DEFAULT_CALENDAR_COLORS.en_route },
-                  { key: 'in_progress', label: 'In Progress / Arrived', default: DEFAULT_CALENDAR_COLORS.in_progress },
-                  { key: 'completed', label: 'Completed', default: DEFAULT_CALENDAR_COLORS.completed },
-                  { key: 'canceled', label: 'Canceled / No Show', default: DEFAULT_CALENDAR_COLORS.canceled },
-                  { key: 'vip', label: 'VIP Status Highlight', default: DEFAULT_CALENDAR_COLORS.vip }
-                ].map(({ key, label, default: def }) => {
-                  const storedColor = settings?.calendarColors?.[key];
-                  const visualColor = getVisualCalendarColor(storedColor, def);
-
-                  return (
-                    <div key={key} className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 p-4 bg-white/5 border border-white/5 rounded-2xl">
-                      <div className="flex items-center gap-4">
-                        <div
-                          className="w-12 h-12 rounded-2xl border border-white/10 shadow-lg shrink-0"
-                          style={{ backgroundColor: visualColor, boxShadow: `0 0 16px ${visualColor}66` }}
-                        />
-                        <div>
-                          <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
-                          <p className="text-[10px] text-white/40 font-medium uppercase tracking-widest mt-1">Saved value: {storedColor || visualColor}</p>
-                        </div>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                        <div
-                          className="px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border bg-black/40 text-white"
-                          style={{ borderColor: visualColor, boxShadow: `0 0 12px ${visualColor}55` }}
-                        >
-                          Preview
-                        </div>
-                        <label className="flex items-center gap-3 h-12 px-4 rounded-xl bg-black/40 border border-white/10 cursor-pointer hover:border-primary/40 transition-colors">
-                          <span className="text-[9px] font-black uppercase tracking-widest text-white/60">Pick Color</span>
-                          <input
-                            type="color"
-                            value={visualColor}
-                            onChange={(e) => handleCalendarColorChange(key, e.target.value)}
-                            className="h-8 w-10 rounded-lg bg-transparent border-none cursor-pointer"
-                            aria-label={`Choose ${label} mapping color`}
-                          />
-                        </label>
-                        <div className="flex flex-wrap gap-2">
-                          {COLOR_MAPPING_PRESETS.map((preset) => (
-                            <button
-                              key={preset.value}
-                              type="button"
-                              onClick={() => handleCalendarColorChange(key, preset.value)}
-                              className={cn(
-                                "w-7 h-7 rounded-full border-2 transition-all hover:scale-110",
-                                visualColor.toLowerCase() === preset.value.toLowerCase() ? "border-white shadow-glow-blue" : "border-white/10"
-                              )}
-                              style={{ backgroundColor: preset.value }}
-                              title={preset.label}
-                              aria-label={`Use ${preset.label} for ${label}`}
-                            />
-                          ))}
-                        </div>
-                      </div>
+                  { key: 'scheduled', label: 'Scheduled', default: 'bg-gray-100 text-gray-700 border-gray-200' },
+                  { key: 'confirmed', label: 'Confirmed', default: 'bg-black text-white border-black' },
+                  { key: 'en_route', label: 'En Route', default: 'bg-red-50 text-primary border-red-200' },
+                  { key: 'in_progress', label: 'In Progress / Arrived', default: 'bg-primary text-white border-primary' },
+                  { key: 'completed', label: 'Completed', default: 'bg-green-100 text-green-700 border-green-200' },
+                  { key: 'canceled', label: 'Canceled / No Show', default: 'bg-red-100 text-red-700 border-red-200' },
+                  { key: 'vip', label: 'VIP Status Highlight', default: 'ring-2 ring-yellow-500 shadow-yellow-500/50' }
+                ].map(({ key, label, default: def }) => (
+                  <div key={key} className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
+                    <div>
+                      <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
+                      <p className="text-xs text-white/50 font-mono mt-1">{settings?.calendarColors?.[key] || def}</p>
                     </div>
-                  );
-                })}
+                    <div className="flex items-center gap-4">
+                      <div className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border ${settings?.calendarColors?.[key] || def}`}>
+                        Preview
+                      </div>
+                      <Input 
+                        value={settings?.calendarColors?.[key] || def}
+                        onChange={(e) => handleSaveSettings({ calendarColors: { ...(settings?.calendarColors || {}), [key]: e.target.value } })}
+                        placeholder="CSS Classes (e.g., bg-red-500 text-white)"
+                        className="w-[300px] bg-black/40 border-white/10 text-white font-mono text-xs rounded-xl"
+                      />
+                    </div>
+                  </div>
+                ))}
               </CardContent>
             </Card>
 
@@ -5169,64 +5020,30 @@ export default function Settings() {
               <CardContent className="p-8 space-y-6">
                 <div className="grid grid-cols-1 gap-4">
                   {[
-                    { key: 'Exterior', label: 'Basic / Exterior', default: DEFAULT_SERVICE_COLORS.Exterior },
-                    { key: 'Interior', label: 'Interior', default: DEFAULT_SERVICE_COLORS.Interior },
-                    { key: 'Ceramic', label: 'Ceramic / Protection / Coating', default: DEFAULT_SERVICE_COLORS.Ceramic },
-                    { key: 'Mold', label: 'Mold / Biohazard', default: DEFAULT_SERVICE_COLORS.Mold },
-                    { key: 'Fleet', label: 'Fleet / Commercial / Vendor', default: DEFAULT_SERVICE_COLORS.Fleet },
-                  ].map(({ key, label, default: def }) => {
-                    const storedColor = settings?.serviceColors?.[key];
-                    const visualColor = getVisualServiceColor(storedColor, def);
-
-                    return (
-                      <div key={key} className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 p-4 bg-white/5 border border-white/5 rounded-2xl">
-                        <div className="flex items-center gap-4">
-                          <div
-                            className="w-12 h-12 rounded-2xl border border-white/10 shadow-lg shrink-0"
-                            style={{ backgroundColor: visualColor, boxShadow: `0 0 16px ${visualColor}66` }}
-                          />
-                          <div>
-                            <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
-                            <p className="text-[10px] text-white/40 font-medium uppercase tracking-widest mt-1">Saved value: {storedColor || visualColor}</p>
-                          </div>
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                          <div
-                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border bg-black/40 text-white"
-                            style={{ borderColor: visualColor, boxShadow: `0 0 12px ${visualColor}55` }}
-                          >
-                            Preview
-                          </div>
-                          <label className="flex items-center gap-3 h-12 px-4 rounded-xl bg-black/40 border border-white/10 cursor-pointer hover:border-primary/40 transition-colors">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-white/60">Pick Color</span>
-                            <input
-                              type="color"
-                              value={visualColor}
-                              onChange={(e) => handleServiceColorChange(key, e.target.value)}
-                              className="h-8 w-10 rounded-lg bg-transparent border-none cursor-pointer"
-                              aria-label={`Choose ${label} calendar color`}
-                            />
-                          </label>
-                          <div className="flex flex-wrap gap-2">
-                            {SERVICE_COLOR_PRESETS.map((preset) => (
-                              <button
-                                key={preset.value}
-                                type="button"
-                                onClick={() => handleServiceColorChange(key, preset.value)}
-                                className={cn(
-                                  "w-7 h-7 rounded-full border-2 transition-all hover:scale-110",
-                                  visualColor.toLowerCase() === preset.value.toLowerCase() ? "border-white shadow-glow-blue" : "border-white/10"
-                                )}
-                                style={{ backgroundColor: preset.value }}
-                                title={preset.label}
-                                aria-label={`Use ${preset.label} for ${label}`}
-                              />
-                            ))}
-                          </div>
-                        </div>
+                    { key: 'Exterior', label: 'Basic / Exterior', default: 'shadow-[0_0_12px_rgba(59,130,246,0.3)] border-blue-500/40' },
+                    { key: 'Interior', label: 'Interior', default: 'shadow-[0_0_12px_rgba(168,85,247,0.3)] border-purple-500/40' },
+                    { key: 'Ceramic', label: 'Ceramic / Protection / Coating', default: 'shadow-[0_0_12px_rgba(234,179,8,0.3)] border-yellow-500/40' },
+                    { key: 'Mold', label: 'Mold / Biohazard', default: 'shadow-[0_0_12px_rgba(239,68,68,0.3)] border-red-500/40' },
+                    { key: 'Fleet', label: 'Fleet / Commercial / Vendor', default: 'shadow-[0_0_12px_rgba(34,197,94,0.3)] border-green-500/40' },
+                  ].map(({ key, label, default: def }) => (
+                    <div key={key} className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
+                      <div>
+                        <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
+                        <p className="text-[10px] text-white/50 font-mono mt-1">{settings?.serviceColors?.[key] || def}</p>
                       </div>
-                    );
-                  })}
+                      <div className="flex items-center gap-4">
+                        <div className={cn("px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border", settings?.serviceColors?.[key] || def)}>
+                          Preview
+                        </div>
+                        <Input 
+                          value={settings?.serviceColors?.[key] || ""}
+                          onChange={(e) => handleSaveSettings({ serviceColors: { ...(settings?.serviceColors || {}), [key]: e.target.value } })}
+                          placeholder="CSS Classes (e.g., shadow-... border-...)"
+                          className="w-[300px] bg-black/40 border-white/10 text-white font-mono text-xs rounded-xl"
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
                 <div className="pt-6 border-t border-white/5">
                   <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.2em]">Deployment Protocol Tip</p>

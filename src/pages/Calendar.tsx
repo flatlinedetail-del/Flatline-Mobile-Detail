@@ -1602,64 +1602,26 @@ export default function Calendar() {
     waitlisted: "bg-purple-500/20 text-purple-400 border border-purple-500/30",
   };
 
-  const isHexColor = (value?: string | null) => !!value && /^#[0-9a-fA-F]{6}$/.test(value);
-
-  const hexToRgba = (hex: string, alpha: number) => {
-    const normalized = hex.replace("#", "");
-    const r = parseInt(normalized.slice(0, 2), 16);
-    const g = parseInt(normalized.slice(2, 4), 16);
-    const b = parseInt(normalized.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
-
-  const getStatusColorValue = (status: string) => {
-    return settings?.calendarColors?.[status] || defaultStatusColors[status] || "bg-white/5 text-white/40 border border-white/5";
-  };
-
   const getStatusColor = (status: string, isVip?: boolean) => {
-    const statusColor = getStatusColorValue(status);
-    let baseColor = isHexColor(statusColor) ? "bg-black/40 text-white border border-white/10" : statusColor;
-
-    const vipColor = settings?.calendarColors?.vip;
-    if (isVip && vipColor && !isHexColor(vipColor)) {
-      baseColor += " " + vipColor;
+    let baseColor = settings?.calendarColors?.[status] || defaultStatusColors[status] || "bg-white/5 text-white/40 border border-white/5";
+    if (isVip && settings?.calendarColors?.vip) {
+      baseColor += " " + settings.calendarColors.vip;
     }
     return baseColor;
   };
 
-  const getStatusStyle = (status: string, isVip?: boolean): React.CSSProperties | undefined => {
-    const statusColor = getStatusColorValue(status);
-    const vipColor = settings?.calendarColors?.vip;
-    const styles: React.CSSProperties = {};
-
-    if (isHexColor(statusColor)) {
-      styles.backgroundColor = hexToRgba(statusColor, 0.18);
-      styles.color = "#ffffff";
-      styles.borderColor = hexToRgba(statusColor, 0.55);
-      styles.boxShadow = `0 0 10px ${hexToRgba(statusColor, 0.28)}`;
-    }
-
-    if (isVip && isHexColor(vipColor)) {
-      styles.boxShadow = `${styles.boxShadow ? `${styles.boxShadow}, ` : ""}0 0 0 2px ${hexToRgba(vipColor, 0.75)}, 0 0 16px ${hexToRgba(vipColor, 0.45)}`;
-    }
-
-    return Object.keys(styles).length > 0 ? styles : undefined;
-  };
-
-  const getPrimaryServiceName = (app: any) => (
-    app.serviceNames?.[0] || 
-    app.serviceName || 
-    app.service || 
-    app.services?.[0] || 
-    app.selectedServices?.[0] || 
-    app.serviceSelections?.[0]?.name || 
-    app.jobType || 
-    ""
-  ).toString();
-
-  const getServiceColor = (app: any) => {
+  const getServiceGlow = (app: any) => {
     // Comprehensive service name detection
-    const serviceName = getPrimaryServiceName(app);
+    const serviceName = (
+      app.serviceNames?.[0] || 
+      app.serviceName || 
+      app.service || 
+      app.services?.[0] || 
+      app.selectedServices?.[0] || 
+      app.serviceSelections?.[0]?.name || 
+      app.jobType || 
+      ""
+    ).toString();
     const nameLower = serviceName.toLowerCase();
     
     if (settings?.serviceColors) {
@@ -1670,16 +1632,6 @@ export default function Calendar() {
       }
     }
 
-    return null;
-  };
-
-  const getServiceGlow = (app: any) => {
-    const customColor = getServiceColor(app);
-    if (customColor && !isHexColor(customColor)) return customColor;
-
-    const serviceName = getPrimaryServiceName(app);
-    const nameLower = serviceName.toLowerCase();
-
     if (nameLower.includes("mold") || nameLower.includes("biohazard")) return "shadow-glow-red border-red-500/40";
     if (nameLower.includes("ceramic") || nameLower.includes("coating") || nameLower.includes("protection") || nameLower.includes("gold")) return "shadow-glow-green border-green-500/40";
     if (nameLower.includes("interior") || nameLower.includes("purple")) return "shadow-[0_0_12px_rgba(168,85,247,0.3)] border-purple-500/40 opacity-90";
@@ -1687,16 +1639,6 @@ export default function Calendar() {
     if (nameLower.includes("fleet") || nameLower.includes("vendor") || nameLower.includes("commercial") || nameLower.includes("green")) return "shadow-glow-green border-green-500/40";
     
     return "shadow-glow-blue/10 border-white/10";
-  };
-
-  const getServiceGlowStyle = (app: any) => {
-    const color = getServiceColor(app);
-    if (!isHexColor(color)) return undefined;
-
-    return {
-      borderColor: color,
-      boxShadow: `0 0 12px ${color}66`
-    };
   };
 
   const handleLongPress = (id: string) => {
@@ -1755,7 +1697,6 @@ export default function Calendar() {
 
     return (
       <div 
-        style={getServiceGlowStyle(app)}
         className={cn(
           "w-full flex flex-col p-2.5 overflow-hidden transition-all duration-300 relative group rounded-xl border-l-[3px] border-l-primary bg-[#121212]/95 backdrop-blur-md",
           "hover:bg-zinc-800/95 hover:scale-[1.01] active:scale-[0.98]",
@@ -1790,7 +1731,7 @@ export default function Calendar() {
           <Badge className={cn(
             "text-[7px] font-black px-1.5 py-0 border-none uppercase tracking-widest shrink-0 whitespace-nowrap", 
             getStatusColor(app.status || 'scheduled', app.isVip)
-          )} style={getStatusStyle(app.status || 'scheduled', app.isVip)}>
+          )}>
             {app.status?.replace("_", " ")}
           </Badge>
         </div>
@@ -1834,10 +1775,7 @@ export default function Calendar() {
           )}
         </div>
         {event.type === 'appointment' && (
-          <Badge
-            className={cn("text-[8px] font-black px-3 py-1 border-none uppercase tracking-[0.1em] shrink-0", getStatusColor(app.status || 'scheduled', app.isVip))}
-            style={getStatusStyle(app.status || 'scheduled', app.isVip)}
-          >
+          <Badge className={cn("text-[8px] font-black px-3 py-1 border-none uppercase tracking-[0.1em] shrink-0", getStatusColor(app.status || 'scheduled', app.isVip))}>
             {app.status?.replace("_", " ")}
           </Badge>
         )}
@@ -1881,13 +1819,13 @@ export default function Calendar() {
     } else {
       className = getStatusColor(event.status || 'scheduled', event.resource?.isVip);
     }
-    const statusStyle = event.type === 'appointment' ? getStatusStyle(event.status || 'scheduled', event.resource?.isVip) : undefined;
 
     return {
       className: className,
       style: {
-        ...statusStyle,
-        ...(event.type !== 'appointment' ? { backgroundColor, borderColor, borderLeft } : {}),
+        backgroundColor: event.type !== 'appointment' ? backgroundColor : undefined,
+        borderColor: event.type !== 'appointment' ? borderColor : undefined,
+        borderLeft: event.type !== 'appointment' ? borderLeft : undefined,
         borderRadius: "12px",
         padding: 0,
         margin: 0,
@@ -3590,7 +3528,7 @@ export default function Calendar() {
                                 <Badge variant="outline" className={cn(
                                   "text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-full border-none shadow-sm", 
                                   getStatusColor(app.status || 'scheduled', app.isVip)
-                                )} style={getStatusStyle(app.status || 'scheduled', app.isVip)}>
+                                )}>
                                   {app.status?.replace("_", " ")}
                                 </Badge>
                               </TableCell>
@@ -3723,7 +3661,7 @@ export default function Calendar() {
                             <Badge variant="outline" className={cn(
                               "text-[9px] font-black uppercase tracking-widest px-3 py-0.5 rounded-full border-none", 
                               getStatusColor(app.status || 'scheduled', app.isVip)
-                            )} style={getStatusStyle(app.status || 'scheduled', app.isVip)}>
+                            )}>
                               {app.status?.replace("_", " ")}
                             </Badge>
                           </div>
@@ -4444,7 +4382,7 @@ export default function Calendar() {
                 <Badge className={cn(
                   "text-[8px] font-black px-2 py-0.5 border-none uppercase tracking-widest shrink-0", 
                   getStatusColor(evt.status || 'scheduled', evt.resource?.isVip)
-                )} style={getStatusStyle(evt.status || 'scheduled', evt.resource?.isVip)}>
+                )}>
                   {evt.status?.replace("_", " ")}
                 </Badge>
               </div>
