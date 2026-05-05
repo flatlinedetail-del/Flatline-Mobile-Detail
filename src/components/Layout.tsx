@@ -290,7 +290,7 @@ export default function Layout() {
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden transition-all duration-300 ease-in-out">
           {/* Top Header */}
           <header className={cn(
-            "bg-sidebar/95 backdrop-blur-xl border-b border-white/5 px-6 md:px-10 py-4 flex items-center justify-between sticky z-10 h-20",
+            "relative bg-sidebar/95 backdrop-blur-xl border-b border-white/5 px-6 md:px-10 py-4 flex items-center justify-between sticky z-10 h-20",
             systemStatus !== 'normal' ? "top-[36px]" : "top-0"
           )}>
           <div className="flex items-center gap-6 flex-1">
@@ -298,7 +298,7 @@ export default function Layout() {
               variant="ghost" 
               size="icon" 
               onClick={toggleSidebar}
-              className="hidden md:flex text-white hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300"
+              className="hidden md:flex absolute left-0 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 text-white hover:text-white bg-sidebar hover:bg-white/10 border border-sidebar-border shadow-xl rounded-xl transition-all duration-300"
             >
               {isSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
             </Button>
