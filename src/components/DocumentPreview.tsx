@@ -68,11 +68,14 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
           <div className="p-8 md:p-12 bg-white flex flex-col md:flex-row justify-between gap-8 border-b border-gray-100">
             <div className="space-y-4">
               {settings?.logoUrl && settings.showLogoOnDocuments !== false ? (
-                <div className="h-16 w-auto flex items-start">
+                <div className="h-16 w-48 flex items-start overflow-hidden">
                   <img 
                     src={settings.logoUrl} 
-                    alt="Logo" 
-                    className="h-full object-contain" 
+                    alt="Business Logo" 
+                    className="h-full max-w-full object-contain transition-transform duration-75" 
+                    style={{
+                      transform: `translate(${settings.logoSettings?.x || 0}px, ${settings.logoSettings?.y || 0}px) scale(${settings.logoSettings?.scale || 1}) rotate(${settings.logoSettings?.rotation || 0}deg)`
+                    }}
                     referrerPolicy="no-referrer"
                   />
                 </div>
