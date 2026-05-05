@@ -41,8 +41,12 @@ const TRUCK_KEYWORDS = [
   "silverado hd",
   "ford f-150",
   "ford f150",
+  "ford f-450",
+  "ford f450",
   "f-150",
   "f150",
+  "f-450",
+  "f450",
   "1500",
   "2500",
   "3500",
@@ -245,6 +249,7 @@ export default function PublicBooking() {
   const [protectedClients, setProtectedClients] = useState<any[]>([]);
   const [allClients, setAllClients] = useState<any[]>([]);
   const [matchedRiskRule, setMatchedRiskRule] = useState<any | null>(null);
+  const requestedAtInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!clientInfo.email && !clientInfo.phone) {
@@ -416,6 +421,13 @@ export default function PublicBooking() {
     setClientInfo(prev => ({ ...prev, address: addr, lat, lng }));
   };
 
+  const openRequestedAtPicker = () => {
+    const input = requestedAtInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.showPicker?.();
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -578,6 +590,7 @@ export default function PublicBooking() {
         depositAmount: depositInfo.amount,
         depositRequired: depositInfo.isRequired,
         depositSource: depositInfo.source,
+        depositType: depositInfo.type,
         riskProfile: matchedRiskRule ? {
           protectionLevel: matchedRiskRule.protectionLevel,
           riskReason: matchedRiskRule.riskReason,
@@ -711,7 +724,7 @@ export default function PublicBooking() {
     let amount = 0;
     let type: "fixed" | "percentage" = "fixed";
     let isRequired = false;
-    let source = "service";
+    let source = "none";
 
     const hasRiskDeposit = matchedRiskRule && Number(matchedRiskRule.requiredDepositValue || 0) > 0;
 
@@ -727,6 +740,7 @@ export default function PublicBooking() {
         const s = services.find(x => x.id === id);
         if (s?.depositRequired) {
           isRequired = true;
+          source = "service";
           if (s.depositType === "percentage") {
             amount += (s.basePrice * (s.depositAmount || 0)) / 100;
           } else {
@@ -741,7 +755,7 @@ export default function PublicBooking() {
       amount = (totalPrice * amount) / 100;
     }
 
-    return { amount, isRequired, source, riskLevel: matchedRiskRule?.protectionLevel };
+    return { amount, isRequired, source, type, riskLevel: matchedRiskRule?.protectionLevel };
   }, [matchedRiskRule, selectedServices, services, totalPrice]);
 
 
@@ -851,7 +865,18 @@ export default function PublicBooking() {
                       <div className="space-y-4">
                         <VehicleSelector 
                           onSelect={handleVehicleSelect}
+                          initialValues={{
+                            year: clientInfo.vehicleYear,
+                            make: clientInfo.vehicleMake,
+                            model: clientInfo.vehicleModel
+                          }}
                         />
+                        {clientInfo.vehicleInfo && (
+                          <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">Selected Vehicle</p>
+                            <p className="font-black text-gray-900">{clientInfo.vehicleInfo}</p>
+                          </div>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="space-y-2">
                             <Label className="text-gray-900 font-bold">Vehicle Size</Label>
@@ -1149,8 +1174,16 @@ export default function PublicBooking() {
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Request a Date & Time</Label>
                         <div className="space-y-2">
                           <div className="relative group">
-                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary opacity-100 pointer-events-none z-10 group-focus-within:text-primary" />
+                            <button
+                              type="button"
+                              aria-label="Open date and time picker"
+                              onClick={openRequestedAtPicker}
+                              className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-md text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                            >
+                              <Calendar className="w-5 h-5 text-primary opacity-100" />
+                            </button>
                             <Input
+                              ref={requestedAtInputRef}
                               type="datetime-local"
                               value={scheduledAt}
                               onChange={e => setScheduledAt(e.target.value)}
@@ -1470,6 +1503,18 @@ export default function PublicBooking() {
                                   ? <>Based on our risk management protocols, a deposit of <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> is required to secure this booking.</>
                                   : "This client has a risk flag on file. No risk-management deposit requirement is configured for this booking."
                               }
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {depositInfo.isRequired && (
+                        <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 flex items-start gap-4">
+                          <ShieldCheck className="w-6 h-6 text-primary shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-widest text-primary">Deposit Required</p>
+                            <p className="text-sm font-bold text-gray-800 mt-1">
+                              A <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> deposit is required to secure this booking.
                             </p>
                           </div>
                         </div>
