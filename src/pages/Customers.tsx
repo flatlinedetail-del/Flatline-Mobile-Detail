@@ -46,12 +46,10 @@ import { cn } from "../lib/utils";
 import { Customer, Vehicle, Service } from "../types";
 import CustomerAddressInput, { CustomerAddressInputRef } from "../components/CustomerAddressInput";
 import VehicleSelector from "../components/VehicleSelector";
-import VehicleSizeSelect from "../components/VehicleSizeSelect";
 import AddCustomerDialog from "../components/AddCustomerDialog";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ClientCommunication } from "../components/ClientCommunication";
-import { isVehicleSize } from "../lib/vehicleSize";
 
 export default function Customers() {
   const { profile, loading: authLoading } = useAuth();
@@ -172,7 +170,6 @@ export default function Customers() {
     e.preventDefault();
     if (!selectedCustomer) return;
     const formData = new FormData(e.currentTarget);
-    const size = formData.get("size");
     
     if (!newVehicleData.year || !newVehicleData.make || !newVehicleData.model) {
       toast.error("Please select a complete vehicle (Year, Make, and Model)");
@@ -187,7 +184,7 @@ export default function Customers() {
       make: newVehicleData.make,
       model: newVehicleData.model,
       color: formData.get("color"),
-      size: isVehicleSize(size) ? size : "medium",
+      size: formData.get("size"),
       vin: formData.get("vin"),
       createdAt: serverTimestamp(),
     };
@@ -616,17 +613,15 @@ export default function Customers() {
                             <Input name="color" placeholder="Color" className="bg-white border-gray-200" />
                             <Input name="vin" placeholder="VIN (Optional)" className="bg-white border-gray-200" />
                           </div>
-                          <VehicleSizeSelect
-                            vehicle={newVehicleData}
-                            triggerClassName="bg-white border-gray-200"
-                            contentClassName="bg-white"
-                            labels={{
-                              small: "Small (Coupe/Compact)",
-                              medium: "Medium (Sedan/Small SUV)",
-                              large: "Large (Full SUV/Truck)",
-                              extra_large: "Extra Large (Van/Lifted)",
-                            }}
-                          />
+                          <Select name="size" defaultValue="medium">
+                            <SelectTrigger className="bg-white border-gray-200"><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
+                            <SelectContent className="bg-white">
+                              <SelectItem value="small">Small (Coupe/Compact)</SelectItem>
+                              <SelectItem value="medium">Medium (Sedan/Small SUV)</SelectItem>
+                              <SelectItem value="large">Large (Full SUV/Truck)</SelectItem>
+                              <SelectItem value="extra_large">Extra Large (Van/Lifted)</SelectItem>
+                            </SelectContent>
+                          </Select>
                           <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
                         </form>
                       </DialogContent>

@@ -80,7 +80,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { format } from "date-fns";
 import VehicleSelector from "../components/VehicleSelector";
-import VehicleSizeSelect from "../components/VehicleSizeSelect";
 import { syncService } from "../services/syncService";
 import { 
   cn, 
@@ -101,7 +100,6 @@ import { getClientTypes, getClientCategories, migrateDataToClients, ensureClient
 import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
-import { isVehicleSize } from "../lib/vehicleSize";
 
 interface AddVehicleFormProps {
   clientId: string;
@@ -115,7 +113,6 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const size = formData.get("size");
     const newVehicle = {
       clientId: clientId,
       ownerId: clientId,
@@ -124,7 +121,7 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       make: vData.make,
       model: vData.model,
       color: formData.get("color")?.toString().trim(),
-      size: isVehicleSize(size) ? size : "medium",
+      size: formData.get("size"),
       vin: formData.get("vin")?.toString().trim().toUpperCase(),
       roNumber: formData.get("roNumber")?.toString().trim() || null,
       createdAt: serverTimestamp(),
@@ -169,11 +166,17 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="text-[10px] font-black uppercase tracking-widest text-white">Vehicle Size</Label>
-          <VehicleSizeSelect
-            vehicle={vData}
-            triggerClassName="bg-white/5 border-white/10 text-white rounded-xl h-12"
-            contentClassName="bg-card border-border text-white"
-          />
+          <Select name="size" defaultValue="medium">
+            <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12">
+              <SelectValue placeholder="Vehicle Size" />
+            </SelectTrigger>
+            <SelectContent className="bg-card border-border text-white">
+              <SelectItem value="small">Small</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="large">Large</SelectItem>
+              <SelectItem value="extra_large">Extra Large</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         {isCollisionCenter && (
           <div className="space-y-2">
@@ -2239,11 +2242,10 @@ export default function Clients() {
                                   onSubmit={async (e) => {
                                     e.preventDefault();
                                     const formData = new FormData(e.currentTarget);
-                                    const size = formData.get("size");
                                     const updates = {
                                       color: formData.get("color") as string,
                                       vin: formData.get("vin") as string,
-                                      size: isVehicleSize(size) ? size : "medium",
+                                      size: formData.get("size") as any,
                                       roNumber: formData.get("roNumber") as string || null,
                                       notes: formData.get("notes") as string || null,
                                       licensePlate: formData.get("licensePlate") as string || null,
@@ -2284,13 +2286,17 @@ export default function Clients() {
                                   <div className="grid grid-cols-2 gap-6">
                                     <div className="space-y-2">
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Asset Classification</Label>
-                                      <VehicleSizeSelect
-                                        vehicle={editingVehicle}
-                                        defaultValue={editingVehicle.size || "medium"}
-                                        autoDetectFromDefault={!editingVehicle.size}
-                                        triggerClassName="bg-white/5 border-white/10 text-white rounded-xl h-12"
-                                        contentClassName="bg-card border-border text-white"
-                                      />
+                                      <Select name="size" defaultValue={editingVehicle.size}>
+                                        <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent className="bg-card border-border text-white">
+                                          <SelectItem value="small">Small</SelectItem>
+                                          <SelectItem value="medium">Medium</SelectItem>
+                                          <SelectItem value="large">Large</SelectItem>
+                                          <SelectItem value="extra_large">Extra Large</SelectItem>
+                                        </SelectContent>
+                                      </Select>
                                     </div>
                                     <div className="space-y-2">
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">License Plate</Label>

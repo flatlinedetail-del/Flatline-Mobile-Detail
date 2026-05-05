@@ -33,7 +33,6 @@ import { optimizeRoute, RouteStop } from "../lib/scheduling";
 import { Switch } from "@/components/ui/switch";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
-import VehicleSizeSelect from "../components/VehicleSizeSelect";
 import { StableInput } from "../components/StableInput";
 import { BusinessSettings } from "../types";
 import { SearchableSelector } from "../components/SearchableSelector";
@@ -2732,22 +2731,17 @@ export default function Calendar() {
                             </div>
                             <div className="space-y-2">
                               <Label>Vehicle Size</Label>
-                              <VehicleSizeSelect
-                                name="appointmentVehicleSize"
-                                vehicle={{ vehicleInfo: appointment.vehicleInfo }}
-                                value={appointment.vehicleSize}
-                                defaultValue={editingAppointment?.vehicleSize || "medium"}
-                                autoDetectFromDefault={!editingAppointment?.vehicleSize}
-                                onValueChange={(v) => setAppointment(prev => ({ ...prev, vehicleSize: v }))}
-                                triggerClassName="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
-                                contentClassName="bg-zinc-900 border-white/10 text-white"
-                                labels={{
-                                  small: "Small (Coupe/Sedan)",
-                                  medium: "Medium (SUV/Crossover)",
-                                  large: "Large (Truck/Full SUV)",
-                                  extra_large: "Extra Large (Van/Lifted)",
-                                }}
-                              />
+                              <Select value={appointment.vehicleSize} onValueChange={(v: any) => setAppointment(prev => ({ ...prev, vehicleSize: v }))}>
+                                <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-zinc-900 border-white/10 text-white">
+                                  <SelectItem value="small">Small (Coupe/Sedan)</SelectItem>
+                                  <SelectItem value="medium">Medium (SUV/Crossover)</SelectItem>
+                                  <SelectItem value="large">Large (Truck/Full SUV)</SelectItem>
+                                  <SelectItem value="extra_large">Extra Large (Van/Lifted)</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="vin">VIN (Optional)</Label>

@@ -17,16 +17,8 @@ import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtils";
 import Logo from "../components/Logo";
-import { detectVehicleSize } from "../lib/vehicleSize";
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
-
-const publicVehicleSizeByDetectedSize = {
-  small: "sedan",
-  medium: "suv_small",
-  large: "truck",
-  extra_large: "van",
-} as const;
 
 const getVehicleImage = (size: string) => {
   switch (size) {
@@ -142,8 +134,6 @@ export default function PublicBooking() {
     vehicleColor: "",
     vehiclePlate: ""
   });
-  const [vehicleSizeManuallyChanged, setVehicleSizeManuallyChanged] = useState(false);
-  const [vehicleSizeAutoDetected, setVehicleSizeAutoDetected] = useState(false);
   
   const [clientGoal, setClientGoal] = useState("");
   const [condition, setCondition] = useState({
@@ -693,26 +683,12 @@ export default function PublicBooking() {
                     <CardContent className="p-8 space-y-6">
                       <div className="space-y-4">
                         <VehicleSelector 
-                          onSelect={(v) => {
-                            const detectedSize = detectVehicleSize(v);
-                            setVehicleSizeAutoDetected(Boolean(detectedSize) && !vehicleSizeManuallyChanged);
-                            setClientInfo(prev => ({
-                              ...prev,
-                              vehicleInfo: `${v.year} ${v.make} ${v.model}`,
-                              vehicleSize: detectedSize && !vehicleSizeManuallyChanged
-                                ? publicVehicleSizeByDetectedSize[detectedSize]
-                                : prev.vehicleSize,
-                            }));
-                          }}
+                          onSelect={(v) => setClientInfo(prev => ({ ...prev, vehicleInfo: `${v.year} ${v.make} ${v.model}` }))}
                         />
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="space-y-2">
                             <Label className="text-gray-900 font-bold">Vehicle Size</Label>
-                            <Select value={clientInfo.vehicleSize} onValueChange={v => {
-                              setVehicleSizeManuallyChanged(true);
-                              setVehicleSizeAutoDetected(false);
-                              setClientInfo(prev => ({...prev, vehicleSize: v}));
-                            }}>
+                            <Select value={clientInfo.vehicleSize} onValueChange={v => setClientInfo(prev => ({...prev, vehicleSize: v}))}>
                               <SelectTrigger className="border-gray-300 text-gray-900 focus:ring-primary/20">
                                 <SelectValue placeholder="Select Size" />
                               </SelectTrigger>
@@ -726,9 +702,6 @@ export default function PublicBooking() {
                                 <SelectItem value="luxury">Luxury / Exotic</SelectItem>
                               </SelectContent>
                             </Select>
-                            {vehicleSizeAutoDetected && !vehicleSizeManuallyChanged && (
-                              <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Auto-detected — you can change this.</p>
-                            )}
                           </div>
                           <div className="space-y-2">
                             <Label className="text-gray-900 font-bold">Color (Optional)</Label>
