@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { collection, query, addDoc, serverTimestamp, doc, getDoc, getDocs, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -301,6 +301,7 @@ export default function PublicBooking() {
   const [vehicleSizeManuallyChanged, setVehicleSizeManuallyChanged] = useState(false);
 
   const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
+  const recommendationAddonIdsRef = useRef<string[]>([]);
 
   const [protectedClients, setProtectedClients] = useState<any[]>([]);
   const [allClients, setAllClients] = useState<any[]>([]);
@@ -516,6 +517,16 @@ export default function PublicBooking() {
     let lower: Service | null = null;
     let explanation = "Best fit based on your selections.";
     let sAddons: AddOn[] = [];
+    const addSuggestedAddon = (keywords: string[]) => {
+      const addon = addons.find(a => {
+        const name = a.name.toLowerCase();
+        return keywords.some(keyword => name.includes(keyword));
+      });
+
+      if (addon && !sAddons.some(existing => existing.id === addon.id)) {
+        sAddons.push(addon);
+      }
+    };
 
     const isHeavy = condition.interior === "heavy" || condition.exterior === "heavy";
     const goalUpper = clientGoal.toLowerCase();
@@ -539,12 +550,16 @@ export default function PublicBooking() {
     }
 
     if (condition.petHair === "heavy" || condition.petHair === "moderate") {
-      const pa = addons.find(a => a.name.toLowerCase().includes("pet"));
-      if (pa) sAddons.push(pa);
+      addSuggestedAddon(["pet", "hair"]);
     }
     if (condition.odor === "yes") {
-      const oa = addons.find(a => a.name.toLowerCase().includes("odor") || a.name.toLowerCase().includes("ozone"));
-      if (oa) sAddons.push(oa);
+      addSuggestedAddon(["odor", "ozone", "smell"]);
+    }
+    if (condition.stains === "yes") {
+      addSuggestedAddon(["stain", "spot", "shampoo", "extraction"]);
+    }
+    if (condition.protection === "yes") {
+      addSuggestedAddon(["protection", "protectant", "sealant", "wax", "ceramic"]);
     }
 
     return { recommendedService: rec, lowerCostService: lower, suggestedAddons: sAddons, explanation };
@@ -553,12 +568,19 @@ export default function PublicBooking() {
   useEffect(() => {
     if (step >= 3) {
       const recs = calculateRecommendations();
+      const suggestedAddonIds = recs.suggestedAddons.map(a => a.id);
+      const previousSuggestedAddonIds = recommendationAddonIdsRef.current;
       setRecommendedChoice(recs);
 
-      if (selectedServices.length === 0 && recs.recommendedService) {
+      if (recs.recommendedService && (step === 3 || selectedServices.length === 0)) {
          setSelectedServices([recs.recommendedService.id]);
-         setSelectedAddons(recs.suggestedAddons.map(a => a.id));
       }
+
+      setSelectedAddons(prev => {
+        const manuallySelectedAddonIds = prev.filter(id => !previousSuggestedAddonIds.includes(id));
+        return Array.from(new Set([...manuallySelectedAddonIds, ...suggestedAddonIds]));
+      });
+      recommendationAddonIdsRef.current = suggestedAddonIds;
     }
   }, [clientGoal, condition, services, addons, step]);
 
@@ -759,7 +781,7 @@ export default function PublicBooking() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="max-w-md w-full border-none shadow-2xl rounded-3xl overflow-hidden">
-          <div className="bg-green-500 p-8 flex justify-center">
+          <div className="bg-primary p-8 flex justify-center">
             <CheckCircle2 className="w-20 h-20 text-white" />
           </div>
           <CardContent className="p-8 text-center space-y-4">
@@ -788,8 +810,8 @@ export default function PublicBooking() {
            
            <div className="hidden sm:flex items-center gap-8">
              <div className="flex items-center gap-2">
-               <ShieldCheck className="w-5 h-5 text-emerald-500" />
-               <span className="text-xs font-black uppercase tracking-widest text-emerald-50">Secure Booking</span>
+               <ShieldCheck className="w-5 h-5 text-primary" />
+               <span className="text-xs font-black uppercase tracking-widest text-primary">Secure Booking</span>
              </div>
              {settings?.businessPhone && (
                <div className="flex items-center gap-2 text-white">
@@ -1162,7 +1184,7 @@ export default function PublicBooking() {
                           {scheduledAt && isTimeAvailable !== null && (
                             <div className={cn(
                               "mt-4 p-5 rounded-2xl border flex flex-col gap-4",
-                              isTimeAvailable ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"
+                              isTimeAvailable ? "bg-primary/5 border-primary/20 text-primary" : "bg-red-50 border-red-200 text-red-800"
                             )}>
                               <div className="flex items-start gap-3">
                                 {isTimeAvailable ? (
@@ -1584,6 +1606,7 @@ export default function PublicBooking() {
                             <div>
                                <span className="block text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1">Lower-cost option available</span>
                                <h4 className="font-black text-gray-900">{recommendedChoice.lowerCostService.name}</h4>
+                               <p className="text-sm font-black text-primary mt-1">{formatCurrency(recommendedChoice.lowerCostService.basePrice)}</p>
                             </div>
                             {step === 4 && (
                                <Button 
@@ -1592,7 +1615,8 @@ export default function PublicBooking() {
                                  className="font-bold border-gray-300 text-gray-700 text-xs px-4"
                                  onClick={() => {
                                    setSelectedServices([recommendedChoice.lowerCostService!.id]);
-                                   setSelectedAddons([]); 
+                                   setSelectedAddons([]);
+                                   recommendationAddonIdsRef.current = [];
                                    setStep(5);
                                  }}
                                >
