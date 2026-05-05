@@ -79,6 +79,40 @@ const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
   { label: "Extra Large", value: "extra_large" },
 ];
 
+const SERVICE_COLOR_PRESETS = [
+  { label: "Blue", value: "#3b82f6" },
+  { label: "Purple", value: "#a855f7" },
+  { label: "Gold", value: "#eab308" },
+  { label: "Red", value: "#ef4444" },
+  { label: "Green", value: "#22c55e" },
+  { label: "Cyan", value: "#06b6d4" },
+  { label: "Pink", value: "#ec4899" },
+  { label: "Slate", value: "#64748b" },
+];
+
+const DEFAULT_SERVICE_COLORS: Record<string, string> = {
+  Exterior: "#3b82f6",
+  Interior: "#a855f7",
+  Ceramic: "#eab308",
+  Mold: "#ef4444",
+  Fleet: "#22c55e",
+};
+
+const isHexColor = (value?: string) => !!value && /^#[0-9a-fA-F]{6}$/.test(value);
+
+const getVisualServiceColor = (value: string | undefined, fallback: string) => {
+  if (isHexColor(value)) return value;
+  const raw = value || fallback;
+  if (raw.includes("purple")) return "#a855f7";
+  if (raw.includes("yellow") || raw.includes("gold")) return "#eab308";
+  if (raw.includes("red")) return "#ef4444";
+  if (raw.includes("green")) return "#22c55e";
+  if (raw.includes("cyan")) return "#06b6d4";
+  if (raw.includes("pink")) return "#ec4899";
+  if (raw.includes("slate") || raw.includes("gray")) return "#64748b";
+  return "#3b82f6";
+};
+
 const removeUndefined = (obj: any): any => {
   if (Array.isArray(obj)) {
     return obj.map(removeUndefined);
@@ -1136,6 +1170,23 @@ export default function Settings() {
       };
     });
     if (watermarkFileInputRef.current) watermarkFileInputRef.current.value = "";
+  };
+
+  const handleServiceColorChange = (key: string, color: string) => {
+    setSettings(prev => prev ? ({
+      ...prev,
+      serviceColors: {
+        ...(prev.serviceColors || {}),
+        [key]: color
+      }
+    }) : null);
+
+    handleSaveSettings({
+      serviceColors: {
+        ...(settings?.serviceColors || {}),
+        [key]: color
+      }
+    });
   };
 
   const handleTabChange = (value: string) => {
@@ -5020,30 +5071,64 @@ export default function Settings() {
               <CardContent className="p-8 space-y-6">
                 <div className="grid grid-cols-1 gap-4">
                   {[
-                    { key: 'Exterior', label: 'Basic / Exterior', default: 'shadow-[0_0_12px_rgba(59,130,246,0.3)] border-blue-500/40' },
-                    { key: 'Interior', label: 'Interior', default: 'shadow-[0_0_12px_rgba(168,85,247,0.3)] border-purple-500/40' },
-                    { key: 'Ceramic', label: 'Ceramic / Protection / Coating', default: 'shadow-[0_0_12px_rgba(234,179,8,0.3)] border-yellow-500/40' },
-                    { key: 'Mold', label: 'Mold / Biohazard', default: 'shadow-[0_0_12px_rgba(239,68,68,0.3)] border-red-500/40' },
-                    { key: 'Fleet', label: 'Fleet / Commercial / Vendor', default: 'shadow-[0_0_12px_rgba(34,197,94,0.3)] border-green-500/40' },
-                  ].map(({ key, label, default: def }) => (
-                    <div key={key} className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
-                      <div>
-                        <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
-                        <p className="text-[10px] text-white/50 font-mono mt-1">{settings?.serviceColors?.[key] || def}</p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className={cn("px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border", settings?.serviceColors?.[key] || def)}>
-                          Preview
+                    { key: 'Exterior', label: 'Basic / Exterior', default: DEFAULT_SERVICE_COLORS.Exterior },
+                    { key: 'Interior', label: 'Interior', default: DEFAULT_SERVICE_COLORS.Interior },
+                    { key: 'Ceramic', label: 'Ceramic / Protection / Coating', default: DEFAULT_SERVICE_COLORS.Ceramic },
+                    { key: 'Mold', label: 'Mold / Biohazard', default: DEFAULT_SERVICE_COLORS.Mold },
+                    { key: 'Fleet', label: 'Fleet / Commercial / Vendor', default: DEFAULT_SERVICE_COLORS.Fleet },
+                  ].map(({ key, label, default: def }) => {
+                    const storedColor = settings?.serviceColors?.[key];
+                    const visualColor = getVisualServiceColor(storedColor, def);
+
+                    return (
+                      <div key={key} className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 p-4 bg-white/5 border border-white/5 rounded-2xl">
+                        <div className="flex items-center gap-4">
+                          <div
+                            className="w-12 h-12 rounded-2xl border border-white/10 shadow-lg shrink-0"
+                            style={{ backgroundColor: visualColor, boxShadow: `0 0 16px ${visualColor}66` }}
+                          />
+                          <div>
+                            <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
+                            <p className="text-[10px] text-white/40 font-medium uppercase tracking-widest mt-1">Saved value: {storedColor || visualColor}</p>
+                          </div>
                         </div>
-                        <Input 
-                          value={settings?.serviceColors?.[key] || ""}
-                          onChange={(e) => handleSaveSettings({ serviceColors: { ...(settings?.serviceColors || {}), [key]: e.target.value } })}
-                          placeholder="CSS Classes (e.g., shadow-... border-...)"
-                          className="w-[300px] bg-black/40 border-white/10 text-white font-mono text-xs rounded-xl"
-                        />
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                          <div
+                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border bg-black/40 text-white"
+                            style={{ borderColor: visualColor, boxShadow: `0 0 12px ${visualColor}55` }}
+                          >
+                            Preview
+                          </div>
+                          <label className="flex items-center gap-3 h-12 px-4 rounded-xl bg-black/40 border border-white/10 cursor-pointer hover:border-primary/40 transition-colors">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-white/60">Pick Color</span>
+                            <input
+                              type="color"
+                              value={visualColor}
+                              onChange={(e) => handleServiceColorChange(key, e.target.value)}
+                              className="h-8 w-10 rounded-lg bg-transparent border-none cursor-pointer"
+                              aria-label={`Choose ${label} calendar color`}
+                            />
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {SERVICE_COLOR_PRESETS.map((preset) => (
+                              <button
+                                key={preset.value}
+                                type="button"
+                                onClick={() => handleServiceColorChange(key, preset.value)}
+                                className={cn(
+                                  "w-7 h-7 rounded-full border-2 transition-all hover:scale-110",
+                                  visualColor.toLowerCase() === preset.value.toLowerCase() ? "border-white shadow-glow-blue" : "border-white/10"
+                                )}
+                                style={{ backgroundColor: preset.value }}
+                                title={preset.label}
+                                aria-label={`Use ${preset.label} for ${label}`}
+                              />
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="pt-6 border-t border-white/5">
                   <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.2em]">Deployment Protocol Tip</p>
