@@ -17,26 +17,16 @@ import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtils";
 import Logo from "../components/Logo";
+import { getVehicleFallbackImageUrl, getVehicleImageUrl, VehicleImageInput } from "../lib/vehicleImages";
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
 
-const getVehicleImage = (size: string) => {
-  switch (size) {
-    case 'coupe': return 'https://images.unsplash.com/photo-1610444391624-9dfc1fbced24?auto=format&fit=crop&q=80&w=800';
-    case 'sedan': return 'https://images.unsplash.com/photo-1549317661-bd32c8ce0be2?auto=format&fit=crop&q=80&w=800';
-    case 'suv_small': return 'https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&fit=crop&q=80&w=800';
-    case 'suv_large': return 'https://images.unsplash.com/photo-1519750157634-b6d498a584ce?auto=format&fit=crop&q=80&w=800';
-    case 'truck': return 'https://images.unsplash.com/photo-1601362840469-51e4d8d58785?auto=format&fit=crop&q=80&w=800';
-    case 'van': return 'https://images.unsplash.com/photo-1520050206274-a1cb4463300a?auto=format&fit=crop&q=80&w=800';
-    case 'luxury': return 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=800';
-    default: return 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?auto=format&fit=crop&q=80&w=800';
-  }
-};
-
-function VehicleImagePreview({ size, vehicleInfo }: { size: string, vehicleInfo: string }) {
+function VehicleImagePreview({ vehicle }: { vehicle: VehicleImageInput }) {
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
-  const imageUrl = useMemo(() => getVehicleImage(size), [size]);
+  const fallbackImageUrl = useMemo(() => getVehicleFallbackImageUrl(vehicle), [vehicle.make, vehicle.model, vehicle.type, vehicle.size, vehicle.bodyStyle, vehicle.vehicleInfo]);
+  const imageUrl = useMemo(() => getVehicleImageUrl(vehicle), [vehicle.imageUrl, vehicle.photoUrl, vehicle.vehicleImage, vehicle.thumbnailUrl, fallbackImageUrl]);
+  const displayImageUrl = error ? fallbackImageUrl : imageUrl;
 
   useEffect(() => {
     setError(false);
@@ -44,7 +34,7 @@ function VehicleImagePreview({ size, vehicleInfo }: { size: string, vehicleInfo:
   }, [imageUrl]);
 
   const getPlaceholderIcon = () => {
-    switch (size) {
+    switch (vehicle.size) {
       case 'truck': return <Truck className="w-20 h-20 text-gray-200" />;
       case 'van': return <Truck className="w-20 h-20 text-gray-200 -scale-x-100" />;
       case 'suv_small':
@@ -61,28 +51,31 @@ function VehicleImagePreview({ size, vehicleInfo }: { size: string, vehicleInfo:
   };
 
   const getTypeName = () => {
-    return size.replace('_', ' ').toUpperCase();
+    return vehicle.size?.toString().replace('_', ' ').toUpperCase() || "VEHICLE";
   };
 
   return (
     <div className="absolute inset-0 w-full h-full bg-neutral-50 flex items-center justify-center overflow-hidden">
-      {!error && (
-        <img 
-          src={imageUrl} 
-          alt={vehicleInfo} 
+      {displayImageUrl && (
+        <img
+          src={displayImageUrl}
+          alt={vehicle.vehicleInfo || "Selected vehicle"}
           className={cn(
             "absolute inset-0 w-full h-full object-cover transition-opacity duration-500",
             loading ? "opacity-0" : "opacity-100"
           )}
           onLoad={() => setLoading(false)}
           onError={() => {
-            setError(true);
+            if (displayImageUrl !== fallbackImageUrl) {
+              setError(true);
+              return;
+            }
             setLoading(false);
           }}
         />
       )}
       
-      {(error || loading) && (
+      {loading && (
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <div className="flex flex-col items-center">
             <div className="p-6 rounded-full bg-white shadow-sm border border-gray-100 mb-4">
@@ -1321,9 +1314,11 @@ export default function PublicBooking() {
                {step >= 2 && clientInfo.vehicleInfo && (
                  <Card className="border border-gray-200 shadow-sm rounded-3xl overflow-hidden bg-white">
                     <div className="h-48 w-full bg-gray-100 relative">
-                       <VehicleImagePreview 
-                         size={clientInfo.vehicleSize} 
-                         vehicleInfo={clientInfo.vehicleInfo} 
+                      <VehicleImagePreview
+                         vehicle={{
+                           vehicleInfo: clientInfo.vehicleInfo,
+                           size: clientInfo.vehicleSize,
+                         }}
                        />
                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
                        <div className="absolute bottom-4 left-4 right-4 text-white">
