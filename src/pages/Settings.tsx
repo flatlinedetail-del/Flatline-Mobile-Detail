@@ -1022,7 +1022,7 @@ export default function Settings() {
         }
       });
 
-      toast.success("Branding authorized and deployed.", { id: toastId });
+      toast.success("Business branding authorized and deployed.", { id: toastId });
       setLogoFile(null); // Clear pending file
       setWatermarkLogoFile(null);
     } catch (error) {
@@ -2451,15 +2451,21 @@ export default function Settings() {
           <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
             <CardHeader className="p-8 border-b border-white/5 bg-black/40">
               <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Visual <span className="text-primary italic">Branding</span></CardTitle>
-              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Manage your business logo and document identity</CardDescription>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">Manage customer-facing business branding for invoices, quotes, booking, and documents</CardDescription>
             </CardHeader>
             <CardContent className="p-8 space-y-10">
+              <div className="p-5 bg-primary/10 border border-primary/20 rounded-2xl">
+                <p className="text-white font-black uppercase tracking-widest text-[10px]">DetailFlow Platform Logo</p>
+                <p className="text-[#A0A0A0] text-xs font-medium mt-1">
+                  DetailFlow remains the permanent app shell and login identity. Uploads here update the customer-facing business logo only.
+                </p>
+              </div>
               {/* Premium Logo Manager */}
               <div className="space-y-8">
                 <div className="flex flex-col lg:flex-row gap-10">
                   {/* Logo Preview Canvas */}
                   <div className="flex-1 space-y-4">
-                    <Label className="text-white font-black uppercase tracking-widest text-[10px] opacity-40">System Preview Canvas</Label>
+                    <Label className="text-white font-black uppercase tracking-widest text-[10px] opacity-40">Customer-Facing Business Logo Preview</Label>
                     <div className={cn(
                       "relative w-full aspect-square md:aspect-video rounded-[2.5rem] border-2 border-dashed border-white/5 overflow-hidden shadow-2xl transition-all duration-500 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]",
                       logoAdjustments.background === 'dark' ? "bg-black" : 
@@ -2509,7 +2515,7 @@ export default function Settings() {
                   <div className="w-full lg:w-96 space-y-8 p-8 bg-white/5 rounded-[2.5rem] border border-white/5 backdrop-blur-sm">
                     <div className="space-y-6">
                       <div className="flex items-center justify-between">
-                        <h4 className="text-white font-black uppercase tracking-widest text-[11px]">Adjustment Suite</h4>
+                        <h4 className="text-white font-black uppercase tracking-widest text-[11px]">Business Logo Adjustment Suite</h4>
                         <Button 
                           variant="ghost" 
                           size="sm"
@@ -2643,7 +2649,7 @@ export default function Settings() {
                     className="bg-primary hover:opacity-90 text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02] min-w-[200px]"
                   >
                     <Upload className="w-4 h-4 mr-2" />
-                    Deploy New Logo Asset
+                    Upload Business Logo
                   </Button>
                   {(logoPreview || settings?.logoUrl) && (
                     <Button 
@@ -2664,7 +2670,7 @@ export default function Settings() {
                     className="bg-white text-black hover:bg-gray-200 font-black h-12 px-10 rounded-xl uppercase tracking-widest text-[10px] shadow-xl transition-all hover:scale-[1.02]"
                   >
                     {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-                    Authorize & Deploy Branding
+                    Authorize & Deploy Business Branding
                   </Button>
                 </div>
 
@@ -2682,7 +2688,7 @@ export default function Settings() {
                     Requirement Parameters: PNG | WEBP | JPG (MAX 5MB)
                   </p>
                   <p className="text-white/20 text-[8px] font-black uppercase tracking-[0.2em] leading-relaxed italic">
-                    * Interactive adjustments are calculated locally. Permanent synchronization with cloud infrastructure requires primary authorization.
+                    * Business logo adjustments are calculated locally. Permanent synchronization with cloud infrastructure requires primary authorization.
                   </p>
                 </div>
               </div>
@@ -2695,14 +2701,14 @@ export default function Settings() {
                   </div>
                   <div>
                     <h4 className="text-sm font-black text-white uppercase tracking-widest">Client Profile Watermark</h4>
-                    <p className="text-[10px] text-[#A0A0A0] font-medium uppercase tracking-widest">Configure the large background watermark for client headers</p>
+                    <p className="text-[10px] text-[#A0A0A0] font-medium uppercase tracking-widest">Configure the large business watermark for client headers</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                   <div className="space-y-6">
                     <div className="space-y-4">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Watermark Asset</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Customer Watermark Asset</Label>
                       <div className="flex items-center gap-6 p-6 bg-black/40 rounded-[2rem] border border-white/5">
                         <div className="w-24 h-24 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
                           {watermarkLogoPreview || settings?.watermarkSettings?.logoUrl ? (
@@ -2892,8 +2898,8 @@ export default function Settings() {
               <div className="space-y-10">
                 <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5">
                   <div className="space-y-1">
-                    <Label className="text-white font-black uppercase tracking-widest text-[10px]">Document Logo Visibility</Label>
-                    <p className="text-xs text-[#A0A0A0] font-medium">Include your official logo on invoices, quotes, and reports.</p>
+                    <Label className="text-white font-black uppercase tracking-widest text-[10px]">Document Business Logo Visibility</Label>
+                    <p className="text-xs text-[#A0A0A0] font-medium">Include your business logo on invoices, quotes, reports, and customer documents.</p>
                   </div>
                   <Switch 
                     checked={settings?.showLogoOnDocuments || false}
@@ -2921,9 +2927,16 @@ export default function Settings() {
               </div>
 
               <div className="space-y-6">
-                <Label className="text-white font-black uppercase tracking-widest text-[10px]">Asset Scale in Documents</Label>
+                <Label className="text-white font-black uppercase tracking-widest text-[10px]">Customer-Facing Logo Scale</Label>
                 <div className="pt-4 px-2">
-                  <Slider defaultValue={[50]} max={100} step={1} className="[&_[role=slider]]:bg-primary" />
+                  <Slider 
+                    value={[logoAdjustments.scale]} 
+                    min={0.1}
+                    max={3}
+                    step={0.01}
+                    onValueChange={(vals) => setLogoAdjustments(prev => ({ ...prev, scale: vals[0] }))}
+                    className="[&_[role=slider]]:bg-primary" 
+                  />
                 </div>
                 <div className="flex justify-between text-[8px] text-[#A0A0A0]/20 font-black uppercase tracking-[0.2em]">
                   <span>Minimal</span>
@@ -2956,7 +2969,7 @@ export default function Settings() {
                 className="w-full bg-primary hover:opacity-90 text-white font-black uppercase tracking-[0.2em] h-14 rounded-xl text-xs shadow-glow-blue transition-all hover:scale-[1.01] mt-12"
               >
                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-                Authorize Final Branding Protocol
+                Authorize Final Business Branding Protocol
               </Button>
             </CardContent>
           </Card>
