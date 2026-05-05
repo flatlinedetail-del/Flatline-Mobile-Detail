@@ -46,16 +46,18 @@ import {
 import { SearchableSelector } from "../components/SearchableSelector";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
+import VehicleSizeSelect from "../components/VehicleSizeSelect";
 import { NumberInput } from "../components/NumberInput";
 import { StandardInput } from "../components/StandardInput";
 import { CustomFeesEditor } from "../components/CustomFeesEditor";
-import { CustomFee } from "../types";
+import { CustomFee, VehicleSize } from "../types";
 import { generateSmartRecommendations, SmartRecommendation, parseFlexibleDate } from "../services/smartBookingService";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
 import { geocodeAddress } from "../services/geocodingService";
 import { calculateDistance, calculateTravelFee } from "../services/travelService";
 import { BundleOffer, fetchClientBundles, saveBundleOffer, updateBundleStatus } from "../services/bundleService";
 import { createNotification } from "../services/notificationService";
+import { detectVehicleSize } from "../lib/vehicleSize";
 
 export default function BookAppointment() {
   const [searchParams] = useSearchParams();
@@ -75,7 +77,7 @@ export default function BookAppointment() {
 
   const [selectedCustomerId, setSelectedCustomerId] = useState(prefillClientId || "");
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
-  const [pendingVehicle, setPendingVehicle] = useState<{ year: string; make: string; model: string } | null>(null);
+  const [pendingVehicle, setPendingVehicle] = useState<{ year: string; make: string; model: string; size?: VehicleSize } | null>(null);
   const [recPanelVehicleId, setRecPanelVehicleId] = useState<string | null>(null);
   const [isRecPanelOpen, setIsRecPanelOpen] = useState(false);
   const [selectedRecDetail, setSelectedRecDetail] = useState<ServiceTimingOutput | null>(null);
@@ -1390,15 +1392,37 @@ export default function BookAppointment() {
                 <div className="p-4 bg-black/50 border border-white/10 rounded-xl space-y-4">
                   <Label className="text-white/60 font-bold">Add New Vehicle to Appointment</Label>
                   <VehicleSelector 
-                    onSelect={(vData) => setPendingVehicle(vData)} 
+                    onSelect={(vData) => setPendingVehicle({
+                      ...vData,
+                      size: detectVehicleSize(vData) || "medium",
+                    })}
                   />
+                  {pendingVehicle && (
+                    <div className="space-y-2">
+                      <Label className="text-white/60 font-bold">Vehicle Size</Label>
+                      <VehicleSizeSelect
+                        name="pendingVehicleSize"
+                        vehicle={pendingVehicle}
+                        value={pendingVehicle.size}
+                        onValueChange={(size) => setPendingVehicle(prev => prev ? ({ ...prev, size }) : prev)}
+                        triggerClassName="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                        contentClassName="bg-zinc-900 border-white/10 text-white"
+                        labels={{
+                          small: "Small",
+                          medium: "Medium",
+                          large: "Large",
+                          extra_large: "Extra Large",
+                        }}
+                      />
+                    </div>
+                  )}
                   <div className="flex justify-end mt-2">
                     <Button 
                       type="button" 
                       onClick={() => {
                         if (pendingVehicle) {
                           const tempId = "temp-" + Date.now();
-                          setAvailableVehicles(prev => [...prev, { id: tempId, ...pendingVehicle, size: "medium" }]);
+                          setAvailableVehicles(prev => [...prev, { id: tempId, ...pendingVehicle, size: pendingVehicle.size || "medium" }]);
                           setSelectedVehicleIds(prev => [...prev, tempId]);
                           setPendingVehicle(null);
                         }
