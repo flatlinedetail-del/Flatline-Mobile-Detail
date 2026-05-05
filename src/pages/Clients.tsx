@@ -100,6 +100,7 @@ import { getClientTypes, getClientCategories, migrateDataToClients, ensureClient
 import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
+import { getVehicleFallbackImageUrl, getVehicleImageUrl } from "../lib/vehicleImages";
 
 interface AddVehicleFormProps {
   clientId: string;
@@ -187,6 +188,32 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       </div>
       <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
     </form>
+  );
+}
+
+function VehicleThumbnail({ vehicle }: { vehicle: Vehicle }) {
+  const [useFallback, setUseFallback] = useState(false);
+  const fallbackImageUrl = useMemo(() => getVehicleFallbackImageUrl(vehicle), [vehicle.make, vehicle.model, vehicle.size]);
+  const imageUrl = useMemo(() => getVehicleImageUrl(vehicle), [vehicle, fallbackImageUrl]);
+  const displayImageUrl = useFallback ? fallbackImageUrl : imageUrl;
+
+  useEffect(() => {
+    setUseFallback(false);
+  }, [imageUrl]);
+
+  return (
+    <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/10 bg-black/40 shadow-xl shrink-0 group-hover/v:scale-105 transition-transform duration-300">
+      <img
+        src={displayImageUrl}
+        alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+        className="w-full h-full object-cover"
+        onError={() => {
+          if (displayImageUrl !== fallbackImageUrl) {
+            setUseFallback(true);
+          }
+        }}
+      />
+    </div>
   );
 }
 
@@ -2154,9 +2181,7 @@ export default function Clients() {
                               }}
                               className="p-4 rounded-3xl border border-white/5 bg-white/5 flex items-center gap-4 group/v transition-all duration-300 hover:bg-white/[0.08] cursor-pointer"
                             >
-                              <div className="w-12 h-12 bg-black/40 rounded-2xl flex items-center justify-center text-primary border border-white/10 shadow-xl group-hover/v:scale-110 transition-transform duration-300">
-                                <Car className="w-6 h-6" />
-                              </div>
+                              <VehicleThumbnail vehicle={v} />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
                                   <h4 className="font-black text-white uppercase tracking-tight text-xs truncate">
