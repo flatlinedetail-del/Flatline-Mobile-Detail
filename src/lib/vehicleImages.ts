@@ -65,7 +65,6 @@ const TRUCK_KEYWORDS = [
   "silverado 3500",
   "hd",
   "heavy duty",
-  "1500",
   "2500",
   "3500",
   "dually",
