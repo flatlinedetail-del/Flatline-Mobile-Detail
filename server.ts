@@ -23,6 +23,26 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
   }
 }
 
+function normalizeSmsPhoneNumber(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const digits = raw.replace(/\D/g, "");
+  if (raw.startsWith("+")) {
+    const normalized = `+${digits}`;
+    return /^\+[1-9]\d{7,14}$/.test(normalized) ? normalized : null;
+  }
+
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+
+  return null;
+}
+
+function maskPhoneNumber(value: string): string {
+  return value.replace(/\d(?=\d{4})/g, "*");
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -67,8 +87,10 @@ async function startServer() {
   });
 
   app.post("/api/messages/sms", async (req, res) => {
-    if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
-      return res.status(400).json({ error: "Twilio not configured" });
+    const fromNumber = normalizeSmsPhoneNumber(process.env.TWILIO_PHONE_NUMBER);
+    if (!twilioClient || !fromNumber) {
+      console.error("SMS send blocked: Twilio credentials or from number are not configured correctly.");
+      return res.status(500).json({ error: "Twilio not configured" });
     }
 
     const { to, body } = req.body;
@@ -77,21 +99,40 @@ async function startServer() {
       return res.status(400).json({ error: "Missing required fields (to, body)" });
     }
 
+    const toNumber = normalizeSmsPhoneNumber(to);
+    if (!toNumber) {
+      console.error("SMS send blocked: invalid recipient phone number", { to });
+      return res.status(400).json({ error: "Invalid recipient phone number. Use E.164 format or a 10-digit US number." });
+    }
+
     try {
+      console.info("Sending SMS via Twilio", {
+        to: maskPhoneNumber(toNumber),
+        bodyLength: String(body).length
+      });
       const message = await twilioClient.messages.create({
         body,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to
+        from: fromNumber,
+        to: toNumber
+      });
+      console.info("SMS sent via Twilio", {
+        to: maskPhoneNumber(toNumber),
+        messageId: message.sid,
+        status: message.status
       });
       res.json({ success: true, messageId: message.sid, status: message.status });
     } catch (error: any) {
-      console.error("Twilio error:", error);
+      console.error("Twilio SMS send failed:", {
+        to: maskPhoneNumber(toNumber),
+        code: error.code,
+        status: error.status,
+        message: error.message
+      });
       let errMsg = error.message;
       if (error.code === 30034) {
         errMsg = "Twilio blocked this message because A2P 10DLC registration is incomplete. (" + error.message + ")";
       }
-      // Return 200 with failed status to avoid unhandled rejection issues in frontend
-      res.json({ success: false, status: "failed", error: errMsg, code: error.code });
+      res.status(502).json({ success: false, status: "failed", error: errMsg, code: error.code });
     }
   });
 
