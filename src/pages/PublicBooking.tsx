@@ -572,7 +572,7 @@ export default function PublicBooking() {
       const previousSuggestedAddonIds = recommendationAddonIdsRef.current;
       setRecommendedChoice(recs);
 
-      if (recs.recommendedService && (step === 3 || selectedServices.length === 0)) {
+      if (selectedServices.length === 0 && recs.recommendedService) {
          setSelectedServices([recs.recommendedService.id]);
       }
 
