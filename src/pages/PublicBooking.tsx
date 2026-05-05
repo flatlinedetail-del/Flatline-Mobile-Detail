@@ -95,6 +95,35 @@ const detectPublicVehicleSize = (vehicle: PublicBookingVehicle): PublicVehicleSi
 const hasUsableCoordinates = (lat?: number, lng?: number) =>
   typeof lat === "number" && typeof lng === "number" && lat !== 0 && lng !== 0;
 
+const normalizeRiskPhone = (value?: string) =>
+  (value || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+
+const normalizeRiskEmail = (value?: string) =>
+  (value || "").toLowerCase().trim();
+
+const normalizeRiskName = (value?: string) =>
+  (value || "").toLowerCase().trim().replace(/\s+/g, " ");
+
+const removeUndefined = (value: any): any => {
+  if (Array.isArray(value)) {
+    return value.map(removeUndefined);
+  }
+
+  if (value && typeof value === "object" && ("_methodName" in value || value.constructor?.name?.includes("FieldValue"))) {
+    return value;
+  }
+
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entryValue]) => entryValue !== undefined)
+        .map(([key, entryValue]) => [key, removeUndefined(entryValue)])
+    );
+  }
+
+  return value;
+};
+
 const getVehicleImage = (size: string) => {
   switch (size) {
     case 'coupe': return 'https://images.unsplash.com/photo-1610444391624-9dfc1fbced24?auto=format&fit=crop&q=80&w=800';
@@ -252,25 +281,43 @@ export default function PublicBooking() {
   const requestedAtInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!clientInfo.email && !clientInfo.phone) {
+    const email = normalizeRiskEmail(clientInfo.email);
+    const phone = normalizeRiskPhone(clientInfo.phone);
+    const fullName = normalizeRiskName(clientInfo.name);
+
+    if (!email && !phone && !fullName) {
       setMatchedRiskRule(null);
       return;
     }
 
-    const email = clientInfo.email.toLowerCase().trim();
-    const phone = clientInfo.phone.replace(/\D/g, "");
+    const registeredClient = allClients.find(c => {
+      const clientEmail = normalizeRiskEmail(c.email);
+      const clientPhone = normalizeRiskPhone(c.phone);
+      const clientName = normalizeRiskName(c.fullName || c.name || c.customerName);
 
-    const match = protectedClients.find(pc => 
-      pc.isActive && (
-        (email && pc.email?.toLowerCase().trim() === email) ||
-        (phone && pc.phone?.replace(/\D/g, "") === phone)
-      )
-    );
+      return (
+        (email && clientEmail && clientEmail === email) ||
+        (phone && phone.length >= 10 && clientPhone === phone) ||
+        (fullName && clientName && clientName === fullName)
+      );
+    });
 
-    const registeredClient = allClients.find(c => 
-      (email && c.email?.toLowerCase().trim() === email) ||
-      (phone && c.phone?.replace(/\D/g, "") === phone)
-    );
+    const registeredClientId = registeredClient?.id;
+
+    const match = protectedClients.find(pc => {
+      if (!pc.isActive) return false;
+
+      const protectedEmail = normalizeRiskEmail(pc.email);
+      const protectedPhone = normalizeRiskPhone(pc.phone);
+      const protectedName = normalizeRiskName(pc.fullName || pc.name || pc.customerName);
+
+      return (
+        (registeredClientId && pc.linkedClientId && pc.linkedClientId === registeredClientId) ||
+        (email && protectedEmail && protectedEmail === email) ||
+        (phone && phone.length >= 10 && protectedPhone === phone) ||
+        (fullName && protectedName && protectedName === fullName)
+      );
+    });
 
     const inherentRisk = registeredClient ? (
       registeredClient.riskLevel || 
@@ -292,7 +339,7 @@ export default function PublicBooking() {
     } else {
       setMatchedRiskRule(null);
     }
-  }, [clientInfo.email, clientInfo.phone, protectedClients, allClients]);
+  }, [clientInfo.name, clientInfo.email, clientInfo.phone, protectedClients, allClients]);
 
   const handleVehicleSelect = (vehicle: PublicBookingVehicle) => {
     const vehicleInfo = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim();
@@ -439,6 +486,20 @@ export default function PublicBooking() {
 
         const addonsSnap = await getDocs(query(collection(db, "addons")));
         setAddons(addonsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AddOn)).filter(a => a.isActive));
+
+        try {
+          const protectedSnap = await getDocs(query(collection(db, "protected_clients")));
+          setProtectedClients(protectedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } catch (riskError) {
+          console.info("Risk-management rules are not readable in this public booking session.", riskError);
+        }
+
+        try {
+          const clientsSnap = await getDocs(query(collection(db, "clients")));
+          setAllClients(clientsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } catch (clientError) {
+          console.info("Client profiles are not readable in this public booking session.", clientError);
+        }
 
          const today = new Date();
          const ninetyDaysOut = new Date();
@@ -592,9 +653,9 @@ export default function PublicBooking() {
         depositSource: depositInfo.source,
         depositType: depositInfo.type,
         riskProfile: matchedRiskRule ? {
-          protectionLevel: matchedRiskRule.protectionLevel,
-          riskReason: matchedRiskRule.riskReason,
-          ruleId: matchedRiskRule.id
+          protectionLevel: matchedRiskRule.protectionLevel || null,
+          riskReason: matchedRiskRule.riskReason || "",
+          ruleId: matchedRiskRule.id || null
         } : null,
         paymentStatus: "unpaid",
         technicianId: "",
@@ -608,12 +669,12 @@ export default function PublicBooking() {
           condition,
           recommendedServiceId: recommendedChoice.recommendedService?.id || null,
           lowerCostServiceId: recommendedChoice.lowerCostService?.id || null,
-          choseLowerCost: recommendedChoice.lowerCostService?.id && selectedServices.includes(recommendedChoice.lowerCostService.id),
+          choseLowerCost: Boolean(recommendedChoice.lowerCostService?.id && selectedServices.includes(recommendedChoice.lowerCostService.id)),
           choseManual: true
         }
       };
 
-      const docRef = await addDoc(collection(db, "appointments"), appointmentData);
+      const docRef = await addDoc(collection(db, "appointments"), removeUndefined(appointmentData));
       
       try {
         const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
