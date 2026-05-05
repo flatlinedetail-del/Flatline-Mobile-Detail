@@ -21,7 +21,7 @@ import { format } from "date-fns";
 import { cn, cleanAddress, formatCurrency, formatPhoneNumber } from "@/lib/utils";
 import { StandardInput } from "../components/StandardInput";
 import { CustomFeesEditor } from "../components/CustomFeesEditor";
-import { CustomFee } from "../types";
+import { CustomFee, VehicleSize } from "../types";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Quote, Client, Vehicle, Service, BusinessSettings, Invoice, Appointment, LineItem } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
@@ -61,7 +61,7 @@ interface SmartQuoteProps {
   onApply: (data: {
     clientId: string;
     clientInfo: any;
-    manualVehicles: { year: string; make: string; model: string; size: string }[];
+    manualVehicles: { year: string; make: string; model: string; size: VehicleSize }[];
     lineItems: LineItem[];
     notes: string;
     description: string;
@@ -80,8 +80,8 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const [businessName, setBusinessName] = useState("");
 
   // Vehicle Info
-  const [manualVehicles, setManualVehicles] = useState<{ year: string; make: string; model: string; size: string }[]>([]);
-  const [currentVehicle, setCurrentVehicle] = useState({ year: "", make: "", model: "", size: "medium" });
+  const [manualVehicles, setManualVehicles] = useState<{ year: string; make: string; model: string; size: VehicleSize }[]>([]);
+  const [currentVehicle, setCurrentVehicle] = useState<{ year: string; make: string; model: string; size: VehicleSize }>({ year: "", make: "", model: "", size: "medium" });
 
   // Service Selection
   const [selectedServiceSelections, setSelectedServiceSelections] = useState<{ serviceId: string, vehicleId?: string, vehicleName?: string }[]>([]);
@@ -675,7 +675,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                     <VehicleSizeSelect
                       name="manualVehicleSize"
                       vehicle={currentVehicle}
-                      value={currentVehicle.size as any}
+                      value={currentVehicle.size}
                       onValueChange={(v) => setCurrentVehicle(prev => ({ ...prev, size: v }))}
                       triggerClassName="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white"
                       contentClassName="bg-[#121212] border-white/10 text-white"
@@ -1300,7 +1300,7 @@ export default function Quotes() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [activeTab, setActiveTab] = useState("standard");
-  const [manualVehicles, setManualVehicles] = useState<{ year: string; make: string; model: string; size: string }[]>([]);
+  const [manualVehicles, setManualVehicles] = useState<{ year: string; make: string; model: string; size: VehicleSize }[]>([]);
   const [smartQuoteNotes, setSmartQuoteNotes] = useState("");
   const [quoteDescription, setQuoteDescription] = useState("");
   const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
@@ -1321,7 +1321,7 @@ export default function Quotes() {
   const [showClientSuggestions, setShowClientSuggestions] = useState(false);
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
-  const [newVehicle, setNewVehicle] = useState({ year: "", make: "", model: "", vin: "", size: "medium" as any });
+  const [newVehicle, setNewVehicle] = useState<{ year: string; make: string; model: string; vin: string; size: VehicleSize }>({ year: "", make: "", model: "", vin: "", size: "medium" });
   const [lineItems, setLineItems] = useState<LineItem[]>([{ 
     serviceName: "", 
     price: 0, 

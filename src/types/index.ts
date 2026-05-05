@@ -269,6 +269,7 @@ export interface Lead {
   latitude?: number;
   longitude?: number;
   vehicleInfo: string;
+  vehicleSize?: VehicleSize;
   requestedService: string;
   source: string;
   status: "new" | "contacted" | "quoted" | "converted" | "lost" | "reactivation" | "maintenance_due";

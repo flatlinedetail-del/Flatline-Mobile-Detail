@@ -83,6 +83,10 @@ const SMALL_PATTERNS = [
 const hasPattern = (source: string, patterns: string[]) =>
   patterns.some((pattern) => source.includes(pattern));
 
+export function isVehicleSize(value: FormDataEntryValue | string | null | undefined): value is VehicleSize {
+  return value === "small" || value === "medium" || value === "large" || value === "extra_large";
+}
+
 export function detectVehicleSize(input: VehicleSizeDetectionInput): VehicleSize | null {
   const source = [
     input.make,

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { VehicleSize } from "../types";
-import { detectVehicleSize, VehicleSizeDetectionInput } from "../lib/vehicleSize";
+import { detectVehicleSize, isVehicleSize, VehicleSizeDetectionInput } from "../lib/vehicleSize";
 
 type VehicleSizeLabels = Partial<Record<VehicleSize, string>>;
 
@@ -81,9 +81,10 @@ export default function VehicleSizeSelect({
         name={name}
         value={currentValue}
         onValueChange={(nextValue) => {
+          if (!isVehicleSize(nextValue)) return;
           setWasManuallyChanged(true);
           setIsAutoDetected(false);
-          setSelectedValue(nextValue as VehicleSize);
+          setSelectedValue(nextValue);
         }}
       >
         <SelectTrigger className={triggerClassName}>

@@ -50,7 +50,7 @@ import VehicleSizeSelect from "../components/VehicleSizeSelect";
 import { NumberInput } from "../components/NumberInput";
 import { StandardInput } from "../components/StandardInput";
 import { CustomFeesEditor } from "../components/CustomFeesEditor";
-import { CustomFee } from "../types";
+import { CustomFee, VehicleSize } from "../types";
 import { generateSmartRecommendations, SmartRecommendation, parseFlexibleDate } from "../services/smartBookingService";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
 import { geocodeAddress } from "../services/geocodingService";
@@ -77,7 +77,7 @@ export default function BookAppointment() {
 
   const [selectedCustomerId, setSelectedCustomerId] = useState(prefillClientId || "");
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
-  const [pendingVehicle, setPendingVehicle] = useState<{ year: string; make: string; model: string; size?: string } | null>(null);
+  const [pendingVehicle, setPendingVehicle] = useState<{ year: string; make: string; model: string; size?: VehicleSize } | null>(null);
   const [recPanelVehicleId, setRecPanelVehicleId] = useState<string | null>(null);
   const [isRecPanelOpen, setIsRecPanelOpen] = useState(false);
   const [selectedRecDetail, setSelectedRecDetail] = useState<ServiceTimingOutput | null>(null);
@@ -1403,7 +1403,7 @@ export default function BookAppointment() {
                       <VehicleSizeSelect
                         name="pendingVehicleSize"
                         vehicle={pendingVehicle}
-                        value={pendingVehicle.size as any}
+                        value={pendingVehicle.size}
                         onValueChange={(size) => setPendingVehicle(prev => prev ? ({ ...prev, size }) : prev)}
                         triggerClassName="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
                         contentClassName="bg-zinc-900 border-white/10 text-white"

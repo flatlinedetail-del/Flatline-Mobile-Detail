@@ -101,6 +101,7 @@ import { getClientTypes, getClientCategories, migrateDataToClients, ensureClient
 import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
+import { isVehicleSize } from "../lib/vehicleSize";
 
 interface AddVehicleFormProps {
   clientId: string;
@@ -114,6 +115,7 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const size = formData.get("size");
     const newVehicle = {
       clientId: clientId,
       ownerId: clientId,
@@ -122,7 +124,7 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       make: vData.make,
       model: vData.model,
       color: formData.get("color")?.toString().trim(),
-      size: formData.get("size"),
+      size: isVehicleSize(size) ? size : "medium",
       vin: formData.get("vin")?.toString().trim().toUpperCase(),
       roNumber: formData.get("roNumber")?.toString().trim() || null,
       createdAt: serverTimestamp(),
@@ -2237,10 +2239,11 @@ export default function Clients() {
                                   onSubmit={async (e) => {
                                     e.preventDefault();
                                     const formData = new FormData(e.currentTarget);
+                                    const size = formData.get("size");
                                     const updates = {
                                       color: formData.get("color") as string,
                                       vin: formData.get("vin") as string,
-                                      size: formData.get("size") as any,
+                                      size: isVehicleSize(size) ? size : "medium",
                                       roNumber: formData.get("roNumber") as string || null,
                                       notes: formData.get("notes") as string || null,
                                       licensePlate: formData.get("licensePlate") as string || null,

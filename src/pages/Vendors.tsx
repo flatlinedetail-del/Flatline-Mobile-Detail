@@ -55,6 +55,7 @@ import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { storage } from "../firebase";
+import { isVehicleSize } from "../lib/vehicleSize";
 
 export default function Vendors() {
   const { profile, loading: authLoading } = useAuth();
@@ -188,6 +189,7 @@ export default function Vendors() {
     e.preventDefault();
     if (!selectedVendor) return;
     const formData = new FormData(e.currentTarget);
+    const size = formData.get("size");
     
     if (!newVehicleData.year || !newVehicleData.make || !newVehicleData.model) {
       toast.error("Please select a complete vehicle (Year, Make, and Model)");
@@ -202,7 +204,7 @@ export default function Vendors() {
       make: newVehicleData.make,
       model: newVehicleData.model,
       color: formData.get("color"),
-      size: formData.get("size"),
+      size: isVehicleSize(size) ? size : "medium",
       vin: formData.get("vin"),
       roNumber: formData.get("roNumber"),
       notes: formData.get("notes"),

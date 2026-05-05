@@ -51,6 +51,7 @@ import AddCustomerDialog from "../components/AddCustomerDialog";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ClientCommunication } from "../components/ClientCommunication";
+import { isVehicleSize } from "../lib/vehicleSize";
 
 export default function Customers() {
   const { profile, loading: authLoading } = useAuth();
@@ -171,6 +172,7 @@ export default function Customers() {
     e.preventDefault();
     if (!selectedCustomer) return;
     const formData = new FormData(e.currentTarget);
+    const size = formData.get("size");
     
     if (!newVehicleData.year || !newVehicleData.make || !newVehicleData.model) {
       toast.error("Please select a complete vehicle (Year, Make, and Model)");
@@ -185,7 +187,7 @@ export default function Customers() {
       make: newVehicleData.make,
       model: newVehicleData.model,
       color: formData.get("color"),
-      size: formData.get("size"),
+      size: isVehicleSize(size) ? size : "medium",
       vin: formData.get("vin"),
       createdAt: serverTimestamp(),
     };
