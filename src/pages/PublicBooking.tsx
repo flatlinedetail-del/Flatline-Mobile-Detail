@@ -795,7 +795,7 @@ export default function PublicBooking() {
       <div className="bg-[#050505] border-b border-zinc-800 sticky top-0 z-40 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
            <div className="pt-2">
-             <Logo variant="full" color="white" /> 
+             <Logo variant="full" color="white" className="origin-left scale-125 transform" />
            </div>
            
            <div className="hidden sm:flex items-center gap-8">
