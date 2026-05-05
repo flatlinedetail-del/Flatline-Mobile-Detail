@@ -79,6 +79,42 @@ const VEHICLE_SIZES: { label: string; value: VehicleSize }[] = [
   { label: "Extra Large", value: "extra_large" },
 ];
 
+const COLOR_MAPPING_PRESETS = [
+  { label: "Blue", value: "#3b82f6" },
+  { label: "Purple", value: "#a855f7" },
+  { label: "Gold", value: "#eab308" },
+  { label: "Red", value: "#ef4444" },
+  { label: "Green", value: "#22c55e" },
+  { label: "Cyan", value: "#06b6d4" },
+  { label: "Pink", value: "#ec4899" },
+  { label: "Slate", value: "#64748b" },
+];
+
+const DEFAULT_CALENDAR_COLORS: Record<string, string> = {
+  scheduled: "#3b82f6",
+  confirmed: "#10b981",
+  en_route: "#0A4DFF",
+  in_progress: "#f97316",
+  completed: "#22c55e",
+  canceled: "#ef4444",
+  vip: "#eab308",
+};
+
+const isHexColor = (value?: string) => !!value && /^#[0-9a-fA-F]{6}$/.test(value);
+
+const getVisualCalendarColor = (value: string | undefined, fallback: string) => {
+  if (isHexColor(value)) return value;
+  const raw = value || fallback;
+  if (raw.includes("purple")) return "#a855f7";
+  if (raw.includes("yellow") || raw.includes("gold")) return "#eab308";
+  if (raw.includes("red")) return "#ef4444";
+  if (raw.includes("green")) return "#22c55e";
+  if (raw.includes("cyan")) return "#06b6d4";
+  if (raw.includes("pink")) return "#ec4899";
+  if (raw.includes("slate") || raw.includes("gray")) return "#64748b";
+  return "#3b82f6";
+};
+
 const removeUndefined = (obj: any): any => {
   if (Array.isArray(obj)) {
     return obj.map(removeUndefined);
@@ -1136,6 +1172,23 @@ export default function Settings() {
       };
     });
     if (watermarkFileInputRef.current) watermarkFileInputRef.current.value = "";
+  };
+
+  const handleCalendarColorChange = (key: string, color: string) => {
+    setSettings(prev => prev ? ({
+      ...prev,
+      calendarColors: {
+        ...(prev.calendarColors || {}),
+        [key]: color
+      }
+    }) : null);
+
+    handleSaveSettings({
+      calendarColors: {
+        ...(settings?.calendarColors || {}),
+        [key]: color
+      }
+    });
   };
 
   const handleTabChange = (value: string) => {
@@ -4981,32 +5034,66 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="p-8 space-y-6">
                 {[
-                  { key: 'scheduled', label: 'Scheduled', default: 'bg-gray-100 text-gray-700 border-gray-200' },
-                  { key: 'confirmed', label: 'Confirmed', default: 'bg-black text-white border-black' },
-                  { key: 'en_route', label: 'En Route', default: 'bg-red-50 text-primary border-red-200' },
-                  { key: 'in_progress', label: 'In Progress / Arrived', default: 'bg-primary text-white border-primary' },
-                  { key: 'completed', label: 'Completed', default: 'bg-green-100 text-green-700 border-green-200' },
-                  { key: 'canceled', label: 'Canceled / No Show', default: 'bg-red-100 text-red-700 border-red-200' },
-                  { key: 'vip', label: 'VIP Status Highlight', default: 'ring-2 ring-yellow-500 shadow-yellow-500/50' }
-                ].map(({ key, label, default: def }) => (
-                  <div key={key} className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
-                    <div>
-                      <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
-                      <p className="text-xs text-white/50 font-mono mt-1">{settings?.calendarColors?.[key] || def}</p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border ${settings?.calendarColors?.[key] || def}`}>
-                        Preview
+                  { key: 'scheduled', label: 'Scheduled', default: DEFAULT_CALENDAR_COLORS.scheduled },
+                  { key: 'confirmed', label: 'Confirmed', default: DEFAULT_CALENDAR_COLORS.confirmed },
+                  { key: 'en_route', label: 'En Route', default: DEFAULT_CALENDAR_COLORS.en_route },
+                  { key: 'in_progress', label: 'In Progress / Arrived', default: DEFAULT_CALENDAR_COLORS.in_progress },
+                  { key: 'completed', label: 'Completed', default: DEFAULT_CALENDAR_COLORS.completed },
+                  { key: 'canceled', label: 'Canceled / No Show', default: DEFAULT_CALENDAR_COLORS.canceled },
+                  { key: 'vip', label: 'VIP Status Highlight', default: DEFAULT_CALENDAR_COLORS.vip }
+                ].map(({ key, label, default: def }) => {
+                  const storedColor = settings?.calendarColors?.[key];
+                  const visualColor = getVisualCalendarColor(storedColor, def);
+
+                  return (
+                    <div key={key} className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 p-4 bg-white/5 border border-white/5 rounded-2xl">
+                      <div className="flex items-center gap-4">
+                        <div
+                          className="w-12 h-12 rounded-2xl border border-white/10 shadow-lg shrink-0"
+                          style={{ backgroundColor: visualColor, boxShadow: `0 0 16px ${visualColor}66` }}
+                        />
+                        <div>
+                          <h4 className="text-sm font-bold text-white uppercase">{label}</h4>
+                          <p className="text-[10px] text-white/40 font-medium uppercase tracking-widest mt-1">Saved value: {storedColor || visualColor}</p>
+                        </div>
                       </div>
-                      <Input 
-                        value={settings?.calendarColors?.[key] || def}
-                        onChange={(e) => handleSaveSettings({ calendarColors: { ...(settings?.calendarColors || {}), [key]: e.target.value } })}
-                        placeholder="CSS Classes (e.g., bg-red-500 text-white)"
-                        className="w-[300px] bg-black/40 border-white/10 text-white font-mono text-xs rounded-xl"
-                      />
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                        <div
+                          className="px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border bg-black/40 text-white"
+                          style={{ borderColor: visualColor, boxShadow: `0 0 12px ${visualColor}55` }}
+                        >
+                          Preview
+                        </div>
+                        <label className="flex items-center gap-3 h-12 px-4 rounded-xl bg-black/40 border border-white/10 cursor-pointer hover:border-primary/40 transition-colors">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-white/60">Pick Color</span>
+                          <input
+                            type="color"
+                            value={visualColor}
+                            onChange={(e) => handleCalendarColorChange(key, e.target.value)}
+                            className="h-8 w-10 rounded-lg bg-transparent border-none cursor-pointer"
+                            aria-label={`Choose ${label} mapping color`}
+                          />
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {COLOR_MAPPING_PRESETS.map((preset) => (
+                            <button
+                              key={preset.value}
+                              type="button"
+                              onClick={() => handleCalendarColorChange(key, preset.value)}
+                              className={cn(
+                                "w-7 h-7 rounded-full border-2 transition-all hover:scale-110",
+                                visualColor.toLowerCase() === preset.value.toLowerCase() ? "border-white shadow-glow-blue" : "border-white/10"
+                              )}
+                              style={{ backgroundColor: preset.value }}
+                              title={preset.label}
+                              aria-label={`Use ${preset.label} for ${label}`}
+                            />
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
 
