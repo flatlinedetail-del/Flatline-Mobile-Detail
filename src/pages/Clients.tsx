@@ -80,6 +80,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { format } from "date-fns";
 import VehicleSelector from "../components/VehicleSelector";
+import VehicleSizeSelect from "../components/VehicleSizeSelect";
 import { syncService } from "../services/syncService";
 import { 
   cn, 
@@ -166,17 +167,11 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="text-[10px] font-black uppercase tracking-widest text-white">Vehicle Size</Label>
-          <Select name="size" defaultValue="medium">
-            <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12">
-              <SelectValue placeholder="Vehicle Size" />
-            </SelectTrigger>
-            <SelectContent className="bg-card border-border text-white">
-              <SelectItem value="small">Small</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="large">Large</SelectItem>
-              <SelectItem value="extra_large">Extra Large</SelectItem>
-            </SelectContent>
-          </Select>
+          <VehicleSizeSelect
+            vehicle={vData}
+            triggerClassName="bg-white/5 border-white/10 text-white rounded-xl h-12"
+            contentClassName="bg-card border-border text-white"
+          />
         </div>
         {isCollisionCenter && (
           <div className="space-y-2">
@@ -2286,17 +2281,13 @@ export default function Clients() {
                                   <div className="grid grid-cols-2 gap-6">
                                     <div className="space-y-2">
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Asset Classification</Label>
-                                      <Select name="size" defaultValue={editingVehicle.size}>
-                                        <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-12">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent className="bg-card border-border text-white">
-                                          <SelectItem value="small">Small</SelectItem>
-                                          <SelectItem value="medium">Medium</SelectItem>
-                                          <SelectItem value="large">Large</SelectItem>
-                                          <SelectItem value="extra_large">Extra Large</SelectItem>
-                                        </SelectContent>
-                                      </Select>
+                                      <VehicleSizeSelect
+                                        vehicle={editingVehicle}
+                                        defaultValue={editingVehicle.size || "medium"}
+                                        autoDetectFromDefault={!editingVehicle.size}
+                                        triggerClassName="bg-white/5 border-white/10 text-white rounded-xl h-12"
+                                        contentClassName="bg-card border-border text-white"
+                                      />
                                     </div>
                                     <div className="space-y-2">
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">License Plate</Label>

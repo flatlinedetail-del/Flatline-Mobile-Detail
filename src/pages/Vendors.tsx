@@ -50,6 +50,7 @@ import { cn } from "../lib/utils";
 import { Vendor, Service, Appointment, Vehicle } from "../types";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
+import VehicleSizeSelect from "../components/VehicleSizeSelect";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
@@ -768,15 +769,17 @@ export default function Vendors() {
                             </div>
                             <div className="space-y-2">
                               <Label>Size</Label>
-                              <Select name="size" defaultValue="medium">
-                                <SelectTrigger className="bg-white border-gray-200"><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
-                                <SelectContent className="bg-white">
-                                  <SelectItem value="small">Small (Coupe/Compact)</SelectItem>
-                                  <SelectItem value="medium">Medium (Sedan/Small SUV)</SelectItem>
-                                  <SelectItem value="large">Large (Full SUV/Truck)</SelectItem>
-                                  <SelectItem value="extra_large">Extra Large (Van/Lifted)</SelectItem>
-                                </SelectContent>
-                              </Select>
+                              <VehicleSizeSelect
+                                vehicle={newVehicleData}
+                                triggerClassName="bg-white border-gray-200"
+                                contentClassName="bg-white"
+                                labels={{
+                                  small: "Small (Coupe/Compact)",
+                                  medium: "Medium (Sedan/Small SUV)",
+                                  large: "Large (Full SUV/Truck)",
+                                  extra_large: "Extra Large (Van/Lifted)",
+                                }}
+                              />
                             </div>
                             <div className="space-y-2">
                               <Label>VIN (Optional)</Label>

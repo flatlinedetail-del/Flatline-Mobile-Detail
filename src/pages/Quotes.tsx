@@ -16,6 +16,7 @@ import { Plus, Search, Filter, FileText, Trash2, Car, User as UserIcon, Settings
 import { toast } from "sonner";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
+import VehicleSizeSelect from "../components/VehicleSizeSelect";
 import { format } from "date-fns";
 import { cn, cleanAddress, formatCurrency, formatPhoneNumber } from "@/lib/utils";
 import { StandardInput } from "../components/StandardInput";
@@ -671,17 +672,20 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-white">Vehicle Size</Label>
-                    <Select value={currentVehicle.size} onValueChange={(v) => setCurrentVehicle(prev => ({ ...prev, size: v }))}>
-                      <SelectTrigger className="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white">
-                        <SelectValue placeholder="Select size" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#121212] border-white/10 text-white">
-                        <SelectItem value="small">Small (Coupe/Compact)</SelectItem>
-                        <SelectItem value="medium">Medium (Sedan/Small SUV)</SelectItem>
-                        <SelectItem value="large">Large (Large SUV/Truck)</SelectItem>
-                        <SelectItem value="extra_large">Extra Large (Van/Lifted Truck)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <VehicleSizeSelect
+                      name="manualVehicleSize"
+                      vehicle={currentVehicle}
+                      value={currentVehicle.size as any}
+                      onValueChange={(v) => setCurrentVehicle(prev => ({ ...prev, size: v }))}
+                      triggerClassName="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white"
+                      contentClassName="bg-[#121212] border-white/10 text-white"
+                      labels={{
+                        small: "Small (Coupe/Compact)",
+                        medium: "Medium (Sedan/Small SUV)",
+                        large: "Large (Large SUV/Truck)",
+                        extra_large: "Extra Large (Van/Lifted Truck)",
+                      }}
+                    />
                   </div>
                   <Button 
                     type="button"
@@ -1919,6 +1923,23 @@ export default function Quotes() {
                             onValueChange={(val) => setNewVehicle(prev => ({ ...prev, vin: val }))}
                             className="bg-white/5 border-white/10 h-12 rounded-xl font-bold uppercase font-mono text-white"
                           />
+                          <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-white">Vehicle Size</Label>
+                            <VehicleSizeSelect
+                              name="newVehicleSize"
+                              vehicle={newVehicle}
+                              value={newVehicle.size}
+                              onValueChange={(size) => setNewVehicle(prev => ({ ...prev, size }))}
+                              triggerClassName="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white"
+                              contentClassName="bg-[#121212] border-white/10 text-white"
+                              labels={{
+                                small: "Small (Coupe/Compact)",
+                                medium: "Medium (Sedan/Small SUV)",
+                                large: "Large (Large SUV/Truck)",
+                                extra_large: "Extra Large (Van/Lifted Truck)",
+                              }}
+                            />
+                          </div>
                         </div>
                       </div>
                     ) : (

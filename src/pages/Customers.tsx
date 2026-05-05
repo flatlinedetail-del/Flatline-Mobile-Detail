@@ -46,6 +46,7 @@ import { cn } from "../lib/utils";
 import { Customer, Vehicle, Service } from "../types";
 import CustomerAddressInput, { CustomerAddressInputRef } from "../components/CustomerAddressInput";
 import VehicleSelector from "../components/VehicleSelector";
+import VehicleSizeSelect from "../components/VehicleSizeSelect";
 import AddCustomerDialog from "../components/AddCustomerDialog";
 import { deleteDoc } from "firebase/firestore";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -613,15 +614,17 @@ export default function Customers() {
                             <Input name="color" placeholder="Color" className="bg-white border-gray-200" />
                             <Input name="vin" placeholder="VIN (Optional)" className="bg-white border-gray-200" />
                           </div>
-                          <Select name="size" defaultValue="medium">
-                            <SelectTrigger className="bg-white border-gray-200"><SelectValue placeholder="Vehicle Size" /></SelectTrigger>
-                            <SelectContent className="bg-white">
-                              <SelectItem value="small">Small (Coupe/Compact)</SelectItem>
-                              <SelectItem value="medium">Medium (Sedan/Small SUV)</SelectItem>
-                              <SelectItem value="large">Large (Full SUV/Truck)</SelectItem>
-                              <SelectItem value="extra_large">Extra Large (Van/Lifted)</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <VehicleSizeSelect
+                            vehicle={newVehicleData}
+                            triggerClassName="bg-white border-gray-200"
+                            contentClassName="bg-white"
+                            labels={{
+                              small: "Small (Coupe/Compact)",
+                              medium: "Medium (Sedan/Small SUV)",
+                              large: "Large (Full SUV/Truck)",
+                              extra_large: "Extra Large (Van/Lifted)",
+                            }}
+                          />
                           <Button type="submit" className="w-full bg-primary font-bold">Save Vehicle</Button>
                         </form>
                       </DialogContent>

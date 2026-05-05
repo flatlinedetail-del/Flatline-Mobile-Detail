@@ -43,6 +43,7 @@ import { useNavigate } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
 import { createNotification } from "../services/notificationService";
 import VehicleSelector from "../components/VehicleSelector";
+import VehicleSizeSelect from "../components/VehicleSizeSelect";
 
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
@@ -139,6 +140,7 @@ export default function Leads() {
       zipCode: newLeadAddress.zipCode,
       placeId: newLeadAddress.placeId,
       vehicleInfo: `${newVehicleData.year} ${newVehicleData.make} ${newVehicleData.model}`.trim(),
+      vehicleSize: formData.get("size"),
       requestedService: formData.get("requestedService"),
       source: formData.get("source") || "Direct",
       status: editingLead?.status || "new",
@@ -387,6 +389,22 @@ export default function Leads() {
                       make: editingLead.vehicleInfo.split(" ")[1] || "",
                       model: editingLead.vehicleInfo.split(" ").slice(2).join(" ") || ""
                     } : undefined}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">Vehicle Size</Label>
+                  <VehicleSizeSelect
+                    vehicle={newVehicleData.year ? newVehicleData : { vehicleInfo: editingLead?.vehicleInfo || "" }}
+                    defaultValue={(editingLead as any)?.vehicleSize || "medium"}
+                    autoDetectFromDefault={!(editingLead as any)?.vehicleSize}
+                    triggerClassName="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold"
+                    contentClassName="bg-zinc-900 border-white/10 text-white"
+                    labels={{
+                      small: "Small (Coupe/Compact)",
+                      medium: "Medium (Sedan/Small SUV)",
+                      large: "Large (Full SUV/Truck)",
+                      extra_large: "Extra Large (Van/Lifted)",
+                    }}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-6">
