@@ -781,7 +781,7 @@ export default function PublicBooking() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="max-w-md w-full border-none shadow-2xl rounded-3xl overflow-hidden">
-          <div className="bg-primary p-8 flex justify-center">
+          <div className="bg-green-500 p-8 flex justify-center">
             <CheckCircle2 className="w-20 h-20 text-white" />
           </div>
           <CardContent className="p-8 text-center space-y-4">
@@ -810,8 +810,8 @@ export default function PublicBooking() {
            
            <div className="hidden sm:flex items-center gap-8">
              <div className="flex items-center gap-2">
-               <ShieldCheck className="w-5 h-5 text-primary" />
-               <span className="text-xs font-black uppercase tracking-widest text-primary">Secure Booking</span>
+               <ShieldCheck className="w-5 h-5 text-emerald-500" />
+               <span className="text-xs font-black uppercase tracking-widest text-emerald-50">Secure Booking</span>
              </div>
              {settings?.businessPhone && (
                <div className="flex items-center gap-2 text-white">
@@ -1184,7 +1184,7 @@ export default function PublicBooking() {
                           {scheduledAt && isTimeAvailable !== null && (
                             <div className={cn(
                               "mt-4 p-5 rounded-2xl border flex flex-col gap-4",
-                              isTimeAvailable ? "bg-primary/5 border-primary/20 text-primary" : "bg-red-50 border-red-200 text-red-800"
+                              isTimeAvailable ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"
                             )}>
                               <div className="flex items-start gap-3">
                                 {isTimeAvailable ? (
