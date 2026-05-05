@@ -1518,12 +1518,12 @@ export default function PublicBooking() {
                {/* Show Recommendation Panel starting Step 3 or 4 */}
                {(step >= 3 && recommendedChoice.recommendedService) && (
                  <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-900 text-xs font-black uppercase tracking-widest gap-2 border border-emerald-200 shadow-sm">
-                      <Star className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600" />
+                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-black uppercase tracking-widest gap-2 border border-primary/20 shadow-glow-blue">
+                      <Star className="w-3.5 h-3.5 fill-primary text-primary" />
                       Recommended for your vehicle
                     </div>
                     
-                    <Card className="border-2 border-emerald-500 shadow-xl overflow-hidden rounded-3xl bg-white transition-all">
+                    <Card className="border-2 border-primary shadow-glow-blue overflow-hidden rounded-3xl bg-white transition-all">
                       <CardContent className="p-6">
                         <div className="flex justify-between items-start mb-4">
                           <div>
@@ -1549,7 +1549,7 @@ export default function PublicBooking() {
                           <div className="space-y-1.5 mb-4 px-2">
                             {recommendedChoice.recommendedService.description.split('\n').filter(Boolean).map((item, idx) => (
                               <div key={idx} className="flex items-start gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                                 <span className="text-sm font-medium text-gray-700">{item.replace(/^-\s*/, '')}</span>
                               </div>
                             ))}
@@ -1570,7 +1570,7 @@ export default function PublicBooking() {
                         <Button 
                           type="button" 
                           onClick={handleAcceptRecommendation}
-                          className="w-full mt-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-lg shadow-emerald-200 group"
+                          className="w-full mt-6 bg-primary hover:bg-[#2A6CFF] focus-visible:ring-primary/30 text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-glow-blue transition-all hover:scale-105 group"
                         >
                           Accept Recommendation
                           <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
