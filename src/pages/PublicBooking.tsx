@@ -21,6 +21,132 @@ import { getVehicleFallbackImageUrl, getVehicleImageUrl, VehicleImageInput } fro
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
 
+type PublicVehicleSize = "coupe" | "sedan" | "suv_small" | "suv_large" | "truck" | "van" | "luxury";
+
+type PublicBookingVehicle = {
+  year?: string;
+  make?: string;
+  model?: string;
+  type?: string;
+  bodyStyle?: string;
+  vehicleInfo?: string;
+};
+
+const LUXURY_VEHICLE_KEYWORDS = [
+  "aston martin",
+  "ferrari",
+  "lamborghini",
+  "bentley",
+  "rolls royce",
+  "rolls-royce",
+  "porsche",
+  "mclaren",
+  "maserati",
+  "maybach",
+  "lotus",
+  "bugatti",
+  "luxury",
+  "exotic",
+];
+
+const LARGE_SUV_KEYWORDS = [
+  "tahoe",
+  "suburban",
+  "yukon",
+  "expedition",
+  "escalade",
+  "navigator",
+  "sequoia",
+  "armada",
+  "large suv",
+  "full-size suv",
+  "full size suv",
+];
+
+const TRUCK_KEYWORDS = [
+  "f-150",
+  "f150",
+  "silverado",
+  "ram",
+  "sierra",
+  "tundra",
+  "tacoma",
+  "ranger",
+  "colorado",
+  "titan",
+  "truck",
+  "pickup",
+];
+
+const VAN_KEYWORDS = [
+  "sprinter",
+  "transit",
+  "promaster",
+  "cargo van",
+  "minivan",
+  "van",
+];
+
+const SEDAN_KEYWORDS = [
+  "camry",
+  "accord",
+  "altima",
+  "corolla",
+  "civic",
+  "elantra",
+  "malibu",
+  "sentra",
+  "jetta",
+  "sedan",
+];
+
+const SMALL_SUV_KEYWORDS = [
+  "suv",
+  "crossover",
+  "rav4",
+  "cr-v",
+  "crv",
+  "rogue",
+  "equinox",
+  "escape",
+  "forester",
+  "tucson",
+  "sportage",
+  "cherokee",
+];
+
+const COUPE_KEYWORDS = ["coupe", "compact", "hatchback"];
+
+const hasVehicleKeyword = (source: string, keywords: string[]) =>
+  keywords.some((keyword) => source.includes(keyword));
+
+const buildVehicleSource = (vehicle: PublicBookingVehicle) =>
+  [
+    vehicle.year,
+    vehicle.make,
+    vehicle.model,
+    vehicle.type,
+    vehicle.bodyStyle,
+    vehicle.vehicleInfo,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+const detectPublicVehicleSize = (vehicle: PublicBookingVehicle): PublicVehicleSize => {
+  const source = buildVehicleSource(vehicle);
+
+  if (hasVehicleKeyword(source, LUXURY_VEHICLE_KEYWORDS)) return "luxury";
+  if (hasVehicleKeyword(source, VAN_KEYWORDS)) return "van";
+  if (hasVehicleKeyword(source, LARGE_SUV_KEYWORDS)) return "suv_large";
+  if (hasVehicleKeyword(source, TRUCK_KEYWORDS)) return "truck";
+  if (hasVehicleKeyword(source, SMALL_SUV_KEYWORDS)) return "suv_small";
+  if (hasVehicleKeyword(source, COUPE_KEYWORDS)) return "coupe";
+  if (hasVehicleKeyword(source, SEDAN_KEYWORDS)) return "sedan";
+
+  return "sedan";
+};
+
 function VehicleImagePreview({ vehicle }: { vehicle: VehicleImageInput }) {
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -153,6 +279,8 @@ export default function PublicBooking() {
   const [clientNote, setClientNote] = useState("");
   const [alternativeTimes, setAlternativeTimes] = useState<Date[]>([]);
   const [isBackupAvailable, setIsBackupAvailable] = useState<boolean | null>(null);
+  const [selectedVehicleKey, setSelectedVehicleKey] = useState("");
+  const [vehicleSizeManuallyChanged, setVehicleSizeManuallyChanged] = useState(false);
 
   const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
 
@@ -204,6 +332,24 @@ export default function PublicBooking() {
       setMatchedRiskRule(null);
     }
   }, [clientInfo.email, clientInfo.phone, protectedClients, allClients]);
+
+  const handleVehicleSelect = (vehicle: PublicBookingVehicle) => {
+    const vehicleInfo = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim();
+    const vehicleKey = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join("|").toLowerCase();
+    const isBrandNewVehicle = vehicleKey !== selectedVehicleKey;
+    const detectedVehicleSize = detectPublicVehicleSize({ ...vehicle, vehicleInfo });
+
+    setClientInfo(prev => ({
+      ...prev,
+      vehicleInfo,
+      vehicleSize: isBrandNewVehicle || !vehicleSizeManuallyChanged ? detectedVehicleSize : prev.vehicleSize
+    }));
+    setSelectedVehicleKey(vehicleKey);
+
+    if (isBrandNewVehicle) {
+      setVehicleSizeManuallyChanged(false);
+    }
+  };
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -676,12 +822,18 @@ export default function PublicBooking() {
                     <CardContent className="p-8 space-y-6">
                       <div className="space-y-4">
                         <VehicleSelector 
-                          onSelect={(v) => setClientInfo(prev => ({ ...prev, vehicleInfo: `${v.year} ${v.make} ${v.model}` }))}
+                          onSelect={handleVehicleSelect}
                         />
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="space-y-2">
                             <Label className="text-gray-900 font-bold">Vehicle Size</Label>
-                            <Select value={clientInfo.vehicleSize} onValueChange={v => setClientInfo(prev => ({...prev, vehicleSize: v}))}>
+                            <Select
+                              value={clientInfo.vehicleSize}
+                              onValueChange={(v: PublicVehicleSize) => {
+                                setVehicleSizeManuallyChanged(true);
+                                setClientInfo(prev => ({...prev, vehicleSize: v}));
+                              }}
+                            >
                               <SelectTrigger className="border-gray-300 text-gray-900 focus:ring-primary/20">
                                 <SelectValue placeholder="Select Size" />
                               </SelectTrigger>

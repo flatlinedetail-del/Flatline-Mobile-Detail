@@ -114,10 +114,10 @@ export function getVehicleImageCategory(vehicle: VehicleImageInput): VehicleImag
   const source = buildVehicleImageSource(vehicle);
 
   if (hasKeyword(source, LUXURY_KEYWORDS)) return "luxury";
-  if (hasKeyword(source, VAN_KEYWORDS) || vehicle.size === "extra_large") return "van";
-  if (hasKeyword(source, LARGE_SUV_KEYWORDS)) return "large_suv";
-  if (hasKeyword(source, TRUCK_KEYWORDS)) return "truck";
-  if (hasKeyword(source, SUV_KEYWORDS) || vehicle.size === "medium") return "suv";
+  if (hasKeyword(source, VAN_KEYWORDS) || vehicle.size === "extra_large" || vehicle.size === "van") return "van";
+  if (hasKeyword(source, LARGE_SUV_KEYWORDS) || vehicle.size === "suv_large") return "large_suv";
+  if (hasKeyword(source, TRUCK_KEYWORDS) || vehicle.size === "truck") return "truck";
+  if (hasKeyword(source, SUV_KEYWORDS) || vehicle.size === "medium" || vehicle.size === "suv_small") return "suv";
   if (hasKeyword(source, HATCHBACK_KEYWORDS)) return "hatchback";
 
   return "sedan";
