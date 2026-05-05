@@ -1540,35 +1540,6 @@ export default function PublicBooking() {
                         </div>
                       </div>
 
-                      {matchedRiskRule && (
-                        <div className={cn(
-                          "p-5 rounded-2xl border flex items-start gap-4 animate-in fade-in zoom-in",
-                          matchedRiskRule.protectionLevel === "High" ? "bg-red-50 border-red-200" : 
-                          matchedRiskRule.protectionLevel === "Block Booking" ? "bg-black border-red-900" : "bg-orange-50 border-orange-200"
-                        )}>
-                          <AlertCircle className={cn("w-6 h-6 shrink-0 mt-0.5", 
-                            matchedRiskRule.protectionLevel === "High" ? "text-red-600" : 
-                            matchedRiskRule.protectionLevel === "Block Booking" ? "text-red-500" : "text-orange-600"
-                          )} />
-                          <div>
-                            <p className={cn("text-xs font-black uppercase tracking-widest", 
-                              matchedRiskRule.protectionLevel === "High" ? "text-red-800" : 
-                              matchedRiskRule.protectionLevel === "Block Booking" ? "text-red-400" : "text-orange-800"
-                            )}>
-                              {matchedRiskRule.protectionLevel === "Block Booking" ? "RESTRICTED ACCOUNT" : `${matchedRiskRule.protectionLevel} Risk Detected`}
-                            </p>
-                            <p className={cn("text-sm font-bold mt-1", matchedRiskRule.protectionLevel === "Block Booking" ? "text-white" : "text-gray-800")}>
-                              {matchedRiskRule.protectionLevel === "Block Booking" 
-                                ? "This account has been restricted. We are not accepting new automated bookings for this client at this time. Please contact us directly."
-                                : depositInfo.source === "risk_rule"
-                                  ? <>Based on our risk management protocols, a deposit of <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> is required to secure this booking.</>
-                                  : "This client has a risk flag on file. No risk-management deposit requirement is configured for this booking."
-                              }
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
                       {depositInfo.isRequired && (
                         <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 flex items-start gap-4">
                           <ShieldCheck className="w-6 h-6 text-primary shrink-0 mt-0.5" />
@@ -1597,7 +1568,7 @@ export default function PublicBooking() {
                           disabled={isSubmitting || matchedRiskRule?.protectionLevel === "Block Booking"}
                         >
                           {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
-                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Account Restricted" : "Submit Booking Requirement"}
+                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Please Contact Us" : "Submit Booking Requirement"}
                         </Button>
                       </div>
                     </CardContent>
