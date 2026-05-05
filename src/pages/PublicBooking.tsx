@@ -17,6 +17,7 @@ import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtils";
 import Logo from "../components/Logo";
+import { calculateDistance, calculateTravelFee } from "../services/travelService";
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
 
@@ -86,6 +87,9 @@ const detectPublicVehicleSize = (vehicle: PublicBookingVehicle): PublicVehicleSi
 
   return "sedan";
 };
+
+const hasUsableCoordinates = (lat?: number, lng?: number) =>
+  typeof lat === "number" && typeof lng === "number" && lat !== 0 && lng !== 0;
 
 const getVehicleImage = (size: string) => {
   switch (size) {
@@ -405,6 +409,15 @@ export default function PublicBooking() {
     }
   };
 
+  const handlePhoneChange = (value: string) => {
+    const digits = value.replace(/\D/g, "").slice(0, 10);
+    setClientInfo(prev => ({ ...prev, phone: formatPhoneNumber(digits) }));
+  };
+
+  const handleAddressSelect = (addr: string, lat: number, lng: number) => {
+    setClientInfo(prev => ({ ...prev, address: addr, lat, lng }));
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -554,7 +567,9 @@ export default function PublicBooking() {
         updatedAt: serverTimestamp(),
         customerType: "retail",
         baseAmount: totalPrice,
-        totalAmount: totalPrice + (isAfterHours && afterHoursFee ? afterHoursFee * 100 : 0),
+        travelFee: travelFeeInfo.fee,
+        travelFeeBreakdown: travelFeeInfo.fee > 0 ? travelFeeInfo : null,
+        totalAmount: bookingSummaryTotal + (isAfterHours && afterHoursFee ? afterHoursFee * 100 : 0),
         estimatedDuration: totalDuration,
         afterHoursRecord: isAfterHours ? {
           isAfterHours: true,
@@ -665,6 +680,34 @@ export default function PublicBooking() {
      });
      return price;
   }, [selectedServices, selectedAddons, services, addons]);
+
+  const travelFeeInfo = useMemo(() => {
+    const travelPricing = settings?.travelPricing;
+    if (
+      !travelPricing?.enabled ||
+      !hasUsableCoordinates(clientInfo.lat, clientInfo.lng) ||
+      !hasUsableCoordinates(settings?.baseLatitude, settings?.baseLongitude)
+    ) {
+      return { fee: 0, miles: 0, zoneName: "", rate: 0, isRoundTrip: false };
+    }
+
+    const distance = calculateDistance(
+      settings!.baseLatitude,
+      settings!.baseLongitude,
+      clientInfo.lat,
+      clientInfo.lng
+    );
+
+    return calculateTravelFee(distance, travelPricing, {
+      lat: clientInfo.lat,
+      lng: clientInfo.lng
+    });
+  }, [clientInfo.lat, clientInfo.lng, settings?.baseLatitude, settings?.baseLongitude, settings?.travelPricing]);
+
+  const bookingSummaryTotal = useMemo(
+    () => totalPrice + travelFeeInfo.fee,
+    [totalPrice, travelFeeInfo.fee]
+  );
 
   const depositInfo = useMemo(() => {
     let amount = 0;
@@ -1105,12 +1148,15 @@ export default function PublicBooking() {
                       <div className="space-y-4">
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Request a Date & Time</Label>
                         <div className="space-y-2">
-                          <Input 
-                            type="datetime-local" 
-                            value={scheduledAt}
-                            onChange={e => setScheduledAt(e.target.value)}
-                            className="h-14 bg-white border-2 border-gray-300 rounded-xl focus:border-primary transition-all text-gray-900 font-bold text-lg px-4"
-                          />
+                          <div className="relative">
+                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary pointer-events-none z-10" />
+                            <Input
+                              type="datetime-local"
+                              value={scheduledAt}
+                              onChange={e => setScheduledAt(e.target.value)}
+                              className="h-14 bg-white border-2 border-gray-300 rounded-xl focus:border-primary transition-all text-gray-900 font-bold text-lg pl-12 pr-4"
+                            />
+                          </div>
                           {scheduledAt && isTimeAvailable !== null && (
                             <div className={cn(
                               "mt-4 p-5 rounded-2xl border flex flex-col gap-4",
@@ -1204,7 +1250,7 @@ export default function PublicBooking() {
                                     </div>
 
                                     <div className="space-y-2">
-                                      <Label className="text-[10px] font-black uppercase tracking-widest text-red-900/60">Note for Admin (Optional)</Label>
+                                      <Label className="text-[10px] font-black uppercase tracking-widest text-red-900/60">Note for Technician (Optional)</Label>
                                       <Input 
                                         placeholder="e.g. Can do mornings only..."
                                         value={clientNote}
@@ -1285,10 +1331,12 @@ export default function PublicBooking() {
                             <Label className="text-gray-900 font-bold">Phone</Label>
                             <Input 
                               type="tel" 
+                              inputMode="numeric"
+                              maxLength={14}
                               placeholder="(555) 000-0000" 
                               className="border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-primary/20 h-11"
                               value={clientInfo.phone}
-                              onChange={e => setClientInfo(prev => ({ ...prev, phone: e.target.value }))}
+                              onChange={e => handlePhoneChange(e.target.value)}
                               required
                             />
                           </div>
@@ -1298,9 +1346,14 @@ export default function PublicBooking() {
                       <div className="space-y-4 pt-4 border-t border-gray-100">
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Service Location</Label>
                         <AddressInput 
-                          onAddressSelect={(addr, lat, lng) => setClientInfo(prev => ({ ...prev, address: addr, lat, lng }))}
+                          onAddressSelect={handleAddressSelect}
                           placeholder="Enter your location for mobile service"
                         />
+                        {travelFeeInfo.fee > 0 && (
+                          <div className="p-4 rounded-2xl border border-primary/20 bg-primary/5 text-sm font-bold text-gray-800">
+                            Travel fee detected: <span className="text-primary font-black">{formatCurrency(travelFeeInfo.fee)}</span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
@@ -1368,6 +1421,12 @@ export default function PublicBooking() {
                                 </div>
                               )
                            })}
+                           {travelFeeInfo.fee > 0 && (
+                             <div className="flex justify-between items-start text-sm">
+                               <span className="font-bold text-gray-600">+ Travel fee</span>
+                               <span className="font-black text-gray-600">{formatCurrency(travelFeeInfo.fee)}</span>
+                             </div>
+                           )}
                         </div>
                         <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
                            <div>
@@ -1382,7 +1441,7 @@ export default function PublicBooking() {
                                   Deposit Required: {formatCurrency(depositInfo.amount)}
                                 </p>
                               )}
-                              <span className="text-3xl font-black text-primary">{formatCurrency(totalPrice)}</span>
+                              <span className="text-3xl font-black text-primary">{formatCurrency(bookingSummaryTotal)}</span>
                             </div>
                         </div>
                       </div>
@@ -1586,6 +1645,12 @@ export default function PublicBooking() {
                                 </div>
                               )
                            })}
+                           {travelFeeInfo.fee > 0 && (
+                             <div className="flex justify-between items-start text-sm">
+                               <span className="font-bold text-gray-600">+ Travel fee</span>
+                               <span className="font-black text-gray-600">{formatCurrency(travelFeeInfo.fee)}</span>
+                             </div>
+                           )}
                         </div>
                         <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
                            <div>
@@ -1600,7 +1665,7 @@ export default function PublicBooking() {
                                  Deposit Required: {formatCurrency(depositInfo.amount)}
                                </p>
                              )}
-                             <span className="text-3xl font-black text-primary">${totalPrice}</span>
+                             <span className="text-3xl font-black text-primary">{formatCurrency(bookingSummaryTotal)}</span>
                            </div>
                         </div>
                      </>
