@@ -618,6 +618,36 @@ export default function PublicBooking() {
         clientNote
       } : null;
 
+      if (depositInfo.isRequired) {
+        const serviceNames = services.filter(s => selectedServices.includes(s.id)).map(s => s.name);
+        const bookingReference = globalThis.crypto?.randomUUID?.() || `booking-${Date.now()}`;
+        const publicDepositSource = depositInfo.source === "risk_rule" ? "required_deposit" : `${depositInfo.source || "deposit"}_deposit`;
+        const response = await fetch("/api/payments/stripe/deposit-checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: depositInfo.amount,
+            bookingReference,
+            customerName: clientInfo.name,
+            customerEmail: clientInfo.email,
+            customerPhone: clientInfo.phone,
+            vehicleInfo: fullVehicleInfo,
+            serviceNames,
+            scheduledAt,
+            depositSource: publicDepositSource
+          })
+        });
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok || !data?.url) {
+          toast.error(data?.error || "Deposit payment is required, but online payment is not fully configured yet. Please contact us to complete booking.");
+          return;
+        }
+
+        window.location.assign(data.url);
+        return;
+      }
+
        const appointmentData: any = {
         customerName: clientInfo.name,
         customerEmail: clientInfo.email,
@@ -1544,7 +1574,7 @@ export default function PublicBooking() {
                         <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 flex items-start gap-4">
                           <ShieldCheck className="w-6 h-6 text-primary shrink-0 mt-0.5" />
                           <div>
-                            <p className="text-xs font-black uppercase tracking-widest text-primary">Deposit Required</p>
+                            <p className="text-xs font-black uppercase tracking-widest text-primary">Deposit Payment Required</p>
                             <p className="text-sm font-bold text-gray-800 mt-1">
                               A <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> deposit is required to secure this booking.
                             </p>
@@ -1568,7 +1598,7 @@ export default function PublicBooking() {
                           disabled={isSubmitting || matchedRiskRule?.protectionLevel === "Block Booking"}
                         >
                           {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
-                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Please Contact Us" : "Submit Booking Requirement"}
+                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Please Contact Us" : depositInfo.isRequired ? "Pay Deposit & Submit Booking" : "Submit Booking Requirement"}
                         </Button>
                       </div>
                     </CardContent>
@@ -1674,8 +1704,7 @@ export default function PublicBooking() {
                             {step === 4 && (
                                <Button 
                                  type="button" 
-                                 variant="outline" 
-                                 className="font-bold border-gray-300 text-gray-700 text-xs px-4"
+                                 className="bg-primary hover:bg-[#2A6CFF] text-white font-black text-xs px-4 shadow-glow-blue"
                                  onClick={() => {
                                    setSelectedServices([recommendedChoice.lowerCostService!.id]);
                                    setSelectedAddons([]);

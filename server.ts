@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import "dotenv/config";
+import Stripe from "stripe";
 import sgMail from "@sendgrid/mail";
 import twilio from "twilio";
 import { startScheduler } from "./scheduler.ts";
@@ -250,6 +251,81 @@ async function startServer() {
       res.status(500).json({ error: "Failed to fetch appointment weather" });
     }
   });
+
+  app.post("/api/payments/stripe/deposit-checkout", async (req, res) => {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    if (!secretKey) {
+      return res.status(503).json({
+        error: "Deposit payment is required, but online payment is not fully configured yet. Please contact us to complete booking."
+      });
+    }
+
+    const amount = Number(req.body?.amount);
+    const amountInCents = Math.round(amount * 100);
+
+    if (!Number.isFinite(amount) || amount <= 0 || amountInCents <= 0) {
+      return res.status(400).json({ error: "A valid deposit amount is required." });
+    }
+
+    let appUrl: URL;
+    try {
+      appUrl = new URL(process.env.PUBLIC_APP_URL || req.get("origin") || `http://localhost:${PORT}`);
+    } catch {
+      return res.status(500).json({ error: "Public app URL is not configured correctly." });
+    }
+
+    const cleanMetadata = (value: unknown) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 500);
+
+    try {
+      const stripe = new Stripe(secretKey);
+      const customerEmail = cleanMetadata(req.body?.customerEmail);
+      const successUrl = new URL("/book?deposit_checkout=success", appUrl).toString() + "&session_id={CHECKOUT_SESSION_ID}";
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: amountInCents,
+              product_data: {
+                name: "Booking deposit",
+                description: "Deposit required to secure your booking."
+              }
+            },
+            quantity: 1
+          }
+        ],
+        customer_email: customerEmail.includes("@") ? customerEmail : undefined,
+        success_url: successUrl,
+        cancel_url: new URL("/book?deposit_checkout=cancelled", appUrl).toString(),
+        metadata: {
+          bookingReference: cleanMetadata(req.body?.bookingReference),
+          customerName: cleanMetadata(req.body?.customerName),
+          customerPhone: cleanMetadata(req.body?.customerPhone),
+          vehicleInfo: cleanMetadata(req.body?.vehicleInfo),
+          serviceNames: cleanMetadata(Array.isArray(req.body?.serviceNames) ? req.body.serviceNames.join(", ") : req.body?.serviceNames),
+          scheduledAt: cleanMetadata(req.body?.scheduledAt),
+          depositSource: cleanMetadata(req.body?.depositSource),
+          paymentType: "deposit"
+        }
+      });
+
+      if (!session.url) {
+        return res.status(500).json({ error: "Stripe checkout URL was not returned." });
+      }
+
+      return res.json({ url: session.url, sessionId: session.id });
+    } catch (error: any) {
+      console.error("Stripe deposit checkout error:", error);
+      return res.status(500).json({ error: "Unable to start deposit checkout." });
+    }
+  });
+
   app.get("/api/clover/status", (req, res) => {
     const token = process.env.CLOVER_API_TOKEN;
     res.json({ configured: !!token });
