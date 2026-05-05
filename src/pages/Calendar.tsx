@@ -1646,18 +1646,20 @@ export default function Calendar() {
     return Object.keys(styles).length > 0 ? styles : undefined;
   };
 
-  const getServiceGlow = (app: any) => {
+  const getPrimaryServiceName = (app: any) => (
+    app.serviceNames?.[0] || 
+    app.serviceName || 
+    app.service || 
+    app.services?.[0] || 
+    app.selectedServices?.[0] || 
+    app.serviceSelections?.[0]?.name || 
+    app.jobType || 
+    ""
+  ).toString();
+
+  const getServiceColor = (app: any) => {
     // Comprehensive service name detection
-    const serviceName = (
-      app.serviceNames?.[0] || 
-      app.serviceName || 
-      app.service || 
-      app.services?.[0] || 
-      app.selectedServices?.[0] || 
-      app.serviceSelections?.[0]?.name || 
-      app.jobType || 
-      ""
-    ).toString();
+    const serviceName = getPrimaryServiceName(app);
     const nameLower = serviceName.toLowerCase();
     
     if (settings?.serviceColors) {
@@ -1668,6 +1670,16 @@ export default function Calendar() {
       }
     }
 
+    return null;
+  };
+
+  const getServiceGlow = (app: any) => {
+    const customColor = getServiceColor(app);
+    if (customColor && !isHexColor(customColor)) return customColor;
+
+    const serviceName = getPrimaryServiceName(app);
+    const nameLower = serviceName.toLowerCase();
+
     if (nameLower.includes("mold") || nameLower.includes("biohazard")) return "shadow-glow-red border-red-500/40";
     if (nameLower.includes("ceramic") || nameLower.includes("coating") || nameLower.includes("protection") || nameLower.includes("gold")) return "shadow-glow-green border-green-500/40";
     if (nameLower.includes("interior") || nameLower.includes("purple")) return "shadow-[0_0_12px_rgba(168,85,247,0.3)] border-purple-500/40 opacity-90";
@@ -1675,6 +1687,16 @@ export default function Calendar() {
     if (nameLower.includes("fleet") || nameLower.includes("vendor") || nameLower.includes("commercial") || nameLower.includes("green")) return "shadow-glow-green border-green-500/40";
     
     return "shadow-glow-blue/10 border-white/10";
+  };
+
+  const getServiceGlowStyle = (app: any) => {
+    const color = getServiceColor(app);
+    if (!isHexColor(color)) return undefined;
+
+    return {
+      borderColor: color,
+      boxShadow: `0 0 12px ${color}66`
+    };
   };
 
   const handleLongPress = (id: string) => {
@@ -1733,6 +1755,7 @@ export default function Calendar() {
 
     return (
       <div 
+        style={getServiceGlowStyle(app)}
         className={cn(
           "w-full flex flex-col p-2.5 overflow-hidden transition-all duration-300 relative group rounded-xl border-l-[3px] border-l-primary bg-[#121212]/95 backdrop-blur-md",
           "hover:bg-zinc-800/95 hover:scale-[1.01] active:scale-[0.98]",

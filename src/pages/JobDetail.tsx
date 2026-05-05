@@ -2505,11 +2505,7 @@ export default function JobDetail() {
                 )}
                 {(job.status === "confirmed" || job.status === "scheduled") && (
                   <Button 
-                    onClick={() => {
-                      if (checkRequiredForms("before_start")) {
-                        handleStatusChangeRequest("en_route");
-                      }
-                    }} 
+                    onClick={() => handleStatusChangeRequest("en_route")} 
                     disabled={isUpdating} 
                     className="bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest text-[9px] h-9 px-4 rounded-xl shadow-glow-blue whitespace-nowrap"
                   >
@@ -4418,7 +4414,10 @@ export default function JobDetail() {
               template={showFormSigner}
               appointmentId={id!}
               clientId={job.clientId || job.customerId}
-              onComplete={() => setShowFormSigner(null)}
+              onComplete={(signedForm) => {
+                setSignedForms(prev => [...prev, signedForm]);
+                setShowFormSigner(null);
+              }}
               onCancel={() => setShowFormSigner(null)}
             />
           </div>

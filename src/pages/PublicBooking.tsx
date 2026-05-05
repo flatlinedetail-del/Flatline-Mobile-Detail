@@ -101,11 +101,11 @@ function VehicleImagePreview({ size, vehicleInfo }: { size: string, vehicleInfo:
   );
 }
 
-function AssistantBubble({ text }: { text: string }) {
+function AssistantBubble({ text, settings }: { text: string; settings: BusinessSettings | null }) {
   return (
     <div className="flex gap-4 mb-8">
       <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center shrink-0 border border-primary/20">
-        <Logo variant="icon" className="w-6 h-6" />
+        <Logo variant="icon" brand="business" settingsOverride={settings} className="w-6 h-6" />
       </div>
       <div className="bg-white p-5 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-gray-800 font-medium text-lg leading-relaxed flex-1">
         <p>{text}</p>
@@ -614,7 +614,7 @@ export default function PublicBooking() {
       <div className="bg-[#050505] border-b border-zinc-800 sticky top-0 z-40 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
            <div className="pt-2">
-             <Logo variant="full" color="white" /> 
+             <Logo variant="full" color="white" brand="business" settingsOverride={settings} /> 
            </div>
            
            <div className="hidden sm:flex items-center gap-8">
@@ -677,7 +677,7 @@ export default function PublicBooking() {
               {/* STEP 1: VEHICLE */}
               {step === 1 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
-                  <AssistantBubble text="Let's start with your vehicle details. What will we be working on today?" />
+                  <AssistantBubble settings={settings} text="Let's start with your vehicle details. What will we be working on today?" />
                   
                   <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
                     <CardContent className="p-8 space-y-6">
@@ -732,7 +732,7 @@ export default function PublicBooking() {
               {/* STEP 2: NEEDS */}
               {step === 2 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
-                  <AssistantBubble text="Got it! What are the main goals for this detail? Select the option that best fits." />
+                  <AssistantBubble settings={settings} text="Got it! What are the main goals for this detail? Select the option that best fits." />
                   
                   <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
                     <CardContent className="p-8 space-y-6">
@@ -779,7 +779,7 @@ export default function PublicBooking() {
               {/* STEP 3: CONDITION */}
               {step === 3 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
-                  <AssistantBubble text="Could you tell me a bit about the vehicle's current condition?" />
+                  <AssistantBubble settings={settings} text="Could you tell me a bit about the vehicle's current condition?" />
                   
                   <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
                     <CardContent className="p-8 space-y-8">
@@ -891,7 +891,7 @@ export default function PublicBooking() {
               {/* STEP 4: OPTIONS */}
               {step === 4 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
-                  <AssistantBubble text="I've put together a recommendation for you on the right. You can select it directly, or browse all options below to fully customize your service." />
+                  <AssistantBubble settings={settings} text="I've put together a recommendation for you on the right. You can select it directly, or browse all options below to fully customize your service." />
                   
                   <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
                     <CardContent className="p-8 space-y-8">
@@ -971,7 +971,7 @@ export default function PublicBooking() {
               {/* STEP 5: DATE & TIME */}
               {step === 5 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
-                  <AssistantBubble text="When would you like us to come out?" />
+                  <AssistantBubble settings={settings} text="When would you like us to come out?" />
                   
                   <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
                     <CardContent className="p-8 space-y-6">
@@ -1126,7 +1126,7 @@ export default function PublicBooking() {
               {/* STEP 6: INFO */}
               {step === 6 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
-                  <AssistantBubble text="Who should we contact, and where will we be detailing?" />
+                  <AssistantBubble settings={settings} text="Who should we contact, and where will we be detailing?" />
                   
                   <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
                     <CardContent className="p-8 space-y-8">
@@ -1195,7 +1195,7 @@ export default function PublicBooking() {
               {/* STEP 7: REVIEW */}
               {step === 7 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
-                  <AssistantBubble text="Almost done! Please review your details and confirm." />
+                  <AssistantBubble settings={settings} text="Almost done! Please review your details and confirm." />
                   
                   <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
                     <CardContent className="p-8 space-y-6">
