@@ -25,7 +25,7 @@ type VehicleImageCategory =
 
 const FALLBACK_IMAGES: Record<VehicleImageCategory, string> = {
   luxury: "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=1200",
-  truck: "https://images.unsplash.com/photo-1601362840469-51e4d8d58785?auto=format&fit=crop&q=80&w=1200",
+  truck: "https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&q=80&w=1200",
   large_suv: "https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&q=80&w=1200",
   van: "https://images.unsplash.com/photo-1520050206274-a1cb4463300a?auto=format&fit=crop&q=80&w=1200",
   suv: "https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&fit=crop&q=80&w=1200",
@@ -53,7 +53,21 @@ const LUXURY_KEYWORDS = [
 const TRUCK_KEYWORDS = [
   "f-150",
   "f150",
+  "chevy silverado",
+  "chevrolet silverado",
+  "gmc sierra",
+  "ford f-150",
+  "ford f150",
   "silverado",
+  "silverado hd",
+  "silverado 1500",
+  "silverado 2500",
+  "silverado 3500",
+  "hd",
+  "heavy duty",
+  "2500",
+  "3500",
+  "dually",
   "ram",
   "sierra",
   "tundra",
@@ -113,10 +127,10 @@ export function getStoredVehicleImageUrl(vehicle: VehicleImageInput): string | n
 export function getVehicleImageCategory(vehicle: VehicleImageInput): VehicleImageCategory {
   const source = buildVehicleImageSource(vehicle);
 
-  if (hasKeyword(source, LUXURY_KEYWORDS)) return "luxury";
   if (hasKeyword(source, VAN_KEYWORDS) || vehicle.size === "extra_large" || vehicle.size === "van") return "van";
-  if (hasKeyword(source, LARGE_SUV_KEYWORDS) || vehicle.size === "suv_large") return "large_suv";
   if (hasKeyword(source, TRUCK_KEYWORDS) || vehicle.size === "truck") return "truck";
+  if (hasKeyword(source, LUXURY_KEYWORDS)) return "luxury";
+  if (hasKeyword(source, LARGE_SUV_KEYWORDS) || vehicle.size === "suv_large") return "large_suv";
   if (hasKeyword(source, SUV_KEYWORDS) || vehicle.size === "medium" || vehicle.size === "suv_small") return "suv";
   if (hasKeyword(source, HATCHBACK_KEYWORDS)) return "hatchback";
 
