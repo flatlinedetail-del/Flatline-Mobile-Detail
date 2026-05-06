@@ -8,7 +8,6 @@ import {
   doc, 
   serverTimestamp, 
   orderBy, 
-  getDocs,
   deleteDoc
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -56,23 +55,40 @@ export default function ProtectedClients() {
     linkedClientId: ""
   });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const qRules = query(collection(db, "protected_clients"), orderBy("createdAt", "desc"));
-        const snapRules = await getDocs(qRules);
-        setProtectedClients(snapRules.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient)));
-        
-        const snapClients = await getDocs(collection(db, "clients"));
-        setAllClients(snapClients.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-      } catch (error: any) {
-        if (error.message?.includes("quota")) {
-          toast.error("Database quota reached. Historical data may be unavailable.");
-        }
-      }
-    };
+  const normalizeRiskLevel = (value?: string) => {
+    const risk = String(value || "").toLowerCase();
+    if (risk === "high") return "High";
+    if (risk === "medium" || risk === "med") return "Medium";
+    return "Low";
+  };
 
-    fetchData();
+  const isManagedRiskLevel = (value?: string) => {
+    const risk = normalizeRiskLevel(value);
+    return risk === "Medium" || risk === "High";
+  };
+
+  useEffect(() => {
+    const qRules = query(collection(db, "protected_clients"), orderBy("createdAt", "desc"));
+    const unsubRules = onSnapshot(qRules, snap => {
+      setProtectedClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient)));
+    }, (error: any) => {
+      if (error.message?.includes("quota")) {
+        toast.error("Database quota reached. Historical data may be unavailable.");
+      }
+    });
+
+    const unsubClients = onSnapshot(collection(db, "clients"), snap => {
+      setAllClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
+    }, (error: any) => {
+      if (error.message?.includes("quota")) {
+        toast.error("Database quota reached. Client risk data may be unavailable.");
+      }
+    });
+
+    return () => {
+      unsubRules();
+      unsubClients();
+    };
   }, []);
 
   const autofillClient = (client: any) => {
@@ -84,7 +100,7 @@ export default function ProtectedClients() {
       email: client.email || "",
       address: client.address || "",
       linkedClientId: client.id,
-      protectionLevel: (riskVal as any) || prev.protectionLevel,
+      protectionLevel: normalizeRiskLevel(riskVal as any) || prev.protectionLevel,
       riskReason: client.riskReason || prev.riskReason || ""
     }));
   };
@@ -135,7 +151,7 @@ export default function ProtectedClients() {
         phone: client.phone,
         email: client.email,
         isActive: rule ? rule.isActive : false,
-        protectionLevel: rule ? rule.protectionLevel : "Low",
+        protectionLevel: rule ? normalizeRiskLevel(rule.protectionLevel) : normalizeRiskLevel(client.riskLevel),
         ruleId: rule ? rule.id : null,
         client: client,
         rule: rule || null
@@ -152,7 +168,7 @@ export default function ProtectedClients() {
             phone: rule.phone,
             email: rule.email,
             isActive: rule.isActive,
-            protectionLevel: rule.protectionLevel,
+            protectionLevel: normalizeRiskLevel(rule.protectionLevel),
             ruleId: rule.id,
             client: null,
             rule: rule
@@ -161,9 +177,11 @@ export default function ProtectedClients() {
     });
 
     return rows.filter(r => 
-      r.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.phone?.includes(searchTerm) ||
-      r.email?.toLowerCase().includes(searchTerm.toLowerCase())
+      isManagedRiskLevel(r.protectionLevel) && (
+        r.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.phone?.includes(searchTerm) ||
+        r.email?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
     );
   }, [allClients, protectedClients, searchTerm]);
 
@@ -205,7 +223,7 @@ export default function ProtectedClients() {
           licensePlate: row.rule.licensePlate || "",
           riskReason: row.rule.riskReason || "",
           internalNotes: row.rule.internalNotes || "",
-          protectionLevel: row.rule.protectionLevel || "Low",
+          protectionLevel: normalizeRiskLevel(row.rule.protectionLevel),
           requiredDepositType: row.rule.requiredDepositType || "fixed",
           requiredDepositValue: row.rule.requiredDepositValue || 0,
           isActive: row.rule.isActive !== undefined ? row.rule.isActive : true,
@@ -225,7 +243,7 @@ export default function ProtectedClients() {
           licensePlate: "",
           riskReason: "",
           internalNotes: "",
-          protectionLevel: "Low",
+          protectionLevel: normalizeRiskLevel(row.client?.riskLevel),
           requiredDepositType: "fixed",
           requiredDepositValue: 0,
           isActive: true,
@@ -279,7 +297,6 @@ export default function ProtectedClients() {
                 <TableCell>
                   <Badge variant="outline" className={cn(
                     "text-[10px] font-black uppercase tracking-widest px-3 py-1",
-                    row.protectionLevel === "Low" ? "bg-green-500/10 text-green-500 border-green-500/20" : 
                     row.protectionLevel === "High" ? "bg-red-500/10 text-red-500 border-red-500/20" :
                     "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
                   )}>
@@ -301,9 +318,6 @@ export default function ProtectedClients() {
                         try {
                           await updateDoc(doc(db, "protected_clients", row.ruleId), { isActive: val, updatedAt: serverTimestamp() });
                           toast.success(`Risk protection ${val ? 'activated' : 'deactivated'}`);
-                          // No need to update local state as listener will catch it (if onSnapshot is used)
-                          // Wait, ProtectedClients uses getDocs in useEffect. I should update local state manually or use onSnapshot.
-                          setProtectedClients(prev => prev.map(p => p.id === row.ruleId ? { ...p, isActive: val } : p));
                         } catch (err) {
                           toast.error("Failed to update protection status");
                         }
@@ -373,7 +387,7 @@ export default function ProtectedClients() {
                 </SelectTrigger>
                 <SelectContent className="bg-gray-900 border-white/10 text-white">
                    <SelectItem value="Low">Low Risk</SelectItem>
-                   <SelectItem value="Med">Medium Risk</SelectItem>
+                   <SelectItem value="Medium">Medium Risk</SelectItem>
                    <SelectItem value="High">High Risk</SelectItem>
                 </SelectContent>
              </Select>

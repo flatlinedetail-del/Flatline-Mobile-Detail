@@ -4393,6 +4393,42 @@ export default function Settings() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-black text-white uppercase tracking-tight">Mass SMS Communications</Label>
+                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
+                        {settings?.communicationAutomation?.globalSmsEnabled === false ? "Disabled Globally" : "Enabled Globally"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={settings?.communicationAutomation?.globalSmsEnabled !== false}
+                      onCheckedChange={(val) => setSettings(prev => prev ? {
+                        ...prev,
+                        communicationAutomation: { ...(prev.communicationAutomation || { enabled: false, bookingConfirmation: true, reminder24h: true, reminder2h: true }), globalSmsEnabled: val }
+                      } : null)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-black text-white uppercase tracking-tight">Mass Email Notifications</Label>
+                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
+                        {settings?.communicationAutomation?.globalEmailEnabled === false ? "Disabled Globally" : "Enabled Globally"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={settings?.communicationAutomation?.globalEmailEnabled !== false}
+                      onCheckedChange={(val) => setSettings(prev => prev ? {
+                        ...prev,
+                        communicationAutomation: { ...(prev.communicationAutomation || { enabled: false, bookingConfirmation: true, reminder24h: true, reminder2h: true }), globalEmailEnabled: val }
+                      } : null)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+                </div>
+
                 <div className={cn(
                   "grid grid-cols-1 md:grid-cols-3 gap-6 transition-all duration-500",
                   !(settings?.communicationAutomation?.enabled) && "opacity-50 pointer-events-none grayscale"
