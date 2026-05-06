@@ -190,7 +190,7 @@ export default function Layout() {
         )}>
           <div className={cn("py-6 flex transition-all duration-300", isSidebarCollapsed ? "justify-center w-full" : "px-8 w-full justify-start")}>
             <Link to="/" className="flex items-center justify-center">
-              <Logo variant={isSidebarCollapsed ? "icon" : "full"} color="white" />
+              <Logo variant="icon" className={isSidebarCollapsed ? "w-12 h-12" : "w-14 h-14"} />
             </Link>
           </div>
           <nav className={cn("flex-1 space-y-6 overflow-y-auto custom-scrollbar pb-6 transition-all duration-300", isSidebarCollapsed ? "px-2" : "px-4")}>
@@ -323,7 +323,7 @@ export default function Layout() {
               <SheetContent side="left" className="p-0 w-72 bg-sidebar border-r-white/5 text-white">
                 <div className="p-8 border-b border-white/5">
                   <Link to="/" onClick={() => setIsMobileMenuOpen(false)}>
-                    <Logo variant="full" color="white" />
+                    <Logo variant="icon" className="w-14 h-14" />
                   </Link>
                 </div>
                 <nav className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-180px)] custom-scrollbar">
