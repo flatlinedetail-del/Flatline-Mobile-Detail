@@ -3942,18 +3942,18 @@ export default function JobDetail() {
                       Add Form
                     </Button>
                   } />
-                  <DialogContent className="max-w-2xl bg-white p-6 rounded-2xl border-none shadow-2xl">
-                    <DialogHeader><DialogTitle className="font-black">Select Form to Add</DialogTitle></DialogHeader>
+                  <DialogContent className="max-w-2xl bg-[#0B0B0B] p-6 rounded-2xl border border-primary/30 shadow-2xl shadow-primary/10 text-white">
+                    <DialogHeader><DialogTitle className="font-black uppercase tracking-widest text-sm text-white">Select Form to Add</DialogTitle></DialogHeader>
                     <div className="grid grid-cols-1 gap-3 mt-4">
                       {formTemplates.filter(t => t.isActive).map(t => (
                         <Button 
                           key={t.id} 
                           variant="outline" 
-                          className="justify-start h-auto p-4 flex-col items-start gap-1"
+                          className="justify-start h-auto p-4 flex-col items-start gap-1 bg-white/5 border-white/10 text-white hover:bg-primary/10 hover:border-primary/50 focus-visible:ring-primary/40"
                           onClick={() => setShowFormSigner(t)}
                         >
                           <span className="font-bold">{t.title}</span>
-                          <span className="text-[10px] text-white capitalize">{t.category} • v{t.version}</span>
+                          <span className="text-[10px] text-white/60 capitalize">{t.category} • v{t.version}</span>
                         </Button>
                       ))}
                     </div>
