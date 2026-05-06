@@ -3267,8 +3267,8 @@ export default function Calendar() {
                                           type="button"
                                           className="w-full bg-[#0A4DFF] hover:opacity-90 text-white font-bold h-10"
                                           onClick={() => {
-                                            // TODO: Implement Stripe/Square logic
-                                            toast.info("Card processing integration pending.");
+                                            // TODO: Implement staff-side Stripe deposit checkout.
+                                            toast.info("Stripe card checkout is not configured for staff deposits yet.");
                                           }}
                                         >
                                           Run Credit / Debit Card
