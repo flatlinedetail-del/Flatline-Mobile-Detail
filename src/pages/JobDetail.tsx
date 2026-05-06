@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn, cleanAddress, formatCurrency, getClientDisplayName, formatPhoneNumber } from "@/lib/utils";
+import { buildInvoiceEmail } from "@/lib/invoiceEmail";
 import { StandardInput } from "../components/StandardInput";
 import { CustomFeesEditor } from "../components/CustomFeesEditor";
 import { CustomFee, Service, AddOn, ServiceSelection } from "../types";
@@ -4854,10 +4855,16 @@ export default function JobDetail() {
                       return;
                     }
                     toast.loading("Sending email...", { id: "email-invoice" });
+                    const invoiceEmail = buildInvoiceEmail({
+                      invoice: currentInvoice,
+                      settings: businessSettings
+                    });
                     await messagingService.sendEmail({
                       to,
                       subject: `Invoice ${currentInvoice?.invoiceNumber} from ${businessSettings?.businessName || 'Us'}`,
-                      html: `<p>Hi ${currentInvoice?.clientName || job?.customerName},</p><p>Your invoice <strong>${currentInvoice?.invoiceNumber}</strong> is ready.</p><p>Balance Due: <strong>${formatCurrency(getInvoiceBalanceDue(currentInvoice))}</strong></p><p>Thank you for your business!</p>`
+                      html: invoiceEmail.html,
+                      text: invoiceEmail.text,
+                      fromName: businessSettings?.businessName || undefined
                     });
 
                     if (currentInvoice?.clientPhone || job?.customerPhone) {

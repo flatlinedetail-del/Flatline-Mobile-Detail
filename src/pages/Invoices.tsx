@@ -51,6 +51,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn, getClientDisplayName, cleanAddress, formatCurrency } from "@/lib/utils";
+import { buildInvoiceEmail } from "@/lib/invoiceEmail";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
   AlertDialog, 
@@ -555,10 +556,16 @@ export default function Invoices() {
                         return;
                       }
                       toast.loading("Sending email...", { id: "email-invoice" });
+                      const invoiceEmail = buildInvoiceEmail({
+                        invoice: selectedInvoice,
+                        settings
+                      });
                       await messagingService.sendEmail({
                         to,
                         subject: `Invoice ${selectedInvoice.invoiceNumber} from ${settings?.businessName || 'Us'}`,
-                        html: `<p>Hi ${selectedInvoice.clientName},</p><p>Your invoice <strong>${selectedInvoice.invoiceNumber}</strong> is ready.</p><p>Total Amount: <strong>${formatCurrency(selectedInvoice.total)}</strong></p><p>Thank you for your business!</p>`
+                        html: invoiceEmail.html,
+                        text: invoiceEmail.text,
+                        fromName: settings?.businessName || undefined
                       });
                       
                       if (selectedInvoice.clientPhone) {
