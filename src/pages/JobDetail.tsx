@@ -1007,11 +1007,10 @@ export default function JobDetail() {
     }
 
     const integrations = integrationSettings?.paymentIntegrations || {};
-    const providers: PaymentProvider[] = ["clover", "stripe", "square", "paypal"];
-    const activeProvider = providers.find(p => integrations[p]?.enabled);
+    const activeProvider: PaymentProvider = "stripe";
     
-    if (!activeProvider) {
-      toast.error("Digital payment provider not configured in settings.");
+    if (!integrations.stripe?.enabled) {
+      toast.error("Stripe card processor is not configured in settings.");
       return;
     }
     
@@ -1024,7 +1023,7 @@ export default function JobDetail() {
         return;
       }
 
-      const result = await paymentService.processPayment({ ...invoice, total: balanceDue }, activeProvider, integrations[activeProvider]);
+      const result = await paymentService.processPayment({ ...invoice, total: balanceDue }, activeProvider, integrations.stripe);
       
       if (result.success) {
         const invoiceRef = doc(db, "invoices", invoice.id);
@@ -1616,7 +1615,7 @@ export default function JobDetail() {
             clientId: clientData.id,
             amount: feeToCharge,
             description: `Cancellation/No-Show Fee for Job ${id}`,
-            provider: bSettings?.activePaymentProvider || "stripe"
+            provider: "stripe"
           });
 
           if (result.success) {
@@ -5021,7 +5020,7 @@ export default function JobDetail() {
                 </div>
                 <div className="text-left">
                   <span className="block font-black uppercase tracking-tight text-sm">Credit / Debit Card</span>
-                  <span className="block text-[9px] text-black font-bold uppercase tracking-widest">Process via Terminal</span>
+                  <span className="block text-[9px] text-black font-bold uppercase tracking-widest">Process via Stripe</span>
                 </div>
               </div>
               <ChevronLeft className="w-4 h-4 rotate-180" />

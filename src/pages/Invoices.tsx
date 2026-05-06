@@ -182,10 +182,6 @@ export default function Invoices() {
     // UI placeholder
   };
 
-  const handleCloverPayment = async () => {
-    toast.info("Payment system is being rebuilt");
-  };
-
   const handleMarkAsPaid = async (invoice: Invoice | null) => {
     if (!invoice?.id) return;
     try {

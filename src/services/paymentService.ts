@@ -1,6 +1,6 @@
 import { Invoice } from "../types";
 
-export type PaymentProvider = "stripe" | "square" | "paypal" | "clover";
+export type PaymentProvider = "stripe" | "square" | "paypal";
 
 export interface PaymentResult {
   success: boolean;
@@ -15,7 +15,7 @@ export interface PaymentProviderConfig {
 
 /**
  * Modular Payment Service Layer
- * Supports Stripe, Square, PayPal, and Clover
+ * Supports Stripe, Square, and PayPal
  */
 class PaymentService {
   private static instance: PaymentService;
@@ -53,8 +53,6 @@ class PaymentService {
           return await this.processSquare(invoice, config);
         case "paypal":
           return await this.processPayPal(invoice, config);
-        case "clover":
-          return await this.processClover(invoice, config);
         default:
           return { success: false, error: "Unsupported payment provider." };
       }
@@ -110,26 +108,6 @@ class PaymentService {
 
   private async processPayPal(invoice: Invoice, config: any): Promise<PaymentResult> {
     return { success: false, error: "Payment system not configured" };
-  }
-
-  private async processClover(invoice: Invoice, config: any): Promise<PaymentResult> {
-    try {
-      const response = await fetch("/api/payments/clover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: invoice.total, invoiceId: invoice.id })
-      });
-
-      if (!response.ok) {
-        throw new Error("Clover payment failed.");
-      }
-
-      const data = await response.json();
-      return { success: true, transactionId: data.transactionId };
-    } catch (error) {
-      console.error("Clover payment error:", error);
-      return { success: false, error: "Clover payment failed." };
-    }
   }
 }
 
