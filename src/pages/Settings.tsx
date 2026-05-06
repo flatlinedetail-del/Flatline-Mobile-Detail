@@ -756,27 +756,26 @@ export default function Settings() {
   };
 
   const handleDeleteCategory = async (id: string) => {
-    const previous = [...categories];
-    setCategories(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "categories", id));
+      setCategories(prev => prev.filter(item => item.id !== id));
       toast.success("Category deleted");
     } catch (error) {
-      setCategories(previous);
       console.error("Error deleting category:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `categories/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete category: ${err.message}`);
+        throw err;
       }
+      throw error;
     }
   };
 
   const handleDeleteService = async (id: string) => {
-    const previous = [...services];
-    setServices(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "services", id));
+      setServices(prev => prev.filter(item => item.id !== id));
       toast.success("Service deleted");
       
       // Invalidate metadata cache
@@ -784,21 +783,21 @@ export default function Settings() {
       sessionStorage.removeItem('settings_metadata_cache_time');
       sessionStorage.removeItem('services_list_cache');
     } catch (error) {
-      setServices(previous);
       console.error("Error deleting service:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `services/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete service: ${err.message}`);
+        throw err;
       }
+      throw error;
     }
   };
 
   const handleDeleteAddon = async (id: string) => {
-    const previous = [...addons];
-    setAddons(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "addons", id));
+      setAddons(prev => prev.filter(item => item.id !== id));
       toast.success("Add-on deleted");
 
       // Invalidate metadata cache
@@ -806,47 +805,48 @@ export default function Settings() {
       sessionStorage.removeItem('settings_metadata_cache_time');
       sessionStorage.removeItem('services_list_cache');
     } catch (error) {
-      setAddons(previous);
       console.error("Error deleting add-on:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `addons/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete add-on: ${err.message}`);
+        throw err;
       }
+      throw error;
     }
   };
 
   const handleDeleteCoupon = async (id: string) => {
-    const previous = [...coupons];
-    setCoupons(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "coupons", id));
+      setCoupons(prev => prev.filter(item => item.id !== id));
       toast.success("Coupon deleted");
     } catch (error) {
-      setCoupons(previous);
       console.error("Error deleting coupon:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `coupons/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete coupon: ${err.message}`);
+        throw err;
       }
+      throw error;
     }
   };
 
   const handleDeleteStaff = async (id: string) => {
-    const previous = [...staff];
-    setStaff(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "users", id));
+      setStaff(prev => prev.filter(item => item.id !== id));
       toast.success("Staff member removed");
     } catch (error) {
-      setStaff(previous);
       console.error("Error deleting staff:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `users/${id}`);
       } catch (err: any) {
         toast.error(`Failed to remove staff: ${err.message}`);
+        throw err;
       }
+      throw error;
     }
   };
 
@@ -903,6 +903,7 @@ export default function Settings() {
   const handleDeleteClientType = async (id: string) => {
     try {
       await deleteDoc(doc(db, "client_types", id));
+      setClientTypes(prev => prev.filter(item => item.id !== id));
       toast.success("Client type deleted");
     } catch (error) {
       console.error("Error deleting client type:", error);
@@ -910,13 +911,16 @@ export default function Settings() {
         handleFirestoreError(error, OperationType.DELETE, `client_types/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete client type: ${err.message}`);
+        throw err;
       }
+      throw error;
     }
   };
 
   const handleDeleteClientCategory = async (id: string) => {
     try {
       await deleteDoc(doc(db, "client_categories", id));
+      setClientCategories(prev => prev.filter(item => item.id !== id));
       toast.success("Client category deleted");
     } catch (error) {
       console.error("Error deleting client category:", error);
@@ -924,7 +928,9 @@ export default function Settings() {
         handleFirestoreError(error, OperationType.DELETE, `client_categories/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete client category: ${err.message}`);
+        throw err;
       }
+      throw error;
     }
   };
 
