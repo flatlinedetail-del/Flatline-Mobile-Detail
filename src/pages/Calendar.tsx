@@ -1973,7 +1973,7 @@ export default function Calendar() {
 
     if (isToday) {
       return {
-        className: "relative overflow-hidden shadow-[inset_0_0_20px_rgba(42,108,255,0.3)] border-2 border-[#2A6CFF] ring-2 ring-[#2A6CFF]/20",
+        className: "relative overflow-hidden ring-1 ring-[#2A6CFF]/30",
         style: {
           minHeight: "160px",
           backgroundColor: 'rgba(42, 108, 255, 0.05)',
@@ -2237,13 +2237,13 @@ export default function Calendar() {
                   .rbc-month-view .rbc-today::after {
                     content: '';
                     position: absolute;
-                    top: 8px;
-                    left: 8px;
-                    right: 8px;
-                    bottom: 8px;
-                    border: 4px solid #2A6CFF;
-                    border-radius: 24px;
-                    box-shadow: 0 0 25px rgba(42, 108, 255, 0.6), inset 0 0 20px rgba(42, 108, 255, 0.4);
+                    top: 2px;
+                    left: 2px;
+                    right: 2px;
+                    bottom: 2px;
+                    border: 1.5px solid #2A6CFF;
+                    border-radius: 12px;
+                    box-shadow: 0 0 15px rgba(42, 108, 255, 0.4);
                     pointer-events: none;
                     z-index: 10;
                   }
