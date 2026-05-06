@@ -112,8 +112,95 @@ async function startServer() {
     }
 
     const metadata = session.metadata || {};
-    if (metadata.paymentType !== "deposit") {
-      return res.json({ received: true, skipped: "not_deposit_payment" });
+    const paymentType = metadata.paymentType;
+    const paymentIntentId =
+      typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : session.payment_intent?.id || null;
+
+    if (paymentType === "invoice_balance") {
+      const invoiceId = metadata.invoiceId;
+      if (!invoiceId) {
+        return res.status(400).json({ error: "Stripe invoice session is missing invoice metadata." });
+      }
+
+      try {
+        const db = getFirebaseAdminDb();
+        const amountPaidCents = session.amount_total || 0;
+        const amountPaid = amountPaidCents / 100;
+
+        await db.runTransaction(async transaction => {
+          const invoiceRef = db.collection("invoices").doc(invoiceId);
+          const snapshot = await transaction.get(invoiceRef);
+
+          if (!snapshot.exists) {
+            throw new Error(`Invoice ${invoiceId} was not found for Stripe invoice webhook.`);
+          }
+
+          const invoice = snapshot.data() || {};
+          const invoiceTotal = Number(invoice.total || 0);
+          const invoiceAmountPaid = Number(invoice.amountPaid || 0);
+          const expectedBalanceCents = Math.round(Math.max(invoiceTotal - invoiceAmountPaid, 0) * 100);
+
+          if (invoice.paymentStatus === "paid" || invoice.status === "paid") {
+            return;
+          }
+
+          if (expectedBalanceCents > 0 && amountPaidCents !== expectedBalanceCents) {
+            throw new Error(`Stripe invoice amount mismatch for invoice ${invoiceId}.`);
+          }
+
+          transaction.update(invoiceRef, {
+            status: "paid",
+            paidAt: FieldValue.serverTimestamp(),
+            paymentStatus: "paid",
+            amountPaid: invoiceTotal || amountPaid,
+            paymentProvider: "stripe",
+            transactionReference: paymentIntentId || session.id,
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId: paymentIntentId,
+            paymentHistory: FieldValue.arrayUnion({
+              action: "paid",
+              timestamp: new Date(),
+              method: "integrated",
+              provider: "stripe",
+              amount: amountPaid
+            })
+          });
+
+          const appointmentId = metadata.appointmentId || invoice.appointmentId;
+          if (appointmentId) {
+            transaction.update(db.collection("appointments").doc(String(appointmentId)), {
+              paymentStatus: "paid",
+              updatedAt: FieldValue.serverTimestamp()
+            });
+          }
+
+          transaction.set(db.collection("payments").doc(session.id), {
+            clientId: invoice.clientId || "",
+            appointmentId: appointmentId || "",
+            invoiceId,
+            amount: amountPaid,
+            provider: "stripe",
+            transactionId: paymentIntentId || session.id,
+            paymentType: "invoice_balance",
+            status: "paid",
+            timestamp: FieldValue.serverTimestamp(),
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId: paymentIntentId
+          }, { merge: true });
+        });
+
+        return res.json({ received: true });
+      } catch (error: any) {
+        console.error("Stripe invoice webhook update failed:", error.message);
+        const status = error.message?.includes("Firebase Admin project/database") ? 503 : 500;
+        return res.status(status).json({ error: "Unable to confirm Stripe invoice payment." });
+      }
+    }
+
+    if (paymentType !== "deposit") {
+      return res.json({ received: true, skipped: "unsupported_payment_type" });
     }
 
     const appointmentId = metadata.appointmentId || metadata.bookingId;
@@ -155,10 +242,6 @@ async function startServer() {
             ? appointment.pendingAppointmentStatus
             : metadata.nextAppointmentStatus || "requested";
 
-        const paymentIntentId =
-          typeof session.payment_intent === "string"
-            ? session.payment_intent
-            : session.payment_intent?.id || null;
         const amountPaid = amountPaidCents / 100;
 
         const update: Record<string, unknown> = {
@@ -483,6 +566,93 @@ async function startServer() {
     } catch (error: any) {
       console.error("Stripe deposit checkout error:", error);
       return res.status(500).json({ error: "Unable to start deposit checkout." });
+    }
+  });
+
+  app.post("/api/payments/stripe/invoice-checkout", async (req, res) => {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    if (!secretKey) {
+      return res.status(503).json({ error: "Stripe payment is not configured on the server." });
+    }
+
+    const amount = Number(req.body?.amount);
+    const amountInCents = Math.round(amount * 100);
+
+    if (!Number.isFinite(amount) || amount <= 0 || amountInCents <= 0) {
+      return res.status(400).json({ error: "A valid invoice balance is required." });
+    }
+
+    let appUrl: URL;
+    try {
+      appUrl = new URL(process.env.PUBLIC_APP_URL || req.get("origin") || `http://localhost:${PORT}`);
+    } catch {
+      return res.status(500).json({ error: "Public app URL is not configured correctly." });
+    }
+
+    const cleanMetadata = (value: unknown) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 500);
+
+    try {
+      const stripe = new Stripe(secretKey);
+      const invoiceId = cleanMetadata(req.body?.invoiceId);
+      if (!invoiceId) {
+        return res.status(400).json({ error: "An invoice is required before starting Stripe checkout." });
+      }
+
+      const appointmentId = cleanMetadata(req.body?.appointmentId);
+      const clientEmail = cleanMetadata(req.body?.clientEmail);
+      const returnPath = appointmentId ? `/calendar/${appointmentId}` : "/invoices";
+      const successUrl = new URL(`${returnPath}?payment_checkout=success`, appUrl).toString() + "&session_id={CHECKOUT_SESSION_ID}";
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: amountInCents,
+              product_data: {
+                name: cleanMetadata(req.body?.invoiceNumber) || "Invoice balance",
+                description: "Final invoice balance payment."
+              }
+            },
+            quantity: 1
+          }
+        ],
+        customer_email: clientEmail.includes("@") ? clientEmail : undefined,
+        success_url: successUrl,
+        cancel_url: new URL(`${returnPath}?payment_checkout=cancelled`, appUrl).toString(),
+        metadata: {
+          paymentType: "invoice_balance",
+          invoiceId,
+          appointmentId,
+          invoiceNumber: cleanMetadata(req.body?.invoiceNumber),
+          clientName: cleanMetadata(req.body?.clientName),
+          clientEmail,
+          vehicleInfo: cleanMetadata(req.body?.vehicleInfo),
+          amount: amount.toFixed(2),
+          amountCents: String(amountInCents)
+        }
+      });
+
+      if (!session.url) {
+        return res.status(500).json({ error: "Stripe checkout URL was not returned." });
+      }
+
+      console.info("Stripe invoice checkout session created", {
+        invoiceId,
+        appointmentId: appointmentId || null,
+        amountCents: amountInCents,
+        hasSecretKey: Boolean(secretKey)
+      });
+
+      return res.json({ url: session.url, sessionId: session.id });
+    } catch (error: any) {
+      console.error("Stripe invoice checkout error:", error.message);
+      return res.status(500).json({ error: "Unable to start Stripe checkout." });
     }
   });
 
