@@ -1739,7 +1739,6 @@ export default function Clients() {
                     <div className="flex items-center gap-4 mb-2 flex-wrap">
                       <h2 className="text-3xl font-black tracking-tighter uppercase leading-none text-white drop-shadow-md">{getClientDisplayName(selectedClient)}</h2>
                       {selectedClient.isVIP && <Crown className="w-6 h-6 text-yellow-400 fill-yellow-400 drop-shadow-lg" />}
-                      {renderRiskBadge(selectedClient.riskLevel)}
                     </div>
                     <div className="text-white flex items-center gap-8 mt-3 font-bold uppercase tracking-widest text-xs flex-wrap drop-shadow-sm">
                       <a href={`tel:${selectedClient.phone}`} className="flex items-center gap-2.5 hover:opacity-80 transition-all duration-300">
@@ -1757,11 +1756,11 @@ export default function Clients() {
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">DETAIL</span>
                     {renderRiskBadge(selectedClient.riskLevel)}
                   </div>
-                  <div className="grid grid-cols-1 gap-2 min-w-[260px]">
-                    <div className={cn("flex items-center justify-between gap-4 bg-black/20 backdrop-blur-sm px-4 py-2 rounded-xl border", businessSettings?.communicationAutomation?.globalSmsEnabled === false ? "border-orange-500/30" : "border-white/10")}>
+                  <div className="grid grid-cols-1 gap-1.5 min-w-[230px]">
+                    <div className={cn("flex items-center justify-between gap-3 bg-black/20 backdrop-blur-sm px-3 py-1.5 rounded-lg border", businessSettings?.communicationAutomation?.globalSmsEnabled === false ? "border-orange-500/30" : "border-white/10")}>
                       <div className="text-left">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-white">SMS Comms</p>
-                        <p className="text-[8px] font-bold uppercase tracking-widest text-white/50">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-white">SMS Comms</p>
+                        <p className="text-[7px] font-bold uppercase tracking-widest text-white/50">
                           {businessSettings?.communicationAutomation?.globalSmsEnabled === false ? "Globally Disabled" : selectedClient.smsEnabled === false ? "Client Opted Out" : "Enabled"}
                         </p>
                       </div>
@@ -1770,10 +1769,10 @@ export default function Clients() {
                         onCheckedChange={(val) => updateClient({ smsEnabled: val, smsConsent: val, updatedAt: serverTimestamp() as any })}
                       />
                     </div>
-                    <div className={cn("flex items-center justify-between gap-4 bg-black/20 backdrop-blur-sm px-4 py-2 rounded-xl border", businessSettings?.communicationAutomation?.globalEmailEnabled === false ? "border-orange-500/30" : "border-white/10")}>
+                    <div className={cn("flex items-center justify-between gap-3 bg-black/20 backdrop-blur-sm px-3 py-1.5 rounded-lg border", businessSettings?.communicationAutomation?.globalEmailEnabled === false ? "border-orange-500/30" : "border-white/10")}>
                       <div className="text-left">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-white">Email Notices</p>
-                        <p className="text-[8px] font-bold uppercase tracking-widest text-white/50">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-white">Email Notices</p>
+                        <p className="text-[7px] font-bold uppercase tracking-widest text-white/50">
                           {businessSettings?.communicationAutomation?.globalEmailEnabled === false ? "Globally Disabled" : selectedClient.emailEnabled === false ? "Client Opted Out" : "Enabled"}
                         </p>
                       </div>
