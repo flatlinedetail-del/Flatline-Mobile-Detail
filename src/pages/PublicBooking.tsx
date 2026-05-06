@@ -618,37 +618,9 @@ export default function PublicBooking() {
         clientNote
       } : null;
 
-      if (depositInfo.isRequired) {
-        const serviceNames = services.filter(s => selectedServices.includes(s.id)).map(s => s.name);
-        const bookingReference = globalThis.crypto?.randomUUID?.() || `booking-${Date.now()}`;
-        const publicDepositSource = depositInfo.source === "risk_rule" ? "required_deposit" : `${depositInfo.source || "deposit"}_deposit`;
-        const response = await fetch("/api/payments/stripe/deposit-checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            amount: depositInfo.amount,
-            bookingReference,
-            customerName: clientInfo.name,
-            customerEmail: clientInfo.email,
-            customerPhone: clientInfo.phone,
-            vehicleInfo: fullVehicleInfo,
-            serviceNames,
-            scheduledAt,
-            depositSource: publicDepositSource
-          })
-        });
-        const data = await response.json().catch(() => null);
-
-        if (!response.ok || !data?.url) {
-          toast.error(data?.error || "Deposit payment is required, but online payment is not fully configured yet. Please contact us to complete booking.");
-          return;
-        }
-
-        window.location.assign(data.url);
-        return;
-      }
-
-       const appointmentData: any = {
+      const finalAppointmentStatus = isTimeAvailable === false ? "waitlisted" : "requested";
+      const serviceNames = services.filter(s => selectedServices.includes(s.id)).map(s => s.name);
+      const appointmentData: any = {
         customerName: clientInfo.name,
         customerEmail: clientInfo.email,
         customerPhone: clientInfo.phone,
@@ -658,11 +630,11 @@ export default function PublicBooking() {
         vehicleInfo: fullVehicleInfo,
         vehicleSize: clientInfo.vehicleSize,
         serviceIds: selectedServices,
-        serviceNames: services.filter(s => selectedServices.includes(s.id)).map(s => s.name),
+        serviceNames,
         addOnIds: selectedAddons,
         addOnNames: addons.filter(a => selectedAddons.includes(a.id)).map(a => a.name),
         scheduledAt: new Date(scheduledAt),
-        status: isTimeAvailable === false ? "waitlisted" : "requested",
+        status: finalAppointmentStatus,
         waitlistInfo,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -703,6 +675,49 @@ export default function PublicBooking() {
           choseManual: true
         }
       };
+
+      if (depositInfo.isRequired) {
+        const bookingReference = globalThis.crypto?.randomUUID?.() || `booking-${Date.now()}`;
+        const publicDepositSource = depositInfo.source === "risk_rule" ? "required_deposit" : `${depositInfo.source || "deposit"}_deposit`;
+        const pendingAppointmentData = {
+          ...appointmentData,
+          status: "pending_payment",
+          pendingAppointmentStatus: finalAppointmentStatus,
+          bookingReference,
+          depositPaid: false,
+          depositPaymentStatus: "pending",
+          depositPaymentProvider: "stripe",
+          stripeCheckoutStatus: "pending"
+        };
+        const pendingDocRef = await addDoc(collection(db, "appointments"), removeUndefined(pendingAppointmentData));
+
+        const response = await fetch("/api/payments/stripe/deposit-checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            appointmentId: pendingDocRef.id,
+            amount: depositInfo.amount,
+            bookingReference,
+            customerName: clientInfo.name,
+            customerEmail: clientInfo.email,
+            customerPhone: clientInfo.phone,
+            vehicleInfo: fullVehicleInfo,
+            serviceNames,
+            scheduledAt,
+            depositSource: publicDepositSource,
+            nextAppointmentStatus: finalAppointmentStatus
+          })
+        });
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok || !data?.url) {
+          toast.error(data?.error || "Deposit payment is required, but online payment is not fully configured yet. Please contact us to complete booking.");
+          return;
+        }
+
+        window.location.assign(data.url);
+        return;
+      }
 
       const docRef = await addDoc(collection(db, "appointments"), removeUndefined(appointmentData));
       

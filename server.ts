@@ -7,8 +7,11 @@ import Stripe from "stripe";
 import sgMail from "@sendgrid/mail";
 import twilio from "twilio";
 import { startScheduler } from "./scheduler.ts";
+import { applicationDefault, cert, getApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
+import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let firebaseAdminDb: Firestore | null = null;
 
 // Initialize providers if available
 if (process.env.SENDGRID_API_KEY) {
@@ -44,12 +47,144 @@ function maskPhoneNumber(value: string): string {
   return value.replace(/\d(?=\d{4})/g, "*");
 }
 
+function getFirebaseAdminDb(): Firestore {
+  if (firebaseAdminDb) return firebaseAdminDb;
+
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT;
+  const databaseId = process.env.FIRESTORE_DATABASE_ID;
+
+  if (!projectId || !databaseId) {
+    throw new Error("Firebase Admin project/database configuration is missing.");
+  }
+
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+  const credential = serviceAccountJson
+    ? cert(JSON.parse(serviceAccountJson))
+    : clientEmail && privateKey
+      ? cert({ projectId, clientEmail, privateKey })
+      : applicationDefault();
+
+  const adminApp = getApps()[0] || initializeAdminApp({ credential, projectId });
+  firebaseAdminDb = getFirestore(adminApp, databaseId);
+  return firebaseAdminDb;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   // Start background jobs
   startScheduler();
+
+  app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res) => {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    const signature = req.headers["stripe-signature"];
+
+    if (!secretKey || !webhookSecret) {
+      return res.status(503).json({ error: "Stripe webhook is not configured." });
+    }
+
+    if (!signature || Array.isArray(signature)) {
+      return res.status(400).json({ error: "Missing Stripe signature." });
+    }
+
+    const stripe = new Stripe(secretKey);
+    let event: Stripe.Event;
+
+    try {
+      event = stripe.webhooks.constructEvent(req.body, signature, webhookSecret);
+    } catch (error: any) {
+      console.error("Stripe webhook signature verification failed:", error.message);
+      return res.status(400).json({ error: "Invalid Stripe signature." });
+    }
+
+    if (event.type !== "checkout.session.completed") {
+      return res.json({ received: true });
+    }
+
+    const session = event.data.object as Stripe.Checkout.Session;
+    if (session.payment_status !== "paid") {
+      return res.json({ received: true, skipped: "checkout_session_not_paid" });
+    }
+
+    const metadata = session.metadata || {};
+    if (metadata.paymentType !== "deposit") {
+      return res.json({ received: true, skipped: "not_deposit_payment" });
+    }
+
+    const appointmentId = metadata.appointmentId || metadata.bookingId;
+    if (!appointmentId) {
+      return res.status(400).json({ error: "Stripe deposit session is missing appointment metadata." });
+    }
+
+    try {
+      const db = getFirebaseAdminDb();
+      const amountPaidCents = session.amount_total || 0;
+      const metadataDepositCents = Number(metadata.depositAmountCents || 0);
+
+      await db.runTransaction(async transaction => {
+        const appointmentRef = db.collection("appointments").doc(appointmentId);
+        const snapshot = await transaction.get(appointmentRef);
+
+        if (!snapshot.exists) {
+          throw new Error(`Appointment ${appointmentId} was not found for Stripe deposit webhook.`);
+        }
+
+        const appointment = snapshot.data() || {};
+        const expectedDepositCents = Math.round(Number(appointment.depositAmount || 0) * 100);
+        const expectedCents = expectedDepositCents || metadataDepositCents;
+
+        if (!appointment.depositRequired) {
+          throw new Error(`Appointment ${appointmentId} does not require a deposit.`);
+        }
+
+        if (expectedCents > 0 && amountPaidCents !== expectedCents) {
+          throw new Error(`Stripe deposit amount mismatch for appointment ${appointmentId}.`);
+        }
+
+        if (appointment.depositPaid === true) {
+          return;
+        }
+
+        const nextStatus =
+          typeof appointment.pendingAppointmentStatus === "string" && appointment.pendingAppointmentStatus
+            ? appointment.pendingAppointmentStatus
+            : metadata.nextAppointmentStatus || "requested";
+
+        const paymentIntentId =
+          typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : session.payment_intent?.id || null;
+
+        const update: Record<string, unknown> = {
+          depositPaid: true,
+          depositPaidAt: FieldValue.serverTimestamp(),
+          depositPaymentProvider: "stripe",
+          depositPaymentStatus: "paid",
+          paymentStatus: "partial",
+          stripeCheckoutSessionId: session.id,
+          stripePaymentIntentId: paymentIntentId,
+          updatedAt: FieldValue.serverTimestamp()
+        };
+
+        if (appointment.status === "pending_payment" || appointment.status === "pending_deposit") {
+          update.status = nextStatus;
+        }
+
+        transaction.update(appointmentRef, update);
+      });
+
+      return res.json({ received: true });
+    } catch (error: any) {
+      console.error("Stripe deposit webhook update failed:", error.message);
+      const status = error.message?.includes("Firebase Admin project/database") ? 503 : 500;
+      return res.status(status).json({ error: "Unable to confirm Stripe deposit payment." });
+    }
+  });
 
   app.use(express.json());
 
@@ -282,6 +417,11 @@ async function startServer() {
 
     try {
       const stripe = new Stripe(secretKey);
+      const appointmentId = cleanMetadata(req.body?.appointmentId || req.body?.bookingId);
+      if (!appointmentId) {
+        return res.status(400).json({ error: "A pending booking is required before starting deposit checkout." });
+      }
+
       const customerEmail = cleanMetadata(req.body?.customerEmail);
       const successUrl = new URL("/book?deposit_checkout=success", appUrl).toString() + "&session_id={CHECKOUT_SESSION_ID}";
       const session = await stripe.checkout.sessions.create({
@@ -304,13 +444,18 @@ async function startServer() {
         success_url: successUrl,
         cancel_url: new URL("/book?deposit_checkout=cancelled", appUrl).toString(),
         metadata: {
+          appointmentId,
+          bookingId: appointmentId,
           bookingReference: cleanMetadata(req.body?.bookingReference),
           customerName: cleanMetadata(req.body?.customerName),
           customerPhone: cleanMetadata(req.body?.customerPhone),
           vehicleInfo: cleanMetadata(req.body?.vehicleInfo),
           serviceNames: cleanMetadata(Array.isArray(req.body?.serviceNames) ? req.body.serviceNames.join(", ") : req.body?.serviceNames),
           scheduledAt: cleanMetadata(req.body?.scheduledAt),
+          depositAmount: amount.toFixed(2),
+          depositAmountCents: String(amountInCents),
           depositSource: cleanMetadata(req.body?.depositSource),
+          nextAppointmentStatus: cleanMetadata(req.body?.nextAppointmentStatus),
           paymentType: "deposit"
         }
       });
