@@ -159,6 +159,7 @@ async function startServer() {
           typeof session.payment_intent === "string"
             ? session.payment_intent
             : session.payment_intent?.id || null;
+        const amountPaid = amountPaidCents / 100;
 
         const update: Record<string, unknown> = {
           depositPaid: true,
@@ -176,6 +177,20 @@ async function startServer() {
         }
 
         transaction.update(appointmentRef, update);
+
+        const paymentRef = db.collection("payments").doc(session.id);
+        transaction.set(paymentRef, {
+          clientId: appointment.clientId || appointment.customerId || "",
+          appointmentId,
+          amount: amountPaid,
+          provider: "stripe",
+          transactionId: paymentIntentId || session.id,
+          paymentType: "deposit",
+          status: "paid",
+          timestamp: FieldValue.serverTimestamp(),
+          stripeCheckoutSessionId: session.id,
+          stripePaymentIntentId: paymentIntentId
+        }, { merge: true });
       });
 
       return res.json({ received: true });

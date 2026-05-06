@@ -264,6 +264,20 @@ export default function JobDetail() {
   const [manualSmsBody, setManualSmsBody] = useState("");
   const [selectedSmsTemplate, setSelectedSmsTemplate] = useState("custom");
 
+  const getDepositCredit = (record: any) => {
+    if (!record?.depositPaid) return 0;
+    const total = Number(record.totalAmount || record.total || 0);
+    const deposit = Number(record.depositAmount || 0);
+    if (!Number.isFinite(deposit) || deposit <= 0) return 0;
+    return Math.min(deposit, Number.isFinite(total) && total > 0 ? total : deposit);
+  };
+
+  const getInvoiceBalanceDue = (invoice: any) => {
+    const total = Number(invoice?.total || 0);
+    const amountPaid = Number(invoice?.amountPaid || 0);
+    return Math.max(total - amountPaid, 0);
+  };
+
   useEffect(() => {
     // Services and Addons are loaded globally via useAuth contexts
   }, []);
@@ -891,6 +905,7 @@ export default function JobDetail() {
 
       const unacceptedBundles = job.unacceptedBundles || [];
       const invoiceVehicleInfo = job.vehicleInfo || "";
+      const depositCredit = getDepositCredit(job);
 
       const invoiceData = {
         clientId: job.clientId || job.customerId,
@@ -919,9 +934,12 @@ export default function JobDetail() {
         travelFeeAmount: job.travelFee || 0,
         afterHoursFeeAmount: job.afterHoursRecord?.afterHoursFee || 0,
         total: job.totalAmount || 0,
-        amountPaid: 0,
+        amountPaid: depositCredit,
         status: "pending",
-        paymentStatus: "unpaid",
+        paymentStatus: depositCredit > 0 ? "partial" : "unpaid",
+        depositAmount: job.depositAmount || 0,
+        depositPaid: Boolean(job.depositPaid),
+        depositPaymentProvider: job.depositPaymentProvider || null,
         createdAt: serverTimestamp(),
         invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
         description: job.internalNotes || `Generated from Job #${id?.slice(-6).toUpperCase()}`,
@@ -937,10 +955,11 @@ export default function JobDetail() {
 
       // Auto-send Invoice SMS
       if (invoiceData.clientPhone) {
+        const balanceDue = getInvoiceBalanceDue(invoiceData);
         const smsData = {
           clientName: invoiceData.clientName || "Customer",
           businessName: businessSettings?.businessName || "DetailFlow",
-          invoiceAmount: formatCurrency(invoiceData.total || 0),
+          invoiceAmount: formatCurrency(balanceDue),
           invoiceLink: window.location.origin + "/public-invoice/" + docRef.id,
           paymentLink: window.location.origin + "/public-invoice/" + docRef.id + "/pay"
         };
@@ -994,7 +1013,14 @@ export default function JobDetail() {
     
     try {
       toast.loading(`Initializing ${activeProvider}...`, { id: "payment" });
-      const result = await paymentService.processPayment(invoice, activeProvider, integrations[activeProvider]);
+      const balanceDue = getInvoiceBalanceDue(invoice);
+      if (balanceDue <= 0) {
+        toast.success("Invoice already paid by deposit.", { id: "payment" });
+        setIsPaymentSelectionOpen(false);
+        return;
+      }
+
+      const result = await paymentService.processPayment({ ...invoice, total: balanceDue }, activeProvider, integrations[activeProvider]);
       
       if (result.success) {
         const invoiceRef = doc(db, "invoices", invoice.id);
@@ -1002,12 +1028,14 @@ export default function JobDetail() {
           action: "paid",
           timestamp: serverTimestamp(),
           method: "integrated",
-          provider: activeProvider
+          provider: activeProvider,
+          amount: balanceDue
         };
         const updateData = {
           status: "paid",
           paidAt: serverTimestamp(),
           paymentStatus: "paid",
+          amountPaid: Number(invoice.total || 0),
           paymentProvider: activeProvider,
           transactionReference: result.transactionId || "integrated-payment",
           paymentHistory: arrayUnion(paymentHistoryEntry)
@@ -1040,16 +1068,19 @@ export default function JobDetail() {
     try {
       toast.loading(`Recording ${method} payment...`, { id: "payment" });
       const invoiceRef = doc(db, "invoices", invoice.id);
+      const balanceDue = getInvoiceBalanceDue(invoice);
       const paymentHistoryEntry = {
         action: "paid",
         timestamp: serverTimestamp(),
         method: method,
-        provider: "manual"
+        provider: "manual",
+        amount: balanceDue
       };
       const updateData = {
         status: "paid",
         paidAt: serverTimestamp(),
         paymentStatus: "paid",
+        amountPaid: Number(invoice.total || 0),
         paymentProvider: "manual",
         paymentMethodDetails: method,
         paymentHistory: arrayUnion(paymentHistoryEntry)
@@ -1079,16 +1110,19 @@ export default function JobDetail() {
     try {
       toast.loading("Processing payment...", { id: "payment" });
       const invoiceRef = doc(db, "invoices", invoice.id);
+      const balanceDue = getInvoiceBalanceDue(invoice);
       const paymentHistoryEntry = {
         action: "paid",
         timestamp: serverTimestamp(),
         method: "Admin Override",
-        provider: "manual"
+        provider: "manual",
+        amount: balanceDue
       };
       await updateDoc(invoiceRef, {
         status: "paid",
         paidAt: serverTimestamp(),
         paymentStatus: "paid",
+        amountPaid: Number(invoice.total || 0),
         paymentProvider: "manual",
         paymentHistory: arrayUnion(paymentHistoryEntry)
       });
@@ -1096,6 +1130,7 @@ export default function JobDetail() {
         ...prev, 
         status: "paid", 
         paymentStatus: "paid", 
+        amountPaid: Number(invoice.total || 0),
         paymentProvider: "manual",
         paymentHistory: [...(prev.paymentHistory || []), { ...paymentHistoryEntry, timestamp: new Date() }]
       } : null);
@@ -1160,6 +1195,7 @@ export default function JobDetail() {
     try {
       toast.loading("Undoing payment...", { id: "payment-undo" });
       const invoiceRef = doc(db, "invoices", invoice.id);
+      const depositCredit = getDepositCredit(invoice);
       
       const paymentHistoryEntry = {
         action: "undone",
@@ -1169,7 +1205,8 @@ export default function JobDetail() {
 
       const updateData = {
         status: "pending",
-        paymentStatus: "unpaid",
+        paymentStatus: depositCredit > 0 ? "partial" : "unpaid",
+        amountPaid: depositCredit,
         paymentProvider: deleteField(),
         paymentMethodDetails: deleteField(),
         paidAt: deleteField(),
@@ -1183,7 +1220,8 @@ export default function JobDetail() {
         if (!prev) return null;
         let newState = { ...prev };
         newState.status = "pending";
-        newState.paymentStatus = "unpaid";
+        newState.paymentStatus = depositCredit > 0 ? "partial" : "unpaid";
+        newState.amountPaid = depositCredit;
         delete newState.paymentProvider;
         delete newState.paymentMethodDetails;
         delete newState.paidAt;
@@ -4755,7 +4793,7 @@ export default function JobDetail() {
                     await messagingService.sendEmail({
                       to,
                       subject: `Invoice ${currentInvoice?.invoiceNumber} from ${businessSettings?.businessName || 'Us'}`,
-                      html: `<p>Hi ${currentInvoice?.clientName || job?.customerName},</p><p>Your invoice <strong>${currentInvoice?.invoiceNumber}</strong> is ready.</p><p>Total Amount: <strong>${formatCurrency(currentInvoice?.total)}</strong></p><p>Thank you for your business!</p>`
+                      html: `<p>Hi ${currentInvoice?.clientName || job?.customerName},</p><p>Your invoice <strong>${currentInvoice?.invoiceNumber}</strong> is ready.</p><p>Balance Due: <strong>${formatCurrency(getInvoiceBalanceDue(currentInvoice))}</strong></p><p>Thank you for your business!</p>`
                     });
 
                     if (currentInvoice?.clientPhone || job?.customerPhone) {
@@ -4764,7 +4802,7 @@ export default function JobDetail() {
                         const smsData = {
                           clientName: currentInvoice?.clientName || job?.customerName || "Customer",
                           businessName: businessSettings?.businessName || "DetailFlow",
-                          invoiceAmount: formatCurrency(currentInvoice?.total || 0),
+                          invoiceAmount: formatCurrency(getInvoiceBalanceDue(currentInvoice)),
                           invoiceLink: window.location.origin + "/public-invoice/" + currentInvoice?.id,
                           paymentLink: window.location.origin + "/public-invoice/" + currentInvoice?.id + "/pay"
                         };
@@ -4803,7 +4841,7 @@ export default function JobDetail() {
                     const smsData = {
                       clientName: currentInvoice?.clientName || job?.customerName || "Customer",
                       businessName: businessSettings?.businessName || "DetailFlow",
-                      invoiceAmount: formatCurrency(currentInvoice?.total || 0),
+                      invoiceAmount: formatCurrency(getInvoiceBalanceDue(currentInvoice)),
                       invoiceLink: window.location.origin + "/public-invoice/" + currentInvoice?.id,
                       paymentLink: window.location.origin + "/public-invoice/" + currentInvoice?.id + "/pay"
                     };
@@ -4898,7 +4936,7 @@ export default function JobDetail() {
               <DollarSign className="w-6 h-6 text-green-500" />
               Accept Payment
             </DialogTitle>
-            <p className="text-white text-[10px] uppercase tracking-widest font-bold mt-1">Select payment method for {formatCurrency(currentInvoice?.total)}</p>
+            <p className="text-white text-[10px] uppercase tracking-widest font-bold mt-1">Select payment method for {formatCurrency(getInvoiceBalanceDue(currentInvoice))}</p>
           </DialogHeader>
           
           <div className="grid grid-cols-1 gap-3 mt-6">
