@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, deleteDoc, getDocs, addDoc, arrayUnion, deleteField, limit } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
@@ -177,6 +177,8 @@ export default function JobDetail() {
   const assessmentImages = activeVehicleId ? (vehicleStates[activeVehicleId]?.images || []) : [];
   const revenueProtocol = activeVehicleId ? (vehicleStates[activeVehicleId]?.protocol || null) : null;
   const recommendations = activeVehicleId ? (vehicleStates[activeVehicleId]?.recommendations || []) : [];
+  const uploadAssessmentInputRef = useRef<HTMLInputElement>(null);
+  const cameraAssessmentInputRef = useRef<HTMLInputElement>(null);
 
   const updateVehicleState = (updater: (prev: any) => any) => {
     if (!activeVehicleId) return;
@@ -2676,7 +2678,7 @@ export default function JobDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 gap-y-12 items-start mt-6">
         {/* Center Column: Operations & Intelligence - Now Primary Wide Area */}
-        <div className="lg:col-span-9 order-last lg:order-none min-w-0 pt-0">
+        <div className="lg:col-span-8 order-last lg:order-none min-w-0 pt-0">
           <TabsContent value="ai_upsell" className="mt-0 space-y-12">
               <Card className="border-none shadow-xl bg-card rounded-3xl">
                 <CardHeader className="p-8 border-b border-white/5 bg-black/40">
@@ -2734,18 +2736,50 @@ export default function JobDetail() {
                                 </button>
                               </div>
                             ))}
-                            <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl hover:border-white/40 hover:bg-white/5 transition-colors cursor-pointer">
-                              <ImageIcon className="w-6 h-6 text-white mb-1" />
-                              <span className="text-[8px] uppercase font-bold tracking-widest text-white text-center">Add<br/>Photo</span>
-                              <input 
-                                type="file" 
-                                accept="image/*" 
+                            <DropdownMenu>
+                              <DropdownMenuTrigger render={
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl hover:border-white/40 hover:bg-white/5 transition-colors bg-transparent p-2"
+                                >
+                                  <ImageIcon className="w-6 h-6 text-white mb-1" />
+                                  <span className="text-[8px] uppercase font-bold tracking-widest text-white text-center leading-tight">Add<br/>Photo</span>
+                                </Button>
+                              } />
+                              <DropdownMenuContent align="start" className="bg-card border-white/10 text-white rounded-2xl p-2 shadow-2xl">
+                                <DropdownMenuItem
+                                  className="rounded-xl cursor-pointer font-bold text-xs focus:bg-primary/10 focus:text-white"
+                                  onSelect={() => uploadAssessmentInputRef.current?.click()}
+                                >
+                                  <ImageIcon className="w-4 h-4 mr-2 text-primary" />
+                                  Upload Photo
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="rounded-xl cursor-pointer font-bold text-xs focus:bg-primary/10 focus:text-white"
+                                  onSelect={() => cameraAssessmentInputRef.current?.click()}
+                                >
+                                  <Camera className="w-4 h-4 mr-2 text-primary" />
+                                  Take Photo
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                              <input
+                                ref={uploadAssessmentInputRef}
+                                type="file"
+                                accept="image/*"
                                 multiple
-                                capture="environment"
-                                className="hidden" 
+                                className="hidden"
                                 onChange={handleAssessmentImageUpload}
                               />
-                            </label>
+                              <input
+                                ref={cameraAssessmentInputRef}
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                className="hidden"
+                                onChange={handleAssessmentImageUpload}
+                              />
+                            </DropdownMenu>
                           </div>
                         </div>
                       </div>
@@ -2849,7 +2883,7 @@ export default function JobDetail() {
                       <Button 
                         onClick={async () => {
                           const hasAssessmentData = technicianAssessment.trim() !== "" || assessmentTags.length > 0 || assessmentImages.length > 0;
-                          if (!hasAssessmentData || isGeneratingUpsells) return;
+                          if (isGeneratingUpsells) return;
                           
                           // Add debounce check
                           const now = Date.now();
@@ -2878,7 +2912,9 @@ export default function JobDetail() {
                             };
 
                             console.log("[Revenue Protocol] Initializing High-Impact Analysis...");
-                            const fullAssessmentContext = `${assessmentTags.length > 0 ? 'Tags: ' + assessmentTags.join(', ') + '. ' : ''}${technicianAssessment}`;
+                            const fullAssessmentContext = hasAssessmentData
+                              ? `${assessmentTags.length > 0 ? 'Tags: ' + assessmentTags.join(', ') + '. ' : ''}${technicianAssessment}`
+                              : `No additional field assessment entered. Analyze the existing booking context, vehicle, selected services, add-ons, price, travel fee, and notes for safe revenue optimization opportunities. Notes: ${job.notes || job.internalNotes || job.description || "None"}`;
                             const response = await getRevenueOptimization(fullAssessmentContext, structuredPayload, productCosts, businessSettings, assessmentImages);
                             setRevenueProtocol(response);
                             setRecommendations(response.recommendedUpsells);
@@ -2918,7 +2954,7 @@ export default function JobDetail() {
                             setIsGeneratingUpsells(false);
                           }
                         }}
-                        disabled={isGeneratingUpsells || (technicianAssessment.trim() === "" && assessmentTags.length === 0 && assessmentImages.length === 0)}
+                        disabled={isGeneratingUpsells}
                         className="w-full h-14 bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-xl uppercase tracking-[0.2em] text-[10px]"
                       >
                         {isGeneratingUpsells ? <Loader2 className="w-5 h-5 animate-spin" /> : "Initiate Revenue Optimization"}
@@ -2931,8 +2967,13 @@ export default function JobDetail() {
                           setIsAnalyzingDeployment(true);
                           try {
                             const response = await analyzeDeployment(job);
-                            setDeploymentInsights(response.insights);
-                            toast.success("Booking Intelligence Generated!");
+                            const insights = Array.isArray(response?.insights) ? response.insights : [];
+                            setDeploymentInsights(insights);
+                            if (insights.length > 0) {
+                              toast.success("Booking Intelligence Generated!");
+                            } else {
+                              toast.info("Booking intelligence ran, but no billable deployment items were found.");
+                            }
                           } catch (err) {
                             console.error("Booking Error:", err);
                             toast.error("Failed to generate booking intelligence");
@@ -4042,7 +4083,7 @@ export default function JobDetail() {
         </div>
 
         {/* Right Column: Financials & Actions */}
-        <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-32 h-fit">
+        <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-32 h-fit">
 
           {job.status === "waitlisted" && (
             <Card className="border-none shadow-xl bg-orange-500/10 border border-orange-500/20 rounded-3xl overflow-hidden">
