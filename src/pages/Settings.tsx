@@ -403,6 +403,19 @@ export default function Settings() {
     });
   };
 
+  const updateCommunicationAutomation = (field: keyof NonNullable<BusinessSettings["communicationAutomation"]>, value: boolean) => {
+    setSettings(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        communicationAutomation: {
+          ...(prev.communicationAutomation || { enabled: false, bookingConfirmation: true, reminder24h: true, reminder2h: true }),
+          [field]: value
+        }
+      };
+    });
+  };
+
   const handleSaveSettings = async (newData: Partial<BusinessSettings>) => {
     if (!settings) return;
     setIsSaving(true);
@@ -1799,6 +1812,54 @@ export default function Settings() {
                         <Send className="w-4 h-4 mr-2" /> Send Test SMS
                       </Button>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-6 pt-10 border-t border-white/5">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading flex items-center gap-3">
+                    <Bell className="w-6 h-6 text-primary" />
+                    Global Communication Controls
+                  </h3>
+                  <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed">
+                    Master switches for business-wide SMS and email availability. Client profile toggles still decide individual consent when these are enabled.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className={cn(
+                    "flex items-center justify-between gap-4 p-6 bg-black/40 rounded-2xl border transition-all hover:border-primary/20",
+                    settings?.communicationAutomation?.globalSmsEnabled === false ? "border-orange-500/30" : "border-white/5"
+                  )}>
+                    <div className="space-y-1 min-w-0">
+                      <Label className="text-xs font-black text-white uppercase tracking-tight">Global SMS Communications</Label>
+                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
+                        {settings?.communicationAutomation?.globalSmsEnabled === false ? "SMS disabled for all clients" : "SMS allowed by client preference"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={settings?.communicationAutomation?.globalSmsEnabled !== false}
+                      onCheckedChange={(val) => updateCommunicationAutomation("globalSmsEnabled", val)}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+
+                  <div className={cn(
+                    "flex items-center justify-between gap-4 p-6 bg-black/40 rounded-2xl border transition-all hover:border-primary/20",
+                    settings?.communicationAutomation?.globalEmailEnabled === false ? "border-orange-500/30" : "border-white/5"
+                  )}>
+                    <div className="space-y-1 min-w-0">
+                      <Label className="text-xs font-black text-white uppercase tracking-tight">Global Email Notifications</Label>
+                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
+                        {settings?.communicationAutomation?.globalEmailEnabled === false ? "Email disabled for all clients" : "Email allowed by client preference"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={settings?.communicationAutomation?.globalEmailEnabled !== false}
+                      onCheckedChange={(val) => updateCommunicationAutomation("globalEmailEnabled", val)}
+                      className="data-[state=checked]:bg-primary"
+                    />
                   </div>
                 </div>
               </div>
@@ -4400,42 +4461,6 @@ export default function Settings() {
                         ...prev,
                         communicationAutomation: { ...(prev.communicationAutomation || { enabled: false, bookingConfirmation: true, reminder24h: true, reminder2h: true }), enabled: val } 
                       } : null)}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
-                    <div className="space-y-1">
-                      <Label className="text-xs font-black text-white uppercase tracking-tight">Mass SMS Communications</Label>
-                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
-                        {settings?.communicationAutomation?.globalSmsEnabled === false ? "Disabled Globally" : "Enabled Globally"}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings?.communicationAutomation?.globalSmsEnabled !== false}
-                      onCheckedChange={(val) => setSettings(prev => prev ? {
-                        ...prev,
-                        communicationAutomation: { ...(prev.communicationAutomation || { enabled: false, bookingConfirmation: true, reminder24h: true, reminder2h: true }), globalSmsEnabled: val }
-                      } : null)}
-                      className="data-[state=checked]:bg-primary"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-6 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-primary/20">
-                    <div className="space-y-1">
-                      <Label className="text-xs font-black text-white uppercase tracking-tight">Mass Email Notifications</Label>
-                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
-                        {settings?.communicationAutomation?.globalEmailEnabled === false ? "Disabled Globally" : "Enabled Globally"}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings?.communicationAutomation?.globalEmailEnabled !== false}
-                      onCheckedChange={(val) => setSettings(prev => prev ? {
-                        ...prev,
-                        communicationAutomation: { ...(prev.communicationAutomation || { enabled: false, bookingConfirmation: true, reminder24h: true, reminder2h: true }), globalEmailEnabled: val }
-                      } : null)}
-                      className="data-[state=checked]:bg-primary"
                     />
                   </div>
                 </div>
