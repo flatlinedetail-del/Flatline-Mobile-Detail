@@ -147,6 +147,8 @@ export default function JobDetail() {
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [jobNotesDraft, setJobNotesDraft] = useState("");
+  const [isSavingJobNotes, setIsSavingJobNotes] = useState(false);
   const [decodedVin, setDecodedVin] = useState<any>(null);
   const [showInvoice, setShowInvoice] = useState(false);
   const [showSignature, setShowSignature] = useState(false);
@@ -1732,6 +1734,7 @@ export default function JobDetail() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setJob({ id: docSnap.id, ...data });
+        setJobNotesDraft(data.notes || "");
         console.log("Selected deployment job loaded:", docSnap.id);
         setProductCosts(data.productCosts || []);
         setPricingAnalysis(data.pricingAnalysis || null);
@@ -2325,6 +2328,25 @@ export default function JobDetail() {
     } catch (err) {
       console.error("Error removing item:", err);
       toast.error("Failed to remove item");
+    }
+  };
+
+  const handleSaveJobNotes = async () => {
+    if (!id || isSavingJobNotes) return;
+    setIsSavingJobNotes(true);
+    try {
+      const updateData = {
+        notes: jobNotesDraft,
+        updatedAt: serverTimestamp()
+      };
+      await updateDoc(doc(db, "appointments", id), updateData);
+      setJob(prev => ({ ...prev, ...updateData }));
+      toast.success("Job notes saved.");
+    } catch (error) {
+      console.error("Error saving job notes:", error);
+      toast.error("Failed to save job notes.");
+    } finally {
+      setIsSavingJobNotes(false);
     }
   };
 
@@ -4001,10 +4023,18 @@ export default function JobDetail() {
                   <textarea 
                     className="w-full h-40 p-4 rounded-2xl border border-gray-100 focus:ring-2 focus:ring-primary focus:border-transparent resize-none text-sm font-medium"
                     placeholder="Add job notes, technician observations, or special instructions..."
-                    defaultValue={job.notes}
+                    value={jobNotesDraft}
+                    onChange={(event) => setJobNotesDraft(event.target.value)}
                   />
                   <div className="flex justify-end mt-4">
-                    <Button className="bg-primary hover:bg-[#2A6CFF] font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl shadow-glow-blue">Save Notes</Button>
+                    <Button
+                      className="bg-primary hover:bg-[#2A6CFF] font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl shadow-glow-blue"
+                      onClick={handleSaveJobNotes}
+                      disabled={isSavingJobNotes}
+                    >
+                      {isSavingJobNotes ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                      Save Notes
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

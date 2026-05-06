@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Search, X, Check } from "lucide-react";
+import { Search, X, Check, Loader2 } from "lucide-react";
 import { Plus, FileText, Edit2, Trash2, ShieldCheck, Settings2, AlertCircle, CheckCircle2, ShieldAlert, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
@@ -29,6 +29,7 @@ export default function FormsBuilder() {
   const [loading, setLoading] = useState(true);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<any>(null);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -154,11 +155,13 @@ export default function FormsBuilder() {
   };
 
   const handleSave = async () => {
+    if (isSavingTemplate) return;
     if (!formData.title || !formData.content) {
       toast.error("Title and Content are required");
       return;
     }
 
+    setIsSavingTemplate(true);
     const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
     
     // Supplement names for IDs
@@ -206,6 +209,8 @@ export default function FormsBuilder() {
     } catch (error) {
       console.error("Error saving template:", error);
       toast.error("Failed to save template");
+    } finally {
+      setIsSavingTemplate(false);
     }
   };
 
@@ -684,8 +689,13 @@ export default function FormsBuilder() {
 
           <DialogFooter className="p-6 border-t shrink-0">
             <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
-            <Button onClick={handleSave} className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105">
-              {editingTemplate ? "Update Template" : "Create Template"}
+            <Button
+              onClick={handleSave}
+              disabled={isSavingTemplate}
+              className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105"
+            >
+              {isSavingTemplate && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {isSavingTemplate ? "Saving..." : (editingTemplate ? "Update Template" : "Create Template")}
             </Button>
           </DialogFooter>
         </DialogContent>

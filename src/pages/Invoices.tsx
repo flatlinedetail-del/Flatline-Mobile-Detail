@@ -434,7 +434,12 @@ export default function Invoices() {
               <RefreshCcw className="w-4 h-4 mr-2 text-primary" />
               Sync Ledger
             </Button>
-            <Button variant="outline" size="sm" className="border-border bg-white text-black hover:bg-gray-50 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-border bg-white text-black hover:bg-gray-50 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]"
+              onClick={() => toast.info("Advanced ledger filters are not configured yet. Use search to narrow records.")}
+            >
               <Filter className="w-4 h-4 mr-2 text-primary" />
               Filter Ledger
             </Button>

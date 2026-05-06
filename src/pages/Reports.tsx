@@ -31,6 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { useAuth } from "../hooks/useAuth";
 import { PageHeader } from "../components/PageHeader";
 import { ShieldAlert } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Reports() {
   const { profile, loading: authLoading, systemStatus, settings: authSettings, canAccessAdmin } = useAuth();
@@ -161,6 +162,35 @@ export default function Reports() {
 
   const COLORS = ["#0A4DFF", "#6366f1", "#8b5cf6", "#d946ef"];
 
+  const handleExportCsv = () => {
+    const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const rows = [
+      ["Metric", "Value"],
+      ["Time Range", timeRange === "this_month" ? "This Month" : "Last Month"],
+      ["Total Sales", totalSales],
+      ["Total Expenses", totalExpenses],
+      ["Net Profit", netProfit],
+      ["Total Commissions", totalCommissions],
+      ["Appointments", appointments.length],
+      ["Expenses", expenses.length],
+      [],
+      ["Date", "Sales"],
+      ...chartData.map(day => [day.name, day.sales]),
+      [],
+      ["Expense Category", "Amount"],
+      ...expenseByCategory.map(cat => [cat.name, cat.value])
+    ];
+    const csv = rows.map(row => row.map(escapeCsv).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `detailflow-report-${timeRange}-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Report CSV exported.");
+  };
+
   return (
     <div className="space-y-6 pb-20">
       <PageHeader 
@@ -178,7 +208,12 @@ export default function Reports() {
                 <SelectItem value="last_month" className="focus:bg-white/5 focus:text-white">Last Month</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
+            <Button
+              variant="outline"
+              className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]"
+              onClick={handleExportCsv}
+              disabled={loading}
+            >
               <Download className="w-4 h-4 mr-2 text-primary" /> Export CSV
             </Button>
           </div>
