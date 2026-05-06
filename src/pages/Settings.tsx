@@ -1226,49 +1226,54 @@ export default function Settings() {
               <ClipboardList className="w-4 h-4" /> Service Protocols
             </TabsTrigger>
 
-            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Revenue & Growth</h3>
-            <TabsTrigger 
-              value="coupons" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-            >
-              <Ticket className="w-4 h-4" /> Growth Incentives
-            </TabsTrigger>
-            <TabsTrigger 
-              value="loyalty" 
-              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-            >
-              <Star className="w-4 h-4" /> Loyalty Engine
-            </TabsTrigger>
-            {hasAccessToSensitiveSettings && (
-              <TabsTrigger 
-                value="automation" 
-                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-              >
-                <Zap className="w-4 h-4" /> Operational Automations
-              </TabsTrigger>
-            )}
-            <TabsTrigger 
-              value="calendar" 
+            <TabsTrigger
+              value="calendar"
               className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
             >
               <Calendar className="w-4 h-4" /> Calendar Service Colors
             </TabsTrigger>
+
+            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Communications</h3>
             {hasAccessToSensitiveSettings && (
-              <TabsTrigger 
-                value="communications" 
+              <TabsTrigger
+                value="communications"
                 className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
               >
-                <MessageSquare className="w-4 h-4" /> Communications
+                <MessageSquare className="w-4 h-4" /> SMS Settings
               </TabsTrigger>
             )}
             {hasAccessToSensitiveSettings && (
-              <TabsTrigger 
-                value="integrations" 
+              <TabsTrigger
+                value="automation"
                 className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
               >
-                <Plus className="w-4 h-4" /> Neural Links
+                <Zap className="w-4 h-4" /> Automations
               </TabsTrigger>
             )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger
+                value="integrations"
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Plus className="w-4 h-4" /> Email & Integrations
+              </TabsTrigger>
+            )}
+
+            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Revenue & Growth</h3>
+            <TabsTrigger
+              value="coupons"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Ticket className="w-4 h-4" /> Growth Incentives
+            </TabsTrigger>
+            <TabsTrigger
+              value="loyalty"
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Star className="w-4 h-4" /> Loyalty Engine
+            </TabsTrigger>
+
+            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Security</h3>
             {hasAccessToSensitiveSettings && (
               <TabsTrigger 
                 value="security" 
