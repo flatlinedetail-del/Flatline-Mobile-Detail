@@ -5,6 +5,8 @@ export type PaymentProvider = "stripe" | "square" | "paypal";
 export interface PaymentResult {
   success: boolean;
   transactionId?: string;
+  checkoutUrl?: string;
+  sessionId?: string;
   error?: string;
 }
 
@@ -99,7 +101,37 @@ class PaymentService {
   }
 
   private async processStripe(invoice: Invoice, config: any): Promise<PaymentResult> {
-    return { success: false, error: "Payment system not configured" };
+    try {
+      const response = await fetch("/api/payments/stripe/invoice-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoiceId: invoice.id,
+          appointmentId: (invoice as any).appointmentId,
+          amount: invoice.total,
+          invoiceNumber: (invoice as any).invoiceNumber,
+          clientName: (invoice as any).clientName,
+          clientEmail: (invoice as any).clientEmail,
+          vehicleInfo: (invoice as any).vehicleInfo
+        })
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.url) {
+        return { success: false, error: data?.error || "Unable to start Stripe checkout." };
+      }
+
+      return {
+        success: false,
+        checkoutUrl: data.url,
+        sessionId: data.sessionId,
+        transactionId: data.sessionId
+      };
+    } catch (error) {
+      console.error("Stripe checkout error:", error);
+      return { success: false, error: "Unable to start Stripe checkout." };
+    }
   }
 
   private async processSquare(invoice: Invoice, config: any): Promise<PaymentResult> {

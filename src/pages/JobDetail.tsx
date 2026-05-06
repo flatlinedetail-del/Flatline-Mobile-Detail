@@ -1000,19 +1000,7 @@ export default function JobDetail() {
   const handleIntegratedPayment = async (invoice: any) => {
     if (!invoice) return;
     
-    // Check if integratons are loaded
-    if (!integrationSettings) {
-      toast.error("Loading payment configuration...");
-      return;
-    }
-
-    const integrations = integrationSettings?.paymentIntegrations || {};
     const activeProvider: PaymentProvider = "stripe";
-    
-    if (!integrations.stripe?.enabled) {
-      toast.error("Stripe card processor is not configured in settings.");
-      return;
-    }
     
     try {
       toast.loading(`Initializing ${activeProvider}...`, { id: "payment" });
@@ -1023,7 +1011,13 @@ export default function JobDetail() {
         return;
       }
 
-      const result = await paymentService.processPayment({ ...invoice, total: balanceDue }, activeProvider, integrations.stripe);
+      const result = await paymentService.processPayment({ ...invoice, total: balanceDue }, activeProvider, { enabled: true });
+
+      if (result.checkoutUrl) {
+        toast.success("Redirecting to Stripe checkout...", { id: "payment" });
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
       
       if (result.success) {
         const invoiceRef = doc(db, "invoices", invoice.id);
