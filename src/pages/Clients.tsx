@@ -1562,7 +1562,7 @@ export default function Clients() {
                             className="h-10 w-10 text-white/70 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-300"
                             onClick={(e) => {
                               e.stopPropagation();
-                              toast.success("Book Appointment Clicked");
+                              toast.info("Opening booking for this client...");
                               
                               document.body.style.pointerEvents = "";
                               document.body.style.overflow = "";
@@ -1725,7 +1725,7 @@ export default function Clients() {
                         size="lg" 
                         className="bg-primary text-white hover:bg-primary/90 font-black shadow-glow-blue rounded-2xl h-12 px-8 uppercase tracking-widest text-xs border border-white/20 transition-all hover:scale-105"
                         onClick={() => {
-                          toast.success("Book Appointment Clicked");
+                          toast.info("Opening booking for this client...");
                           setIsDetailOpen(false);
                           
                           // Force absolute DOM reset immediately
@@ -2371,7 +2371,7 @@ export default function Clients() {
                       size="sm" 
                       className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue"
                       onClick={() => {
-                        toast.success("Book Appointment Clicked");
+                        toast.info("Opening booking for this client...");
                         setIsDetailOpen(false);
                         
                         document.body.style.pointerEvents = "";
