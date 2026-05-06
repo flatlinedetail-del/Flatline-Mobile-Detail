@@ -30,6 +30,11 @@ const formatDate = (value: any) => {
     : parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 };
 
+export const buildInvoicePaymentUrl = (invoiceId: string | undefined | null, origin: string) => {
+  if (!invoiceId) return null;
+  return `${origin.replace(/\/$/, "")}/pay/invoice/${encodeURIComponent(invoiceId)}`;
+};
+
 const cleanDescription = (rawContent: unknown) => {
   if (!rawContent || typeof rawContent !== "string") {
     return "Services were selected based on the vehicle condition, service needs, and requested work.";
@@ -91,6 +96,8 @@ export function buildInvoiceEmail({ invoice, settings, paymentUrl }: InvoiceEmai
   const lineItems = Array.isArray(invoice.lineItems) ? invoice.lineItems : [];
   const vehicles = Array.isArray(invoice.vehicles) ? invoice.vehicles : [];
   const status = String(invoice.paymentStatus || invoice.status || "pending").toUpperCase();
+  const dueDate = invoice.dueDate ? formatDate(invoice.dueDate) : null;
+  const paymentTerms = plainText(invoice.paymentTerms || invoice.terms || (dueDate ? "Due by due date" : "Due on receipt"));
   const logoHtml = settings?.logoUrl && settings.showLogoOnDocuments !== false
     ? `<img src="${escapeHtml(settings.logoUrl)}" alt="${escapeHtml(businessName)}" style="max-height:58px;max-width:220px;display:block;">`
     : `<div style="font-size:25px;line-height:1;font-weight:900;letter-spacing:-1px;color:#0A4DFF;text-transform:uppercase;font-style:italic;">${escapeHtml(businessName)}</div>`;
@@ -119,6 +126,8 @@ export function buildInvoiceEmail({ invoice, settings, paymentUrl }: InvoiceEmai
                       <div style="font-size:38px;line-height:1;font-weight:900;letter-spacing:-1px;text-transform:uppercase;color:#111827;">Invoice</div>
                       <div style="margin-top:12px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#111827;">Invoice # <span style="color:#0A4DFF;">${escapeHtml(invoiceNumber)}</span></div>
                       <div style="margin-top:6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#4b5563;">Date ${escapeHtml(formatDate(invoice.createdAt))}</div>
+                      <div style="margin-top:6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#4b5563;">Terms ${escapeHtml(paymentTerms)}</div>
+                      <div style="margin-top:6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#4b5563;">Due ${escapeHtml(dueDate || "On receipt")}</div>
                       <div style="display:inline-block;margin-top:14px;padding:7px 12px;border-radius:999px;background:${status === "PAID" ? "#dcfce7" : "#fef3c7"};color:${status === "PAID" ? "#15803d" : "#92400e"};font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:1px;">${escapeHtml(status)}</div>
                     </td>
                   </tr>
@@ -203,7 +212,7 @@ export function buildInvoiceEmail({ invoice, settings, paymentUrl }: InvoiceEmai
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                   <tr>
                     <td style="vertical-align:top;font-size:12px;line-height:1.6;color:#6b7280;padding-right:24px;">
-                      Payment is due within the specified timeframe. Thank you for choosing ${escapeHtml(businessName)}.
+                      Payment terms: <strong style="color:#111827;">${escapeHtml(paymentTerms)}</strong>${dueDate ? `, due ${escapeHtml(dueDate)}` : ""}. Thank you for choosing ${escapeHtml(businessName)}.
                     </td>
                     <td width="310" style="vertical-align:top;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:18px;">
                       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -241,6 +250,8 @@ export function buildInvoiceEmail({ invoice, settings, paymentUrl }: InvoiceEmai
     `Invoice ${invoiceNumber} from ${businessName}`,
     `Date: ${formatDate(invoice.createdAt)}`,
     `Status: ${status}`,
+    `Payment Terms: ${paymentTerms}`,
+    `Due Date: ${dueDate || "Due on receipt"}`,
     "",
     `Bill To: ${plainText(invoice.clientName || "Customer")}`,
     invoice.clientEmail ? `Email: ${plainText(invoice.clientEmail)}` : "",

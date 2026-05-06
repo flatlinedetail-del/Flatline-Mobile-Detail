@@ -656,6 +656,108 @@ async function startServer() {
     }
   });
 
+  app.get("/pay/invoice/:invoiceId", async (req, res) => {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    if (!secretKey) {
+      return res.status(503).send("Stripe payment is not configured on the server.");
+    }
+
+    let appUrl: URL;
+    try {
+      appUrl = new URL(process.env.PUBLIC_APP_URL || req.get("origin") || `http://localhost:${PORT}`);
+    } catch {
+      return res.status(500).send("Public app URL is not configured correctly.");
+    }
+
+    const cleanMetadata = (value: unknown) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 500);
+
+    const invoiceId = cleanMetadata(req.params.invoiceId);
+    if (!invoiceId) {
+      return res.status(400).send("Invoice is required before starting payment.");
+    }
+
+    try {
+      const db = getFirebaseAdminDb();
+      const snapshot = await db.collection("invoices").doc(invoiceId).get();
+
+      if (!snapshot.exists) {
+        return res.status(404).send("Invoice was not found.");
+      }
+
+      const invoice = snapshot.data() || {};
+      const invoiceTotal = Number(invoice.total || 0);
+      const invoiceAmountPaid = Number(invoice.amountPaid || 0);
+      const balanceDue = Math.max(invoiceTotal - invoiceAmountPaid, 0);
+      const amountInCents = Math.round(balanceDue * 100);
+
+      if (!Number.isFinite(balanceDue) || amountInCents <= 0) {
+        return res
+          .status(200)
+          .send("<!doctype html><title>Invoice Paid</title><body style=\"font-family:Arial,sans-serif;padding:32px;\"><h1>Invoice is already paid</h1><p>There is no remaining balance due for this invoice.</p></body>");
+      }
+
+      const stripe = new Stripe(secretKey);
+      const appointmentId = cleanMetadata(invoice.appointmentId || invoice.jobId);
+      const invoiceNumber = cleanMetadata(invoice.invoiceNumber) || `Invoice ${invoiceId.slice(-6).toUpperCase()}`;
+      const clientEmail = cleanMetadata(invoice.clientEmail);
+      const completeUrl = new URL(`/pay/invoice/${encodeURIComponent(invoiceId)}/complete?payment_checkout=success`, appUrl).toString() + "&session_id={CHECKOUT_SESSION_ID}";
+      const cancelUrl = new URL(`/pay/invoice/${encodeURIComponent(invoiceId)}/cancelled`, appUrl).toString();
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: amountInCents,
+              product_data: {
+                name: invoiceNumber,
+                description: "Final invoice balance payment."
+              }
+            },
+            quantity: 1
+          }
+        ],
+        customer_email: clientEmail.includes("@") ? clientEmail : undefined,
+        success_url: completeUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          paymentType: "invoice_balance",
+          invoiceId,
+          appointmentId,
+          invoiceNumber,
+          clientName: cleanMetadata(invoice.clientName),
+          clientEmail,
+          vehicleInfo: cleanMetadata(invoice.vehicleInfo),
+          amount: balanceDue.toFixed(2),
+          amountCents: String(amountInCents)
+        }
+      });
+
+      if (!session.url) {
+        return res.status(500).send("Stripe checkout URL was not returned.");
+      }
+
+      return res.redirect(303, session.url);
+    } catch (error: any) {
+      console.error("Stripe invoice payment link error:", error.message);
+      return res.status(500).send("Unable to start Stripe checkout.");
+    }
+  });
+
+  app.get("/pay/invoice/:invoiceId/complete", (_req, res) => {
+    res.send("<!doctype html><title>Payment Submitted</title><body style=\"font-family:Arial,sans-serif;padding:32px;\"><h1>Payment submitted</h1><p>Thanks. Your invoice payment is being confirmed securely through Stripe.</p></body>");
+  });
+
+  app.get("/pay/invoice/:invoiceId/cancelled", (_req, res) => {
+    res.send("<!doctype html><title>Payment Cancelled</title><body style=\"font-family:Arial,sans-serif;padding:32px;\"><h1>Payment cancelled</h1><p>No payment was completed. You can use the invoice email link again when you are ready.</p></body>");
+  });
+
   app.get("/api/clover/status", (req, res) => {
     const token = process.env.CLOVER_API_TOKEN;
     res.json({ configured: !!token });

@@ -53,7 +53,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn, cleanAddress, formatCurrency, getClientDisplayName, formatPhoneNumber } from "@/lib/utils";
-import { buildInvoiceEmail } from "@/lib/invoiceEmail";
+import { buildInvoiceEmail, buildInvoicePaymentUrl } from "@/lib/invoiceEmail";
 import { StandardInput } from "../components/StandardInput";
 import { CustomFeesEditor } from "../components/CustomFeesEditor";
 import { CustomFee, Service, AddOn, ServiceSelection } from "../types";
@@ -4857,7 +4857,8 @@ export default function JobDetail() {
                     toast.loading("Sending email...", { id: "email-invoice" });
                     const invoiceEmail = buildInvoiceEmail({
                       invoice: currentInvoice,
-                      settings: businessSettings
+                      settings: businessSettings,
+                      paymentUrl: buildInvoicePaymentUrl(currentInvoice?.id, window.location.origin)
                     });
                     await messagingService.sendEmail({
                       to,
