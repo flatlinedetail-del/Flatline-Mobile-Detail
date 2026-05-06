@@ -453,12 +453,15 @@ export default function Clients() {
   const [newClientAddress, setNewClientAddress] = useState({ address: "", lat: 0, lng: 0 });
   const [isUploading, setIsUploading] = useState(false);
   const [formClientTypeId, setFormClientTypeId] = useState<string>("");
+  const [clientPhoneInput, setClientPhoneInput] = useState("");
 
   useEffect(() => {
     if (editingClient) {
       setFormClientTypeId(editingClient.clientTypeId || "");
+      setClientPhoneInput(formatPhoneNumber(editingClient.phone || ""));
     } else {
       setFormClientTypeId("");
+      setClientPhoneInput("");
     }
   }, [editingClient, isAddDialogOpen]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -518,7 +521,36 @@ export default function Clients() {
       baseColor += " border-amber-500/50";
     }
     return baseColor;
-  };  const fetchClientsData = async (showToast = false, searchStr?: string, loadMore = false) => {
+  };
+
+  const getClientClassificationGlow = (type?: ClientType, isVip?: boolean) => {
+    const label = `${type?.name || ""} ${type?.id || ""} ${type?.slug || ""}`.toLowerCase();
+    if (isVip || label.includes("vip")) return "bg-yellow-500/10 text-yellow-300 border-yellow-400/40 shadow-[0_0_18px_rgba(250,204,21,0.28)]";
+    if (label.includes("high")) return "bg-orange-500/10 text-orange-300 border-orange-400/40 shadow-[0_0_18px_rgba(249,115,22,0.28)]";
+    if (label.includes("med")) return "bg-teal-500/10 text-teal-300 border-teal-400/40 shadow-[0_0_18px_rgba(45,212,191,0.25)]";
+    if (label.includes("retail")) return "bg-emerald-500/10 text-emerald-300 border-emerald-400/40 shadow-[0_0_18px_rgba(16,185,129,0.25)]";
+    if (label.includes("business") || label.includes("vendor") || label.includes("collision") || label.includes("fleet")) return "bg-cyan-500/10 text-cyan-300 border-cyan-400/40 shadow-[0_0_18px_rgba(34,211,238,0.25)]";
+    if (label.includes("detail")) return "bg-primary/10 text-primary border-primary/40 shadow-[0_0_18px_rgba(10,77,255,0.28)]";
+    return "bg-white/10 text-white/70 border-white/15 shadow-[0_0_16px_rgba(148,163,184,0.18)]";
+  };
+
+  const getRiskGlow = (risk?: string) => {
+    switch (risk) {
+      case "high":
+        return "bg-red-500/20 text-red-400 shadow-[0_0_18px_rgba(239,68,68,0.3)]";
+      case "medium":
+        return "bg-orange-500/20 text-orange-300 shadow-[0_0_18px_rgba(249,115,22,0.28)]";
+      default:
+        return "bg-emerald-500/20 text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.24)]";
+    }
+  };
+
+  const handleClientPhoneChange = (value: string) => {
+    const digits = normalizePhone(value).slice(0, 10);
+    setClientPhoneInput(formatPhoneNumber(digits));
+  };
+
+  const fetchClientsData = async (showToast = false, searchStr?: string, loadMore = false) => {
     // Performance marker
     const loadStart = performance.now();
     const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
@@ -1094,7 +1126,7 @@ export default function Clients() {
               <RefreshCcw className={cn("w-4 h-4 mr-2 text-primary", loading && "animate-spin")} />
               Sync Registry
             </Button>
-            <Button variant="outline" onClick={() => navigate("/settings?tab=client-management")} className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]">
+            <Button variant="outline" onClick={() => navigate("/settings?tab=client-types")} className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]">
               <Settings2 className="w-4 h-4 mr-2 text-primary" />
               Manage Types
             </Button>
@@ -1192,6 +1224,7 @@ export default function Clients() {
                 if (!open) {
                   setIsAddDialogOpen(false);
                   setEditingClient(null);
+                  setClientPhoneInput("");
                   setNewClientAddress({ address: "", lat: 0, lng: 0 });
                 } else {
                   setIsAddDialogOpen(true);
@@ -1281,14 +1314,13 @@ export default function Clients() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="phone" className="font-black uppercase tracking-widest text-[10px] text-white">Phone Number</Label>
-                      <StandardInput 
+                      <Input
                         id="phone" 
                         name="phone" 
-                        variant="phone"
                         placeholder="(555) 000-0000" 
-                        defaultValue={editingClient?.phone || ""}
+                        value={clientPhoneInput}
+                        onChange={(e) => handleClientPhoneChange(e.target.value)}
                         required 
-                        onValueChange={() => {}}
                         className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
                       />
                     </div>
@@ -1453,9 +1485,7 @@ export default function Clients() {
                                     variant="outline" 
                                     className={cn(
                                       "text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest border-none ml-1",
-                                      risk === "high" ? "bg-red-500/20 text-red-500" :
-                                      risk === "medium" ? "bg-orange-500/20 text-orange-400" :
-                                      "bg-emerald-500/20 text-emerald-400"
+                                      getRiskGlow(risk)
                                     )}
                                   >
                                     {risk}
@@ -1483,7 +1513,10 @@ export default function Clients() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest bg-white/10 text-white/60 border-white/10 px-3 py-1 rounded-full">
+                        <Badge variant="outline" className={cn(
+                          "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full",
+                          getClientClassificationGlow(type, client.isVIP)
+                        )}>
                           {type?.name || "Unknown"}
                         </Badge>
                       </TableCell>

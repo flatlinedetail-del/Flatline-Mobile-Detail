@@ -2716,7 +2716,7 @@ export default function JobDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 gap-y-12 items-start mt-6">
         {/* Center Column: Operations & Intelligence - Now Primary Wide Area */}
-        <div className="lg:col-span-8 order-last lg:order-none min-w-0 pt-0">
+        <div className="lg:col-span-7 xl:col-span-8 order-last lg:order-none min-w-0 pt-0">
           <TabsContent value="ai_upsell" className="mt-0 space-y-12">
               <Card className="border-none shadow-xl bg-card rounded-3xl">
                 <CardHeader className="p-8 border-b border-white/5 bg-black/40">
@@ -4121,7 +4121,7 @@ export default function JobDetail() {
         </div>
 
         {/* Right Column: Financials & Actions */}
-        <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-32 h-fit">
+        <div className="lg:col-span-5 xl:col-span-4 space-y-6 lg:sticky lg:top-32 h-fit min-w-0">
 
           {job.status === "waitlisted" && (
             <Card className="border-none shadow-xl bg-orange-500/10 border border-orange-500/20 rounded-3xl overflow-hidden">
@@ -4167,9 +4167,9 @@ export default function JobDetail() {
           {/* Client Communication */}
           {job.status !== "requested" && job.status !== "canceled" && (
             <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
-              <CardHeader className="bg-black/20 border-b border-white/5 p-6 flex flex-row items-center justify-between">
+              <CardHeader className="bg-black/20 border-b border-white/5 p-6 flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-4">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Client Communication</CardTitle>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3 min-w-0">
                   <Dialog open={showManualSmsDialog} onOpenChange={setShowManualSmsDialog}>
                     <DialogTrigger render={
                       <Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase tracking-widest border-primary/30 text-primary bg-primary/5 hover:bg-primary hover:text-white transition-all">
@@ -4228,8 +4228,8 @@ export default function JobDetail() {
                       </div>
                     </DialogContent>
                   </Dialog>
-                  <div className="flex items-center gap-2 border-l border-white/10 pl-4">
-                    <span className="text-[9px] font-black text-white uppercase tracking-[0.2em] hidden sm:inline">Automated Client Communication</span>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 border-l border-white/10 pl-4">
+                    <span className="text-[9px] font-black text-white uppercase tracking-[0.2em] whitespace-normal">Automated Client Communication</span>
                     <Switch 
                       checked={!job.smsAutomationPaused || false}
                       onCheckedChange={toggleSmsAutomation}
@@ -4249,8 +4249,8 @@ export default function JobDetail() {
                       <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
                         {communicationLogs.slice(0, 3).map(log => (
                           <div key={log.id} className="p-3 bg-black/40 border border-white/5 rounded-xl">
-                            <div className="flex justify-between items-start mb-1">
-                              <span className="text-xs font-bold text-white capitalize">{log.type.replace(/_/g, " ")}</span>
+                            <div className="flex flex-wrap justify-between items-start gap-2 mb-1">
+                              <span className="text-xs font-bold text-white capitalize break-words">{log.type.replace(/_/g, " ")}</span>
                               <span className={cn(
                                 "text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded",
                                 log.status === "sent" ? "text-emerald-500 bg-emerald-500/10" : 
@@ -4259,7 +4259,7 @@ export default function JobDetail() {
                                 {log.status}
                               </span>
                             </div>
-                            <p className="text-[10px] text-white truncate">{log.content}</p>
+                            <p className="text-[10px] text-white break-words whitespace-normal">{log.content}</p>
                             {log.status === "failed" && job.customerPhone && (
                                 <Button 
                                   variant="ghost" 
@@ -4318,10 +4318,10 @@ export default function JobDetail() {
                           status === "sent" ? "bg-emerald-500/5 border-emerald-500/10" : "bg-white/5 border-white/5",
                           job.smsAutomationPaused && status !== "sent" && "opacity-60"
                         )}>
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-1">
-                              <span className="text-xs font-black text-white px-1 uppercase tracking-tight">{label}</span>
-                              <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="space-y-1 min-w-0">
+                              <span className="text-xs font-black text-white px-1 uppercase tracking-tight break-words">{label}</span>
+                              <div className="flex flex-wrap items-center gap-2">
                                 <span className={cn(
                                   "px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest",
                                   statusColor
@@ -4341,7 +4341,7 @@ export default function JobDetail() {
                           </div>
 
                           {(status === "failed" || status !== "sent") && job.customerPhone && (
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2">
                               <Button
                                 variant="ghost" 
                                 size="sm"
