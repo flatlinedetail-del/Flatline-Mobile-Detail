@@ -2404,15 +2404,15 @@ export default function JobDetail() {
         <div className="flex flex-wrap items-start gap-6 flex-1 min-w-0">
           <div className="flex flex-col min-w-[160px] max-w-[240px] border-r border-white/5 pr-4 shrink-0">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Client Contact</span>
-            <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
               {job.customerPhone && (
-                <a href={`tel:${job.customerPhone}`} className="text-primary hover:text-red-400 transition-colors">
+                <a href={`tel:${job.customerPhone}`} className="text-primary hover:text-red-400 transition-colors shrink-0">
                   <Phone className="w-3 h-3" />
                 </a>
               )}
               {job.customerEmail && (
-                <a href={`mailto:${job.customerEmail}`} className="text-primary hover:text-red-400 transition-colors">
+                <a href={`mailto:${job.customerEmail}`} className="text-primary hover:text-red-400 transition-colors shrink-0">
                   <Mail className="w-3 h-3" />
                 </a>
               )}
@@ -2422,23 +2422,13 @@ export default function JobDetail() {
           <div className="flex flex-col min-w-[180px] max-w-[280px] border-r border-white/5 pr-4 shrink-0">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Vehicle Information</span>
             <div className="flex flex-col">
-              <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
-                {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
-              </span>
-              <div className="flex items-center gap-3 mt-1">
-                {job.vin && (
-                  <span className="text-[8px] font-mono text-[#A0A0A0] bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
-                    VIN: {job.vin.slice(-8)}
-                  </span>
-                )}
-                {job.roNumber && (
-                  <span className="text-[8px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 uppercase tracking-tighter">
-                    RO: {job.roNumber}
-                  </span>
-                )}
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
+                  {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
+                </span>
                 <Dialog>
                   <DialogTrigger render={
-                    <Button variant="ghost" size="icon" className="h-4 w-4 text-white/20 hover:text-primary transition-colors">
+                    <Button variant="ghost" size="icon" className="h-4 w-4 text-white/20 hover:text-primary transition-colors shrink-0">
                       <Zap className="w-3 h-3" />
                     </Button>
                   } />
@@ -2515,6 +2505,18 @@ export default function JobDetail() {
                     </div>
                   </DialogContent>
                 </Dialog>
+              </div>
+              <div className="flex items-center gap-3 mt-1">
+                {job.vin && (
+                  <span className="text-[8px] font-mono text-[#A0A0A0] bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
+                    VIN: {job.vin.slice(-8)}
+                  </span>
+                )}
+                {job.roNumber && (
+                  <span className="text-[8px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 uppercase tracking-tighter">
+                    RO: {job.roNumber}
+                  </span>
+                )}
               </div>
             </div>
           </div>
