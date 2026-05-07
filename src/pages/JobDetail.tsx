@@ -2591,56 +2591,22 @@ export default function JobDetail() {
                     Accept Payment
                   </Button>
                 )}
-                <DropdownMenu>
-                  <DropdownMenuTrigger render={
-                    <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:text-white rounded-xl font-black uppercase tracking-widest text-[9px] h-9 px-4 transition-all whitespace-nowrap">
-                      Options
+                <DeleteConfirmationDialog
+                  trigger={
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="border-white/10 bg-white/5 text-white hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 rounded-xl h-9 w-9 transition-all hover:shadow-[0_0_18px_rgba(239,68,68,0.18)] shrink-0"
+                      aria-label="Delete appointment"
+                      title="Delete appointment"
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
-                  } />
-                  <DropdownMenuContent align="end" className="bg-card border-white/10 text-white w-56 p-2 rounded-2xl shadow-2xl z-[50]">
-                    <DropdownMenuItem 
-                      onSelect={() => {
-                        calculateCancellationFee();
-                        setShowCancelDialog(true);
-                      }} 
-                      className="text-orange-500 font-bold focus:bg-orange-500/10 focus:text-orange-400 rounded-xl cursor-pointer"
-                      disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid"}
-                    >
-                      <AlertCircle className="w-4 h-4 mr-2" />
-                      Protocol: Cancel
-                    </DropdownMenuItem>
-
-                    <DropdownMenuItem 
-                      onSelect={() => handleMarkAsMissed("missed")} 
-                      className="text-amber-500 font-bold focus:bg-amber-500/10 focus:text-amber-400 rounded-xl cursor-pointer"
-                      disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid" || job.status === "missed"}
-                    >
-                      <Ban className="w-4 h-4 mr-2" />
-                      Mark Missed Job
-                    </DropdownMenuItem>
-
-                    <DropdownMenuItem 
-                      onSelect={() => handleMarkAsMissed("no_show")} 
-                      className="text-amber-600 font-bold focus:bg-amber-600/10 focus:text-amber-500 rounded-xl cursor-pointer"
-                      disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid" || job.status === "no_show"}
-                    >
-                      <User className="w-4 h-4 mr-2" />
-                      Mark No-Show
-                    </DropdownMenuItem>
-                    <DeleteConfirmationDialog
-                      isNativeButton={false}
-                      trigger={
-                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500 font-bold focus:bg-red-500/10 focus:text-red-400 rounded-xl cursor-pointer text-[10px]">
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Delete Appointment
-                        </DropdownMenuItem>
-                      }
-                      title="Delete Appointment?"
-                      itemName={job.customerName || "this job"}
-                      onConfirm={handleDeleteJob}
-                    />
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  }
+                  title="Delete Appointment?"
+                  itemName={job.customerName || "this job"}
+                  onConfirm={handleDeleteJob}
+                />
               </div>
             </div>
           </div>
