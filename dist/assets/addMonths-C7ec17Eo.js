@@ -1,0 +1,1 @@
+import{Z as f,Y as o}from"./index-CG8fL7A2.js";function M(r,n,a){const t=f(r,a==null?void 0:a.in);if(isNaN(n))return o(r,NaN);if(!n)return t;const s=t.getDate(),e=o(r,t.getTime());e.setMonth(t.getMonth()+n+1,0);const c=e.getDate();return s>=c?e:(t.setFullYear(e.getFullYear(),e.getMonth(),s),t)}export{M as a};
