@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, UserPlus, Calendar, ClipboardList, Settings, LogOut, Menu, MessageSquare, MessagesSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronDown, User, Globe, FileText, Wallet, HelpCircle, PanelLeftClose, PanelLeftOpen, ShieldAlert } from "lucide-react";
+import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, MessagesSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronLeft, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet, HelpCircle, Zap, Plug, PanelLeftClose, PanelLeftOpen, ShieldAlert } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -14,21 +14,19 @@ import { SyncIndicator } from "./SyncIndicator";
 
 const navigationGroups = [
   {
-    title: "Operations",
-    icon: LayoutDashboard,
+    title: "OPERATIONS",
     items: [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Calendar", href: "/calendar", icon: Calendar },
       { name: "Waitlist", href: "/waitlist", icon: ClipboardList },
       { name: "Clients", href: "/clients", icon: Users },
       { name: "Risk Management", href: "/protected-clients", icon: ShieldAlert, adminOnly: true },
+      { name: "Communications", href: "/communications", icon: MessagesSquare },
       { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck },
-      { name: "Message Center", href: "/communications", icon: MessagesSquare },
     ]
   },
   {
-    title: "Growth",
-    icon: UserPlus,
+    title: "SALES & GROWTH",
     items: [
       { name: "Leads", href: "/leads", icon: UserPlus },
       { name: "Marketing", href: "/marketing", icon: MessageSquare },
@@ -36,27 +34,31 @@ const navigationGroups = [
     ]
   },
   {
-    title: "Finance",
-    icon: Receipt,
+    title: "FINANCE",
     items: [
       { name: "Invoices", href: "/invoices", icon: Receipt },
       { name: "Expenses", href: "/expenses", icon: Wallet },
     ]
   },
   {
-    title: "Reporting",
-    icon: BarChart,
+    title: "REPORTING",
     items: [
       { name: "Reports", href: "/reports", icon: BarChart, adminOnly: true },
     ]
   },
   {
-    title: "System",
-    icon: Settings,
+    title: "SYSTEM",
     items: [
-      { name: "Settings", href: "/settings", icon: Settings },
       { name: "Personal Profile", href: "/settings?tab=profile", icon: User },
       { name: "Business Profile", href: "/settings?tab=business", icon: Globe, adminOnly: true },
+      { name: "Branding", href: "/settings?tab=branding", icon: Palette, adminOnly: true },
+      { name: "Staff Management", href: "/settings?tab=staff", icon: Users, adminOnly: true },
+      { name: "Client Settings", href: "/settings?tab=client-types", icon: DatabaseZap, adminOnly: true },
+      { name: "Services & Add-Ons", href: "/settings?tab=services", icon: ClipboardList, adminOnly: true },
+      { name: "Coupons", href: "/settings?tab=coupons", icon: Ticket, adminOnly: true },
+      { name: "Automations", href: "/settings?tab=automation", icon: Zap, adminOnly: true },
+      { name: "Integrations", href: "/settings?tab=integrations", icon: Plug, adminOnly: true },
+      { name: "Security", href: "/settings?tab=security", icon: Shield, adminOnly: true },
       { name: "Help", href: "/help", icon: HelpCircle },
     ]
   }
@@ -92,26 +94,6 @@ export default function Layout() {
     const saved = localStorage.getItem('sidebarCollapsed');
     return saved === 'true';
   });
-  const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>({
-    Operations: true
-  });
-
-  const isItemActive = (item: any) => {
-    const [path, query] = item.href.split('?');
-    if (item.href === "/settings") {
-      return location.pathname === "/settings" && !location.search;
-    }
-    return location.pathname === path && (query ? location.search === `?${query}` : true);
-  };
-
-  const isGroupActive = (group: any) => group.items.some((item: any) => isItemActive(item));
-
-  useEffect(() => {
-    const activeGroup = navigationGroups.find(group => isGroupActive(group));
-    if (activeGroup) {
-      setOpenNavGroups(prev => ({ ...prev, [activeGroup.title]: true }));
-    }
-  }, [location.pathname, location.search]);
 
   const toggleSidebar = () => {
     setIsSidebarCollapsed(prev => {
@@ -124,7 +106,8 @@ export default function Layout() {
   const renderNavItem = (item: any, isMobile = false) => {
     if (item.adminOnly && !canAccessAdmin) return null;
 
-    const isActive = isItemActive(item);
+    const isActive = location.pathname === item.href.split('?')[0] && 
+                     (item.href.includes('?') ? location.search === `?${item.href.split('?')[1]}` : true);
 
     const isWaitlistGlow = item.name === "Waitlist" && activeWaitlistCount > 0;
 
@@ -157,62 +140,6 @@ export default function Layout() {
           </Badge>
         )}
       </Link>
-    );
-  };
-
-  const renderNavGroup = (group: any, isMobile = false) => {
-    const visibleItems = group.items.filter((item: any) => !item.adminOnly || canAccessAdmin);
-    if (visibleItems.length === 0) return null;
-
-    const isOpen = isMobile ? true : !!openNavGroups[group.title];
-    const active = isGroupActive(group);
-    const GroupIcon = group.icon;
-
-    if (isSidebarCollapsed && !isMobile) {
-      return (
-        <Button
-          key={group.title}
-          variant="ghost"
-          className={cn(
-            "w-12 h-12 mx-auto justify-center rounded-xl text-white hover:text-white hover:bg-white/10 transition-all duration-300",
-            active && "bg-[#0A4DFF] shadow-glow-blue"
-          )}
-          title={group.title}
-          onClick={() => {
-            setIsSidebarCollapsed(false);
-            localStorage.setItem('sidebarCollapsed', 'false');
-            setOpenNavGroups(prev => ({ ...prev, [group.title]: true }));
-          }}
-        >
-          <GroupIcon className="w-5 h-5" />
-        </Button>
-      );
-    }
-
-    return (
-      <Collapsible
-        key={group.title}
-        open={isOpen}
-        onOpenChange={(open) => setOpenNavGroups(prev => ({ ...prev, [group.title]: open }))}
-        className="space-y-2"
-      >
-        <CollapsibleTrigger render={
-          <button
-            type="button"
-            className={cn(
-              "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-black uppercase tracking-widest transition-all duration-300",
-              active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
-            )}
-          >
-            <GroupIcon className="w-5 h-5 shrink-0 text-primary" />
-            <span className="flex-1 truncate">{group.title}</span>
-            <ChevronDown className={cn("w-4 h-4 transition-transform", isOpen && "rotate-180")} />
-          </button>
-        } />
-        <CollapsibleContent className="space-y-1 pl-3">
-          {visibleItems.map((item: any) => renderNavItem(item, isMobile))}
-        </CollapsibleContent>
-      </Collapsible>
     );
   };
 
@@ -263,11 +190,28 @@ export default function Layout() {
         )}>
           <div className={cn("py-6 flex transition-all duration-300", isSidebarCollapsed ? "justify-center w-full" : "px-8 w-full justify-start")}>
             <Link to="/" className="flex items-center justify-center">
-              <Logo variant="icon" className={isSidebarCollapsed ? "w-12 h-12" : "w-14 h-14"} />
+              <Logo variant={isSidebarCollapsed ? "icon" : "full"} color="white" />
             </Link>
           </div>
           <nav className={cn("flex-1 space-y-6 overflow-y-auto custom-scrollbar pb-6 transition-all duration-300", isSidebarCollapsed ? "px-2" : "px-4")}>
-            {navigationGroups.map((group) => renderNavGroup(group))}
+            {navigationGroups.map((group) => {
+              const hasVisibleItems = group.items.some(item => 
+                (!item.adminOnly || canAccessAdmin)
+              );
+              if (!hasVisibleItems) return null;
+              return (
+                <div key={group.title} className={cn("space-y-2", isSidebarCollapsed && "flex flex-col items-center")}>
+                  {!isSidebarCollapsed && (
+                    <h3 className="px-3 text-[10px] font-black text-white uppercase tracking-widest">
+                      {group.title}
+                    </h3>
+                  )}
+                  <div className={cn("space-y-2", isSidebarCollapsed && "w-full space-y-2")}>
+                    {group.items.map((item) => renderNavItem(item))}
+                  </div>
+                </div>
+              );
+            })}
           </nav>
           <div className="p-4 border-t border-sidebar-border bg-black/20">
             <Link 
@@ -379,11 +323,24 @@ export default function Layout() {
               <SheetContent side="left" className="p-0 w-72 bg-sidebar border-r-white/5 text-white">
                 <div className="p-8 border-b border-white/5">
                   <Link to="/" onClick={() => setIsMobileMenuOpen(false)}>
-                    <Logo variant="icon" className="w-14 h-14" />
+                    <Logo variant="full" color="white" />
                   </Link>
                 </div>
                 <nav className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-180px)] custom-scrollbar">
-                  {navigationGroups.map((group) => renderNavGroup(group, true))}
+                  {navigationGroups.map((group) => {
+                    const hasVisibleItems = group.items.some(item => 
+                      (!item.adminOnly || canAccessAdmin)
+                    );
+                    if (!hasVisibleItems) return null;
+                    return (
+                      <div key={group.title} className="space-y-2">
+                        <h3 className="px-3 text-[10px] font-black text-white uppercase tracking-widest">{group.title}</h3>
+                        <div className="space-y-1">
+                          {group.items.map((item) => renderNavItem(item, true))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </nav>
                 <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-white/5 bg-black/40">
                   <Button 

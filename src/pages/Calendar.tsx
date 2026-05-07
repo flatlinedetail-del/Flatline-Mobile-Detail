@@ -1973,11 +1973,9 @@ export default function Calendar() {
 
     if (isToday) {
       return {
-        className: "relative overflow-hidden ring-1 ring-[#2A6CFF]/30",
+        className: "rbc-today",
         style: {
-          minHeight: "160px",
-          backgroundColor: 'rgba(42, 108, 255, 0.05)',
-          zIndex: 10
+          minHeight: "160px"
         }
       };
     }
@@ -2232,20 +2230,6 @@ export default function Calendar() {
                     background: rgba(42, 108, 255, 0.05) !important;
                   }
                   .rbc-month-view .rbc-today {
-                    position: relative;
-                  }
-                  .rbc-month-view .rbc-today::after {
-                    content: '';
-                    position: absolute;
-                    top: 2px;
-                    left: 2px;
-                    right: 2px;
-                    bottom: 2px;
-                    border: 1.5px solid #2A6CFF;
-                    border-radius: 12px;
-                    box-shadow: 0 0 15px rgba(42, 108, 255, 0.4);
-                    pointer-events: none;
-                    z-index: 10;
                   }
                   .rbc-date-cell {
                     padding: 0 !important;
@@ -3267,8 +3251,8 @@ export default function Calendar() {
                                           type="button"
                                           className="w-full bg-[#0A4DFF] hover:opacity-90 text-white font-bold h-10"
                                           onClick={() => {
-                                            // TODO: Implement staff-side Stripe deposit checkout.
-                                            toast.info("Stripe card checkout is not configured for staff deposits yet.");
+                                            // TODO: Implement Stripe/Square logic
+                                            toast.info("Card processing integration pending.");
                                           }}
                                         >
                                           Run Credit / Debit Card

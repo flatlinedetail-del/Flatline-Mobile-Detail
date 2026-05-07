@@ -4,7 +4,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "../components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -403,19 +403,6 @@ export default function Settings() {
     });
   };
 
-  const updateCommunicationAutomation = (field: keyof NonNullable<BusinessSettings["communicationAutomation"]>, value: boolean) => {
-    setSettings(prev => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        communicationAutomation: {
-          ...(prev.communicationAutomation || { enabled: false, bookingConfirmation: true, reminder24h: true, reminder2h: true }),
-          [field]: value
-        }
-      };
-    });
-  };
-
   const handleSaveSettings = async (newData: Partial<BusinessSettings>) => {
     if (!settings) return;
     setIsSaving(true);
@@ -769,26 +756,27 @@ export default function Settings() {
   };
 
   const handleDeleteCategory = async (id: string) => {
+    const previous = [...categories];
+    setCategories(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "categories", id));
-      setCategories(prev => prev.filter(item => item.id !== id));
       toast.success("Category deleted");
     } catch (error) {
+      setCategories(previous);
       console.error("Error deleting category:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `categories/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete category: ${err.message}`);
-        throw err;
       }
-      throw error;
     }
   };
 
   const handleDeleteService = async (id: string) => {
+    const previous = [...services];
+    setServices(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "services", id));
-      setServices(prev => prev.filter(item => item.id !== id));
       toast.success("Service deleted");
       
       // Invalidate metadata cache
@@ -796,21 +784,21 @@ export default function Settings() {
       sessionStorage.removeItem('settings_metadata_cache_time');
       sessionStorage.removeItem('services_list_cache');
     } catch (error) {
+      setServices(previous);
       console.error("Error deleting service:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `services/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete service: ${err.message}`);
-        throw err;
       }
-      throw error;
     }
   };
 
   const handleDeleteAddon = async (id: string) => {
+    const previous = [...addons];
+    setAddons(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "addons", id));
-      setAddons(prev => prev.filter(item => item.id !== id));
       toast.success("Add-on deleted");
 
       // Invalidate metadata cache
@@ -818,48 +806,47 @@ export default function Settings() {
       sessionStorage.removeItem('settings_metadata_cache_time');
       sessionStorage.removeItem('services_list_cache');
     } catch (error) {
+      setAddons(previous);
       console.error("Error deleting add-on:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `addons/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete add-on: ${err.message}`);
-        throw err;
       }
-      throw error;
     }
   };
 
   const handleDeleteCoupon = async (id: string) => {
+    const previous = [...coupons];
+    setCoupons(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "coupons", id));
-      setCoupons(prev => prev.filter(item => item.id !== id));
       toast.success("Coupon deleted");
     } catch (error) {
+      setCoupons(previous);
       console.error("Error deleting coupon:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `coupons/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete coupon: ${err.message}`);
-        throw err;
       }
-      throw error;
     }
   };
 
   const handleDeleteStaff = async (id: string) => {
+    const previous = [...staff];
+    setStaff(prev => prev.filter(item => item.id !== id));
     try {
       await deleteDoc(doc(db, "users", id));
-      setStaff(prev => prev.filter(item => item.id !== id));
       toast.success("Staff member removed");
     } catch (error) {
+      setStaff(previous);
       console.error("Error deleting staff:", error);
       try {
         handleFirestoreError(error, OperationType.DELETE, `users/${id}`);
       } catch (err: any) {
         toast.error(`Failed to remove staff: ${err.message}`);
-        throw err;
       }
-      throw error;
     }
   };
 
@@ -916,7 +903,6 @@ export default function Settings() {
   const handleDeleteClientType = async (id: string) => {
     try {
       await deleteDoc(doc(db, "client_types", id));
-      setClientTypes(prev => prev.filter(item => item.id !== id));
       toast.success("Client type deleted");
     } catch (error) {
       console.error("Error deleting client type:", error);
@@ -924,16 +910,13 @@ export default function Settings() {
         handleFirestoreError(error, OperationType.DELETE, `client_types/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete client type: ${err.message}`);
-        throw err;
       }
-      throw error;
     }
   };
 
   const handleDeleteClientCategory = async (id: string) => {
     try {
       await deleteDoc(doc(db, "client_categories", id));
-      setClientCategories(prev => prev.filter(item => item.id !== id));
       toast.success("Client category deleted");
     } catch (error) {
       console.error("Error deleting client category:", error);
@@ -941,9 +924,7 @@ export default function Settings() {
         handleFirestoreError(error, OperationType.DELETE, `client_categories/${id}`);
       } catch (err: any) {
         toast.error(`Failed to delete client category: ${err.message}`);
-        throw err;
       }
-      throw error;
     }
   };
 
@@ -1173,60 +1154,6 @@ export default function Settings() {
     }
   }, [activeTab, hasAccessToSensitiveSettings, authLoading]);
 
-  const settingsNavigationGroups = [
-    {
-      label: "Identity & Profile",
-      tabs: [
-        { value: "profile", label: "Personal Protocol", icon: User },
-        { value: "business", label: "Business Core", icon: Building2, sensitive: true },
-        { value: "branding", label: "Visual Identity", icon: Palette, sensitive: true },
-      ],
-    },
-    {
-      label: "Fleet & Service",
-      tabs: [
-        { value: "staff", label: "Staff Management", icon: Users, sensitive: true },
-        { value: "client-types", label: "Client Archetypes", icon: DatabaseZap },
-        { value: "services", label: "Service Protocols", icon: ClipboardList },
-        { value: "calendar", label: "Calendar Service Colors", icon: Calendar },
-      ],
-    },
-    {
-      label: "Communications",
-      tabs: [
-        { value: "communications", label: "SMS Settings", icon: MessageSquare, sensitive: true },
-        { value: "automation", label: "Automations", icon: Zap, sensitive: true },
-        { value: "integrations", label: "Email & Integrations", icon: Plus, sensitive: true },
-      ],
-    },
-    {
-      label: "Revenue & Growth",
-      tabs: [
-        { value: "coupons", label: "Growth Incentives", icon: Ticket },
-        { value: "loyalty", label: "Loyalty Engine", icon: Star },
-      ],
-    },
-    {
-      label: "Security",
-      tabs: [
-        { value: "security", label: "Security Layers", icon: Shield, sensitive: true },
-      ],
-    },
-  ];
-
-  const visibleSettingsGroups = settingsNavigationGroups
-    .map(group => ({
-      ...group,
-      tabs: group.tabs.filter(tab => !tab.sensitive || hasAccessToSensitiveSettings),
-    }))
-    .filter(group => group.tabs.length > 0);
-
-  const activeSettingsGroup = visibleSettingsGroups.find(group =>
-    group.tabs.some(tab => tab.value === activeTab)
-  ) || visibleSettingsGroups[0];
-
-  const activeGroupTabs = activeSettingsGroup?.tabs || [];
-
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-20">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -1244,46 +1171,110 @@ export default function Settings() {
         </Button>
       </div>
 
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-        <div className="rounded-3xl border border-white/10 bg-black/30 p-4 shadow-2xl backdrop-blur-md">
-          <div className="flex flex-wrap gap-2">
-            {visibleSettingsGroups.map(group => {
-              const isActiveGroup = group.label === activeSettingsGroup?.label;
-              return (
-                <button
-                  key={group.label}
-                  type="button"
-                  onClick={() => handleTabChange(group.tabs[0].value)}
-                  className={cn(
-                    "rounded-2xl border px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] transition-all",
-                    isActiveGroup
-                      ? "border-primary/60 bg-primary text-white shadow-glow-blue"
-                      : "border-white/10 bg-white/5 text-[#A0A0A0] hover:border-primary/40 hover:bg-primary/10 hover:text-white"
-                  )}
-                >
-                  {group.label}
-                </button>
-              );
-            })}
-          </div>
+      <Tabs value={activeTab} onValueChange={handleTabChange} orientation="vertical" className="flex flex-col md:flex-row gap-10">
+        <div className="w-full md:w-72 shrink-0 space-y-8 h-fit sticky top-28">
+          <TabsList className="flex flex-col h-auto bg-transparent border-none p-0 gap-1.5">
+            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-2">Identity & Profile</h3>
+            <TabsTrigger 
+              value="profile" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+            >
+              <User className="w-4 h-4" /> Personal Protocol
+            </TabsTrigger>
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="business" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Building2 className="w-4 h-4" /> Business Core
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="branding" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Palette className="w-4 h-4" /> Visual Identity
+              </TabsTrigger>
+            )}
 
-          <TabsList className="mt-4 flex h-auto w-full flex-wrap justify-start gap-2 border-t border-white/5 bg-transparent p-0 pt-4">
-            {activeGroupTabs.map(tab => {
-              const Icon = tab.icon;
-              return (
-                <TabsTrigger
-                  key={tab.value}
-                  value={tab.value}
-                  className="h-10 rounded-xl border border-white/10 bg-black/30 px-4 text-[10px] font-black uppercase tracking-widest text-[#A0A0A0] transition-all data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue hover:border-primary/40 hover:bg-primary/10 hover:text-white"
-                >
-                  <Icon className="mr-2 h-4 w-4" /> {tab.label}
-                </TabsTrigger>
-              );
-            })}
+            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Fleet & Service</h3>
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="staff" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Users className="w-4 h-4" /> Staff Management
+              </TabsTrigger>
+            )}
+            <TabsTrigger 
+              value="client-types" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+            >
+              <DatabaseZap className="w-4 h-4" /> Client Archetypes
+            </TabsTrigger>
+            <TabsTrigger 
+              value="services" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+            >
+              <ClipboardList className="w-4 h-4" /> Service Protocols
+            </TabsTrigger>
+
+            <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Revenue & Growth</h3>
+            <TabsTrigger 
+              value="coupons" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Ticket className="w-4 h-4" /> Growth Incentives
+            </TabsTrigger>
+            <TabsTrigger 
+              value="loyalty" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Star className="w-4 h-4" /> Loyalty Engine
+            </TabsTrigger>
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="automation" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Zap className="w-4 h-4" /> Operational Automations
+              </TabsTrigger>
+            )}
+            <TabsTrigger 
+              value="calendar" 
+              className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+            >
+              <Calendar className="w-4 h-4" /> Calendar Service Colors
+            </TabsTrigger>
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="communications" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <MessageSquare className="w-4 h-4" /> Communications
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="integrations" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Plus className="w-4 h-4" /> Neural Links
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger 
+                value="security" 
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Shield className="w-4 h-4" /> Security Layers
+              </TabsTrigger>
+            )}
           </TabsList>
         </div>
 
-        <div className="min-w-0">
+        <div className="flex-1 min-w-0">
 
         <TabsContent value="profile" className="mt-0">
           <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
@@ -1797,54 +1788,6 @@ export default function Settings() {
                         <Send className="w-4 h-4 mr-2" /> Send Test SMS
                       </Button>
                     </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-6 pt-10 border-t border-white/5">
-                <div className="space-y-1">
-                  <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading flex items-center gap-3">
-                    <Bell className="w-6 h-6 text-primary" />
-                    Global Communication Controls
-                  </h3>
-                  <p className="text-xs text-[#A0A0A0] font-medium leading-relaxed">
-                    Master switches for business-wide SMS and email availability. Client profile toggles still decide individual consent when these are enabled.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className={cn(
-                    "flex items-center justify-between gap-4 p-6 bg-black/40 rounded-2xl border transition-all hover:border-primary/20",
-                    settings?.communicationAutomation?.globalSmsEnabled === false ? "border-orange-500/30" : "border-white/5"
-                  )}>
-                    <div className="space-y-1 min-w-0">
-                      <Label className="text-xs font-black text-white uppercase tracking-tight">Global SMS Communications</Label>
-                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
-                        {settings?.communicationAutomation?.globalSmsEnabled === false ? "SMS disabled for all clients" : "SMS allowed by client preference"}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings?.communicationAutomation?.globalSmsEnabled !== false}
-                      onCheckedChange={(val) => updateCommunicationAutomation("globalSmsEnabled", val)}
-                      className="data-[state=checked]:bg-primary"
-                    />
-                  </div>
-
-                  <div className={cn(
-                    "flex items-center justify-between gap-4 p-6 bg-black/40 rounded-2xl border transition-all hover:border-primary/20",
-                    settings?.communicationAutomation?.globalEmailEnabled === false ? "border-orange-500/30" : "border-white/5"
-                  )}>
-                    <div className="space-y-1 min-w-0">
-                      <Label className="text-xs font-black text-white uppercase tracking-tight">Global Email Notifications</Label>
-                      <p className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-widest">
-                        {settings?.communicationAutomation?.globalEmailEnabled === false ? "Email disabled for all clients" : "Email allowed by client preference"}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings?.communicationAutomation?.globalEmailEnabled !== false}
-                      onCheckedChange={(val) => updateCommunicationAutomation("globalEmailEnabled", val)}
-                      className="data-[state=checked]:bg-primary"
-                    />
                   </div>
                 </div>
               </div>

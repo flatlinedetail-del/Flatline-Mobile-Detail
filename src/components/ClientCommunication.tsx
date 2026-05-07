@@ -20,18 +20,14 @@ import { messagingService } from "../services/messagingService";
 
 interface ClientCommunicationProps {
   client: Client;
-  communicationSettings?: {
-    globalSmsEnabled?: boolean;
-    globalEmailEnabled?: boolean;
-  };
 }
 
-export function ClientCommunication({ client, communicationSettings }: ClientCommunicationProps) {
+export function ClientCommunication({ client }: ClientCommunicationProps) {
   const { profile } = useAuth();
   const [logs, setLogs] = useState<CommunicationLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("history");
-
+  
   // Form State
   const [type, setType] = useState<"sms" | "email" | "note">("email");
   const [subject, setSubject] = useState("");
@@ -61,26 +57,6 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim()) return;
-
-    if (type === "sms" && communicationSettings?.globalSmsEnabled === false) {
-      toast.error("Mass SMS communications are disabled globally.");
-      return;
-    }
-
-    if (type === "email" && communicationSettings?.globalEmailEnabled === false) {
-      toast.error("Email notifications are disabled globally.");
-      return;
-    }
-
-    if (type === "sms" && client.smsEnabled === false) {
-      toast.error("This client is opted out of SMS communications.");
-      return;
-    }
-
-    if (type === "email" && client.emailEnabled === false) {
-      toast.error("This client is opted out of email notifications.");
-      return;
-    }
 
     if (type === "sms" && !client.smsConsent) {
       toast.error("Client has not provided SMS consent. Transmission aborted.");
@@ -125,7 +101,7 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
       };
 
       await addDoc(collection(db, "communication_logs"), logData);
-
+      
       // Reset form
       setContent("");
       setSubject("");
@@ -133,7 +109,7 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
       toast.success(`${type.toUpperCase()} sent and logged successfully`);
     } catch (error: any) {
        console.error("Error logging communication:", error);
-
+       
        // Log failure if it was a message attempt
        if (type !== "note") {
         await addDoc(collection(db, "communication_logs"), {
@@ -148,7 +124,7 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
           createdAt: serverTimestamp()
         });
        }
-
+       
        toast.error(error.message || `Failed to send ${type === 'note' ? 'note' : type.toUpperCase()}`);
     } finally {
       setIsSending(false);
@@ -176,14 +152,14 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
               {client.smsOptOut ? "Opted Out" : client.smsConsent ? "Consent Verified" : "Pending Consent"}
             </p>
           </div>
-          <Switch
+          <Switch 
             disabled={client.smsOptOut}
             checked={client.smsConsent ?? false}
             onCheckedChange={async (val) => {
               try {
-                await updateDoc(doc(db, "clients", client.id), {
+                await updateDoc(doc(db, "clients", client.id), { 
                   smsConsent: val,
-                  updatedAt: serverTimestamp()
+                  updatedAt: serverTimestamp() 
                 });
                 toast.success(val ? "SMS Consent Granted" : "SMS Consent Revoked");
               } catch (err) {
@@ -195,62 +171,15 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
         </div>
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-1">
-            <p className="text-[10px] font-black uppercase tracking-widest text-white/60">SMS Client Toggle</p>
-            <p className="text-[9px] text-white/30 font-medium uppercase tracking-wide">
-              {communicationSettings?.globalSmsEnabled === false ? "Globally Disabled" : client.smsEnabled === false ? "Client Disabled" : "Client Enabled"}
-            </p>
-          </div>
-          <Switch
-            checked={client.smsEnabled !== false}
-            onCheckedChange={async (val) => {
-              try {
-                await updateDoc(doc(db, "clients", client.id), {
-                  smsEnabled: val,
-                  smsConsent: val,
-                  updatedAt: serverTimestamp()
-                });
-                toast.success(val ? "Client SMS Enabled" : "Client SMS Disabled");
-              } catch (err) {
-                toast.error("Failed to update SMS preference");
-              }
-            }}
-            className="data-[state=checked]:bg-emerald-500"
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Email Client Toggle</p>
-            <p className="text-[9px] text-white/30 font-medium uppercase tracking-wide">
-              {communicationSettings?.globalEmailEnabled === false ? "Globally Disabled" : client.emailEnabled === false ? "Client Disabled" : "Client Enabled"}
-            </p>
-          </div>
-          <Switch
-            checked={client.emailEnabled !== false}
-            onCheckedChange={async (val) => {
-              try {
-                await updateDoc(doc(db, "clients", client.id), {
-                  emailEnabled: val,
-                  updatedAt: serverTimestamp()
-                });
-                toast.success(val ? "Client Email Enabled" : "Client Email Disabled");
-              } catch (err) {
-                toast.error("Failed to update email preference");
-              }
-            }}
-            className="data-[state=checked]:bg-primary"
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
             <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Preferred Channel</p>
           </div>
-          <Select
-            value={client.preferredContactMethod || "email"}
+          <Select 
+            value={client.preferredContactMethod || "email"} 
             onValueChange={async (val) => {
               try {
-                await updateDoc(doc(db, "clients", client.id), {
+                await updateDoc(doc(db, "clients", client.id), { 
                   preferredContactMethod: val,
-                  updatedAt: serverTimestamp()
+                  updatedAt: serverTimestamp() 
                 });
                 toast.success("Contact preference updated");
               } catch (err) {
@@ -272,14 +201,14 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2 bg-black/40 p-1 rounded-xl h-12">
-          <TabsTrigger
-            value="history"
+          <TabsTrigger 
+            value="history" 
             className="rounded-lg font-black uppercase tracking-widest text-[10px] data-[state=active]:bg-primary data-[state=active]:text-white"
           >
             Communication Log
           </TabsTrigger>
-          <TabsTrigger
-            value="new"
+          <TabsTrigger 
+            value="new" 
             className="rounded-lg font-black uppercase tracking-widest text-[10px] data-[state=active]:bg-primary data-[state=active]:text-white"
           >
             Direct Outreach
@@ -365,7 +294,7 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
                   {type === "email" && (
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/60">Subject Header</Label>
-                      <Input
+                      <Input 
                         placeholder="Action Required: Tactical Update"
                         value={subject}
                         onChange={(e) => setSubject(e.target.value)}
@@ -377,7 +306,7 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
 
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-white/60">Intelligence Data / Message Content</Label>
-                  <Textarea
+                  <Textarea 
                     placeholder={type === "note" ? "Enter internal intelligence details..." : "Construct outreach payload..."}
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
@@ -392,15 +321,15 @@ export function ClientCommunication({ client, communicationSettings }: ClientCom
                   <div className="space-y-1">
                     <p className="text-[10px] font-black uppercase tracking-widest text-white">Tactical Routing Enabled</p>
                     <p className="text-xs text-white/50 font-medium">
-                      {type === "email" ? `Transmitting via secure SMTP to ${client.email}` :
-                       type === "sms" ? `Transmitting via cellular gateway to ${client.phone}` :
+                      {type === "email" ? `Transmitting via secure SMTP to ${client.email}` : 
+                       type === "sms" ? `Transmitting via cellular gateway to ${client.phone}` : 
                        "Recording internal memorandum."}
                     </p>
                   </div>
                 </div>
 
-                <Button
-                  type="submit"
+                <Button 
+                  type="submit" 
                   disabled={isSending || !content.trim()}
                   className="w-full h-14 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-[0.2em] text-[11px] rounded-2xl shadow-glow-blue transition-all hover:scale-[1.01]"
                 >

@@ -196,12 +196,8 @@ export interface Client extends SyncMetadata {
   isOneTime?: boolean;
   gallery?: string[];
   riskLevel?: "low" | "medium" | "high";
-  lastServiceDate?: string;
-  serviceHistoryNotes?: string;
   smsConsent?: boolean;
-  smsEnabled?: boolean;
   smsOptOut?: boolean;
-  emailEnabled?: boolean;
   preferredContactMethod?: "email" | "sms" | "both" | "none";
 }
 
@@ -682,8 +678,6 @@ export interface BusinessSettings {
     bookingConfirmation: boolean;
     reminder24h: boolean;
     reminder2h: boolean;
-    globalSmsEnabled?: boolean;
-    globalEmailEnabled?: boolean;
   };
   weatherAutomation?: {
     enabled: boolean;

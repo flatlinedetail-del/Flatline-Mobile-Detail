@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { collection, query, addDoc, serverTimestamp, doc, getDoc, getDocs, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,112 +17,8 @@ import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtils";
 import Logo from "../components/Logo";
-import { calculateDistance, calculateTravelFee } from "../services/travelService";
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
-
-type PublicVehicleSize = "coupe" | "sedan" | "suv_small" | "suv_large" | "truck" | "van" | "luxury";
-
-type PublicBookingVehicle = {
-  year?: string;
-  make?: string;
-  model?: string;
-  type?: string;
-  bodyStyle?: string;
-  vehicleInfo?: string;
-};
-
-const TRUCK_KEYWORDS = [
-  "gmc sierra",
-  "sierra hd",
-  "chevy silverado",
-  "chevrolet silverado",
-  "silverado",
-  "silverado hd",
-  "ford f-150",
-  "ford f150",
-  "ford f-450",
-  "ford f450",
-  "f-150",
-  "f150",
-  "f-450",
-  "f450",
-  "1500",
-  "2500",
-  "3500",
-  "hd",
-  "heavy duty",
-  "dually",
-  "pickup",
-  "truck",
-];
-
-const VAN_KEYWORDS = ["sprinter", "transit", "promaster", "cargo van", "minivan", "van"];
-const LARGE_SUV_KEYWORDS = ["tahoe", "suburban", "yukon", "expedition", "escalade", "navigator", "sequoia", "armada", "large suv", "full-size suv", "full size suv"];
-const SMALL_SUV_KEYWORDS = ["suv", "crossover", "rav4", "cr-v", "crv", "rogue", "equinox", "escape", "forester", "tucson", "sportage", "cherokee"];
-const COUPE_KEYWORDS = ["coupe", "compact", "hatchback"];
-const LUXURY_VEHICLE_KEYWORDS = ["aston martin", "ferrari", "lamborghini", "bentley", "rolls royce", "rolls-royce", "porsche", "mclaren", "maserati", "maybach", "lotus", "bugatti", "luxury", "exotic"];
-
-const buildVehicleSource = (vehicle: PublicBookingVehicle) =>
-  [
-    vehicle.year,
-    vehicle.make,
-    vehicle.model,
-    vehicle.type,
-    vehicle.bodyStyle,
-    vehicle.vehicleInfo,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-const hasVehicleKeyword = (source: string, keywords: string[]) =>
-  keywords.some(keyword => source.includes(keyword));
-
-const detectPublicVehicleSize = (vehicle: PublicBookingVehicle): PublicVehicleSize => {
-  const source = buildVehicleSource(vehicle);
-
-  if (hasVehicleKeyword(source, VAN_KEYWORDS)) return "van";
-  if (hasVehicleKeyword(source, TRUCK_KEYWORDS)) return "truck";
-  if (hasVehicleKeyword(source, LUXURY_VEHICLE_KEYWORDS)) return "luxury";
-  if (hasVehicleKeyword(source, LARGE_SUV_KEYWORDS)) return "suv_large";
-  if (hasVehicleKeyword(source, SMALL_SUV_KEYWORDS)) return "suv_small";
-  if (hasVehicleKeyword(source, COUPE_KEYWORDS)) return "coupe";
-
-  return "sedan";
-};
-
-const hasUsableCoordinates = (lat?: number, lng?: number) =>
-  typeof lat === "number" && typeof lng === "number" && lat !== 0 && lng !== 0;
-
-const normalizeRiskPhone = (value?: string) =>
-  (value || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
-
-const normalizeRiskEmail = (value?: string) =>
-  (value || "").toLowerCase().trim();
-
-const normalizeRiskName = (value?: string) =>
-  (value || "").toLowerCase().trim().replace(/\s+/g, " ");
-
-const removeUndefined = (value: any): any => {
-  if (Array.isArray(value)) {
-    return value.map(removeUndefined);
-  }
-
-  if (value && typeof value === "object" && ("_methodName" in value || value.constructor?.name?.includes("FieldValue"))) {
-    return value;
-  }
-
-  if (value && typeof value === "object" && !(value instanceof Date)) {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, entryValue]) => entryValue !== undefined)
-        .map(([key, entryValue]) => [key, removeUndefined(entryValue)])
-    );
-  }
-
-  return value;
-};
 
 const getVehicleImage = (size: string) => {
   switch (size) {
@@ -235,14 +131,11 @@ export default function PublicBooking() {
     lng: 0,
     vehicleInfo: "",
     vehicleSize: "sedan",
-    vehicleYear: "",
-    vehicleMake: "",
-    vehicleModel: "",
     vehicleColor: "",
     vehiclePlate: ""
   });
   
-  const [clientGoals, setClientGoals] = useState<string[]>([]);
+  const [clientGoal, setClientGoal] = useState("");
   const [condition, setCondition] = useState({
     interior: "",
     exterior: "",
@@ -267,57 +160,33 @@ export default function PublicBooking() {
   const [clientNote, setClientNote] = useState("");
   const [alternativeTimes, setAlternativeTimes] = useState<Date[]>([]);
   const [isBackupAvailable, setIsBackupAvailable] = useState<boolean | null>(null);
-  const [selectedVehicleKey, setSelectedVehicleKey] = useState("");
-  const [vehicleSizeManuallyChanged, setVehicleSizeManuallyChanged] = useState(false);
 
   const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
-  const recommendationAddonIdsRef = useRef<string[]>([]);
-  const clientGoal = clientGoals.join(", ");
-  const bookingNavButtonClass = "bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105";
 
   const [protectedClients, setProtectedClients] = useState<any[]>([]);
   const [allClients, setAllClients] = useState<any[]>([]);
   const [matchedRiskRule, setMatchedRiskRule] = useState<any | null>(null);
-  const requestedAtInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const email = normalizeRiskEmail(clientInfo.email);
-    const phone = normalizeRiskPhone(clientInfo.phone);
-    const fullName = normalizeRiskName(clientInfo.name);
-
-    if (!email && !phone && !fullName) {
+    if (!clientInfo.email && !clientInfo.phone) {
       setMatchedRiskRule(null);
       return;
     }
 
-    const registeredClient = allClients.find(c => {
-      const clientEmail = normalizeRiskEmail(c.email);
-      const clientPhone = normalizeRiskPhone(c.phone);
-      const clientName = normalizeRiskName(c.fullName || c.name || c.customerName);
+    const email = clientInfo.email.toLowerCase().trim();
+    const phone = clientInfo.phone.replace(/\D/g, "");
 
-      return (
-        (email && clientEmail && clientEmail === email) ||
-        (phone && phone.length >= 10 && clientPhone === phone) ||
-        (fullName && clientName && clientName === fullName)
-      );
-    });
+    const match = protectedClients.find(pc => 
+      pc.isActive && (
+        (email && pc.email?.toLowerCase().trim() === email) ||
+        (phone && pc.phone?.replace(/\D/g, "") === phone)
+      )
+    );
 
-    const registeredClientId = registeredClient?.id;
-
-    const match = protectedClients.find(pc => {
-      if (!pc.isActive) return false;
-
-      const protectedEmail = normalizeRiskEmail(pc.email);
-      const protectedPhone = normalizeRiskPhone(pc.phone);
-      const protectedName = normalizeRiskName(pc.fullName || pc.name || pc.customerName);
-
-      return (
-        (registeredClientId && pc.linkedClientId && pc.linkedClientId === registeredClientId) ||
-        (email && protectedEmail && protectedEmail === email) ||
-        (phone && phone.length >= 10 && protectedPhone === phone) ||
-        (fullName && protectedName && protectedName === fullName)
-      );
-    });
+    const registeredClient = allClients.find(c => 
+      (email && c.email?.toLowerCase().trim() === email) ||
+      (phone && c.phone?.replace(/\D/g, "") === phone)
+    );
 
     const inherentRisk = registeredClient ? (
       registeredClient.riskLevel || 
@@ -334,39 +203,14 @@ export default function PublicBooking() {
         id: 'client-risk-' + registeredClient.id,
         isActive: true,
         protectionLevel: inherentRisk,
-        riskReason: "Risk level detected on client profile."
+        riskReason: "Risk level detected on client profile.",
+        requiredDepositValue: 25,
+        requiredDepositType: "percentage"
       });
     } else {
       setMatchedRiskRule(null);
     }
-  }, [clientInfo.name, clientInfo.email, clientInfo.phone, protectedClients, allClients]);
-
-  const handleVehicleSelect = (vehicle: PublicBookingVehicle) => {
-    const vehicleInfo = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim();
-    const vehicleKey = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join("|").toLowerCase();
-    const isBrandNewVehicle = vehicleKey !== selectedVehicleKey;
-    const detectedVehicleSize = detectPublicVehicleSize({ ...vehicle, vehicleInfo });
-
-    setClientInfo(prev => ({
-      ...prev,
-      vehicleInfo,
-      vehicleSize: isBrandNewVehicle || !vehicleSizeManuallyChanged ? detectedVehicleSize : prev.vehicleSize,
-      vehicleYear: vehicle.year || "",
-      vehicleMake: vehicle.make || "",
-      vehicleModel: vehicle.model || ""
-    }));
-    setSelectedVehicleKey(vehicleKey);
-
-    if (isBrandNewVehicle) {
-      setVehicleSizeManuallyChanged(false);
-    }
-  };
-
-  const toggleClientGoal = (goal: string) => {
-    setClientGoals(prev => (
-      prev.includes(goal) ? prev.filter(item => item !== goal) : [...prev, goal]
-    ));
-  };
+  }, [clientInfo.email, clientInfo.phone, protectedClients, allClients]);
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -459,22 +303,6 @@ export default function PublicBooking() {
     }
   };
 
-  const handlePhoneChange = (value: string) => {
-    const digits = value.replace(/\D/g, "").slice(0, 10);
-    setClientInfo(prev => ({ ...prev, phone: formatPhoneNumber(digits) }));
-  };
-
-  const handleAddressSelect = (addr: string, lat: number, lng: number) => {
-    setClientInfo(prev => ({ ...prev, address: addr, lat, lng }));
-  };
-
-  const openRequestedAtPicker = () => {
-    const input = requestedAtInputRef.current;
-    if (!input) return;
-    input.focus();
-    input.showPicker?.();
-  };
-
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -486,20 +314,6 @@ export default function PublicBooking() {
 
         const addonsSnap = await getDocs(query(collection(db, "addons")));
         setAddons(addonsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AddOn)).filter(a => a.isActive));
-
-        try {
-          const protectedSnap = await getDocs(query(collection(db, "protected_clients")));
-          setProtectedClients(protectedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        } catch (riskError) {
-          console.info("Risk-management rules are not readable in this public booking session.", riskError);
-        }
-
-        try {
-          const clientsSnap = await getDocs(query(collection(db, "clients")));
-          setAllClients(clientsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        } catch (clientError) {
-          console.info("Client profiles are not readable in this public booking session.", clientError);
-        }
 
          const today = new Date();
          const ninetyDaysOut = new Date();
@@ -534,16 +348,6 @@ export default function PublicBooking() {
     let lower: Service | null = null;
     let explanation = "Best fit based on your selections.";
     let sAddons: AddOn[] = [];
-    const addSuggestedAddon = (keywords: string[]) => {
-      const addon = addons.find(a => {
-        const name = a.name.toLowerCase();
-        return keywords.some(keyword => name.includes(keyword));
-      });
-
-      if (addon && !sAddons.some(existing => existing.id === addon.id)) {
-        sAddons.push(addon);
-      }
-    };
 
     const isHeavy = condition.interior === "heavy" || condition.exterior === "heavy";
     const goalUpper = clientGoal.toLowerCase();
@@ -567,16 +371,12 @@ export default function PublicBooking() {
     }
 
     if (condition.petHair === "heavy" || condition.petHair === "moderate") {
-      addSuggestedAddon(["pet", "hair"]);
+      const pa = addons.find(a => a.name.toLowerCase().includes("pet"));
+      if (pa) sAddons.push(pa);
     }
     if (condition.odor === "yes") {
-      addSuggestedAddon(["odor", "ozone", "smell"]);
-    }
-    if (condition.stains === "yes") {
-      addSuggestedAddon(["stain", "spot", "shampoo", "extraction"]);
-    }
-    if (condition.protection === "yes") {
-      addSuggestedAddon(["protection", "protectant", "sealant", "wax", "ceramic"]);
+      const oa = addons.find(a => a.name.toLowerCase().includes("odor") || a.name.toLowerCase().includes("ozone"));
+      if (oa) sAddons.push(oa);
     }
 
     return { recommendedService: rec, lowerCostService: lower, suggestedAddons: sAddons, explanation };
@@ -585,19 +385,12 @@ export default function PublicBooking() {
   useEffect(() => {
     if (step >= 3) {
       const recs = calculateRecommendations();
-      const suggestedAddonIds = recs.suggestedAddons.map(a => a.id);
-      const previousSuggestedAddonIds = recommendationAddonIdsRef.current;
       setRecommendedChoice(recs);
 
       if (selectedServices.length === 0 && recs.recommendedService) {
          setSelectedServices([recs.recommendedService.id]);
+         setSelectedAddons(recs.suggestedAddons.map(a => a.id));
       }
-
-      setSelectedAddons(prev => {
-        const manuallySelectedAddonIds = prev.filter(id => !previousSuggestedAddonIds.includes(id));
-        return Array.from(new Set([...manuallySelectedAddonIds, ...suggestedAddonIds]));
-      });
-      recommendationAddonIdsRef.current = suggestedAddonIds;
     }
   }, [clientGoal, condition, services, addons, step]);
 
@@ -618,9 +411,7 @@ export default function PublicBooking() {
         clientNote
       } : null;
 
-      const finalAppointmentStatus = isTimeAvailable === false ? "waitlisted" : "requested";
-      const serviceNames = services.filter(s => selectedServices.includes(s.id)).map(s => s.name);
-      const appointmentData: any = {
+       const appointmentData: any = {
         customerName: clientInfo.name,
         customerEmail: clientInfo.email,
         customerPhone: clientInfo.phone,
@@ -630,19 +421,17 @@ export default function PublicBooking() {
         vehicleInfo: fullVehicleInfo,
         vehicleSize: clientInfo.vehicleSize,
         serviceIds: selectedServices,
-        serviceNames,
+        serviceNames: services.filter(s => selectedServices.includes(s.id)).map(s => s.name),
         addOnIds: selectedAddons,
         addOnNames: addons.filter(a => selectedAddons.includes(a.id)).map(a => a.name),
         scheduledAt: new Date(scheduledAt),
-        status: finalAppointmentStatus,
+        status: isTimeAvailable === false ? "waitlisted" : "requested",
         waitlistInfo,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         customerType: "retail",
         baseAmount: totalPrice,
-        travelFee: travelFeeInfo.fee,
-        travelFeeBreakdown: travelFeeInfo.fee > 0 ? travelFeeInfo : null,
-        totalAmount: bookingSummaryTotal + (isAfterHours && afterHoursFee ? afterHoursFee * 100 : 0),
+        totalAmount: totalPrice + (isAfterHours && afterHoursFee ? afterHoursFee * 100 : 0),
         estimatedDuration: totalDuration,
         afterHoursRecord: isAfterHours ? {
           isAfterHours: true,
@@ -653,11 +442,10 @@ export default function PublicBooking() {
         depositAmount: depositInfo.amount,
         depositRequired: depositInfo.isRequired,
         depositSource: depositInfo.source,
-        depositType: depositInfo.type,
         riskProfile: matchedRiskRule ? {
-          protectionLevel: matchedRiskRule.protectionLevel || null,
-          riskReason: matchedRiskRule.riskReason || "",
-          ruleId: matchedRiskRule.id || null
+          protectionLevel: matchedRiskRule.protectionLevel,
+          riskReason: matchedRiskRule.riskReason,
+          ruleId: matchedRiskRule.id
         } : null,
         paymentStatus: "unpaid",
         technicianId: "",
@@ -667,59 +455,15 @@ export default function PublicBooking() {
         completedTasks: {},
         bookingFunnelData: {
           clientGoal,
-          clientGoals,
           condition,
           recommendedServiceId: recommendedChoice.recommendedService?.id || null,
           lowerCostServiceId: recommendedChoice.lowerCostService?.id || null,
-          choseLowerCost: Boolean(recommendedChoice.lowerCostService?.id && selectedServices.includes(recommendedChoice.lowerCostService.id)),
+          choseLowerCost: recommendedChoice.lowerCostService?.id && selectedServices.includes(recommendedChoice.lowerCostService.id),
           choseManual: true
         }
       };
 
-      if (depositInfo.isRequired) {
-        const bookingReference = globalThis.crypto?.randomUUID?.() || `booking-${Date.now()}`;
-        const publicDepositSource = depositInfo.source === "risk_rule" ? "required_deposit" : `${depositInfo.source || "deposit"}_deposit`;
-        const pendingAppointmentData = {
-          ...appointmentData,
-          status: "pending_payment",
-          pendingAppointmentStatus: finalAppointmentStatus,
-          bookingReference,
-          depositPaid: false,
-          depositPaymentStatus: "pending",
-          depositPaymentProvider: "stripe",
-          stripeCheckoutStatus: "pending"
-        };
-        const pendingDocRef = await addDoc(collection(db, "appointments"), removeUndefined(pendingAppointmentData));
-
-        const response = await fetch("/api/payments/stripe/deposit-checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            appointmentId: pendingDocRef.id,
-            amount: depositInfo.amount,
-            bookingReference,
-            customerName: clientInfo.name,
-            customerEmail: clientInfo.email,
-            customerPhone: clientInfo.phone,
-            vehicleInfo: fullVehicleInfo,
-            serviceNames,
-            scheduledAt,
-            depositSource: publicDepositSource,
-            nextAppointmentStatus: finalAppointmentStatus
-          })
-        });
-        const data = await response.json().catch(() => null);
-
-        if (!response.ok || !data?.url) {
-          toast.error(data?.error || "Deposit payment is required, but online payment is not fully configured yet. Please contact us to complete booking.");
-          return;
-        }
-
-        window.location.assign(data.url);
-        return;
-      }
-
-      const docRef = await addDoc(collection(db, "appointments"), removeUndefined(appointmentData));
+      const docRef = await addDoc(collection(db, "appointments"), appointmentData);
       
       try {
         const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
@@ -798,44 +542,14 @@ export default function PublicBooking() {
      return price;
   }, [selectedServices, selectedAddons, services, addons]);
 
-  const travelFeeInfo = useMemo(() => {
-    const travelPricing = settings?.travelPricing;
-    if (
-      !travelPricing?.enabled ||
-      !hasUsableCoordinates(clientInfo.lat, clientInfo.lng) ||
-      !hasUsableCoordinates(settings?.baseLatitude, settings?.baseLongitude)
-    ) {
-      return { fee: 0, miles: 0, zoneName: "", rate: 0, isRoundTrip: false };
-    }
-
-    const distance = calculateDistance(
-      settings!.baseLatitude,
-      settings!.baseLongitude,
-      clientInfo.lat,
-      clientInfo.lng
-    );
-
-    return calculateTravelFee(distance, travelPricing, {
-      lat: clientInfo.lat,
-      lng: clientInfo.lng
-    });
-  }, [clientInfo.lat, clientInfo.lng, settings?.baseLatitude, settings?.baseLongitude, settings?.travelPricing]);
-
-  const bookingSummaryTotal = useMemo(
-    () => totalPrice + travelFeeInfo.fee,
-    [totalPrice, travelFeeInfo.fee]
-  );
-
   const depositInfo = useMemo(() => {
     let amount = 0;
     let type: "fixed" | "percentage" = "fixed";
     let isRequired = false;
-    let source = "none";
+    let source = "service";
 
-    const hasRiskDeposit = matchedRiskRule && Number(matchedRiskRule.requiredDepositValue || 0) > 0;
-
-    // 1. Check matched risk rule FIRST. Risk deposits take priority and never stack.
-    if (hasRiskDeposit) {
+    // 1. Check matched risk rule FIRST (Manual Adjustment)
+    if (matchedRiskRule) {
       isRequired = true;
       amount = matchedRiskRule.requiredDepositValue || 0;
       type = matchedRiskRule.requiredDepositType || "fixed";
@@ -846,7 +560,6 @@ export default function PublicBooking() {
         const s = services.find(x => x.id === id);
         if (s?.depositRequired) {
           isRequired = true;
-          source = "service";
           if (s.depositType === "percentage") {
             amount += (s.basePrice * (s.depositAmount || 0)) / 100;
           } else {
@@ -861,7 +574,7 @@ export default function PublicBooking() {
       amount = (totalPrice * amount) / 100;
     }
 
-    return { amount, isRequired, source, type, riskLevel: matchedRiskRule?.protectionLevel };
+    return { amount, isRequired, source, riskLevel: matchedRiskRule?.protectionLevel };
   }, [matchedRiskRule, selectedServices, services, totalPrice]);
 
 
@@ -901,7 +614,7 @@ export default function PublicBooking() {
       <div className="bg-[#050505] border-b border-zinc-800 sticky top-0 z-40 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
            <div className="pt-2">
-             <Logo variant="full" color="white" className="origin-left scale-125 transform" />
+             <Logo variant="full" color="white" /> 
            </div>
            
            <div className="hidden sm:flex items-center gap-8">
@@ -970,26 +683,12 @@ export default function PublicBooking() {
                     <CardContent className="p-8 space-y-6">
                       <div className="space-y-4">
                         <VehicleSelector 
-                          onSelect={handleVehicleSelect}
-                          initialValues={{
-                            year: clientInfo.vehicleYear,
-                            make: clientInfo.vehicleMake,
-                            model: clientInfo.vehicleModel
-                          }}
+                          onSelect={(v) => setClientInfo(prev => ({ ...prev, vehicleInfo: `${v.year} ${v.make} ${v.model}` }))}
                         />
-                        {clientInfo.vehicleInfo && (
-                          <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">Selected Vehicle</p>
-                            <p className="font-black text-gray-900">{clientInfo.vehicleInfo}</p>
-                          </div>
-                        )}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="space-y-2">
                             <Label className="text-gray-900 font-bold">Vehicle Size</Label>
-                            <Select value={clientInfo.vehicleSize} onValueChange={v => {
-                              setVehicleSizeManuallyChanged(true);
-                              setClientInfo(prev => ({...prev, vehicleSize: v}));
-                            }}>
+                            <Select value={clientInfo.vehicleSize} onValueChange={v => setClientInfo(prev => ({...prev, vehicleSize: v}))}>
                               <SelectTrigger className="border-gray-300 text-gray-900 focus:ring-primary/20">
                                 <SelectValue placeholder="Select Size" />
                               </SelectTrigger>
@@ -1033,7 +732,7 @@ export default function PublicBooking() {
               {/* STEP 2: NEEDS */}
               {step === 2 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
-                  <AssistantBubble text="Got it! What are the main goals for this detail? Select all that apply." />
+                  <AssistantBubble text="Got it! What are the main goals for this detail? Select the option that best fits." />
                   
                   <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
                     <CardContent className="p-8 space-y-6">
@@ -1052,9 +751,9 @@ export default function PublicBooking() {
                             key={goal}
                             className={cn(
                               "p-4 rounded-xl border-2 transition-all cursor-pointer font-bold text-center",
-                              clientGoals.includes(goal) ? "border-primary bg-primary/5 text-primary shadow-glow-blue" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
+                              clientGoal === goal ? "border-primary bg-primary/5 text-primary shadow-glow-blue" : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
                             )}
-                            onClick={() => toggleClientGoal(goal)}
+                            onClick={() => setClientGoal(goal)}
                           >
                             {goal}
                           </div>
@@ -1062,11 +761,11 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(1)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(1)}>Back</Button>
                         <Button 
                           type="button" 
-                          className={bookingNavButtonClass}
-                          disabled={clientGoals.length === 0}
+                          className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
+                          disabled={!clientGoal}
                           onClick={() => setStep(3)}
                         >
                           Next <ArrowRight className="w-5 h-5 ml-2" />
@@ -1174,7 +873,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(2)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(2)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
@@ -1254,7 +953,7 @@ export default function PublicBooking() {
                       )}
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(3)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(3)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
@@ -1279,23 +978,12 @@ export default function PublicBooking() {
                       <div className="space-y-4">
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Request a Date & Time</Label>
                         <div className="space-y-2">
-                          <div className="relative group">
-                            <button
-                              type="button"
-                              aria-label="Open date and time picker"
-                              onClick={openRequestedAtPicker}
-                              className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-md text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                            >
-                              <Calendar className="w-5 h-5 text-primary opacity-100" />
-                            </button>
-                            <Input
-                              ref={requestedAtInputRef}
-                              type="datetime-local"
-                              value={scheduledAt}
-                              onChange={e => setScheduledAt(e.target.value)}
-                              className="h-14 bg-white border-2 border-gray-300 rounded-xl focus:border-primary transition-all text-gray-900 font-bold text-lg pl-12 pr-4"
-                            />
-                          </div>
+                          <Input 
+                            type="datetime-local" 
+                            value={scheduledAt}
+                            onChange={e => setScheduledAt(e.target.value)}
+                            className="h-14 bg-white border-2 border-gray-300 rounded-xl focus:border-primary transition-all text-gray-900 font-bold text-lg px-4"
+                          />
                           {scheduledAt && isTimeAvailable !== null && (
                             <div className={cn(
                               "mt-4 p-5 rounded-2xl border flex flex-col gap-4",
@@ -1381,7 +1069,7 @@ export default function PublicBooking() {
                                         id="flexibleSameDay" 
                                         checked={flexibleSameDay} 
                                         onCheckedChange={(c) => setFlexibleSameDay(c as boolean)} 
-                                        className="h-5 w-5 border-2 border-primary focus-visible:ring-primary/30 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                                        className="h-5 w-5 border-2 border-red-300 data-[state=checked]:bg-red-800 data-[state=checked]:border-red-800"
                                       />
                                       <Label htmlFor="flexibleSameDay" className="text-sm font-bold text-red-900 cursor-pointer">
                                         I am flexible for ANY TIME on my requested day
@@ -1389,7 +1077,7 @@ export default function PublicBooking() {
                                     </div>
 
                                     <div className="space-y-2">
-                                      <Label className="text-[10px] font-black uppercase tracking-widest text-red-900/60">Note for Technician (Optional)</Label>
+                                      <Label className="text-[10px] font-black uppercase tracking-widest text-red-900/60">Note for Admin (Optional)</Label>
                                       <Input 
                                         placeholder="e.g. Can do mornings only..."
                                         value={clientNote}
@@ -1420,7 +1108,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(4)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(4)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105 disabled:opacity-50"
@@ -1470,12 +1158,10 @@ export default function PublicBooking() {
                             <Label className="text-gray-900 font-bold">Phone</Label>
                             <Input 
                               type="tel" 
-                              inputMode="numeric"
-                              maxLength={14}
                               placeholder="(555) 000-0000" 
                               className="border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-primary/20 h-11"
                               value={clientInfo.phone}
-                              onChange={e => handlePhoneChange(e.target.value)}
+                              onChange={e => setClientInfo(prev => ({ ...prev, phone: e.target.value }))}
                               required
                             />
                           </div>
@@ -1485,18 +1171,13 @@ export default function PublicBooking() {
                       <div className="space-y-4 pt-4 border-t border-gray-100">
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Service Location</Label>
                         <AddressInput 
-                          onAddressSelect={handleAddressSelect}
+                          onAddressSelect={(addr, lat, lng) => setClientInfo(prev => ({ ...prev, address: addr, lat, lng }))}
                           placeholder="Enter your location for mobile service"
                         />
-                        {travelFeeInfo.fee > 0 && (
-                          <div className="p-4 rounded-2xl border border-primary/20 bg-primary/5 text-sm font-bold text-gray-800">
-                            Travel fee detected: <span className="text-primary font-black">{formatCurrency(travelFeeInfo.fee)}</span>
-                          </div>
-                        )}
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(5)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(5)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
@@ -1560,12 +1241,6 @@ export default function PublicBooking() {
                                 </div>
                               )
                            })}
-                           {travelFeeInfo.fee > 0 && (
-                             <div className="flex justify-between items-start text-sm">
-                               <span className="font-bold text-gray-600">+ Travel fee</span>
-                               <span className="font-black text-gray-600">{formatCurrency(travelFeeInfo.fee)}</span>
-                             </div>
-                           )}
                         </div>
                         <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
                            <div>
@@ -1580,18 +1255,33 @@ export default function PublicBooking() {
                                   Deposit Required: {formatCurrency(depositInfo.amount)}
                                 </p>
                               )}
-                              <span className="text-3xl font-black text-primary">{formatCurrency(bookingSummaryTotal)}</span>
+                              <span className="text-3xl font-black text-primary">{formatCurrency(totalPrice)}</span>
                             </div>
                         </div>
                       </div>
 
-                      {depositInfo.isRequired && (
-                        <div className="p-5 rounded-2xl border border-primary/20 bg-primary/5 flex items-start gap-4">
-                          <ShieldCheck className="w-6 h-6 text-primary shrink-0 mt-0.5" />
+                      {matchedRiskRule && (
+                        <div className={cn(
+                          "p-5 rounded-2xl border flex items-start gap-4 animate-in fade-in zoom-in",
+                          matchedRiskRule.protectionLevel === "High" ? "bg-red-50 border-red-200" : 
+                          matchedRiskRule.protectionLevel === "Block Booking" ? "bg-black border-red-900" : "bg-orange-50 border-orange-200"
+                        )}>
+                          <AlertCircle className={cn("w-6 h-6 shrink-0 mt-0.5", 
+                            matchedRiskRule.protectionLevel === "High" ? "text-red-600" : 
+                            matchedRiskRule.protectionLevel === "Block Booking" ? "text-red-500" : "text-orange-600"
+                          )} />
                           <div>
-                            <p className="text-xs font-black uppercase tracking-widest text-primary">Deposit Payment Required</p>
-                            <p className="text-sm font-bold text-gray-800 mt-1">
-                              A <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> deposit is required to secure this booking.
+                            <p className={cn("text-xs font-black uppercase tracking-widest", 
+                              matchedRiskRule.protectionLevel === "High" ? "text-red-800" : 
+                              matchedRiskRule.protectionLevel === "Block Booking" ? "text-red-400" : "text-orange-800"
+                            )}>
+                              {matchedRiskRule.protectionLevel === "Block Booking" ? "RESTRICTED ACCOUNT" : `${matchedRiskRule.protectionLevel} Risk Detected`}
+                            </p>
+                            <p className={cn("text-sm font-bold mt-1", matchedRiskRule.protectionLevel === "Block Booking" ? "text-white" : "text-gray-800")}>
+                              {matchedRiskRule.protectionLevel === "Block Booking" 
+                                ? "This account has been restricted. We are not accepting new automated bookings for this client at this time. Please contact us directly."
+                                : <>Based on our risk management protocols, a deposit of <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> is required to secure this booking.</>
+                              }
                             </p>
                           </div>
                         </div>
@@ -1605,7 +1295,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" className={bookingNavButtonClass} onClick={() => setStep(6)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(6)}>Back</Button>
                         <Button 
                           type="submit" 
                           form="booking-form"
@@ -1613,7 +1303,7 @@ export default function PublicBooking() {
                           disabled={isSubmitting || matchedRiskRule?.protectionLevel === "Block Booking"}
                         >
                           {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
-                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Please Contact Us" : depositInfo.isRequired ? "Pay Deposit & Submit Booking" : "Submit Booking Requirement"}
+                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Account Restricted" : "Submit Booking Requirement"}
                         </Button>
                       </div>
                     </CardContent>
@@ -1648,12 +1338,12 @@ export default function PublicBooking() {
                {/* Show Recommendation Panel starting Step 3 or 4 */}
                {(step >= 3 && recommendedChoice.recommendedService) && (
                  <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-black uppercase tracking-widest gap-2 border border-primary/20 shadow-glow-blue">
-                      <Star className="w-3.5 h-3.5 fill-primary text-primary" />
+                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-900 text-xs font-black uppercase tracking-widest gap-2 border border-emerald-200 shadow-sm">
+                      <Star className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600" />
                       Recommended for your vehicle
                     </div>
                     
-                    <Card className="border-2 border-primary shadow-glow-blue overflow-hidden rounded-3xl bg-white transition-all">
+                    <Card className="border-2 border-emerald-500 shadow-xl overflow-hidden rounded-3xl bg-white transition-all">
                       <CardContent className="p-6">
                         <div className="flex justify-between items-start mb-4">
                           <div>
@@ -1679,7 +1369,7 @@ export default function PublicBooking() {
                           <div className="space-y-1.5 mb-4 px-2">
                             {recommendedChoice.recommendedService.description.split('\n').filter(Boolean).map((item, idx) => (
                               <div key={idx} className="flex items-start gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                                 <span className="text-sm font-medium text-gray-700">{item.replace(/^-\s*/, '')}</span>
                               </div>
                             ))}
@@ -1700,7 +1390,7 @@ export default function PublicBooking() {
                         <Button 
                           type="button" 
                           onClick={handleAcceptRecommendation}
-                          className="w-full mt-6 bg-primary hover:bg-[#2A6CFF] focus-visible:ring-primary/30 text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-glow-blue transition-all hover:scale-105 group"
+                          className="w-full mt-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-lg shadow-emerald-200 group"
                         >
                           Accept Recommendation
                           <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
@@ -1714,16 +1404,15 @@ export default function PublicBooking() {
                             <div>
                                <span className="block text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1">Lower-cost option available</span>
                                <h4 className="font-black text-gray-900">{recommendedChoice.lowerCostService.name}</h4>
-                               <p className="text-sm font-black text-primary mt-1">{formatCurrency(recommendedChoice.lowerCostService.basePrice)}</p>
                             </div>
                             {step === 4 && (
                                <Button 
                                  type="button" 
-                                 className="bg-primary hover:bg-[#2A6CFF] text-white font-black text-xs px-4 shadow-glow-blue"
+                                 variant="outline" 
+                                 className="font-bold border-gray-300 text-gray-700 text-xs px-4"
                                  onClick={() => {
                                    setSelectedServices([recommendedChoice.lowerCostService!.id]);
-                                   setSelectedAddons([]);
-                                   recommendationAddonIdsRef.current = [];
+                                   setSelectedAddons([]); 
                                    setStep(5);
                                  }}
                                >
@@ -1768,12 +1457,6 @@ export default function PublicBooking() {
                                 </div>
                               )
                            })}
-                           {travelFeeInfo.fee > 0 && (
-                             <div className="flex justify-between items-start text-sm">
-                               <span className="font-bold text-gray-600">+ Travel fee</span>
-                               <span className="font-black text-gray-600">{formatCurrency(travelFeeInfo.fee)}</span>
-                             </div>
-                           )}
                         </div>
                         <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
                            <div>
@@ -1788,7 +1471,7 @@ export default function PublicBooking() {
                                  Deposit Required: {formatCurrency(depositInfo.amount)}
                                </p>
                              )}
-                             <span className="text-3xl font-black text-primary">{formatCurrency(bookingSummaryTotal)}</span>
+                             <span className="text-3xl font-black text-primary">${totalPrice}</span>
                            </div>
                         </div>
                      </>

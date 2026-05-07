@@ -1,15 +1,15 @@
 import Papa from "papaparse";
 import { useState, useEffect, useRef, useMemo } from "react";
-import {
-  collection,
-  query,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  doc,
-  serverTimestamp,
-  orderBy,
-  where,
+import { 
+  collection, 
+  query, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  doc, 
+  serverTimestamp, 
+  orderBy, 
+  where, 
   getDocs,
   getDoc,
   deleteDoc,
@@ -37,19 +37,19 @@ import { geocodeAddress } from "../services/geocodingService";
 import { useNavigate } from "react-router-dom";
 import WarrantyManager from "../components/WarrantyManager";
 import { NumberInput } from "../components/NumberInput";
-import {
-  Users,
-  Search,
-  Filter,
-  MoreHorizontal,
-  Phone,
-  Mail,
-  MapPin,
-  Calendar,
-  Clock,
-  ArrowRight,
-  UserPlus,
-  Star,
+import { 
+  Users, 
+  Search, 
+  Filter, 
+  MoreHorizontal, 
+  Phone, 
+  Mail, 
+  MapPin, 
+  Calendar, 
+  Clock, 
+  ArrowRight, 
+  UserPlus, 
+  Star, 
   History,
   Car,
   Tag,
@@ -81,9 +81,9 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import VehicleSelector from "../components/VehicleSelector";
 import { syncService } from "../services/syncService";
-import {
-  cn,
-  formatPhoneNumber,
+import { 
+  cn, 
+  formatPhoneNumber, 
   getClientDisplayName,
   cleanAddress,
   formatCurrency,
@@ -138,7 +138,7 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
     } catch (error: any) {
       console.warn("Direct add failed for vehicle, enqueuing...", error);
       const isPermanent = error?.code === 'permission-denied' || error?.code === 'invalid-argument';
-
+      
       if (isPermanent) {
         handleFirestoreError(error, OperationType.CREATE, "vehicles");
       } else {
@@ -152,7 +152,7 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
   return (
     <form onSubmit={handleSubmit} className="space-y-4 py-4">
       <VehicleSelector onSelect={setVData} />
-
+      
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="text-[10px] font-black uppercase tracking-widest text-white">Color</Label>
@@ -227,7 +227,7 @@ export default function Clients() {
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-
+  
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importData, setImportData] = useState<any[]>([]);
@@ -244,7 +244,7 @@ export default function Clients() {
       complete: (results) => {
         const data = results.data as any[];
         const errors: string[] = [];
-
+        
         // Comprehensive normalization and validation
         const normalizedData = data.map((row, index) => {
           // Helper to get value by case-insensitive alias
@@ -269,17 +269,17 @@ export default function Clients() {
           const vModel = getVal(["vehicle model", "model"]);
           const vVin = getVal(["vin", "v.i.n."]);
           const vPlate = getVal(["license plate", "plate", "license"]);
-
+          
           const fullName = name || (firstName && lastName ? `${firstName} ${lastName}` : firstName || lastName || "Unknown Client");
-
+          
           // Basic mapping to known IDs
-          const clientTypeId = CLIENT_TYPE_OPTIONS.find(opt =>
-            opt.id === rawClientType.toLowerCase() ||
+          const clientTypeId = CLIENT_TYPE_OPTIONS.find(opt => 
+            opt.id === rawClientType.toLowerCase() || 
             opt.name.toLowerCase() === rawClientType.toLowerCase()
           )?.id || (businessName ? "business" : "individual");
 
           if (!fullName) errors.push(`Row ${index + 1}: Name is required`);
-
+          
           return {
             ...row,
             name: fullName,
@@ -329,8 +329,8 @@ export default function Clients() {
     try {
       for (const client of importData) {
         // Check for duplicate by email or phone (using normalized values)
-        const isDuplicate = clients.some(c =>
-          (client.email && c.email.toLowerCase() === client.email.toLowerCase()) ||
+        const isDuplicate = clients.some(c => 
+          (client.email && c.email.toLowerCase() === client.email.toLowerCase()) || 
           (client.phone && c.phone.replace(/\D/g, "") === (c.phone || "").replace(/\D/g, ""))
         );
 
@@ -354,7 +354,7 @@ export default function Clients() {
         if (isRestricted) {
           // Enqueue client
           const localId = await syncService.enqueueTask("clients", { ...clientData, createdAt: Date.now() }, 'create');
-
+          
           // Enqueue vehicle if exists
           if (vehicle) {
             await syncService.enqueueTask("vehicles", {
@@ -390,11 +390,11 @@ export default function Clients() {
               updatedAt: serverTimestamp(),
             }).catch(vErr => console.warn("Failed to add vehicle for imported client:", vErr));
           }
-
+          
           successCount++;
         } catch (err: any) {
           const isQuota = err?.code === 'resource-exhausted' || err?.message?.includes("quota");
-
+          
           if (isQuota || !navigator.onLine) {
             // Local fallback
             const localId = await syncService.enqueueTask("clients", { ...clientData, createdAt: Date.now() }, 'create');
@@ -420,7 +420,7 @@ export default function Clients() {
       if (successCount > 0) msg += `Imported ${successCount} clients. `;
       if (localCount > 0) msg += `${localCount} clients saved locally (Pending Sync). `;
       if (duplicateCount > 0) msg += `${duplicateCount} duplicates skipped.`;
-
+      
       toast.success(msg || "Import complete");
       setIsImportOpen(false);
       setImportData([]);
@@ -440,12 +440,12 @@ export default function Clients() {
   const [clientQuotes, setClientQuotes] = useState<Quote[]>([]);
   const [signedForms, setSignedForms] = useState<any[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
-
+  
   const serviceTiming = useMemo(() => {
     if (!selectedClient || clientVehicles.length === 0 || clientHistory.length === 0 || services.length === 0) return [];
     return generateServiceTimingIntelligence(clientVehicles, clientHistory, services);
   }, [selectedClient, clientVehicles, clientHistory, services]);
-
+  
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
@@ -453,15 +453,12 @@ export default function Clients() {
   const [newClientAddress, setNewClientAddress] = useState({ address: "", lat: 0, lng: 0 });
   const [isUploading, setIsUploading] = useState(false);
   const [formClientTypeId, setFormClientTypeId] = useState<string>("");
-  const [clientPhoneInput, setClientPhoneInput] = useState("");
 
   useEffect(() => {
     if (editingClient) {
       setFormClientTypeId(editingClient.clientTypeId || "");
-      setClientPhoneInput(formatPhoneNumber(editingClient.phone || ""));
     } else {
       setFormClientTypeId("");
-      setClientPhoneInput("");
     }
   }, [editingClient, isAddDialogOpen]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -482,7 +479,7 @@ export default function Clients() {
       const latest = clients.find(c => c.id === selectedClient.id);
       if (latest) {
         // Deep compare specific fields to avoid unnecessary updates and FieldValue issues
-        const isDifferent =
+        const isDifferent = 
           JSON.stringify(latest.vipSettings) !== JSON.stringify(selectedClient.vipSettings) ||
           JSON.stringify(latest.gallery) !== JSON.stringify(selectedClient.gallery) ||
           latest.firstName !== selectedClient.firstName ||
@@ -493,12 +490,7 @@ export default function Clients() {
           latest.address !== selectedClient.address ||
           latest.notes !== selectedClient.notes ||
           latest.isVIP !== selectedClient.isVIP ||
-          latest.isOneTime !== selectedClient.isOneTime ||
-          latest.riskLevel !== selectedClient.riskLevel ||
-          latest.lastServiceDate !== selectedClient.lastServiceDate ||
-          latest.serviceHistoryNotes !== selectedClient.serviceHistoryNotes ||
-          latest.smsEnabled !== selectedClient.smsEnabled ||
-          latest.emailEnabled !== selectedClient.emailEnabled;
+          latest.isOneTime !== selectedClient.isOneTime;
 
         if (isDifferent) {
           setSelectedClient(latest);
@@ -526,51 +518,7 @@ export default function Clients() {
       baseColor += " border-amber-500/50";
     }
     return baseColor;
-  };
-
-  const getClientClassificationGlow = (type?: ClientType, isVip?: boolean) => {
-    const label = `${type?.name || ""} ${type?.id || ""} ${type?.slug || ""}`.toLowerCase();
-    if (isVip || label.includes("vip")) return "bg-yellow-500/10 text-yellow-300 border-yellow-400/40 shadow-[0_0_18px_rgba(250,204,21,0.28)]";
-    if (label.includes("high")) return "bg-orange-500/10 text-orange-300 border-orange-400/40 shadow-[0_0_18px_rgba(249,115,22,0.28)]";
-    if (label.includes("med")) return "bg-teal-500/10 text-teal-300 border-teal-400/40 shadow-[0_0_18px_rgba(45,212,191,0.25)]";
-    if (label.includes("retail")) return "bg-emerald-500/10 text-emerald-300 border-emerald-400/40 shadow-[0_0_18px_rgba(16,185,129,0.25)]";
-    if (label.includes("business") || label.includes("vendor") || label.includes("collision") || label.includes("fleet")) return "bg-cyan-500/10 text-cyan-300 border-cyan-400/40 shadow-[0_0_18px_rgba(34,211,238,0.25)]";
-    if (label.includes("detail")) return "bg-primary/10 text-primary border-primary/40 shadow-[0_0_18px_rgba(10,77,255,0.28)]";
-    return "bg-white/10 text-white/70 border-white/15 shadow-[0_0_16px_rgba(148,163,184,0.18)]";
-  };
-
-  const getRiskGlow = (risk?: string) => {
-    switch (risk) {
-      case "high":
-        return "bg-red-500/20 text-red-400 shadow-[0_0_18px_rgba(239,68,68,0.3)]";
-      case "medium":
-        return "bg-orange-500/20 text-orange-300 shadow-[0_0_18px_rgba(249,115,22,0.28)]";
-      default:
-        return "bg-emerald-500/20 text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.24)]";
-    }
-  };
-
-  const renderRiskBadge = (risk?: string) => {
-    const normalizedRisk = risk || "low";
-    return (
-      <Badge
-        variant="outline"
-        className={cn(
-          "text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest border-none ml-1",
-          getRiskGlow(normalizedRisk)
-        )}
-      >
-        {normalizedRisk} risk
-      </Badge>
-    );
-  };
-
-  const handleClientPhoneChange = (value: string) => {
-    const digits = normalizePhone(value).slice(0, 10);
-    setClientPhoneInput(formatPhoneNumber(digits));
-  };
-
-  const fetchClientsData = async (showToast = false, searchStr?: string, loadMore = false) => {
+  };  const fetchClientsData = async (showToast = false, searchStr?: string, loadMore = false) => {
     // Performance marker
     const loadStart = performance.now();
     const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
@@ -582,7 +530,7 @@ export default function Clients() {
       const cacheTime = sessionStorage.getItem('clients_registry_cache_time');
       const now = Date.now();
       const isCacheFresh = cached && cacheTime && now - Number(cacheTime) < 10 * 60 * 1000;
-
+      
       if (isCacheFresh || (cached && isRestricted)) {
         try {
           let data = JSON.parse(cached || '[]');
@@ -609,7 +557,7 @@ export default function Clients() {
       await syncService.syncPendingRecords();
     }
     setLoading(true);
-
+    
     console.log(`🔥 FIRESTORE READ [Clients]: Fetching data ${searchStr ? `for search: "${searchStr}"` : `initial load (limit 50)${loadMore ? ' [Loading More]' : ''}`}`);
 
     try {
@@ -617,7 +565,7 @@ export default function Clients() {
       if (searchStr) {
         const normalized = searchStr.charAt(0).toUpperCase() + searchStr.slice(1).toLowerCase();
         q = query(
-          collection(db, "clients"),
+          collection(db, "clients"), 
           where("name", ">=", normalized),
           where("name", "<=", normalized + "\uf8ff"),
           limit(30)
@@ -643,7 +591,7 @@ export default function Clients() {
         clientsUnsubscribe.current = onSnapshot(q, async (snapshot) => {
             let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any } as Client));
             data = await syncService.injectPendingRecords("clients", data);
-
+            
             if (loadMore) {
                 setClients(prev => {
                     const existingIds = new Set(prev.map(c => c.id));
@@ -655,7 +603,7 @@ export default function Clients() {
                 sessionStorage.setItem('clients_registry_cache', JSON.stringify(data));
                 sessionStorage.setItem('clients_registry_cache_time', Date.now().toString());
             }
-
+            
             setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
             setHasMore(snapshot.docs.length === 50);
             setLoading(false);
@@ -763,7 +711,7 @@ export default function Clients() {
     };
 
     fetchClientDetails();
-
+    
     const unsubVehicles = onSnapshot(query(collection(db, "vehicles"), where("clientId", "==", selectedClient.id)), snap => {
       setClientVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
     }, (error: any) => {
@@ -809,7 +757,7 @@ export default function Clients() {
     const firstName = formData.get("firstName") as string;
     const lastName = formData.get("lastName") as string;
     const businessName = formData.get("businessName") as string;
-
+    
     // Derive a full name for backward compatibility
     let derivedName = "";
     if (businessName) {
@@ -833,11 +781,6 @@ export default function Clients() {
       longitude: newClientAddress.lng,
       clientTypeId,
       riskLevel: formData.get("riskLevel") as any || "low",
-      lastServiceDate: (formData.get("lastServiceDate") as string) || "",
-      serviceHistoryNotes: (formData.get("serviceHistoryNotes") as string)?.trim(),
-      smsEnabled: formData.get("smsEnabled") === "on",
-      smsConsent: formData.get("smsEnabled") === "on",
-      emailEnabled: formData.get("emailEnabled") === "on",
       isVIP: formData.get("isVIP") === "on",
       isOneTime: formData.get("isOneTime") === "on",
       notes: (formData.get("notes") as string)?.trim(),
@@ -897,10 +840,10 @@ export default function Clients() {
           toast.success("Client profile updated");
         } catch (err: any) {
           console.warn("Direct update failed, enqueuing...", err);
-
+          
           // Check for permanent failures vs offline
           const isPermanent = err?.code === 'permission-denied' || err?.code === 'invalid-argument';
-
+          
           if (isPermanent) {
             handleFirestoreError(err, OperationType.UPDATE, `clients/${editingClient.id}`);
           } else {
@@ -923,9 +866,9 @@ export default function Clients() {
           toast.success("Client added successfully");
         } catch (err: any) {
           console.warn("Direct add failed, enqueuing...", err);
-
+          
           const isPermanent = err?.code === 'permission-denied' || err?.code === 'invalid-argument';
-
+          
           if (isPermanent) {
             handleFirestoreError(err, OperationType.CREATE, "clients");
           } else {
@@ -942,7 +885,7 @@ export default function Clients() {
           }
         }
       }
-
+      
       // Invalidate cache
       sessionStorage.removeItem('clients_registry_cache');
       sessionStorage.removeItem('clients_registry_cache_time');
@@ -956,14 +899,14 @@ export default function Clients() {
     } catch (error: any) {
       console.error("Critical Error saving client:", error);
       let errorMsg = "Failed to save client";
-
+      
       try {
         const detail = JSON.parse(error.message);
         errorMsg = `Error: ${detail.error}`;
       } catch {
         errorMsg = error.message || String(error);
       }
-
+      
       toast.error(errorMsg, {
         description: "Full error logged to console for administrator review."
       });
@@ -981,29 +924,29 @@ export default function Clients() {
       if (data.firstName !== undefined || data.lastName !== undefined || data.businessName !== undefined) {
         const newDisplayName = getClientDisplayName(updatedClient);
         data.name = newDisplayName;
-
+        
         // Update related appointments
         const appointmentsQuery = query(
-          collection(db, "appointments"),
+          collection(db, "appointments"), 
           where("clientId", "==", selectedClient.id)
         );
         const appointmentsSnap = await getDocs(appointmentsQuery);
         const batch = writeBatch(db);
-
+        
         appointmentsSnap.docs.forEach(appDoc => {
           batch.update(appDoc.ref, { customerName: newDisplayName });
         });
-
+        
         await batch.commit();
       }
 
       await updateDoc(doc(db, "clients", selectedClient.id), data);
-
+      
       // Invalidate cache
       sessionStorage.removeItem('clients_registry_cache');
       sessionStorage.removeItem('clients_registry_cache_time');
       sessionStorage.removeItem(`client_details_cache_${selectedClient.id}`);
-
+      
       toast.success("Profile updated");
     } catch (error) {
       console.error("Error updating client:", error);
@@ -1020,13 +963,13 @@ export default function Clients() {
 
     try {
       const batch = writeBatch(db);
-
+      
       // 1. Find all linked records
       const [
-        vehiclesSnap,
-        appointmentsSnap,
-        invoicesSnap,
-        quotesSnap,
+        vehiclesSnap, 
+        appointmentsSnap, 
+        invoicesSnap, 
+        quotesSnap, 
         leadsSnap,
         formsSnap,
         logsSnap
@@ -1054,12 +997,12 @@ export default function Clients() {
 
       // 4. Commit the batch
       await batch.commit();
-
+      
       // Invalidate cache
       sessionStorage.removeItem('clients_registry_cache');
       sessionStorage.removeItem('clients_registry_cache_time');
       sessionStorage.removeItem(`client_details_cache_${id}`);
-
+      
       toast.success("Client and all linked records deleted successfully");
       setIsDetailOpen(false);
       setSelectedClient(null);
@@ -1098,7 +1041,7 @@ export default function Clients() {
 
   const filteredClients = useMemo(() => {
     const normalizedSearch = searchTerm.toLowerCase().trim();
-
+    
     return clients.filter(client => {
       // 1. Basic Client Info Search
       const firstName = (client.firstName || "").toLowerCase();
@@ -1109,7 +1052,7 @@ export default function Clients() {
       const email = (client.email || "").toLowerCase();
       const name = (client.name || "").toLowerCase();
 
-      const matchesSearch =
+      const matchesSearch = 
         name.includes(normalizedSearch) ||
         firstName.includes(normalizedSearch) ||
         lastName.includes(normalizedSearch) ||
@@ -1117,7 +1060,7 @@ export default function Clients() {
         businessName.includes(normalizedSearch) ||
         phone.includes(normalizedSearch) ||
         email.includes(normalizedSearch);
-
+      
       const matchesType = typeFilter === "all" || client.clientTypeId === typeFilter;
       const matchesCategory = categoryFilter === "all" || client.categoryIds?.includes(categoryFilter);
 
@@ -1136,14 +1079,14 @@ export default function Clients() {
 
   return (
     <div className="space-y-10 pb-24 w-full">
-      <PageHeader
-        title="Client Registry"
-        accentWord="Registry"
+      <PageHeader 
+        title="Client Registry" 
+        accentWord="Registry" 
         subtitle={`System Status: ${getSystemStatusLabel()} • Unified database for retail, business, and vehicle accounts.`}
         actions={
           <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
+            <Button 
+              variant="outline" 
               className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]"
               onClick={() => fetchClientsData(true)}
               disabled={loading}
@@ -1151,7 +1094,7 @@ export default function Clients() {
               <RefreshCcw className={cn("w-4 h-4 mr-2 text-primary", loading && "animate-spin")} />
               Sync Registry
             </Button>
-            <Button variant="outline" onClick={() => navigate("/settings?tab=client-types")} className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]">
+            <Button variant="outline" onClick={() => navigate("/settings?tab=client-management")} className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-6 h-12 font-bold uppercase tracking-widest text-[10px]">
               <Settings2 className="w-4 h-4 mr-2 text-primary" />
               Manage Types
             </Button>
@@ -1174,9 +1117,9 @@ export default function Clients() {
                       <h3 className="font-black uppercase tracking-widest text-sm">Upload CSV Resource</h3>
                       <p className="text-[10px] text-white/60 font-medium uppercase tracking-tight mt-1">Headers required: Name, Email, Phone, Address, Notes</p>
                     </div>
-                    <Input
-                      type="file"
-                      accept=".csv"
+                    <Input 
+                      type="file" 
+                      accept=".csv" 
                       onChange={handleFileUpload}
                       className="bg-black/40 border-white/10 text-white rounded-xl h-12 cursor-pointer pt-2"
                     />
@@ -1232,7 +1175,7 @@ export default function Clients() {
                           </div>
                         )}
                       </div>
-                      <Button
+                      <Button 
                         className="w-full bg-primary text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-[11px]"
                         onClick={processBulkImport}
                         disabled={isImporting}
@@ -1249,7 +1192,6 @@ export default function Clients() {
                 if (!open) {
                   setIsAddDialogOpen(false);
                   setEditingClient(null);
-                  setClientPhoneInput("");
                   setNewClientAddress({ address: "", lat: 0, lng: 0 });
                 } else {
                   setIsAddDialogOpen(true);
@@ -1269,35 +1211,35 @@ export default function Clients() {
                   <div className="space-y-6">
                     <div className="space-y-2">
                       <Label htmlFor="businessName" className="font-black uppercase tracking-widest text-[10px] text-white">Business Name (Optional)</Label>
-                      <StandardInput
-                        id="businessName"
-                        name="businessName"
-                        defaultValue={editingClient?.businessName || ""}
-                        placeholder="Elite Collision or Austin Vehicles"
-                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                      <StandardInput 
+                        id="businessName" 
+                        name="businessName" 
+                        defaultValue={editingClient?.businessName || ""} 
+                        placeholder="Elite Collision or Austin Vehicles" 
+                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
                         onValueChange={() => {}}
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="firstName" className="font-black uppercase tracking-widest text-[10px] text-white">First Name</Label>
-                        <StandardInput
-                          id="firstName"
-                          name="firstName"
-                          defaultValue={editingClient?.firstName || ""}
-                          placeholder="John"
-                          className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                        <StandardInput 
+                          id="firstName" 
+                          name="firstName" 
+                          defaultValue={editingClient?.firstName || ""} 
+                          placeholder="John" 
+                          className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
                           onValueChange={() => {}}
                         />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="lastName" className="font-black uppercase tracking-widest text-[10px] text-white">Last Name</Label>
-                        <StandardInput
-                          id="lastName"
-                          name="lastName"
-                          defaultValue={editingClient?.lastName || ""}
-                          placeholder="Doe"
-                          className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                        <StandardInput 
+                          id="lastName" 
+                          name="lastName" 
+                          defaultValue={editingClient?.lastName || ""} 
+                          placeholder="Doe" 
+                          className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
                           onValueChange={() => {}}
                         />
                       </div>
@@ -1306,9 +1248,9 @@ export default function Clients() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="clientTypeId" className="font-black uppercase tracking-widest text-[10px] text-white">Client Type</Label>
-                      <Select
-                        value={formClientTypeId}
-                        onValueChange={setFormClientTypeId}
+                      <Select 
+                        value={formClientTypeId} 
+                        onValueChange={setFormClientTypeId} 
                         required
                       >
                         <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12">
@@ -1326,12 +1268,12 @@ export default function Clients() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="contactPerson" className="font-black uppercase tracking-widest text-[10px] text-white">Contact Person (Optional)</Label>
-                      <StandardInput
-                        id="contactPerson"
-                        name="contactPerson"
-                        defaultValue={editingClient?.contactPerson || ""}
-                        placeholder="Jane Smith"
-                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                      <StandardInput 
+                        id="contactPerson" 
+                        name="contactPerson" 
+                        defaultValue={editingClient?.contactPerson || ""} 
+                        placeholder="Jane Smith" 
+                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
                         onValueChange={() => {}}
                       />
                     </div>
@@ -1339,32 +1281,33 @@ export default function Clients() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="phone" className="font-black uppercase tracking-widest text-[10px] text-white">Phone Number</Label>
-                      <Input
-                        id="phone"
-                        name="phone"
-                        placeholder="(555) 000-0000"
-                        value={clientPhoneInput}
-                        onChange={(e) => handleClientPhoneChange(e.target.value)}
-                        required
+                      <StandardInput 
+                        id="phone" 
+                        name="phone" 
+                        variant="phone"
+                        placeholder="(555) 000-0000" 
+                        defaultValue={editingClient?.phone || ""}
+                        required 
+                        onValueChange={() => {}}
                         className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="email" className="font-black uppercase tracking-widest text-[10px] text-white">Email Address</Label>
-                      <StandardInput
-                        id="email"
-                        name="email"
+                      <StandardInput 
+                        id="email" 
+                        name="email" 
                         variant="email"
-                        defaultValue={editingClient?.email || ""}
-                        placeholder="client@example.com"
+                        defaultValue={editingClient?.email || ""} 
+                        placeholder="client@example.com" 
                         onValueChange={() => {}}
-                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
+                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12" 
                       />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="address" className="font-black uppercase tracking-widest text-[10px] text-white">Address</Label>
-                    <AddressInput
+                    <AddressInput 
                       defaultValue={editingClient?.address || ""}
                       onAddressSelect={(address, lat, lng) => setNewClientAddress({ address, lat, lng })}
                       placeholder="123 Main St, City, ST"
@@ -1394,44 +1337,6 @@ export default function Clients() {
                       </Select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="lastServiceDate" className="font-black uppercase tracking-widest text-[10px] text-white">Last Service Date</Label>
-                      <Input
-                        id="lastServiceDate"
-                        name="lastServiceDate"
-                        type="date"
-                        defaultValue={editingClient?.lastServiceDate || ""}
-                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="serviceHistoryNotes" className="font-black uppercase tracking-widest text-[10px] text-white">Service(s) Received</Label>
-                      <Input
-                        id="serviceHistoryNotes"
-                        name="serviceHistoryNotes"
-                        defaultValue={editingClient?.serviceHistoryNotes || ""}
-                        placeholder="Wash, interior detail, ceramic coating"
-                        className="bg-white/5 border-white/10 text-white font-bold rounded-xl h-12"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <div>
-                        <Label className="font-black text-[10px] uppercase tracking-widest text-white">Client SMS</Label>
-                        <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mt-1">Individual communications</p>
-                      </div>
-                      <Switch name="smsEnabled" defaultChecked={editingClient?.smsEnabled !== false} />
-                    </div>
-                    <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <div>
-                        <Label className="font-black text-[10px] uppercase tracking-widest text-white">Client Email</Label>
-                        <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mt-1">Individual notifications</p>
-                      </div>
-                      <Switch name="emailEnabled" defaultChecked={editingClient?.emailEnabled !== false} />
-                    </div>
-                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="notes" className="font-black uppercase tracking-widest text-[10px] text-white">Internal Notes</Label>
                     <Textarea id="notes" name="notes" defaultValue={editingClient?.notes || ""} placeholder="Any special instructions..." className="bg-white/5 border-white/10 text-white rounded-xl min-h-[100px]" />
@@ -1451,8 +1356,8 @@ export default function Clients() {
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div className="relative flex-1 max-w-xl">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white" />
-              <Input
-                placeholder="Search registry by name, phone, or vehicle..."
+              <Input 
+                placeholder="Search registry by name, phone, or vehicle..." 
                 className="pl-12 bg-white/5 border-white/10 text-white font-bold rounded-2xl h-14 focus:ring-primary/50"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -1517,8 +1422,8 @@ export default function Clients() {
                 filteredClients.map((client) => {
                   const type = clientTypes.find(t => t.id === client.clientTypeId);
                   return (
-                    <TableRow
-                      key={client.id}
+                    <TableRow 
+                      key={client.id} 
                       className="border-border hover:bg-white/5 transition-all duration-300 cursor-pointer group"
                       onClick={() => {
                         setSelectedClient(client);
@@ -1540,7 +1445,23 @@ export default function Clients() {
                                 </Badge>
                               )}
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
-                              {renderRiskBadge(client.riskLevel)}
+                              {(() => {
+                                const risk = client.riskLevel;
+                                if (!risk) return null;
+                                return (
+                                  <Badge 
+                                    variant="outline" 
+                                    className={cn(
+                                      "text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest border-none ml-1",
+                                      risk === "high" ? "bg-red-500/20 text-red-500" :
+                                      risk === "medium" ? "bg-orange-500/20 text-orange-400" :
+                                      "bg-emerald-500/20 text-emerald-400"
+                                    )}
+                                  >
+                                    {risk}
+                                  </Badge>
+                                );
+                              })()}
                               {(() => {
                                 if (!searchTerm) return null;
                                 const matchingVehicle = allVehicles.find(v => {
@@ -1562,17 +1483,14 @@ export default function Clients() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={cn(
-                          "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full",
-                          getClientClassificationGlow(type, client.isVIP)
-                        )}>
+                        <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest bg-white/10 text-white/60 border-white/10 px-3 py-1 rounded-full">
                           {type?.name || "Unknown"}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-2">
-                          <a
-                            href={`tel:${client.phone}`}
+                          <a 
+                            href={`tel:${client.phone}`} 
                             className="flex items-center gap-2 text-xs font-black text-white/80 hover:text-primary transition-all duration-300 group/link"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -1580,8 +1498,8 @@ export default function Clients() {
                             {formatPhoneNumber(client.phone)}
                           </a>
                           {client.email && (
-                            <a
-                              href={`mailto:${client.email}`}
+                            <a 
+                              href={`mailto:${client.email}`} 
                               className="flex items-center gap-2 text-xs font-medium text-white/60 hover:text-white transition-all duration-300 group/link"
                               onClick={(e) => e.stopPropagation()}
                             >
@@ -1605,27 +1523,27 @@ export default function Clients() {
                       </TableCell>
                       <TableCell className="px-8 text-right">
                         <div className="flex items-center justify-end gap-3">
-                          <Button
-                            variant="ghost"
-                            size="icon"
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
                             className="h-10 w-10 text-white/70 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-300"
                             onClick={(e) => {
                               e.stopPropagation();
-                              toast.info("Opening booking for this client...");
-
+                              toast.success("Book Appointment Clicked");
+                              
                               document.body.style.pointerEvents = "";
                               document.body.style.overflow = "";
                               document.body.removeAttribute("data-scroll-locked");
-
+                              
                               navigate(`/book-appointment?clientId=${client.id}`);
                             }}
                             title="Book Appointment"
                           >
                             <Calendar className="w-4 h-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
                             className="h-10 w-10 text-white/70 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-300"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1645,9 +1563,9 @@ export default function Clients() {
                           </Button>
                           <DeleteConfirmationDialog
                             trigger={
-                              <Button
-                                variant="ghost"
-                                size="icon"
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
                                 className="h-10 w-10 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 transition-all duration-300 rounded-xl"
                                 onClick={(e) => e.stopPropagation()}
                               >
@@ -1668,8 +1586,8 @@ export default function Clients() {
           </Table>
           {!loading && hasMore && !searchTerm && (
             <div className="p-8 flex justify-center border-t border-white/5 bg-black/20">
-              <Button
-                variant="outline"
+              <Button 
+                variant="outline" 
                 onClick={loadMoreClients}
                 className="bg-white/5 border-white/10 text-white hover:bg-white/10 rounded-xl px-10 h-14 font-black uppercase tracking-[0.2em] text-[11px] transition-all hover:scale-105"
               >
@@ -1683,28 +1601,28 @@ export default function Clients() {
       {/* Client Details Dialog */}
       {selectedClient && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-          <DialogContent className="max-w-[98vw] w-[98vw] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[96vh] flex flex-col">
+          <DialogContent className="sm:max-w-[900px] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[96vh] flex flex-col">
             <div className="bg-gradient-to-r from-primary via-primary/80 to-white/40 p-8 text-white shrink-0 relative overflow-hidden font-sans border-b border-white/10">
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-5"></div>
-
+              
               {/* WATERMARK LAYER */}
-              <div
+              <div 
                 className={cn(
                   "absolute inset-0 flex items-center pointer-events-none transition-all duration-700 z-0",
                   businessSettings?.watermarkSettings?.size === "full" ? "p-0" : "p-12",
                   businessSettings?.watermarkSettings?.position === "left" ? "justify-start text-left" :
                   businessSettings?.watermarkSettings?.position === "right" ? "justify-end text-right" : "justify-center text-center"
                 )}
-                style={{
-                  opacity: typeof businessSettings?.watermarkSettings?.opacity === 'number'
-                    ? businessSettings.watermarkSettings.opacity
-                    : 0.10
+                style={{ 
+                  opacity: typeof businessSettings?.watermarkSettings?.opacity === 'number' 
+                    ? businessSettings.watermarkSettings.opacity 
+                    : 0.10 
                 }}
               >
                 {businessSettings?.watermarkSettings?.logoUrl ? (
-                  <img
-                    src={businessSettings.watermarkSettings.logoUrl}
-                    alt="Watermark"
+                  <img 
+                    src={businessSettings.watermarkSettings.logoUrl} 
+                    alt="Watermark" 
                     className={cn(
                       "object-contain grayscale brightness-200 transition-all duration-700",
                       businessSettings.watermarkSettings.position === "left" ? "object-left" :
@@ -1716,7 +1634,7 @@ export default function Clients() {
                     )}
                   />
                 ) : (
-                  <h1
+                  <h1 
                     className={cn(
                       "font-black text-white italic tracking-tighter uppercase select-none transition-all duration-700 w-full",
                       businessSettings?.watermarkSettings?.size === "small" ? "text-[5vw]" :
@@ -1754,49 +1672,34 @@ export default function Clients() {
                 <div className="text-right flex flex-col items-end gap-4">
                   <div className="flex items-center gap-3 bg-black/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/10">
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">DETAIL</span>
-                    {renderRiskBadge(selectedClient.riskLevel)}
-                  </div>
-                  <div className="grid grid-cols-1 gap-1.5 min-w-[230px]">
-                    <div className={cn("flex items-center justify-between gap-3 bg-black/20 backdrop-blur-sm px-3 py-1.5 rounded-lg border", businessSettings?.communicationAutomation?.globalSmsEnabled === false ? "border-orange-500/30" : "border-white/10")}>
-                      <div className="text-left">
-                        <p className="text-[8px] font-black uppercase tracking-widest text-white">SMS Comms</p>
-                        <p className="text-[7px] font-bold uppercase tracking-widest text-white/50">
-                          {businessSettings?.communicationAutomation?.globalSmsEnabled === false ? "Globally Disabled" : selectedClient.smsEnabled === false ? "Client Opted Out" : "Enabled"}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={selectedClient.smsEnabled !== false}
-                        onCheckedChange={(val) => updateClient({ smsEnabled: val, smsConsent: val, updatedAt: serverTimestamp() as any })}
-                      />
-                    </div>
-                    <div className={cn("flex items-center justify-between gap-3 bg-black/20 backdrop-blur-sm px-3 py-1.5 rounded-lg border", businessSettings?.communicationAutomation?.globalEmailEnabled === false ? "border-orange-500/30" : "border-white/10")}>
-                      <div className="text-left">
-                        <p className="text-[8px] font-black uppercase tracking-widest text-white">Email Notices</p>
-                        <p className="text-[7px] font-bold uppercase tracking-widest text-white/50">
-                          {businessSettings?.communicationAutomation?.globalEmailEnabled === false ? "Globally Disabled" : selectedClient.emailEnabled === false ? "Client Opted Out" : "Enabled"}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={selectedClient.emailEnabled !== false}
-                        onCheckedChange={(val) => updateClient({ emailEnabled: val, updatedAt: serverTimestamp() as any })}
-                      />
-                    </div>
+                    {selectedClient.riskLevel && (
+                      <Badge 
+                        className={cn(
+                          "border-none font-black uppercase tracking-widest text-[9px] px-3 py-1 rounded-full shadow-lg",
+                          selectedClient.riskLevel === "high" ? "bg-red-500 text-white" :
+                          selectedClient.riskLevel === "medium" ? "bg-orange-500 text-white" :
+                          "bg-emerald-500 text-white"
+                        )}
+                      >
+                        {selectedClient.riskLevel} RISK
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex flex-col items-end">
                     <p className="text-4xl font-black tracking-tighter leading-none text-primary drop-shadow-sm">{selectedClient.loyaltyPoints || 0} <span className="text-sm uppercase tracking-widest opacity-100 ml-1 text-primary/60">Credits</span></p>
                     <div className="flex items-center gap-3 mt-4">
-                      <Button
-                        size="lg"
+                      <Button 
+                        size="lg" 
                         className="bg-primary text-white hover:bg-primary/90 font-black shadow-glow-blue rounded-2xl h-12 px-8 uppercase tracking-widest text-xs border border-white/20 transition-all hover:scale-105"
                         onClick={() => {
-                          toast.info("Opening booking for this client...");
+                          toast.success("Book Appointment Clicked");
                           setIsDetailOpen(false);
-
+                          
                           // Force absolute DOM reset immediately
                           document.body.style.pointerEvents = "";
                           document.body.style.overflow = "";
                           document.body.removeAttribute("data-scroll-locked");
-
+                          
                           navigate(`/book-appointment?clientId=${selectedClient.id}`);
                         }}
                       >
@@ -1846,7 +1749,7 @@ export default function Clients() {
                       <div>
                         <h3 className="text-lg font-black text-red-500 uppercase tracking-tighter">Critical Risk Profile Detected</h3>
                         <p className="text-xs text-white/70 font-medium mt-1 leading-relaxed">
-                          This client has been flagged as HEAVILY UNRELIABLE. Previous operations show pattern of NO-SHOWS or PAYMENT FAILURE.
+                          This client has been flagged as HEAVILY UNRELIABLE. Previous operations show pattern of NO-SHOWS or PAYMENT FAILURE. 
                           <strong className="text-red-400"> REQUIRED: ALWAYS COLLECT DEPOSIT BEFORE BOOKING.</strong>
                         </p>
                       </div>
@@ -1934,7 +1837,7 @@ export default function Clients() {
                                       item.status === "pending" || item.status === "sent" ? "bg-orange-500/10 border-orange-500/20 text-orange-400" :
                                       "bg-white/5 border-white/10 text-white/40"
                                     )}>
-                                      {(item as any).serviceNames ? <Calendar className="w-5 h-5" /> :
+                                      {(item as any).serviceNames ? <Calendar className="w-5 h-5" /> : 
                                        (item as any).formName ? <FileText className="w-5 h-5" /> :
                                        <Receipt className="w-5 h-5" />}
                                     </div>
@@ -1943,7 +1846,7 @@ export default function Clients() {
                                   <div className="flex-1 pt-1">
                                     <div className="flex justify-between items-start mb-1">
                                       <p className="text-xs font-black text-white uppercase tracking-tight">
-                                        {(item as any).serviceNames ? "Service Appointment" :
+                                        {(item as any).serviceNames ? "Service Appointment" : 
                                          (item as any).items ? "Financial Transaction" :
                                          (item as any).formName ? "Signed Document" : "Strategic Quote"}
                                       </p>
@@ -2041,8 +1944,8 @@ export default function Clients() {
                     <div className="space-y-6">
                       <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Business Entity</Label>
-                        <Input
-                          defaultValue={selectedClient.businessName}
+                        <Input 
+                          defaultValue={selectedClient.businessName} 
                           className="bg-black/40 border-white/10 text-white rounded-xl h-12 focus:ring-primary/50"
                           onBlur={(e) => updateClient({ businessName: e.target.value })}
                         />
@@ -2050,29 +1953,29 @@ export default function Clients() {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">First Name</Label>
-                          <Input
-                            defaultValue={selectedClient.firstName}
+                          <Input 
+                            defaultValue={selectedClient.firstName} 
                             className="bg-black/40 border-white/10 text-white rounded-xl h-12 focus:ring-primary/50"
                             onBlur={(e) => updateClient({ firstName: e.target.value })}
                           />
                         </div>
                         <div className="space-y-2">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Last Name</Label>
-                          <Input
-                            defaultValue={selectedClient.lastName}
+                          <Input 
+                            defaultValue={selectedClient.lastName} 
                             className="bg-black/40 border-white/10 text-white rounded-xl h-12 focus:ring-primary/50"
                             onBlur={(e) => updateClient({ lastName: e.target.value })}
                           />
                         </div>
                       </div>
-                      <ClientAddressesManager
+                      <ClientAddressesManager 
                         client={selectedClient}
                         onUpdate={(updates) => updateClient(updates)}
                       />
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Client Classification</Label>
-                          <Select
+                          <Select 
                             key={selectedClient.clientTypeId}
                             defaultValue={selectedClient.clientTypeId}
                             onValueChange={(val) => updateClient({ clientTypeId: val })}
@@ -2091,7 +1994,7 @@ export default function Clients() {
                         </div>
                         <div className="space-y-2">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Membership Tier</Label>
-                          <Select
+                          <Select 
                             defaultValue={selectedClient.membershipLevel}
                             onValueChange={(val: any) => updateClient({ membershipLevel: val })}
                           >
@@ -2118,18 +2021,18 @@ export default function Clients() {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {categories.map(cat => (
-                          <Badge
-                            key={cat.id}
+                          <Badge 
+                            key={cat.id} 
                             variant={selectedClient.categoryIds?.includes(cat.id) ? "default" : "outline"}
                             className={cn(
                               "cursor-pointer px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all duration-300",
-                              selectedClient.categoryIds?.includes(cat.id)
-                                ? "bg-primary text-white border-primary shadow-glow-blue"
+                              selectedClient.categoryIds?.includes(cat.id) 
+                                ? "bg-primary text-white border-primary shadow-glow-blue" 
                                 : "bg-transparent text-white/40 border-white/10 hover:border-white/20 hover:text-white"
                             )}
                             onClick={() => {
                               const current = selectedClient.categoryIds || [];
-                              const next = current.includes(cat.id)
+                              const next = current.includes(cat.id) 
                                 ? current.filter(id => id !== cat.id)
                                 : [...current, cat.id];
                               updateClient({ categoryIds: next });
@@ -2139,40 +2042,13 @@ export default function Clients() {
                           </Badge>
                         ))}
                       </div>
-                      </div>
                     </div>
+                  </div>
 
-                    <div className="space-y-6 p-5 bg-white/5 rounded-3xl border border-white/5">
-                      <div className="flex items-center gap-3">
-                        <History className="w-5 h-5 text-primary" />
-                        <Label className="text-lg font-black uppercase tracking-tighter text-white">Service History Seed</Label>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Last Service Date</Label>
-                          <Input
-                            type="date"
-                            defaultValue={selectedClient.lastServiceDate || ""}
-                            className="bg-black/40 border-white/10 text-white rounded-xl h-12"
-                            onBlur={(e) => updateClient({ lastServiceDate: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Service(s) Received</Label>
-                          <Input
-                            defaultValue={selectedClient.serviceHistoryNotes || ""}
-                            placeholder="Wash, interior detail, ceramic coating"
-                            className="bg-black/40 border-white/10 text-white rounded-xl h-12"
-                            onBlur={(e) => updateClient({ serviceHistoryNotes: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Internal Dossier / Notes</Label>
-                      <Textarea
-                      defaultValue={selectedClient.notes}
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Internal Dossier / Notes</Label>
+                    <Textarea 
+                      defaultValue={selectedClient.notes} 
                       className="bg-black/40 border-white/10 text-white rounded-xl min-h-[120px] focus:ring-primary/50"
                       onBlur={(e) => updateClient({ notes: e.target.value })}
                     />
@@ -2191,7 +2067,7 @@ export default function Clients() {
                             <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Priority care</p>
                           </div>
                         </div>
-                        <Switch
+                        <Switch 
                           checked={selectedClient.isVIP}
                           onCheckedChange={(val) => updateClient({ isVIP: val })}
                         />
@@ -2206,43 +2082,9 @@ export default function Clients() {
                             <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Single service</p>
                           </div>
                         </div>
-                        <Switch
+                        <Switch 
                           checked={selectedClient.isOneTime}
                           onCheckedChange={(val) => updateClient({ isOneTime: val })}
-                        />
-                      </div>
-                      <div className={cn("flex items-center justify-between p-5 bg-white/5 rounded-3xl border", businessSettings?.communicationAutomation?.globalSmsEnabled === false ? "border-orange-500/30" : "border-white/5")}>
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 bg-emerald-500/10 rounded-2xl flex items-center justify-center border border-emerald-500/20">
-                            <MessageSquare className="w-5 h-5 text-emerald-400" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-black text-white uppercase tracking-widest">SMS Communications</p>
-                            <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide">
-                              {businessSettings?.communicationAutomation?.globalSmsEnabled === false ? "Globally disabled" : selectedClient.smsEnabled === false ? "Client opted out" : "Client enabled"}
-                            </p>
-                          </div>
-                        </div>
-                        <Switch
-                          checked={selectedClient.smsEnabled !== false}
-                          onCheckedChange={(val) => updateClient({ smsEnabled: val, smsConsent: val, updatedAt: serverTimestamp() as any })}
-                        />
-                      </div>
-                      <div className={cn("flex items-center justify-between p-5 bg-white/5 rounded-3xl border", businessSettings?.communicationAutomation?.globalEmailEnabled === false ? "border-orange-500/30" : "border-white/5")}>
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/20">
-                            <Mail className="w-5 h-5 text-primary" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-black text-white uppercase tracking-widest">Email Notifications</p>
-                            <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide">
-                              {businessSettings?.communicationAutomation?.globalEmailEnabled === false ? "Globally disabled" : selectedClient.emailEnabled === false ? "Client opted out" : "Client enabled"}
-                            </p>
-                          </div>
-                        </div>
-                        <Switch
-                          checked={selectedClient.emailEnabled !== false}
-                          onCheckedChange={(val) => updateClient({ emailEnabled: val, updatedAt: serverTimestamp() as any })}
                         />
                       </div>
                     </div>
@@ -2278,7 +2120,7 @@ export default function Clients() {
                   {(() => {
                     const selectedClientType = clientTypes.find(t => t.id === selectedClient.clientTypeId);
                     const isCollisionCenter = selectedClientType?.slug === "collision_center";
-
+                    
                     return (
                       <>
                         <div className="flex justify-between items-center">
@@ -2294,9 +2136,9 @@ export default function Clients() {
                                 <DialogTitle className="font-black text-2xl tracking-tighter text-white uppercase">Register New Asset</DialogTitle>
                               </DialogHeader>
                               <div className="p-10">
-                                <AddVehicleForm
-                                  clientId={selectedClient.id}
-                                  isCollisionCenter={isCollisionCenter}
+                                <AddVehicleForm 
+                                  clientId={selectedClient.id} 
+                                  isCollisionCenter={isCollisionCenter} 
                                 />
                               </div>
                             </DialogContent>
@@ -2304,8 +2146,8 @@ export default function Clients() {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {clientVehicles.map(v => (
-                            <div
-                              key={v.id}
+                            <div 
+                              key={v.id} 
                               onClick={() => {
                                 setEditingVehicle(v);
                                 setIsEditVehicleOpen(true);
@@ -2371,7 +2213,7 @@ export default function Clients() {
                                   </AlertDialogHeader>
                                   <AlertDialogFooter className="gap-3">
                                     <AlertDialogCancel onClick={(e) => e.stopPropagation()} className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold uppercase tracking-widest text-[10px]">Cancel</AlertDialogCancel>
-                                    <AlertDialogAction
+                                    <AlertDialogAction 
                                       onClick={async (e) => {
                                         e.stopPropagation();
                                         await deleteDoc(doc(db, "vehicles", v.id));
@@ -2396,7 +2238,7 @@ export default function Clients() {
                             </DialogHeader>
                             <div className="p-10">
                               {editingVehicle && (
-                                <form
+                                <form 
                                   onSubmit={async (e) => {
                                     e.preventDefault();
                                     const formData = new FormData(e.currentTarget);
@@ -2492,17 +2334,17 @@ export default function Clients() {
                 <TabsContent value="appointments" className="mt-0 space-y-8 outline-none">
                   <div className="flex justify-between items-center">
                     <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Service <span className="text-primary italic">History</span></h3>
-                    <Button
-                      size="sm"
+                    <Button 
+                      size="sm" 
                       className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue"
                       onClick={() => {
-                        toast.info("Opening booking for this client...");
+                        toast.success("Book Appointment Clicked");
                         setIsDetailOpen(false);
-
+                        
                         document.body.style.pointerEvents = "";
                         document.body.style.overflow = "";
                         document.body.removeAttribute("data-scroll-locked");
-
+                        
                         navigate(`/book-appointment?clientId=${selectedClient.id}`);
                       }}
                     >
@@ -2549,9 +2391,9 @@ export default function Clients() {
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
-                            <Button
-                              variant="ghost"
-                              size="icon"
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
                               className="h-10 w-10 text-white/70 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-300"
                               onClick={() => navigate("/calendar", { state: { editingAppointmentId: app.id } })}
                             >
@@ -2559,9 +2401,9 @@ export default function Clients() {
                             </Button>
                             <DeleteConfirmationDialog
                               trigger={
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
                                   className="h-10 w-10 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 rounded-xl transition-all duration-300"
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -2601,9 +2443,9 @@ export default function Clients() {
                             <div className="space-y-6">
                               <div className="flex justify-between items-center">
                                 <p className="text-xs font-bold text-white/60 uppercase tracking-widest">Custom Collision Service Pricing</p>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
                                   className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl h-10 px-4 font-black uppercase tracking-widest text-[9px]"
                                   onClick={() => {
                                     const current = selectedClient.vipSettings?.customCollisionServices || [];
@@ -2627,7 +2469,7 @@ export default function Clients() {
                                     <div className="flex justify-between items-start gap-4">
                                       <div className="flex-1 space-y-2">
                                         <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Service Name</Label>
-                                        <Input
+                                        <Input 
                                           value={service.name}
                                           className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold"
                                           onChange={(e) => {
@@ -2642,9 +2484,9 @@ export default function Clients() {
                                           }}
                                         />
                                       </div>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
+                                      <Button 
+                                        variant="ghost" 
+                                        size="icon" 
                                         className="h-10 w-10 text-white hover:text-red-500 hover:bg-red-500/20 bg-white/5 rounded-xl mt-6 transition-all duration-300"
                                         onClick={() => {
                                           const next = (selectedClient.vipSettings?.customCollisionServices || []).filter((_, i) => i !== idx);
@@ -2661,7 +2503,7 @@ export default function Clients() {
                                     </div>
                                     <div className="space-y-2">
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Fixed VIP Rate</Label>
-                                      <NumberInput
+                                      <NumberInput 
                                         value={service.price}
                                         onValueChange={(val) => {
                                           const next = [...(selectedClient.vipSettings?.customCollisionServices || [])];
@@ -2687,7 +2529,7 @@ export default function Clients() {
                                       <p className="text-sm font-black text-white uppercase tracking-tight">No Custom Services Defined</p>
                                       <p className="text-xs text-white/40 font-medium">Add custom service names and prices specifically for this collision center.</p>
                                     </div>
-                                    <Button
+                                    <Button 
                                       onClick={() => {
                                         updateClient({
                                           vipSettings: {
@@ -2713,7 +2555,7 @@ export default function Clients() {
                                     <div key={service.id} className="p-4 bg-black/40 rounded-2xl border border-white/5 flex flex-col gap-3">
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 truncate">{service.name}</Label>
                                       <div className="relative">
-                                        <NumberInput
+                                        <NumberInput 
                                           placeholder={service.basePrice?.toString()}
                                           className="bg-white/5 border-white/10 text-white rounded-xl h-10"
                                           value={selectedClient.vipSettings?.customServicePricing?.[service.id]}
@@ -2722,7 +2564,7 @@ export default function Clients() {
                                             const nextPricing = { ...currentPricing };
                                             if (val === 0) delete nextPricing[service.id];
                                             else nextPricing[service.id] = val;
-
+                                            
                                             updateClient({
                                               vipSettings: {
                                                 ...selectedClient.vipSettings,
@@ -2755,7 +2597,7 @@ export default function Clients() {
                                               <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 truncate">{service.name}</Label>
                                               <div className="relative">
                                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 font-bold">$</span>
-                                                <Input
+                                                <Input 
                                                   type="number"
                                                   placeholder={(selectedClient.vipSettings?.customServicePricing?.[service.id] || service.basePrice)?.toString()}
                                                   className="pl-7 bg-white/5 border-white/10 text-white rounded-xl h-10"
@@ -2764,12 +2606,12 @@ export default function Clients() {
                                                     const val = e.target.value ? parseFloat(e.target.value) : undefined;
                                                     const currentVehiclePricing = selectedClient.vipSettings?.vipVehiclePricing || {};
                                                     const nextVehiclePricing = { ...currentVehiclePricing };
-
+                                                    
                                                     if (!nextVehiclePricing[vehicle.id]) nextVehiclePricing[vehicle.id] = {};
-
+                                                    
                                                     if (val === undefined) delete nextVehiclePricing[vehicle.id][service.id];
                                                     else nextVehiclePricing[vehicle.id][service.id] = val;
-
+                                                    
                                                     updateClient({
                                                       vipSettings: {
                                                         ...selectedClient.vipSettings,
@@ -2801,8 +2643,8 @@ export default function Clients() {
                       <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Financial <span className="text-primary italic">Ledger</span></h3>
                       <AlertDialog>
                         <AlertDialogTrigger render={
-                          <Button
-                            variant="outline"
+                          <Button 
+                            variant="outline" 
                             className="bg-red-500/5 border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] transition-all duration-300"
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
@@ -2818,7 +2660,7 @@ export default function Clients() {
                           </AlertDialogHeader>
                           <AlertDialogFooter className="gap-3">
                             <AlertDialogCancel className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold uppercase tracking-widest text-[10px]">Cancel</AlertDialogCancel>
-                            <AlertDialogAction
+                            <AlertDialogAction 
                               onClick={() => handleDeleteClient(selectedClient.id)}
                               className="bg-red-600 hover:bg-red-700 text-white rounded-xl h-12 px-8 font-black uppercase tracking-widest text-[10px] shadow-glow-red transition-all hover:scale-105"
                             >
@@ -2828,7 +2670,7 @@ export default function Clients() {
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
-
+                    
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="p-4 bg-white/5 rounded-3xl border border-white/5">
                         <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Lifetime Value</p>
@@ -2879,9 +2721,9 @@ export default function Clients() {
                                     {inv.status}
                                   </Badge>
                                 </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
                                   className="text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 rounded-xl h-8 px-3"
                                 >
                                   View
@@ -2926,9 +2768,9 @@ export default function Clients() {
                                     {q.status}
                                   </Badge>
                                 </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
                                   className="text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 rounded-xl h-8 px-3"
                                 >
                                   View
@@ -2952,8 +2794,8 @@ export default function Clients() {
                 <TabsContent value="forms" className="mt-0 space-y-8 outline-none">
                   <div className="flex justify-between items-center">
                     <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Document <span className="text-primary italic">Vault</span></h3>
-                    <Button
-                      size="sm"
+                    <Button 
+                      size="sm" 
                       className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105"
                       onClick={() => navigate("/forms-builder")}
                     >
@@ -2981,9 +2823,9 @@ export default function Clients() {
                                 </p>
                               </div>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
                               className="h-10 w-10 text-white hover:text-primary hover:bg-primary/5 rounded-xl border border-white/5"
                               onClick={() => {
                                 if (form.signatureUrl) window.open(form.signatureUrl, '_blank');
@@ -2992,7 +2834,7 @@ export default function Clients() {
                               <ExternalLink className="w-4 h-4" />
                             </Button>
                           </div>
-
+                          
                           {form.vehicleInfo && (
                             <div className="p-3 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between">
                               <div className="flex items-center gap-2">
@@ -3001,7 +2843,7 @@ export default function Clients() {
                               </div>
                             </div>
                           )}
-
+                          
                           <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-[0.2em] text-white/20">
                             <span>ID: {form.id.slice(0, 8)}</span>
                             <span className="text-emerald-500/60 flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3" /> Legally Bound</span>
@@ -3016,23 +2858,23 @@ export default function Clients() {
                   <div className="flex justify-between items-center">
                     <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">Asset <span className="text-primary italic">Gallery</span></h3>
                     <div className="flex gap-2">
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        className="hidden"
-                        accept="image/*"
-                        onChange={(e) => handleGalleryUpload(e, false)}
+                      <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        className="hidden" 
+                        accept="image/*" 
+                        onChange={(e) => handleGalleryUpload(e, false)} 
                       />
-                      <input
-                        type="file"
-                        ref={cameraInputRef}
-                        className="hidden"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={(e) => handleGalleryUpload(e, true)}
+                      <input 
+                        type="file" 
+                        ref={cameraInputRef} 
+                        className="hidden" 
+                        accept="image/*" 
+                        capture="environment" 
+                        onChange={(e) => handleGalleryUpload(e, true)} 
                       />
-                      <Button
-                        size="sm"
+                      <Button 
+                        size="sm" 
                         disabled={isUploading}
                         onClick={() => cameraInputRef.current?.click()}
                         className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-105"
@@ -3046,9 +2888,9 @@ export default function Clients() {
                     {/* Gallery Photos */}
                     {selectedClient.gallery?.map((url, index) => (
                       <div key={`${url}-${index}`} className="aspect-square bg-white/5 rounded-2xl border border-white/5 overflow-hidden group relative">
-                        <img
-                          src={url}
-                          alt={`Gallery ${index}`}
+                        <img 
+                          src={url} 
+                          alt={`Gallery ${index}`} 
                           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                           referrerPolicy="no-referrer"
                         />
@@ -3067,8 +2909,8 @@ export default function Clients() {
                         </div>
                       </div>
                     ))}
-
-                    <div
+                    
+                    <div 
                       onClick={() => !isUploading && fileInputRef.current?.click()}
                       className={cn(
                         "aspect-square bg-white/5 rounded-2xl border border-white/5 border-dashed flex flex-col items-center justify-center text-white/20 group/add-photo cursor-pointer hover:bg-white/[0.08] hover:border-white/10 transition-all duration-300",
@@ -3090,7 +2932,7 @@ export default function Clients() {
                     <h3 className="text-xl font-black text-white uppercase tracking-tighter font-heading">
                       Service <span className="text-primary italic">Timing Engine</span>
                     </h3>
-
+                    
                     {serviceTiming.length === 0 ? (
                       <div className="text-center py-20 bg-white/5 rounded-3xl border border-white/5">
                         <Clock className="w-12 h-12 text-white/20 mx-auto mb-4" />
@@ -3109,7 +2951,7 @@ export default function Clients() {
                                 </span>
                               )}
                             </div>
-
+                            
                             <div className="flex flex-col md:items-end gap-1">
                               <div className="flex items-center gap-3">
                                 <span className="text-[10px] tracking-widest uppercase text-white/40">Last Done:</span>
@@ -3124,7 +2966,7 @@ export default function Clients() {
                                 </span>
                               </div>
                             </div>
-
+                            
                             <div>
                               <Badge className={cn(
                                 "text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-xl",
@@ -3145,7 +2987,7 @@ export default function Clients() {
                 </TabsContent>
 
                 <TabsContent value="strategy" className="mt-0 outline-none">
-                  <ClientAIStrategy
+                  <ClientAIStrategy 
                     client={selectedClient}
                     appointments={clientHistory}
                     invoices={clientInvoices}
@@ -3156,7 +2998,7 @@ export default function Clients() {
                 </TabsContent>
 
                 <TabsContent value="comms" className="mt-0 outline-none">
-                  <ClientCommunication client={selectedClient} communicationSettings={businessSettings?.communicationAutomation} />
+                  <ClientCommunication client={selectedClient} />
                 </TabsContent>
               </div>
             </Tabs>

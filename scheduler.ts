@@ -14,31 +14,11 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
   twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 }
 
-function normalizeSmsPhoneNumber(value: unknown): string | null {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-
-  const digits = raw.replace(/\D/g, "");
-  if (raw.startsWith("+")) {
-    const normalized = `+${digits}`;
-    return /^\+[1-9]\d{7,14}$/.test(normalized) ? normalized : null;
-  }
-
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-
-  return null;
-}
-
-function maskPhoneNumber(value: string): string {
-  return value.replace(/\d(?=\d{4})/g, "*");
-}
-
-const twilioPhone = normalizeSmsPhoneNumber(process.env.TWILIO_PHONE_NUMBER);
+const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
 
 export function startScheduler() {
   if (!twilioClient || !twilioPhone) {
-    console.warn("Scheduler: Twilio is not configured correctly. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER. Reminders will not be sent.");
+    console.warn("Scheduler: Twilio is not configured. Reminders will not be sent.");
     return;
   }
 
@@ -166,29 +146,11 @@ async function sendSmsAndLog(db: any, job: any, appointmentId: string, type: str
     return { status: "failed", error: "No customer phone" };
   }
 
-  const toPhone = normalizeSmsPhoneNumber(job.customerPhone);
-  if (!toPhone) {
-    const errMsg = "Invalid customer phone number. Use E.164 format or a 10-digit US number.";
-    console.error(`SMS Failed for appt ${appointmentId}:`, errMsg, { customerPhone: job.customerPhone });
-    await logCommunication(db, job.clientId || null, appointmentId, type, message, "failed", errMsg, job.scheduledAt);
-    return { status: "failed", error: errMsg };
-  }
-
   try {
-    console.info(`Scheduler sending ${type} SMS`, {
-      appointmentId,
-      to: maskPhoneNumber(toPhone)
-    });
     const twilioRes = await twilioClient.messages.create({
       body: message,
       from: twilioPhone,
-      to: toPhone,
-    });
-    console.info(`Scheduler sent ${type} SMS`, {
-      appointmentId,
-      to: maskPhoneNumber(toPhone),
-      messageId: twilioRes.sid,
-      status: twilioRes.status
+      to: job.customerPhone,
     });
     await logCommunication(db, job.clientId || null, appointmentId, type, message, "sent", twilioRes.sid, job.scheduledAt);
     return { status: "sent" };
@@ -197,12 +159,7 @@ async function sendSmsAndLog(db: any, job: any, appointmentId: string, type: str
       if (err.code === 30034) {
          errMsg = "Twilio blocked this message because A2P 10DLC registration is incomplete. (" + err.message + ")";
       }
-      console.error(`SMS Failed for appt ${appointmentId}:`, {
-        to: maskPhoneNumber(toPhone),
-        code: err.code,
-        status: err.status,
-        message: err.message
-      });
+      console.error(`SMS Failed for appt ${appointmentId}:`, err.message);
       await logCommunication(db, job.clientId || null, appointmentId, type, message, "failed", errMsg, job.scheduledAt);
       return { status: "failed", error: errMsg };
     }

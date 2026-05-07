@@ -1,12 +1,10 @@
 import { Invoice } from "../types";
 
-export type PaymentProvider = "stripe" | "square" | "paypal";
+export type PaymentProvider = "stripe" | "square" | "paypal" | "clover";
 
 export interface PaymentResult {
   success: boolean;
   transactionId?: string;
-  checkoutUrl?: string;
-  sessionId?: string;
   error?: string;
 }
 
@@ -17,7 +15,7 @@ export interface PaymentProviderConfig {
 
 /**
  * Modular Payment Service Layer
- * Supports Stripe, Square, and PayPal
+ * Supports Stripe, Square, PayPal, and Clover
  */
 class PaymentService {
   private static instance: PaymentService;
@@ -55,6 +53,8 @@ class PaymentService {
           return await this.processSquare(invoice, config);
         case "paypal":
           return await this.processPayPal(invoice, config);
+        case "clover":
+          return await this.processClover(invoice, config);
         default:
           return { success: false, error: "Unsupported payment provider." };
       }
@@ -101,37 +101,7 @@ class PaymentService {
   }
 
   private async processStripe(invoice: Invoice, config: any): Promise<PaymentResult> {
-    try {
-      const response = await fetch("/api/payments/stripe/invoice-checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoiceId: invoice.id,
-          appointmentId: (invoice as any).appointmentId,
-          amount: invoice.total,
-          invoiceNumber: (invoice as any).invoiceNumber,
-          clientName: (invoice as any).clientName,
-          clientEmail: (invoice as any).clientEmail,
-          vehicleInfo: (invoice as any).vehicleInfo
-        })
-      });
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok || !data?.url) {
-        return { success: false, error: data?.error || "Unable to start Stripe checkout." };
-      }
-
-      return {
-        success: false,
-        checkoutUrl: data.url,
-        sessionId: data.sessionId,
-        transactionId: data.sessionId
-      };
-    } catch (error) {
-      console.error("Stripe checkout error:", error);
-      return { success: false, error: "Unable to start Stripe checkout." };
-    }
+    return { success: false, error: "Payment system not configured" };
   }
 
   private async processSquare(invoice: Invoice, config: any): Promise<PaymentResult> {
@@ -140,6 +110,26 @@ class PaymentService {
 
   private async processPayPal(invoice: Invoice, config: any): Promise<PaymentResult> {
     return { success: false, error: "Payment system not configured" };
+  }
+
+  private async processClover(invoice: Invoice, config: any): Promise<PaymentResult> {
+    try {
+      const response = await fetch("/api/payments/clover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: invoice.total, invoiceId: invoice.id })
+      });
+
+      if (!response.ok) {
+        throw new Error("Clover payment failed.");
+      }
+
+      const data = await response.json();
+      return { success: true, transactionId: data.transactionId };
+    } catch (error) {
+      console.error("Clover payment error:", error);
+      return { success: false, error: "Clover payment failed." };
+    }
   }
 }
 

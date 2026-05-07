@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, deleteDoc, getDocs, addDoc, arrayUnion, deleteField, limit } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
@@ -53,7 +53,6 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn, cleanAddress, formatCurrency, getClientDisplayName, formatPhoneNumber } from "@/lib/utils";
-import { buildInvoiceEmail, buildInvoicePaymentUrl } from "@/lib/invoiceEmail";
 import { StandardInput } from "../components/StandardInput";
 import { CustomFeesEditor } from "../components/CustomFeesEditor";
 import { CustomFee, Service, AddOn, ServiceSelection } from "../types";
@@ -148,8 +147,6 @@ export default function JobDetail() {
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [jobNotesDraft, setJobNotesDraft] = useState("");
-  const [isSavingJobNotes, setIsSavingJobNotes] = useState(false);
   const [decodedVin, setDecodedVin] = useState<any>(null);
   const [showInvoice, setShowInvoice] = useState(false);
   const [showSignature, setShowSignature] = useState(false);
@@ -180,8 +177,6 @@ export default function JobDetail() {
   const assessmentImages = activeVehicleId ? (vehicleStates[activeVehicleId]?.images || []) : [];
   const revenueProtocol = activeVehicleId ? (vehicleStates[activeVehicleId]?.protocol || null) : null;
   const recommendations = activeVehicleId ? (vehicleStates[activeVehicleId]?.recommendations || []) : [];
-  const uploadAssessmentInputRef = useRef<HTMLInputElement>(null);
-  const cameraAssessmentInputRef = useRef<HTMLInputElement>(null);
 
   const updateVehicleState = (updater: (prev: any) => any) => {
     if (!activeVehicleId) return;
@@ -268,20 +263,6 @@ export default function JobDetail() {
   const [showManualSmsDialog, setShowManualSmsDialog] = useState(false);
   const [manualSmsBody, setManualSmsBody] = useState("");
   const [selectedSmsTemplate, setSelectedSmsTemplate] = useState("custom");
-
-  const getDepositCredit = (record: any) => {
-    if (!record?.depositPaid) return 0;
-    const total = Number(record.totalAmount || record.total || 0);
-    const deposit = Number(record.depositAmount || 0);
-    if (!Number.isFinite(deposit) || deposit <= 0) return 0;
-    return Math.min(deposit, Number.isFinite(total) && total > 0 ? total : deposit);
-  };
-
-  const getInvoiceBalanceDue = (invoice: any) => {
-    const total = Number(invoice?.total || 0);
-    const amountPaid = Number(invoice?.amountPaid || 0);
-    return Math.max(total - amountPaid, 0);
-  };
 
   useEffect(() => {
     // Services and Addons are loaded globally via useAuth contexts
@@ -910,7 +891,6 @@ export default function JobDetail() {
 
       const unacceptedBundles = job.unacceptedBundles || [];
       const invoiceVehicleInfo = job.vehicleInfo || "";
-      const depositCredit = getDepositCredit(job);
 
       const invoiceData = {
         clientId: job.clientId || job.customerId,
@@ -939,12 +919,9 @@ export default function JobDetail() {
         travelFeeAmount: job.travelFee || 0,
         afterHoursFeeAmount: job.afterHoursRecord?.afterHoursFee || 0,
         total: job.totalAmount || 0,
-        amountPaid: depositCredit,
+        amountPaid: 0,
         status: "pending",
-        paymentStatus: depositCredit > 0 ? "partial" : "unpaid",
-        depositAmount: job.depositAmount || 0,
-        depositPaid: Boolean(job.depositPaid),
-        depositPaymentProvider: job.depositPaymentProvider || null,
+        paymentStatus: "unpaid",
         createdAt: serverTimestamp(),
         invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
         description: job.internalNotes || `Generated from Job #${id?.slice(-6).toUpperCase()}`,
@@ -960,11 +937,10 @@ export default function JobDetail() {
 
       // Auto-send Invoice SMS
       if (invoiceData.clientPhone) {
-        const balanceDue = getInvoiceBalanceDue(invoiceData);
         const smsData = {
           clientName: invoiceData.clientName || "Customer",
           businessName: businessSettings?.businessName || "DetailFlow",
-          invoiceAmount: formatCurrency(balanceDue),
+          invoiceAmount: formatCurrency(invoiceData.total || 0),
           invoiceLink: window.location.origin + "/public-invoice/" + docRef.id,
           paymentLink: window.location.origin + "/public-invoice/" + docRef.id + "/pay"
         };
@@ -1001,24 +977,24 @@ export default function JobDetail() {
   const handleIntegratedPayment = async (invoice: any) => {
     if (!invoice) return;
     
-    const activeProvider: PaymentProvider = "stripe";
+    // Check if integratons are loaded
+    if (!integrationSettings) {
+      toast.error("Loading payment configuration...");
+      return;
+    }
+
+    const integrations = integrationSettings?.paymentIntegrations || {};
+    const providers: PaymentProvider[] = ["clover", "stripe", "square", "paypal"];
+    const activeProvider = providers.find(p => integrations[p]?.enabled);
+    
+    if (!activeProvider) {
+      toast.error("Digital payment provider not configured in settings.");
+      return;
+    }
     
     try {
       toast.loading(`Initializing ${activeProvider}...`, { id: "payment" });
-      const balanceDue = getInvoiceBalanceDue(invoice);
-      if (balanceDue <= 0) {
-        toast.success("Invoice already paid by deposit.", { id: "payment" });
-        setIsPaymentSelectionOpen(false);
-        return;
-      }
-
-      const result = await paymentService.processPayment({ ...invoice, total: balanceDue }, activeProvider, { enabled: true });
-
-      if (result.checkoutUrl) {
-        toast.success("Redirecting to Stripe checkout...", { id: "payment" });
-        window.location.assign(result.checkoutUrl);
-        return;
-      }
+      const result = await paymentService.processPayment(invoice, activeProvider, integrations[activeProvider]);
       
       if (result.success) {
         const invoiceRef = doc(db, "invoices", invoice.id);
@@ -1026,14 +1002,12 @@ export default function JobDetail() {
           action: "paid",
           timestamp: serverTimestamp(),
           method: "integrated",
-          provider: activeProvider,
-          amount: balanceDue
+          provider: activeProvider
         };
         const updateData = {
           status: "paid",
           paidAt: serverTimestamp(),
           paymentStatus: "paid",
-          amountPaid: Number(invoice.total || 0),
           paymentProvider: activeProvider,
           transactionReference: result.transactionId || "integrated-payment",
           paymentHistory: arrayUnion(paymentHistoryEntry)
@@ -1066,19 +1040,16 @@ export default function JobDetail() {
     try {
       toast.loading(`Recording ${method} payment...`, { id: "payment" });
       const invoiceRef = doc(db, "invoices", invoice.id);
-      const balanceDue = getInvoiceBalanceDue(invoice);
       const paymentHistoryEntry = {
         action: "paid",
         timestamp: serverTimestamp(),
         method: method,
-        provider: "manual",
-        amount: balanceDue
+        provider: "manual"
       };
       const updateData = {
         status: "paid",
         paidAt: serverTimestamp(),
         paymentStatus: "paid",
-        amountPaid: Number(invoice.total || 0),
         paymentProvider: "manual",
         paymentMethodDetails: method,
         paymentHistory: arrayUnion(paymentHistoryEntry)
@@ -1108,19 +1079,16 @@ export default function JobDetail() {
     try {
       toast.loading("Processing payment...", { id: "payment" });
       const invoiceRef = doc(db, "invoices", invoice.id);
-      const balanceDue = getInvoiceBalanceDue(invoice);
       const paymentHistoryEntry = {
         action: "paid",
         timestamp: serverTimestamp(),
         method: "Admin Override",
-        provider: "manual",
-        amount: balanceDue
+        provider: "manual"
       };
       await updateDoc(invoiceRef, {
         status: "paid",
         paidAt: serverTimestamp(),
         paymentStatus: "paid",
-        amountPaid: Number(invoice.total || 0),
         paymentProvider: "manual",
         paymentHistory: arrayUnion(paymentHistoryEntry)
       });
@@ -1128,7 +1096,6 @@ export default function JobDetail() {
         ...prev, 
         status: "paid", 
         paymentStatus: "paid", 
-        amountPaid: Number(invoice.total || 0),
         paymentProvider: "manual",
         paymentHistory: [...(prev.paymentHistory || []), { ...paymentHistoryEntry, timestamp: new Date() }]
       } : null);
@@ -1193,7 +1160,6 @@ export default function JobDetail() {
     try {
       toast.loading("Undoing payment...", { id: "payment-undo" });
       const invoiceRef = doc(db, "invoices", invoice.id);
-      const depositCredit = getDepositCredit(invoice);
       
       const paymentHistoryEntry = {
         action: "undone",
@@ -1203,8 +1169,7 @@ export default function JobDetail() {
 
       const updateData = {
         status: "pending",
-        paymentStatus: depositCredit > 0 ? "partial" : "unpaid",
-        amountPaid: depositCredit,
+        paymentStatus: "unpaid",
         paymentProvider: deleteField(),
         paymentMethodDetails: deleteField(),
         paidAt: deleteField(),
@@ -1218,8 +1183,7 @@ export default function JobDetail() {
         if (!prev) return null;
         let newState = { ...prev };
         newState.status = "pending";
-        newState.paymentStatus = depositCredit > 0 ? "partial" : "unpaid";
-        newState.amountPaid = depositCredit;
+        newState.paymentStatus = "unpaid";
         delete newState.paymentProvider;
         delete newState.paymentMethodDetails;
         delete newState.paidAt;
@@ -1610,7 +1574,7 @@ export default function JobDetail() {
             clientId: clientData.id,
             amount: feeToCharge,
             description: `Cancellation/No-Show Fee for Job ${id}`,
-            provider: "stripe"
+            provider: bSettings?.activePaymentProvider || "stripe"
           });
 
           if (result.success) {
@@ -1728,7 +1692,6 @@ export default function JobDetail() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setJob({ id: docSnap.id, ...data });
-        setJobNotesDraft(data.notes || "");
         console.log("Selected deployment job loaded:", docSnap.id);
         setProductCosts(data.productCosts || []);
         setPricingAnalysis(data.pricingAnalysis || null);
@@ -2325,25 +2288,6 @@ export default function JobDetail() {
     }
   };
 
-  const handleSaveJobNotes = async () => {
-    if (!id || isSavingJobNotes) return;
-    setIsSavingJobNotes(true);
-    try {
-      const updateData = {
-        notes: jobNotesDraft,
-        updatedAt: serverTimestamp()
-      };
-      await updateDoc(doc(db, "appointments", id), updateData);
-      setJob(prev => ({ ...prev, ...updateData }));
-      toast.success("Job notes saved.");
-    } catch (error) {
-      console.error("Error saving job notes:", error);
-      toast.error("Failed to save job notes.");
-    } finally {
-      setIsSavingJobNotes(false);
-    }
-  };
-
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   const statusColors: any = {
@@ -2400,19 +2344,19 @@ export default function JobDetail() {
       </div>
 
       {/* Live Job Command Summary */}
-      <div className="sticky top-4 z-40 bg-black/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 shadow-2xl shadow-black flex flex-wrap lg:flex-nowrap items-start gap-5 justify-between animate-in slide-in-from-top-4 duration-500 overflow-hidden">
-        <div className="flex flex-wrap items-start gap-6 flex-1 min-w-0">
+      <div className="sticky top-4 z-40 bg-black/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 shadow-2xl shadow-black flex flex-wrap lg:flex-nowrap items-center gap-5 justify-between animate-in slide-in-from-top-4 duration-500 overflow-hidden">
+        <div className="flex flex-wrap items-center gap-6 flex-1 min-w-0">
           <div className="flex flex-col min-w-[160px] max-w-[240px] border-r border-white/5 pr-4 shrink-0">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Client Contact</span>
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
+            <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
+            <div className="flex items-center gap-2 mt-1">
               {job.customerPhone && (
-                <a href={`tel:${job.customerPhone}`} className="text-primary hover:text-red-400 transition-colors shrink-0">
+                <a href={`tel:${job.customerPhone}`} className="text-primary hover:text-red-400 transition-colors">
                   <Phone className="w-3 h-3" />
                 </a>
               )}
               {job.customerEmail && (
-                <a href={`mailto:${job.customerEmail}`} className="text-primary hover:text-red-400 transition-colors shrink-0">
+                <a href={`mailto:${job.customerEmail}`} className="text-primary hover:text-red-400 transition-colors">
                   <Mail className="w-3 h-3" />
                 </a>
               )}
@@ -2422,14 +2366,24 @@ export default function JobDetail() {
           <div className="flex flex-col min-w-[180px] max-w-[280px] border-r border-white/5 pr-4 shrink-0">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Vehicle Information</span>
             <div className="flex flex-col">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
-                  {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
-                </span>
+              <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
+                {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
+              </span>
+              <div className="flex items-center gap-3 mt-1">
+                {job.vin && (
+                  <span className="text-[8px] font-mono text-[#A0A0A0] bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
+                    VIN: {job.vin.slice(-8)}
+                  </span>
+                )}
+                {job.roNumber && (
+                  <span className="text-[8px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 uppercase tracking-tighter">
+                    RO: {job.roNumber}
+                  </span>
+                )}
                 <Dialog>
                   <DialogTrigger render={
-                    <Button variant="ghost" size="icon" className="h-4 w-4 text-primary transition-colors shrink-0">
-                      <Zap className="w-3 h-3 text-primary" />
+                    <Button variant="ghost" size="icon" className="h-4 w-4 text-white/20 hover:text-primary transition-colors">
+                      <Zap className="w-3 h-3" />
                     </Button>
                   } />
                   <DialogContent className="max-w-md bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] shadow-2xl p-0 overflow-hidden">
@@ -2506,18 +2460,6 @@ export default function JobDetail() {
                   </DialogContent>
                 </Dialog>
               </div>
-              <div className="flex items-center gap-3 mt-1">
-                {job.vin && (
-                  <span className="text-[8px] font-mono text-[#A0A0A0] bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
-                    VIN: {job.vin.slice(-8)}
-                  </span>
-                )}
-                {job.roNumber && (
-                  <span className="text-[8px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 uppercase tracking-tighter">
-                    RO: {job.roNumber}
-                  </span>
-                )}
-              </div>
             </div>
           </div>
 
@@ -2547,7 +2489,7 @@ export default function JobDetail() {
           </div>
         </div>
         
-        <div className="flex items-start gap-6 shrink-0">
+        <div className="flex items-center gap-6 shrink-0">
           <div className="flex flex-col min-w-[120px]">
             <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1">Status</span>
             <div className="flex items-center gap-3">
@@ -2593,22 +2535,56 @@ export default function JobDetail() {
                     Accept Payment
                   </Button>
                 )}
-                <DeleteConfirmationDialog
-                  trigger={
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="border-white/10 bg-white/5 text-white hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 rounded-xl h-9 w-9 transition-all hover:shadow-[0_0_18px_rgba(239,68,68,0.18)] shrink-0"
-                      aria-label="Delete appointment"
-                      title="Delete appointment"
-                    >
-                      <Trash2 className="w-4 h-4" />
+                <DropdownMenu>
+                  <DropdownMenuTrigger render={
+                    <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:text-white rounded-xl font-black uppercase tracking-widest text-[9px] h-9 px-4 transition-all whitespace-nowrap">
+                      Options
                     </Button>
-                  }
-                  title="Delete Appointment?"
-                  itemName={job.customerName || "this job"}
-                  onConfirm={handleDeleteJob}
-                />
+                  } />
+                  <DropdownMenuContent align="end" className="bg-card border-white/10 text-white w-56 p-2 rounded-2xl shadow-2xl z-[50]">
+                    <DropdownMenuItem 
+                      onSelect={() => {
+                        calculateCancellationFee();
+                        setShowCancelDialog(true);
+                      }} 
+                      className="text-orange-500 font-bold focus:bg-orange-500/10 focus:text-orange-400 rounded-xl cursor-pointer"
+                      disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid"}
+                    >
+                      <AlertCircle className="w-4 h-4 mr-2" />
+                      Protocol: Cancel
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem 
+                      onSelect={() => handleMarkAsMissed("missed")} 
+                      className="text-amber-500 font-bold focus:bg-amber-500/10 focus:text-amber-400 rounded-xl cursor-pointer"
+                      disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid" || job.status === "missed"}
+                    >
+                      <Ban className="w-4 h-4 mr-2" />
+                      Mark Missed Job
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem 
+                      onSelect={() => handleMarkAsMissed("no_show")} 
+                      className="text-amber-600 font-bold focus:bg-amber-600/10 focus:text-amber-500 rounded-xl cursor-pointer"
+                      disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid" || job.status === "no_show"}
+                    >
+                      <User className="w-4 h-4 mr-2" />
+                      Mark No-Show
+                    </DropdownMenuItem>
+                    <DeleteConfirmationDialog
+                      isNativeButton={false}
+                      trigger={
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500 font-bold focus:bg-red-500/10 focus:text-red-400 rounded-xl cursor-pointer text-[10px]">
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete Appointment
+                        </DropdownMenuItem>
+                      }
+                      title="Delete Appointment?"
+                      itemName={job.customerName || "this job"}
+                      onConfirm={handleDeleteJob}
+                    />
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </div>
@@ -2700,7 +2676,7 @@ export default function JobDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 gap-y-12 items-start mt-6">
         {/* Center Column: Operations & Intelligence - Now Primary Wide Area */}
-        <div className="lg:col-span-7 xl:col-span-8 order-last lg:order-none min-w-0 pt-0">
+        <div className="lg:col-span-9 order-last lg:order-none min-w-0 pt-0">
           <TabsContent value="ai_upsell" className="mt-0 space-y-12">
               <Card className="border-none shadow-xl bg-card rounded-3xl">
                 <CardHeader className="p-8 border-b border-white/5 bg-black/40">
@@ -2758,50 +2734,18 @@ export default function JobDetail() {
                                 </button>
                               </div>
                             ))}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger render={
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl hover:border-white/40 hover:bg-white/5 transition-colors bg-transparent p-2"
-                                >
-                                  <ImageIcon className="w-6 h-6 text-white mb-1" />
-                                  <span className="text-[8px] uppercase font-bold tracking-widest text-white text-center leading-tight">Add<br/>Photo</span>
-                                </Button>
-                              } />
-                              <DropdownMenuContent align="start" className="bg-card border-white/10 text-white rounded-2xl p-2 shadow-2xl">
-                                <DropdownMenuItem
-                                  className="rounded-xl cursor-pointer font-bold text-xs focus:bg-primary/10 focus:text-white"
-                                  onSelect={() => uploadAssessmentInputRef.current?.click()}
-                                >
-                                  <ImageIcon className="w-4 h-4 mr-2 text-primary" />
-                                  Upload Photo
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="rounded-xl cursor-pointer font-bold text-xs focus:bg-primary/10 focus:text-white"
-                                  onSelect={() => cameraAssessmentInputRef.current?.click()}
-                                >
-                                  <Camera className="w-4 h-4 mr-2 text-primary" />
-                                  Take Photo
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                              <input
-                                ref={uploadAssessmentInputRef}
-                                type="file"
-                                accept="image/*"
+                            <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl hover:border-white/40 hover:bg-white/5 transition-colors cursor-pointer">
+                              <ImageIcon className="w-6 h-6 text-white mb-1" />
+                              <span className="text-[8px] uppercase font-bold tracking-widest text-white text-center">Add<br/>Photo</span>
+                              <input 
+                                type="file" 
+                                accept="image/*" 
                                 multiple
-                                className="hidden"
-                                onChange={handleAssessmentImageUpload}
-                              />
-                              <input
-                                ref={cameraAssessmentInputRef}
-                                type="file"
-                                accept="image/*"
                                 capture="environment"
-                                className="hidden"
+                                className="hidden" 
                                 onChange={handleAssessmentImageUpload}
                               />
-                            </DropdownMenu>
+                            </label>
                           </div>
                         </div>
                       </div>
@@ -2905,7 +2849,7 @@ export default function JobDetail() {
                       <Button 
                         onClick={async () => {
                           const hasAssessmentData = technicianAssessment.trim() !== "" || assessmentTags.length > 0 || assessmentImages.length > 0;
-                          if (isGeneratingUpsells) return;
+                          if (!hasAssessmentData || isGeneratingUpsells) return;
                           
                           // Add debounce check
                           const now = Date.now();
@@ -2934,9 +2878,7 @@ export default function JobDetail() {
                             };
 
                             console.log("[Revenue Protocol] Initializing High-Impact Analysis...");
-                            const fullAssessmentContext = hasAssessmentData
-                              ? `${assessmentTags.length > 0 ? 'Tags: ' + assessmentTags.join(', ') + '. ' : ''}${technicianAssessment}`
-                              : `No additional field assessment entered. Analyze the existing booking context, vehicle, selected services, add-ons, price, travel fee, and notes for safe revenue optimization opportunities. Notes: ${job.notes || job.internalNotes || job.description || "None"}`;
+                            const fullAssessmentContext = `${assessmentTags.length > 0 ? 'Tags: ' + assessmentTags.join(', ') + '. ' : ''}${technicianAssessment}`;
                             const response = await getRevenueOptimization(fullAssessmentContext, structuredPayload, productCosts, businessSettings, assessmentImages);
                             setRevenueProtocol(response);
                             setRecommendations(response.recommendedUpsells);
@@ -2976,7 +2918,7 @@ export default function JobDetail() {
                             setIsGeneratingUpsells(false);
                           }
                         }}
-                        disabled={isGeneratingUpsells}
+                        disabled={isGeneratingUpsells || (technicianAssessment.trim() === "" && assessmentTags.length === 0 && assessmentImages.length === 0)}
                         className="w-full h-14 bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-xl uppercase tracking-[0.2em] text-[10px]"
                       >
                         {isGeneratingUpsells ? <Loader2 className="w-5 h-5 animate-spin" /> : "Initiate Revenue Optimization"}
@@ -2989,13 +2931,8 @@ export default function JobDetail() {
                           setIsAnalyzingDeployment(true);
                           try {
                             const response = await analyzeDeployment(job);
-                            const insights = Array.isArray(response?.insights) ? response.insights : [];
-                            setDeploymentInsights(insights);
-                            if (insights.length > 0) {
-                              toast.success("Booking Intelligence Generated!");
-                            } else {
-                              toast.info("Booking intelligence ran, but no billable deployment items were found.");
-                            }
+                            setDeploymentInsights(response.insights);
+                            toast.success("Booking Intelligence Generated!");
                           } catch (err) {
                             console.error("Booking Error:", err);
                             toast.error("Failed to generate booking intelligence");
@@ -3985,18 +3922,10 @@ export default function JobDetail() {
                   <textarea 
                     className="w-full h-40 p-4 rounded-2xl border border-gray-100 focus:ring-2 focus:ring-primary focus:border-transparent resize-none text-sm font-medium"
                     placeholder="Add job notes, technician observations, or special instructions..."
-                    value={jobNotesDraft}
-                    onChange={(event) => setJobNotesDraft(event.target.value)}
+                    defaultValue={job.notes}
                   />
                   <div className="flex justify-end mt-4">
-                    <Button
-                      className="bg-primary hover:bg-[#2A6CFF] font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl shadow-glow-blue"
-                      onClick={handleSaveJobNotes}
-                      disabled={isSavingJobNotes}
-                    >
-                      {isSavingJobNotes ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                      Save Notes
-                    </Button>
+                    <Button className="bg-primary hover:bg-[#2A6CFF] font-black uppercase tracking-widest text-[10px] h-12 px-6 rounded-xl shadow-glow-blue">Save Notes</Button>
                   </div>
                 </CardContent>
               </Card>
@@ -4013,18 +3942,18 @@ export default function JobDetail() {
                       Add Form
                     </Button>
                   } />
-                  <DialogContent className="max-w-2xl bg-[#0B0B0B] p-6 rounded-2xl border border-primary/30 shadow-2xl shadow-primary/10 text-white">
-                    <DialogHeader><DialogTitle className="font-black uppercase tracking-widest text-sm text-white">Select Form to Add</DialogTitle></DialogHeader>
+                  <DialogContent className="max-w-2xl bg-white p-6 rounded-2xl border-none shadow-2xl">
+                    <DialogHeader><DialogTitle className="font-black">Select Form to Add</DialogTitle></DialogHeader>
                     <div className="grid grid-cols-1 gap-3 mt-4">
                       {formTemplates.filter(t => t.isActive).map(t => (
                         <Button 
                           key={t.id} 
                           variant="outline" 
-                          className="justify-start h-auto p-4 flex-col items-start gap-1 bg-white/5 border-white/10 text-white hover:bg-primary/10 hover:border-primary/50 focus-visible:ring-primary/40"
+                          className="justify-start h-auto p-4 flex-col items-start gap-1"
                           onClick={() => setShowFormSigner(t)}
                         >
                           <span className="font-bold">{t.title}</span>
-                          <span className="text-[10px] text-white/60 capitalize">{t.category} • v{t.version}</span>
+                          <span className="text-[10px] text-white capitalize">{t.category} • v{t.version}</span>
                         </Button>
                       ))}
                     </div>
@@ -4113,7 +4042,7 @@ export default function JobDetail() {
         </div>
 
         {/* Right Column: Financials & Actions */}
-        <div className="lg:col-span-5 xl:col-span-4 space-y-6 lg:sticky lg:top-32 h-fit min-w-0">
+        <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-32 h-fit">
 
           {job.status === "waitlisted" && (
             <Card className="border-none shadow-xl bg-orange-500/10 border border-orange-500/20 rounded-3xl overflow-hidden">
@@ -4159,9 +4088,9 @@ export default function JobDetail() {
           {/* Client Communication */}
           {job.status !== "requested" && job.status !== "canceled" && (
             <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
-              <CardHeader className="bg-black/20 border-b border-white/5 p-6 flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-4">
+              <CardHeader className="bg-black/20 border-b border-white/5 p-6 flex flex-row items-center justify-between">
                 <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Client Communication</CardTitle>
-                <div className="flex flex-wrap items-center gap-3 min-w-0">
+                <div className="flex items-center gap-4">
                   <Dialog open={showManualSmsDialog} onOpenChange={setShowManualSmsDialog}>
                     <DialogTrigger render={
                       <Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase tracking-widest border-primary/30 text-primary bg-primary/5 hover:bg-primary hover:text-white transition-all">
@@ -4220,8 +4149,8 @@ export default function JobDetail() {
                       </div>
                     </DialogContent>
                   </Dialog>
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 border-l border-white/10 pl-4">
-                    <span className="text-[9px] font-black text-white uppercase tracking-[0.2em] whitespace-normal">Automated Client Communication</span>
+                  <div className="flex items-center gap-2 border-l border-white/10 pl-4">
+                    <span className="text-[9px] font-black text-white uppercase tracking-[0.2em] hidden sm:inline">Automated Client Communication</span>
                     <Switch 
                       checked={!job.smsAutomationPaused || false}
                       onCheckedChange={toggleSmsAutomation}
@@ -4241,8 +4170,8 @@ export default function JobDetail() {
                       <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
                         {communicationLogs.slice(0, 3).map(log => (
                           <div key={log.id} className="p-3 bg-black/40 border border-white/5 rounded-xl">
-                            <div className="flex flex-wrap justify-between items-start gap-2 mb-1">
-                              <span className="text-xs font-bold text-white capitalize break-words">{log.type.replace(/_/g, " ")}</span>
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="text-xs font-bold text-white capitalize">{log.type.replace(/_/g, " ")}</span>
                               <span className={cn(
                                 "text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded",
                                 log.status === "sent" ? "text-emerald-500 bg-emerald-500/10" : 
@@ -4251,7 +4180,7 @@ export default function JobDetail() {
                                 {log.status}
                               </span>
                             </div>
-                            <p className="text-[10px] text-white break-words whitespace-normal">{log.content}</p>
+                            <p className="text-[10px] text-white truncate">{log.content}</p>
                             {log.status === "failed" && job.customerPhone && (
                                 <Button 
                                   variant="ghost" 
@@ -4310,10 +4239,10 @@ export default function JobDetail() {
                           status === "sent" ? "bg-emerald-500/5 border-emerald-500/10" : "bg-white/5 border-white/5",
                           job.smsAutomationPaused && status !== "sent" && "opacity-60"
                         )}>
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="space-y-1 min-w-0">
-                              <span className="text-xs font-black text-white px-1 uppercase tracking-tight break-words">{label}</span>
-                              <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-1">
+                              <span className="text-xs font-black text-white px-1 uppercase tracking-tight">{label}</span>
+                              <div className="flex items-center gap-2">
                                 <span className={cn(
                                   "px-2 py-0.5 rounded text-[8px] uppercase font-black tracking-widest",
                                   statusColor
@@ -4333,7 +4262,7 @@ export default function JobDetail() {
                           </div>
 
                           {(status === "failed" || status !== "sent") && job.customerPhone && (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex gap-2">
                               <Button
                                 variant="ghost" 
                                 size="sm"
@@ -4823,17 +4752,10 @@ export default function JobDetail() {
                       return;
                     }
                     toast.loading("Sending email...", { id: "email-invoice" });
-                    const invoiceEmail = buildInvoiceEmail({
-                      invoice: currentInvoice,
-                      settings: businessSettings,
-                      paymentUrl: buildInvoicePaymentUrl(currentInvoice?.id, window.location.origin)
-                    });
                     await messagingService.sendEmail({
                       to,
                       subject: `Invoice ${currentInvoice?.invoiceNumber} from ${businessSettings?.businessName || 'Us'}`,
-                      html: invoiceEmail.html,
-                      text: invoiceEmail.text,
-                      fromName: businessSettings?.businessName || undefined
+                      html: `<p>Hi ${currentInvoice?.clientName || job?.customerName},</p><p>Your invoice <strong>${currentInvoice?.invoiceNumber}</strong> is ready.</p><p>Total Amount: <strong>${formatCurrency(currentInvoice?.total)}</strong></p><p>Thank you for your business!</p>`
                     });
 
                     if (currentInvoice?.clientPhone || job?.customerPhone) {
@@ -4842,7 +4764,7 @@ export default function JobDetail() {
                         const smsData = {
                           clientName: currentInvoice?.clientName || job?.customerName || "Customer",
                           businessName: businessSettings?.businessName || "DetailFlow",
-                          invoiceAmount: formatCurrency(getInvoiceBalanceDue(currentInvoice)),
+                          invoiceAmount: formatCurrency(currentInvoice?.total || 0),
                           invoiceLink: window.location.origin + "/public-invoice/" + currentInvoice?.id,
                           paymentLink: window.location.origin + "/public-invoice/" + currentInvoice?.id + "/pay"
                         };
@@ -4881,7 +4803,7 @@ export default function JobDetail() {
                     const smsData = {
                       clientName: currentInvoice?.clientName || job?.customerName || "Customer",
                       businessName: businessSettings?.businessName || "DetailFlow",
-                      invoiceAmount: formatCurrency(getInvoiceBalanceDue(currentInvoice)),
+                      invoiceAmount: formatCurrency(currentInvoice?.total || 0),
                       invoiceLink: window.location.origin + "/public-invoice/" + currentInvoice?.id,
                       paymentLink: window.location.origin + "/public-invoice/" + currentInvoice?.id + "/pay"
                     };
@@ -4976,7 +4898,7 @@ export default function JobDetail() {
               <DollarSign className="w-6 h-6 text-green-500" />
               Accept Payment
             </DialogTitle>
-            <p className="text-white text-[10px] uppercase tracking-widest font-bold mt-1">Select payment method for {formatCurrency(getInvoiceBalanceDue(currentInvoice))}</p>
+            <p className="text-white text-[10px] uppercase tracking-widest font-bold mt-1">Select payment method for {formatCurrency(currentInvoice?.total)}</p>
           </DialogHeader>
           
           <div className="grid grid-cols-1 gap-3 mt-6">
@@ -4990,7 +4912,7 @@ export default function JobDetail() {
                 </div>
                 <div className="text-left">
                   <span className="block font-black uppercase tracking-tight text-sm">Credit / Debit Card</span>
-                  <span className="block text-[9px] text-black font-bold uppercase tracking-widest">Process via Stripe</span>
+                  <span className="block text-[9px] text-black font-bold uppercase tracking-widest">Process via Terminal</span>
                 </div>
               </div>
               <ChevronLeft className="w-4 h-4 rotate-180" />

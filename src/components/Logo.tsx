@@ -59,55 +59,44 @@ export default function Logo({
     );
   }
 
-  // Permanent DetailFlow platform logo. Tenant uploads never replace this mark.
+  // DEFAULT DETAILFLOW LOGO
   return (
     <div className={cn("flex items-center gap-3", className)}>
-      <div className={cn(variant === "full" ? "w-12 h-12" : "w-full h-full", "relative group transition-all duration-500 group-hover:shadow-glow-blue/20 rounded-2xl overflow-hidden shadow-lg shadow-black/30")}>
+      <div className={cn(variant === "full" ? "w-12 h-12" : "w-full h-full", "relative group transition-all duration-500 group-hover:shadow-glow-blue/20 rounded-xl")}>
         <svg
           viewBox="0 0 100 100"
           className="w-full h-full"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          <defs>
-            <linearGradient id="df-platform-bg" x1="12" y1="10" x2="92" y2="92" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#0B1220" />
-              <stop offset="1" stopColor="#030712" />
-            </linearGradient>
-            <linearGradient id="df-platform-swoosh" x1="28" y1="72" x2="86" y2="20" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#0A4DFF" />
-              <stop offset="0.55" stopColor="#2DD4FF" />
-              <stop offset="1" stopColor="#7C3AED" />
-            </linearGradient>
-          </defs>
-          <rect x="6" y="6" width="88" height="88" rx="22" fill="url(#df-platform-bg)" />
+          {/* Hexagon Background */}
           <path
-            d="M25 27H48C62 27 72 36 72 50C72 64 62 73 48 73H25V27Z"
-            stroke="white"
-            strokeWidth="9"
-            strokeLinejoin="round"
+            d="M50 5 L89 27.5 L89 72.5 L50 95 L11 72.5 L11 27.5 Z"
+            fill={accentColor}
+            className="opacity-10 group-hover:opacity-20 transition-opacity"
           />
-          <path d="M25 27V73" stroke="white" strokeWidth="9" strokeLinecap="round" />
+          {/* DetailFlow "DF" Monogram */}
           <path
-            d="M50 50H75C82 50 87 45 87 38"
-            stroke="url(#df-platform-swoosh)"
-            strokeWidth="9"
-            strokeLinecap="round"
+            d="M35 30 L55 30 C65 30 70 35 70 45 C70 55 65 60 55 60 L35 60 Z"
+            stroke={primaryColor}
+            strokeWidth="8"
             strokeLinejoin="round"
           />
           <path
-            d="M51 50V73"
-            stroke="url(#df-platform-swoosh)"
-            strokeWidth="9"
+            d="M35 30 L35 75"
+            stroke={primaryColor}
+            strokeWidth="8"
             strokeLinecap="round"
           />
           <path
-            d="M22 76C42 86 68 81 84 61"
-            stroke="url(#df-platform-swoosh)"
-            strokeWidth="6"
+            d="M55 45 L70 45 L70 75"
+            stroke={accentColor}
+            strokeWidth="8"
             strokeLinecap="round"
-            opacity="0.95"
+            strokeLinejoin="round"
           />
+          {/* Modern Accent */}
+          <circle cx="70" cy="75" r="4" fill={accentColor} />
         </svg>
       </div>
 

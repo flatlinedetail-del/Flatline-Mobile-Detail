@@ -1,1 +1,0 @@
-const o=new Map;function c(t,r){const n=JSON.stringify({locale:t,options:r}),e=o.get(n);if(e)return e;const u=new Intl.NumberFormat(t,r);return o.set(n,u),u}function f(t,r,n){return t==null?"":c(r,n).format(t)}function a(t,r,n){return t==null?"":n?f(t,r,n):f(t/100,r,{style:"percent"})}function i(t,r,n){return(t-r)*100/(n-r)}export{f as a,a as f,i as v};

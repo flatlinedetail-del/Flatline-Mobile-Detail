@@ -51,7 +51,6 @@ import { Checkbox } from "../components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn, getClientDisplayName, cleanAddress, formatCurrency } from "@/lib/utils";
-import { buildInvoiceEmail, buildInvoicePaymentUrl } from "@/lib/invoiceEmail";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
   AlertDialog, 
@@ -181,6 +180,10 @@ export default function Invoices() {
 
   const resetForm = () => {
     // UI placeholder
+  };
+
+  const handleCloverPayment = async () => {
+    toast.info("Payment system is being rebuilt");
   };
 
   const handleMarkAsPaid = async (invoice: Invoice | null) => {
@@ -431,12 +434,7 @@ export default function Invoices() {
               <RefreshCcw className="w-4 h-4 mr-2 text-primary" />
               Sync Ledger
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-border bg-white text-black hover:bg-gray-50 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]"
-              onClick={() => toast.info("Advanced ledger filters are not configured yet. Use search to narrow records.")}
-            >
+            <Button variant="outline" size="sm" className="border-border bg-white text-black hover:bg-gray-50 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
               <Filter className="w-4 h-4 mr-2 text-primary" />
               Filter Ledger
             </Button>
@@ -556,17 +554,10 @@ export default function Invoices() {
                         return;
                       }
                       toast.loading("Sending email...", { id: "email-invoice" });
-                      const invoiceEmail = buildInvoiceEmail({
-                        invoice: selectedInvoice,
-                        settings,
-                        paymentUrl: buildInvoicePaymentUrl(selectedInvoice.id, window.location.origin)
-                      });
                       await messagingService.sendEmail({
                         to,
                         subject: `Invoice ${selectedInvoice.invoiceNumber} from ${settings?.businessName || 'Us'}`,
-                        html: invoiceEmail.html,
-                        text: invoiceEmail.text,
-                        fromName: settings?.businessName || undefined
+                        html: `<p>Hi ${selectedInvoice.clientName},</p><p>Your invoice <strong>${selectedInvoice.invoiceNumber}</strong> is ready.</p><p>Total Amount: <strong>${formatCurrency(selectedInvoice.total)}</strong></p><p>Thank you for your business!</p>`
                       });
                       
                       if (selectedInvoice.clientPhone) {
