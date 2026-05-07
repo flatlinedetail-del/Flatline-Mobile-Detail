@@ -2428,8 +2428,8 @@ export default function JobDetail() {
                 </span>
                 <Dialog>
                   <DialogTrigger render={
-                    <Button variant="ghost" size="icon" className="h-4 w-4 text-white/20 hover:text-primary transition-colors shrink-0">
-                      <Zap className="w-3 h-3" />
+                    <Button variant="ghost" size="icon" className="h-4 w-4 text-primary transition-colors shrink-0">
+                      <Zap className="w-3 h-3 text-primary" />
                     </Button>
                   } />
                   <DialogContent className="max-w-md bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] shadow-2xl p-0 overflow-hidden">
