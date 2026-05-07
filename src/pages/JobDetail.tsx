@@ -2400,8 +2400,8 @@ export default function JobDetail() {
       </div>
 
       {/* Live Job Command Summary */}
-      <div className="sticky top-4 z-40 bg-black/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 shadow-2xl shadow-black flex flex-wrap lg:flex-nowrap items-center gap-5 justify-between animate-in slide-in-from-top-4 duration-500 overflow-hidden">
-        <div className="flex flex-wrap items-center gap-6 flex-1 min-w-0">
+      <div className="sticky top-4 z-40 bg-black/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 shadow-2xl shadow-black flex flex-wrap lg:flex-nowrap items-start gap-5 justify-between animate-in slide-in-from-top-4 duration-500 overflow-hidden">
+        <div className="flex flex-wrap items-start gap-6 flex-1 min-w-0">
           <div className="flex flex-col min-w-[160px] max-w-[240px] border-r border-white/5 pr-4 shrink-0">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Client Contact</span>
             <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
@@ -2545,7 +2545,7 @@ export default function JobDetail() {
           </div>
         </div>
         
-        <div className="flex items-center gap-6 shrink-0">
+        <div className="flex items-start gap-6 shrink-0">
           <div className="flex flex-col min-w-[120px]">
             <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1">Status</span>
             <div className="flex items-center gap-3">
