@@ -506,6 +506,48 @@ export interface PricingAnalysis {
   netAfterProductCost: number;
 }
 
+export interface AdminPricingBreakdown {
+  /** Raw market-rate service subtotal before condition adjustments */
+  baseServicePrice: number;
+  /** Multiplier applied for vehicle condition (severity × intensity × complexity) */
+  conditionMultiplier: number;
+  /** Dollar delta from vehicle-size multipliers */
+  vehicleSizeAdjustment: number;
+  /** Internal labor cost allocation */
+  laborCost: number;
+  /** Internal material/supply cost (= totalProductCost) */
+  materialCost: number;
+  /** Travel fee applied */
+  travelCost: number;
+  /** Sum of all customer-facing add-ons */
+  addonTotal: number;
+  /** Any discounts applied */
+  discountTotal: number;
+  /** AI or benchmark recommended price (already includes materialCost) */
+  aiRecommendedPrice: number;
+  /** Tier the user chose (low/safe/recommended/premium) */
+  selectedTier: string;
+  /** Final customer-facing price */
+  finalQuoteTotal: number;
+  estimatedProfit: number;
+  marginPercent: number;
+  /** 0-100 confidence score from AI, or 60 for benchmark */
+  pricingConfidence: number;
+  /** Map of condition flags that increased price, e.g. { mold: 0.45, smoke: 0.35 } */
+  conditionAdjustments: Record<string, number>;
+  /** AI/benchmark explanation text for internal reference */
+  internalNotes?: string;
+  /** "ai" | "benchmark" | "manual" */
+  source: string;
+}
+
+export interface ClientVisibleAddOn {
+  id: string;
+  name: string;
+  price: number;
+  selected: boolean;
+}
+
 export interface LineItem {
   serviceName: string;
   description: string;
@@ -598,12 +640,39 @@ export interface Quote {
   description?: string;
   attachedFormIds?: string[];
   leadId?: string;
+  // ── Internal cost tracking ──
   productCosts?: JobProductCost[];
   totalProductCost?: number;
   internalJobCost?: number;
   estimatedProfit?: number;
   estimatedMarginPercent?: number;
   pricingAnalysis?: PricingAnalysis;
+  // ── AI quote provenance ──
+  quoteSource?: "standard" | "ai";
+  aiQuoteId?: string;
+  // ── Service metadata (primary selected service) ──
+  selectedServiceId?: string;
+  selectedServiceName?: string;
+  baseServicePrice?: number;
+  // ── AI pricing components ──
+  aiRecommendedPrice?: number;
+  laborCost?: number;
+  materialCost?: number;
+  travelCost?: number;
+  conditionAdjustments?: Record<string, number>;
+  vehicleSizeAdjustment?: number;
+  addonTotal?: number;
+  discountTotal?: number;
+  // ── Full admin breakdown (internal only) ──
+  adminPricingBreakdown?: AdminPricingBreakdown;
+  // ── Client-facing data ──
+  clientDisplayPrice?: number;
+  clientVisibleAddOns?: ClientVisibleAddOn[];
+  finalQuoteTotal?: number;
+  // ── Metadata ──
+  pricingConfidence?: number;
+  internalNotes?: string;
+  clientQuoteMessage?: string;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 

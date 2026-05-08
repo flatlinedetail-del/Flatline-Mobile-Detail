@@ -22,7 +22,7 @@ import { StandardInput } from "../components/StandardInput";
 import { CustomFeesEditor } from "../components/CustomFeesEditor";
 import { CustomFee } from "../types";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Quote, Client, Vehicle, Service, BusinessSettings, Invoice, Appointment, LineItem } from "../types";
+import { Quote, Client, Vehicle, Service, BusinessSettings, Invoice, Appointment, LineItem, PricingAnalysis, AdminPricingBreakdown, ClientVisibleAddOn } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { Checkbox } from "../components/ui/checkbox";
 import { Slider } from "../components/ui/slider";
@@ -46,7 +46,6 @@ import {
 import {
   getRevenueOptimization,
   RevenueOptimizationResponse,
-  PricingAnalysis
 } from "../services/gemini";
 import {
   canRunAI,
@@ -78,6 +77,20 @@ interface SmartQuoteProps {
     businessName: string;
     productCosts: any[];
     pricingAnalysis?: PricingAnalysis | null;
+    // AI quote enrichment fields
+    quoteSource?: "standard" | "ai";
+    adminPricingBreakdown?: AdminPricingBreakdown | null;
+    clientDisplayPrice?: number;
+    clientVisibleAddOns?: ClientVisibleAddOn[];
+    aiRecommendedPrice?: number;
+    baseServicePrice?: number;
+    laborCost?: number;
+    materialCost?: number;
+    addonTotal?: number;
+    internalJobCost?: number;
+    finalQuoteTotal?: number;
+    selectedServiceName?: string;
+    internalNotes?: string;
   }) => void;
 }
 
@@ -615,45 +628,137 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
 
   const handleApply = () => {
     if (!recommendations) return;
-    
-    const basePrice = selectedTier === "low" 
-      ? recommendations.lowPrice 
-      : selectedTier === "safe"
-        ? recommendations.safePrice
-        : selectedTier === "premium"
-          ? recommendations.premiumPrice
-          : recommendations.recommendedPrice;
 
-    const lineItems: LineItem[] = [
-      ...recommendations.items.map(i => ({ 
-        serviceName: i.name, 
-        price: i.price,
-        description: `Strategic service component: ${i.name}`,
-        quantity: 1,
-        total: i.price,
-        source: "standard",
-        protocolAccepted: true
-      }))
-    ];
+    // ─── 1. Compute internal cost totals ───────────────────────────────────
+    const productCostTotal = productCosts.reduce((s: number, p: any) => {
+      const v = parseFloat(p.totalCost);
+      return s + (isNaN(v) ? 0 : v);
+    }, 0);
 
-    // Adjust line items if a different tier or custom price was selected
-    const targetPrice = isPriceCustomized && customPrice !== null ? customPrice : basePrice;
-    const adjustment = targetPrice - recommendations.recommendedPrice;
-    
-    if (Math.abs(adjustment) > 0.01) {
-      lineItems.push({ 
-        serviceName: "Custom Price Adjustment", 
-        price: adjustment,
-        description: "Strategic pricing adjustment based on project complexity or specific criteria.",
-        quantity: 1,
-        total: adjustment,
-        source: "manual",
-        protocolAccepted: true
-      });
+    const addonItems = recommendations.items.filter(i => i.type === "addon");
+    const serviceItems = recommendations.items.filter(i => i.type === "service");
+    const rawAddonTotal = addonItems.reduce((s: number, i) => s + i.price, 0);
+    const rawServiceTotal = serviceItems.reduce((s: number, i) => s + i.price, 0);
+
+    const laborCostValue = pricingAnalysis?.laborTarget ?? 0;
+    const overheadValue  = pricingAnalysis?.overhead   ?? 0;
+    const internalJobCostValue = productCostTotal + laborCostValue + overheadValue;
+
+    // ─── 2. Determine final AI-recommended customer price ──────────────────
+    // Priority: user explicitly typed customPrice → pricingAnalysis tier
+    // (which already embeds materialCost) → market-based tier + materialCost
+    let aiRecommendedPrice: number;
+    if (isPriceCustomized && customPrice !== null) {
+      aiRecommendedPrice = customPrice;
+    } else if (pricingAnalysis) {
+      // Benchmark/AI price already includes totalProductCost in its formula
+      aiRecommendedPrice =
+        selectedTier === "low"     ? pricingAnalysis.floorPrice
+        : selectedTier === "premium" ? pricingAnalysis.premiumPrice
+        : pricingAnalysis.recommendedPrice;
+    } else {
+      // Pure market-based — manually factor in product costs
+      const tierMarketPrice =
+        selectedTier === "low"     ? recommendations.lowPrice
+        : selectedTier === "safe"    ? recommendations.safePrice
+        : selectedTier === "premium" ? recommendations.premiumPrice
+        : recommendations.recommendedPrice;
+      aiRecommendedPrice = tierMarketPrice + productCostTotal;
     }
 
+    // ─── 3. Build CLEAN client-facing line items ───────────────────────────
+    // Services: proportionally scale raw service prices to match the service
+    // portion of aiRecommendedPrice (= total minus add-ons), preserving names.
+    // Add-ons stay at their actual price as separate lines.
+    const servicePortionOfFinalPrice = aiRecommendedPrice - rawAddonTotal;
+
+    const lineItems: LineItem[] = serviceItems.map(item => {
+      const scaledPrice = rawServiceTotal > 0
+        ? parseFloat(((item.price / rawServiceTotal) * servicePortionOfFinalPrice).toFixed(2))
+        : parseFloat((servicePortionOfFinalPrice / serviceItems.length).toFixed(2));
+      return {
+        serviceName: item.name,
+        price: scaledPrice,
+        description: recommendations.explanation || "",
+        quantity: 1,
+        total: scaledPrice,
+        source: "ai",
+        protocolAccepted: true,
+      };
+    });
+
+    // Add-on line items — kept at their actual price (client-visible, optional upsell)
+    addonItems.forEach(addOn => {
+      lineItems.push({
+        serviceName: addOn.name,
+        price: addOn.price,
+        description: "Optional add-on service",
+        quantity: 1,
+        total: addOn.price,
+        source: "addon",
+        protocolAccepted: true,
+      });
+    });
+
+    // ─── 4. Build admin pricing breakdown (internal, never shown to client) ─
+    const baseServicePrice = rawServiceTotal;
+    const finalQuoteTotal  = aiRecommendedPrice;
+    const estimatedProfitValue = finalQuoteTotal - internalJobCostValue;
+    const marginPercentValue   = finalQuoteTotal > 0 ? (estimatedProfitValue / finalQuoteTotal) * 100 : 0;
+
+    // Collect condition flags that fired
+    const conditionAdjMap: Record<string, number> = {};
+    const desc = jobDescription.toLowerCase();
+    if (desc.includes("mold") || desc.includes("mildew"))        conditionAdjMap.mold_mildew = 0.45;
+    if (desc.includes("smoke") || desc.includes("nicotine"))     conditionAdjMap.smoke_nicotine = 0.35;
+    if (desc.includes("biohazard") || desc.includes("vomit"))    conditionAdjMap.biohazard = 0.6;
+    if (desc.includes("pet hair") || desc.includes("dog hair"))  conditionAdjMap.pet_hair = 0.2;
+    if (desc.includes("stain") || desc.includes("spill"))        conditionAdjMap.stains = 0.15;
+    if (desc.includes("heavy") || desc.includes("extreme"))      conditionAdjMap.heavy_soiling = 0.25;
+    if (desc.includes("scratch") || desc.includes("swirl"))      conditionAdjMap.paint_correction = 0.3;
+
+    const avgVehicleSizeMult = manualVehicles.reduce((s, v) => {
+      const m: Record<string, number> = { small: 0.85, medium: 1.0, large: 1.25, extra_large: 1.6 };
+      return s + ((m[v.size] || 1.0) - 1.0);
+    }, 0) / Math.max(manualVehicles.length, 1);
+    const vehicleSizeAdjValue = rawServiceTotal * avgVehicleSizeMult;
+
+    const condMult = (1 + (severity - 3) * 0.25) * (1 + Object.values(conditionAdjMap).reduce((s, v) => s + v, 0));
+
+    const adminBreakdown: AdminPricingBreakdown = {
+      baseServicePrice,
+      conditionMultiplier:    parseFloat(condMult.toFixed(4)),
+      vehicleSizeAdjustment:  parseFloat(vehicleSizeAdjValue.toFixed(2)),
+      laborCost:              parseFloat(laborCostValue.toFixed(2)),
+      materialCost:           parseFloat(productCostTotal.toFixed(2)),
+      travelCost:             parseFloat((pricingAnalysis?.travelFee ?? 0).toFixed(2)),
+      addonTotal:             parseFloat(rawAddonTotal.toFixed(2)),
+      discountTotal:          0,
+      aiRecommendedPrice:     parseFloat(aiRecommendedPrice.toFixed(2)),
+      selectedTier:           isPriceCustomized ? "custom" : selectedTier,
+      finalQuoteTotal:        parseFloat(finalQuoteTotal.toFixed(2)),
+      estimatedProfit:        parseFloat(estimatedProfitValue.toFixed(2)),
+      marginPercent:          parseFloat(marginPercentValue.toFixed(2)),
+      pricingConfidence:      analysisSource === "ai" ? 85 : 60,
+      conditionAdjustments:   conditionAdjMap,
+      internalNotes:          recommendations.explanation,
+      source:                 analysisSource,
+    };
+
+    // ─── 5. Client-visible add-ons list ──────────────────────────────────
+    const clientVisibleAddOns: ClientVisibleAddOn[] = addonItems.map(a => ({
+      id: `addon_${a.name.replace(/\s+/g, "_").toLowerCase()}`,
+      name: a.name,
+      price: a.price,
+      selected: true,
+    }));
+
+    // ─── 6. Primary selected service metadata ─────────────────────────────
+    const primaryService = selectedServices[0];
+
+    // ─── 7. Fire onApply ──────────────────────────────────────────────────
     onApply({
-      clientId: "", // Independent
+      clientId: "",
       clientInfo: {
         name: `${firstName} ${lastName}`.trim() || "Valued Client",
         firstName,
@@ -662,7 +767,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
         phone,
         address: address || serviceAddress,
         serviceAddress: serviceAddress || address,
-        businessName
+        businessName,
       },
       manualVehicles,
       lineItems,
@@ -671,6 +776,20 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       businessName,
       productCosts: productCosts.length > 0 ? [...productCosts] : [],
       pricingAnalysis: pricingAnalysis ?? null,
+      // AI enrichment
+      quoteSource: "ai",
+      adminPricingBreakdown: adminBreakdown,
+      clientDisplayPrice: parseFloat(finalQuoteTotal.toFixed(2)),
+      clientVisibleAddOns,
+      aiRecommendedPrice: parseFloat(aiRecommendedPrice.toFixed(2)),
+      baseServicePrice:   parseFloat(baseServicePrice.toFixed(2)),
+      laborCost:          parseFloat(laborCostValue.toFixed(2)),
+      materialCost:       parseFloat(productCostTotal.toFixed(2)),
+      addonTotal:         parseFloat(rawAddonTotal.toFixed(2)),
+      internalJobCost:    parseFloat(internalJobCostValue.toFixed(2)),
+      finalQuoteTotal:    parseFloat(finalQuoteTotal.toFixed(2)),
+      selectedServiceName: primaryService?.name ?? "",
+      internalNotes: recommendations.explanation,
     });
   };
 
@@ -1466,6 +1585,13 @@ export default function Quotes() {
   const [productCosts, setProductCosts] = useState<any[]>([]);
   const [quotePricingAnalysis, setQuotePricingAnalysis] = useState<PricingAnalysis | null>(null);
   const [formsDropdownOpen, setFormsDropdownOpen] = useState(false);
+  // AI quote enrichment state
+  const [quoteSource, setQuoteSource] = useState<"standard" | "ai">("standard");
+  const [adminPricingBreakdown, setAdminPricingBreakdown] = useState<AdminPricingBreakdown | null>(null);
+  const [clientDisplayPrice, setClientDisplayPrice] = useState<number | null>(null);
+  const [clientVisibleAddOns, setClientVisibleAddOns] = useState<ClientVisibleAddOn[]>([]);
+  const [aiRecommendedPrice, setAiRecommendedPrice] = useState<number | null>(null);
+  const [selectedServiceName, setSelectedServiceName] = useState("");
 
   const suggestedClients = clients.filter(c => {
     const search = clientSearchTerm.toLowerCase();
@@ -1758,13 +1884,23 @@ export default function Quotes() {
       customFees: customFees,
       status: editingQuote?.status || "draft",
       attachedFormIds,
-      // --- Internal job cost fields (always saved, never exposed to customer) ---
+      // --- Internal cost fields (admin-only, never customer-facing) ---
       productCosts: normalizedProductCosts,
       totalProductCost,
       internalJobCost,
       estimatedProfit,
       estimatedMarginPercent,
       pricingAnalysis: quotePricingAnalysis ?? null,
+      // --- AI quote provenance & enrichment ---
+      quoteSource,
+      adminPricingBreakdown: adminPricingBreakdown ?? null,
+      clientDisplayPrice: clientDisplayPrice ?? quoteTotal,
+      clientVisibleAddOns,
+      aiRecommendedPrice: aiRecommendedPrice ?? null,
+      selectedServiceName: selectedServiceName || null,
+      finalQuoteTotal: quoteTotal,
+      pricingConfidence: adminPricingBreakdown?.pricingConfidence ?? null,
+      internalNotes: adminPricingBreakdown?.internalNotes || null,
       updatedAt: serverTimestamp(),
       leadId: activeLeadId || editingQuote?.leadId || null
     };
@@ -1837,6 +1973,13 @@ export default function Quotes() {
     setIsAddingVehicle(false);
     setNewVehicle({ year: "", make: "", model: "", vin: "", size: "medium" });
     setActiveLeadId(null);
+    // AI enrichment reset
+    setQuoteSource("standard");
+    setAdminPricingBreakdown(null);
+    setClientDisplayPrice(null);
+    setClientVisibleAddOns([]);
+    setAiRecommendedPrice(null);
+    setSelectedServiceName("");
   };
 
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -2273,6 +2416,93 @@ export default function Quotes() {
                 </div>
               </div>
 
+              {/* ── AI Pricing Breakdown Panel (admin-only, shown when quote source is AI) ── */}
+              {quoteSource === "ai" && adminPricingBreakdown && (
+                <div className="p-6 bg-primary/5 border border-primary/20 rounded-3xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-primary" />
+                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">
+                        AI Pricing Breakdown — Admin View
+                      </Label>
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-white/30 bg-white/5 px-2.5 py-1 rounded-lg">
+                      {adminPricingBreakdown.source === "ai" ? "AI-Generated" : "Benchmark"} · {adminPricingBreakdown.pricingConfidence}% confidence
+                    </span>
+                  </div>
+
+                  {/* Price construction table */}
+                  <div className="space-y-1.5">
+                    {[
+                      { label: "Base Service Price", value: adminPricingBreakdown.baseServicePrice, color: "text-white/70" },
+                      adminPricingBreakdown.vehicleSizeAdjustment !== 0 && { label: "Vehicle Size Adjustment", value: adminPricingBreakdown.vehicleSizeAdjustment, color: "text-white/50" },
+                      { label: "Material / Supply Cost", value: adminPricingBreakdown.materialCost, color: "text-amber-400" },
+                      adminPricingBreakdown.laborCost > 0 && { label: "Internal Labor Allocation", value: adminPricingBreakdown.laborCost, color: "text-white/50" },
+                      adminPricingBreakdown.travelCost > 0 && { label: "Travel Fee", value: adminPricingBreakdown.travelCost, color: "text-white/50" },
+                      adminPricingBreakdown.addonTotal > 0 && { label: "Add-Ons Total", value: adminPricingBreakdown.addonTotal, color: "text-white/70" },
+                      adminPricingBreakdown.discountTotal > 0 && { label: "Discounts Applied", value: -adminPricingBreakdown.discountTotal, color: "text-red-400" },
+                    ].filter(Boolean).map((row: any, i) => (
+                      <div key={i} className="flex items-center justify-between text-[11px] font-bold bg-white/5 rounded-xl px-4 py-2.5">
+                        <span className="text-white/50">{row.label}</span>
+                        <span className={row.color}>{formatCurrency(row.value)}</span>
+                      </div>
+                    ))}
+
+                    {/* Divider + AI recommended */}
+                    <div className="flex items-center justify-between text-[12px] font-black bg-primary/10 border border-primary/20 rounded-xl px-4 py-3">
+                      <span className="text-primary uppercase tracking-widest text-[10px]">AI Recommended Price</span>
+                      <span className="text-primary">{formatCurrency(adminPricingBreakdown.aiRecommendedPrice)}</span>
+                    </div>
+                  </div>
+
+                  {/* Condition adjustments */}
+                  {Object.keys(adminPricingBreakdown.conditionAdjustments || {}).length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Condition Surcharges Applied</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.entries(adminPricingBreakdown.conditionAdjustments).map(([k, v]) => (
+                          <span key={k} className="text-[9px] font-black uppercase tracking-widest bg-orange-500/10 border border-orange-500/20 text-orange-400 px-2 py-0.5 rounded-lg">
+                            {k.replace(/_/g, " ")} +{(v * 100).toFixed(0)}%
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Profit / margin summary */}
+                  <div className="border-t border-primary/10 pt-3 grid grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1">Final Price</p>
+                      <p className="text-sm font-black text-white">{formatCurrency(adminPricingBreakdown.finalQuoteTotal)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1">Est. Profit</p>
+                      <p className={cn("text-sm font-black", adminPricingBreakdown.estimatedProfit >= 0 ? "text-primary" : "text-red-400")}>
+                        {formatCurrency(adminPricingBreakdown.estimatedProfit)}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1">Margin</p>
+                      <p className={cn("text-sm font-black", adminPricingBreakdown.marginPercent >= 0 ? "text-primary" : "text-red-400")}>
+                        {adminPricingBreakdown.marginPercent.toFixed(1)}%
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Internal notes */}
+                  {adminPricingBreakdown.internalNotes && (
+                    <div className="bg-white/5 rounded-xl p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/30 mb-1">Pricing Rationale (Internal)</p>
+                      <p className="text-[10px] text-white/50 leading-relaxed">{adminPricingBreakdown.internalNotes}</p>
+                    </div>
+                  )}
+
+                  <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest text-center">
+                    This breakdown is never visible on the customer-facing quote
+                  </p>
+                </div>
+              )}
+
               {/* ── Internal Job Costs Panel (admin-only, never shown to customer) ── */}
               {productCosts.length > 0 && (() => {
                 const totalPC = productCosts.reduce((s: number, p: any) => {
@@ -2410,6 +2640,13 @@ export default function Quotes() {
             setQuoteDescription(data.description);
             setProductCosts(data.productCosts || []);
             setQuotePricingAnalysis(data.pricingAnalysis ?? null);
+            // AI enrichment
+            setQuoteSource(data.quoteSource ?? "standard");
+            setAdminPricingBreakdown(data.adminPricingBreakdown ?? null);
+            setClientDisplayPrice(data.clientDisplayPrice ?? null);
+            setClientVisibleAddOns(data.clientVisibleAddOns ?? []);
+            setAiRecommendedPrice(data.aiRecommendedPrice ?? null);
+            setSelectedServiceName(data.selectedServiceName ?? "");
             setActiveTab("smart");
             setIsAddDialogOpen(true);
           }}
@@ -2568,6 +2805,13 @@ export default function Quotes() {
                             setAttachedFormIds(q.attachedFormIds || []);
                             setProductCosts((q as any).productCosts || []);
                             setQuotePricingAnalysis((q as any).pricingAnalysis ?? null);
+                            // AI enrichment
+                            setQuoteSource((q as any).quoteSource ?? "standard");
+                            setAdminPricingBreakdown((q as any).adminPricingBreakdown ?? null);
+                            setClientDisplayPrice((q as any).clientDisplayPrice ?? null);
+                            setClientVisibleAddOns((q as any).clientVisibleAddOns ?? []);
+                            setAiRecommendedPrice((q as any).aiRecommendedPrice ?? null);
+                            setSelectedServiceName((q as any).selectedServiceName ?? "");
                             setSelectedVehicleIds(q.vehicles.map(v => v.id));
                             setIsAddDialogOpen(true);
                           }}
