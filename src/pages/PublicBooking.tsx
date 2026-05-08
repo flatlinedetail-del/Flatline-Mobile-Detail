@@ -666,7 +666,7 @@ export default function PublicBooking() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="max-w-md w-full border-none shadow-2xl rounded-3xl overflow-hidden">
-          <div className="bg-green-500 p-8 flex justify-center">
+          <div className="bg-primary p-8 flex justify-center">
             <CheckCircle2 className="w-20 h-20 text-white" />
           </div>
           <CardContent className="p-8 text-center space-y-4">
@@ -695,8 +695,8 @@ export default function PublicBooking() {
            
            <div className="hidden sm:flex items-center gap-8">
              <div className="flex items-center gap-2">
-               <ShieldCheck className="w-5 h-5 text-emerald-500" />
-               <span className="text-xs font-black uppercase tracking-widest text-emerald-50">Secure Booking</span>
+               <ShieldCheck className="w-5 h-5 text-primary" />
+               <span className="text-xs font-black uppercase tracking-widest text-white">Secure Booking</span>
              </div>
              {settings?.businessPhone && (
                <div className="flex items-center gap-2 text-white">
@@ -1063,7 +1063,7 @@ export default function PublicBooking() {
                           {scheduledAt && isTimeAvailable !== null && (
                             <div className={cn(
                               "mt-4 p-5 rounded-2xl border flex flex-col gap-4",
-                              isTimeAvailable ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"
+                              isTimeAvailable ? "bg-blue-50 border-blue-200 text-blue-800" : "bg-red-50 border-red-200 text-red-800"
                             )}>
                               <div className="flex items-start gap-3">
                                 {isTimeAvailable ? (
@@ -1237,7 +1237,7 @@ export default function PublicBooking() {
                               placeholder="(555) 000-0000" 
                               className="border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-primary/20 h-11"
                               value={clientInfo.phone}
-                              onChange={e => setClientInfo(prev => ({ ...prev, phone: e.target.value }))}
+                              onChange={e => setClientInfo(prev => ({ ...prev, phone: formatPhoneNumber(e.target.value) }))}
                               required
                             />
                           </div>
@@ -1327,12 +1327,12 @@ export default function PublicBooking() {
                            </div>
                             <div className="text-right">
                               {discountAmount > 0 && (
-                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-0.5 line-through text-gray-400">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-0.5 line-through">
                                   {formatCurrency(totalPrice)}
                                 </p>
                               )}
                               {discountAmount > 0 && (
-                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">
+                                <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
                                   − {formatCurrency(discountAmount)} saved
                                 </p>
                               )}
@@ -1353,10 +1353,10 @@ export default function PublicBooking() {
                           Promo / Coupon Code
                         </p>
                         {appliedCoupon ? (
-                          <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                          <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-xl px-4 py-3">
                             <div>
-                              <p className="text-sm font-black text-emerald-800">{appliedCoupon.title || appliedCoupon.code}</p>
-                              <p className="text-xs font-bold text-emerald-600">
+                              <p className="text-sm font-black text-primary">{appliedCoupon.title || appliedCoupon.code}</p>
+                              <p className="text-xs font-bold text-primary/80">
                                 {appliedCoupon.discountType === "percentage"
                                   ? `${appliedCoupon.discountValue}% off`
                                   : `$${appliedCoupon.discountValue} off`}
@@ -1366,7 +1366,7 @@ export default function PublicBooking() {
                             <button
                               type="button"
                               onClick={handleRemoveCoupon}
-                              className="text-emerald-700 hover:text-red-500 transition-colors"
+                              className="text-primary/60 hover:text-red-500 transition-colors"
                             >
                               <XIcon className="w-5 h-5" />
                             </button>
@@ -1479,12 +1479,12 @@ export default function PublicBooking() {
                {/* Show Recommendation Panel starting Step 3 or 4 */}
                {(step >= 3 && recommendedChoice.recommendedService) && (
                  <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-900 text-xs font-black uppercase tracking-widest gap-2 border border-emerald-200 shadow-sm">
-                      <Star className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600" />
+                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-black uppercase tracking-widest gap-2 border border-primary/20 shadow-sm">
+                      <Star className="w-3.5 h-3.5 fill-primary text-primary" />
                       Recommended for your vehicle
                     </div>
                     
-                    <Card className="border-2 border-emerald-500 shadow-xl overflow-hidden rounded-3xl bg-white transition-all">
+                    <Card className="border-2 border-primary shadow-xl shadow-primary/10 overflow-hidden rounded-3xl bg-white transition-all">
                       <CardContent className="p-6">
                         <div className="flex justify-between items-start mb-4">
                           <div>
@@ -1510,7 +1510,7 @@ export default function PublicBooking() {
                           <div className="space-y-1.5 mb-4 px-2">
                             {recommendedChoice.recommendedService.description.split('\n').filter(Boolean).map((item, idx) => (
                               <div key={idx} className="flex items-start gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                                 <span className="text-sm font-medium text-gray-700">{item.replace(/^-\s*/, '')}</span>
                               </div>
                             ))}
@@ -1531,7 +1531,7 @@ export default function PublicBooking() {
                         <Button 
                           type="button" 
                           onClick={handleAcceptRecommendation}
-                          className="w-full mt-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-lg shadow-emerald-200 group"
+                          className="w-full mt-6 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-glow-blue group"
                         >
                           Accept Recommendation
                           <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
@@ -1601,10 +1601,10 @@ export default function PublicBooking() {
                         </div>
                         {discountAmount > 0 && (
                           <div className="flex justify-between items-center text-sm pt-1 border-t border-gray-100">
-                            <span className="font-bold text-emerald-600 flex items-center gap-1">
+                            <span className="font-bold text-primary flex items-center gap-1">
                               <Tag className="w-3 h-3" /> Coupon discount
                             </span>
-                            <span className="font-black text-emerald-600">− {formatCurrency(discountAmount)}</span>
+                            <span className="font-black text-primary">− {formatCurrency(discountAmount)}</span>
                           </div>
                         )}
                         <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
