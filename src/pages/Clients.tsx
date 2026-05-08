@@ -101,6 +101,7 @@ import { getClientTypes, getClientCategories, migrateDataToClients, ensureClient
 import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
+import { getRiskBadgeClass, getRiskBadgeLabel, getRiskBadgeVariant } from "../lib/riskUtils";
 
 interface AddVehicleFormProps {
   clientId: string;
@@ -1543,19 +1544,19 @@ export default function Clients() {
                               )}
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
                               {(() => {
-                                const risk = client.riskLevel;
-                                if (!risk) return null;
+                                const riskVariant = getRiskBadgeVariant(client.riskLevel);
+                                if (riskVariant === "none") return null;
                                 return (
-                                  <Badge 
-                                    variant="outline" 
+                                  <Badge
+                                    variant="outline"
                                     className={cn(
                                       "text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest border-none ml-1",
-                                      risk === "high" ? "bg-red-500/20 text-red-500" :
-                                      risk === "medium" ? "bg-orange-500/20 text-orange-400" :
+                                      riskVariant === "high" ? "bg-red-500/20 text-red-500" :
+                                      riskVariant === "medium" ? "bg-orange-500/20 text-orange-400" :
                                       "bg-emerald-500/20 text-emerald-400"
                                     )}
                                   >
-                                    {risk}
+                                    {getRiskBadgeLabel(client.riskLevel)}
                                   </Badge>
                                 );
                               })()}
@@ -1769,16 +1770,14 @@ export default function Clients() {
                 <div className="text-right flex flex-col items-end gap-4">
                   <div className="flex items-center gap-3 bg-black/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/10">
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">DETAIL</span>
-                    {selectedClient.riskLevel && (
-                      <Badge 
+                    {getRiskBadgeVariant(selectedClient.riskLevel) !== "none" && (
+                      <Badge
                         className={cn(
                           "border-none font-black uppercase tracking-widest text-[9px] px-3 py-1 rounded-full shadow-lg",
-                          selectedClient.riskLevel === "high" ? "bg-red-500 text-white" :
-                          selectedClient.riskLevel === "medium" ? "bg-orange-500 text-white" :
-                          "bg-emerald-500 text-white"
+                          getRiskBadgeClass(selectedClient.riskLevel)
                         )}
                       >
-                        {selectedClient.riskLevel} RISK
+                        {getRiskBadgeLabel(selectedClient.riskLevel)}
                       </Badge>
                     )}
                   </div>
@@ -1842,7 +1841,7 @@ export default function Clients() {
 
               <div className="flex-1 overflow-y-auto p-8 bg-card custom-scrollbar">
                 <TabsContent value="overview" className="mt-0 space-y-8 outline-none">
-                  {selectedClient.riskLevel === 'high' && (
+                  {getRiskBadgeVariant(selectedClient.riskLevel) === "high" && (
                     <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-[2rem] flex items-center gap-6 animate-in fade-in slide-in-from-top-4">
                       <div className="w-16 h-16 bg-red-500/20 rounded-2xl flex items-center justify-center text-red-500 shrink-0 shadow-glow-red">
                         <AlertOctagon className="w-8 h-8" />
@@ -1984,7 +1983,7 @@ export default function Clients() {
                           <p className="text-sm font-black text-white uppercase tracking-widest">Active Alerts</p>
                         </div>
                         <div className="space-y-3">
-                          {selectedClient.riskLevel === 'high' && (
+                          {getRiskBadgeVariant(selectedClient.riskLevel) === "high" && (
                             <div className="flex items-center gap-3 p-3 bg-red-600/40 rounded-xl border border-red-500/50 animate-pulse">
                               <AlertOctagon className="w-4 h-4 text-white" />
                               <span className="text-[10px] font-black uppercase text-white tracking-widest">CRITICAL RISK WARNING</span>

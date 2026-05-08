@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, doc, updateDoc, getDoc, where, deleteDoc, writeBatch, limit, Timestamp } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType, storage } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
+import { normalizeRiskLevel, computeDepositRequirement } from "../lib/riskUtils";
 import { PageHeader } from "../components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -745,7 +746,8 @@ export default function Calendar() {
     const vipSettings = client?.vipSettings;
 
     const riskVal = client?.riskLevel || client?.risk_level || client?.riskStatus || client?.clientRiskLevel || client?.riskManagement?.level;
-    setIsRiskyClient(Boolean(riskVal));
+    const riskLevel = normalizeRiskLevel(riskVal);
+    setIsRiskyClient(riskLevel === "medium" || riskLevel === "high");
 
     // If no vehicles are selected, we still want to calculate for at least one "virtual" vehicle 
     // using the manual vehicle size selection.
@@ -802,7 +804,7 @@ export default function Calendar() {
     setBaseAmount(total);
     
     let finalDeposit = depositTotal;
-    if (Boolean(riskVal) && depositTotal === 0) {
+    if ((riskLevel === "medium" || riskLevel === "high") && depositTotal === 0) {
       finalDeposit = total * 0.25;
     }
     setCalculatedDeposit(finalDeposit);
@@ -1163,7 +1165,25 @@ export default function Calendar() {
       discountAmount: discount + redeemedPoints,
       totalAmount: finalAmount,
       depositAmount: calculatedDeposit,
-      depositPaid: false,
+      depositPaid: Boolean(recordedDeposit),
+      depositRequired: calculatedDeposit > 0,
+      depositSource: (() => {
+        const riskVal2 = client?.riskLevel || client?.risk_level || client?.riskStatus || client?.clientRiskLevel || client?.riskManagement?.level;
+        const riskLevel2 = normalizeRiskLevel(riskVal2);
+        const byRisk = riskLevel2 === "medium" || riskLevel2 === "high";
+        const bySvc = selectedServices.some(sel => {
+          const svc = services.find((s: any) => s.id === sel.id);
+          return svc && (svc.depositRequired || svc.requireDeposit || svc.requiresDeposit);
+        });
+        if (byRisk && bySvc) return "mixed";
+        if (byRisk) return "risk";
+        if (bySvc) return "service";
+        return "settings";
+      })(),
+      clientRiskLevelAtBooking: normalizeRiskLevel(
+        client?.riskLevel ?? client?.risk_level ?? client?.riskStatus ??
+        client?.clientRiskLevel ?? client?.riskManagement?.level
+      ) ?? null,
       cancellationFeeEnabled,
       cancellationFeeAmount,
       cancellationFeeType,

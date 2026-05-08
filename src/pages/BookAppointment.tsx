@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { collection, query, getDocs, doc, addDoc, updateDoc, serverTimestamp, orderBy, limit, where, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
+import { boolish, normalizeRiskLevel, computeDepositRequirement } from "../lib/riskUtils";
 import { toast } from "sonner";
 import { 
   Building2, CalendarIcon, Car, Clock, CreditCard, DollarSign, 
@@ -56,53 +57,6 @@ import { geocodeAddress } from "../services/geocodingService";
 import { calculateDistance, calculateTravelFee } from "../services/travelService";
 import { BundleOffer, fetchClientBundles, saveBundleOffer, updateBundleStatus } from "../services/bundleService";
 import { createNotification } from "../services/notificationService";
-
-// --- Deposit helpers ---
-
-/** Normalize any risk value string to a canonical level. */
-function normalizeRiskLevel(val: any): "low" | "medium" | "high" | null {
-  if (!val) return null;
-  const s = String(val).toLowerCase().trim().replace(/[_\s-]+/g, " ");
-  if (["medium", "med"].includes(s)) return "medium";
-  if (["high", "critical", "do not book", "block booking"].includes(s)) return "high";
-  if (s === "low") return "low";
-  return null;
-}
-
-/** Treat boolean true, string "true", 1, or "1" as truthy — everything else false. */
-function boolish(val: any): boolean {
-  return val === true || val === "true" || val === 1 || val === "1";
-}
-
-/** Return true if any selected service requires a deposit (checks multiple field aliases). */
-function selectedServiceRequiresDeposit(
-  selectedServices: { id: string; qty: number }[],
-  services: any[]
-): boolean {
-  return selectedServices.some(sel => {
-    const svc = services.find((s: any) => s.id === sel.id);
-    if (!svc) return false;
-    return boolish(svc.depositRequired) || boolish(svc.requireDeposit) || boolish(svc.requiresDeposit);
-  });
-}
-
-/** Compute the deposit dollar amount from selected services + fallback to pct of total. */
-function computeRequiredDepositAmount(
-  selectedServices: { id: string; qty: number }[],
-  services: any[],
-  baseTotal: number
-): number {
-  let fixedTotal = 0;
-  for (const sel of selectedServices) {
-    const svc = services.find((s: any) => s.id === sel.id);
-    if (!svc) continue;
-    const requiresDeposit = boolish(svc.depositRequired) || boolish(svc.requireDeposit) || boolish(svc.requiresDeposit);
-    if (requiresDeposit && svc.depositType === "fixed" && Number(svc.depositAmount) > 0) {
-      fixedTotal += Number(svc.depositAmount) * sel.qty;
-    }
-  }
-  return fixedTotal > 0 ? fixedTotal : baseTotal * 0.25;
-}
 
 // -------------------------
 
@@ -230,35 +184,21 @@ export default function BookAppointment() {
   const [activeDepositAmount, setActiveDepositAmount] = useState<number | string>(0);
 
   useEffect(() => {
-    const client = clients.find(c => c.id === selectedCustomerId);
+    const client = clients.find(c => c.id === selectedCustomerId) ?? null;
+    const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
+    const bookingTotal = baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal;
 
-    // Pull risk from any field alias the client document might use
-    const rawRisk = client?.riskLevel ?? client?.risk_level ?? client?.riskStatus
-      ?? client?.clientRiskLevel ?? client?.riskManagement?.level;
-    const risk = normalizeRiskLevel(rawRisk);
-    const riskRequiresDeposit = risk === "medium" || risk === "high";
+    const depositReq = computeDepositRequirement({
+      client,
+      selectedServices,
+      services,
+      settings,
+      bookingTotal,
+    });
 
-    // Check every selected service for any deposit-required alias
-    const serviceDeposit = selectedServiceRequiresDeposit(selectedServices, services);
-
-    // Check all business-settings field aliases for a global deposit policy
-    const settingsDeposit = boolish(settings?.depositRequired)
-      || boolish(settings?.requireDeposit)
-      || boolish(settings?.depositsEnabled);
-
-    const depositRequired = riskRequiresDeposit || serviceDeposit || settingsDeposit;
-    setIsRiskyClient(depositRequired);
-
-    if (depositRequired) {
-      const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
-      const baseTotal = baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal;
-      const deposit = computeRequiredDepositAmount(selectedServices, services, baseTotal);
-      setRiskyDepositAmount(deposit);
-      setActiveDepositAmount(deposit);
-    } else {
-      setRiskyDepositAmount(0);
-      setActiveDepositAmount(0);
-    }
+    setIsRiskyClient(depositReq.required);
+    setRiskyDepositAmount(depositReq.required ? depositReq.amount : 0);
+    setActiveDepositAmount(depositReq.required ? depositReq.amount : 0);
   }, [clients, selectedCustomerId, baseAmount, travelFee, afterHoursFeeDisplay, customFees, selectedServices, services, settings]);
 
   const [timingRecommendations, setTimingRecommendations] = useState<ServiceTimingOutput[]>([]);
@@ -1153,6 +1093,17 @@ export default function BookAppointment() {
           vehicleId: b.vehicleId
         }));
       
+      // Compute deposit snapshot at save time so it's accurate regardless of state timing
+      const customFeesTotalAtSave = customFees.reduce((acc, f) => acc + f.amount, 0);
+      const bookingTotalAtSave = baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotalAtSave;
+      const depositSnap = computeDepositRequirement({
+        client: client ?? null,
+        selectedServices,
+        services,
+        settings,
+        bookingTotal: bookingTotalAtSave,
+      });
+
       const appointmentData = {
         clientId: selectedCustomerId,
         customerId: selectedCustomerId,
@@ -1218,7 +1169,18 @@ export default function BookAppointment() {
         },
         notes,
         leadId: prefillLeadId || null,
-        depositRecord: recordedDeposit || null
+        depositRecord: recordedDeposit || null,
+        // Deposit snapshot — source of truth for billing and reporting
+        depositRequired: depositSnap.required,
+        depositAmount: depositSnap.required ? depositSnap.amount : 0,
+        depositPaid: Boolean(recordedDeposit),
+        depositType: "fixed" as const,
+        depositReasons: depositSnap.reasons,
+        depositSource: depositSnap.source,
+        clientRiskLevelAtBooking: normalizeRiskLevel(
+          client?.riskLevel ?? client?.risk_level ?? client?.riskStatus ??
+          client?.clientRiskLevel ?? client?.riskManagement?.level
+        ) ?? null,
       };
 
       try {

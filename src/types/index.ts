@@ -388,10 +388,14 @@ export interface Appointment extends SyncMetadata {
   totalAmount: number;
   depositAmount: number;
   customFees?: CustomFee[];
-  depositType: "fixed" | "percentage"; // New
-  depositPaid: boolean; 
-  depositPaidAt?: Timestamp; // New
-  depositPaymentProvider?: string; // New
+  depositType: "fixed" | "percentage";
+  depositPaid: boolean;
+  depositPaidAt?: Timestamp;
+  depositPaymentProvider?: string;
+  depositRequired?: boolean;
+  depositReasons?: string[];
+  depositSource?: "risk" | "service" | "settings" | "mixed" | "none";
+  clientRiskLevelAtBooking?: "low" | "medium" | "high" | null;
   paymentStatus: "unpaid" | "partial" | "paid";
   paymentMethod?: "cash" | "card" | "venmo" | "check" | "invoice";
   commissionAmount?: number;
@@ -923,4 +927,17 @@ export interface ProtectedClient {
   linkedClientId?: string;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
+}
+
+export interface RiskNetworkSettings {
+  sharedNetworkEnabled: boolean;
+  shareHighRiskAlerts: boolean;
+  shareDoNotBookAlerts: boolean;
+  allowContactRequests: boolean;
+  requireApprovalBeforeSharing: boolean;
+  depositForHighRisk: boolean;
+  depositForCritical: boolean;
+  depositForSharedMatch: boolean;
+  cardOnFileForHighRisk: boolean;
+  managerApprovalForCritical: boolean;
 }

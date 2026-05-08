@@ -8,6 +8,7 @@ import {
   serverTimestamp,
   orderBy,
   getDocs,
+  onSnapshot,
   deleteDoc,
   getDoc,
   setDoc,
@@ -65,6 +66,7 @@ import {
 } from "lucide-react";
 import { ProtectedClient, Client, RiskNetworkSettings } from "../types";
 import { cn } from "../lib/utils";
+import { normalizeRiskLevel } from "../lib/riskUtils";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -180,22 +182,25 @@ export default function ProtectedClients() {
   // ── load data ────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [snapRules, snapClients] = await Promise.all([
-          getDocs(query(collection(db, "protected_clients"), orderBy("createdAt", "desc"))),
-          getDocs(collection(db, "clients")),
-        ]);
-        setProtectedClients(snapRules.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient)));
-        setAllClients(snapClients.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-      } catch (error: any) {
+    // Real-time listener for protected clients
+    const unsubRules = onSnapshot(
+      query(collection(db, "protected_clients"), orderBy("createdAt", "desc")),
+      snap => setProtectedClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient))),
+      (error: any) => {
         if (error?.code === "resource-exhausted" || error?.message?.includes("quota")) {
           toast.error("Database quota reached. Showing cached data.");
         } else {
-          console.error("[RiskManagement] fetch error", error);
+          console.error("[RiskManagement] protected_clients snapshot error", error);
         }
       }
-    };
+    );
+
+    // Real-time listener for clients
+    const unsubClients = onSnapshot(
+      collection(db, "clients"),
+      snap => setAllClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client))),
+      (error: any) => console.error("[RiskManagement] clients snapshot error", error)
+    );
 
     const fetchNetworkSettings = async () => {
       try {
@@ -208,8 +213,12 @@ export default function ProtectedClients() {
       }
     };
 
-    fetchData();
     fetchNetworkSettings();
+
+    return () => {
+      unsubRules();
+      unsubClients();
+    };
   }, []);
 
   // ── network settings save ─────────────────────────────────────────────────
