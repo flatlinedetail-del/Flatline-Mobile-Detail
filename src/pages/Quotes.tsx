@@ -197,6 +197,36 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     setProductCosts(productCosts.filter(p => p.id !== costId));
   };
 
+  // Ensure floor/rec/premium are always three distinct customer prices.
+  // Called after receiving pricingAnalysis from AI or benchmark.
+  // If all three tiers are equal (AI returned one price, or base=0), derives
+  // distinct tiers: floor=85%, rec=100%, premium=120% of the service component,
+  // with internalJobCost (totalProductCost) added exactly once to each tier.
+  const normalizePricingTiers = (pa: PricingAnalysis): PricingAnalysis => {
+    const allSame =
+      Math.abs(pa.floorPrice - pa.recommendedPrice) < 1 &&
+      Math.abs(pa.premiumPrice - pa.recommendedPrice) < 1;
+    if (!allSame) return pa;
+
+    const productCost = pa.totalProductCost || 0;
+    const recServicePrice = pa.recommendedPrice - productCost;
+
+    if (recServicePrice > 0) {
+      return {
+        ...pa,
+        floorPrice:   parseFloat((recServicePrice * 0.85 + productCost).toFixed(2)),
+        premiumPrice: parseFloat((recServicePrice * 1.20 + productCost).toFixed(2)),
+      };
+    }
+
+    // Product-cost-only: scale the full recommended price proportionally
+    return {
+      ...pa,
+      floorPrice:   parseFloat((pa.recommendedPrice * 0.85).toFixed(2)),
+      premiumPrice: parseFloat((pa.recommendedPrice * 1.20).toFixed(2)),
+    };
+  };
+
   // Compute a deterministic benchmark PricingAnalysis when AI is unavailable
   const computeBenchmarkPricing = (svcs: any[], addons: any[], costs: any[], cfg: any): PricingAnalysis => {
     const svcTotal = svcs.reduce((s: number, svc: any) => s + (svc.basePrice || svc.price || 150), 0);
@@ -259,7 +289,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     });
 
     if (!guard.allowed) {
-      setPricingAnalysis(benchmarkPricing);
+      setPricingAnalysis(normalizePricingTiers(benchmarkPricing));
       setAnalysisSource("benchmark");
       toast.info(`AI pricing skipped: ${guard.reason} Using market benchmarks.`);
       setIsGeneratingAI(false);
@@ -299,12 +329,12 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       );
 
       if (response.pricingAnalysis) {
-        setPricingAnalysis(response.pricingAnalysis);
+        setPricingAnalysis(normalizePricingTiers(response.pricingAnalysis));
         setAnalysisSource("ai");
         toast.success("AI Pricing Protection Active!");
       } else {
         // Response came back but pricingAnalysis field was empty — use benchmark
-        setPricingAnalysis(benchmarkPricing);
+        setPricingAnalysis(normalizePricingTiers(benchmarkPricing));
         setAnalysisSource("benchmark");
         toast.warning("AI pricing response incomplete. Using market benchmarks.");
       }
@@ -322,7 +352,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     } catch (err: any) {
       console.error("[SmartQuote] AI pricing error:", err);
       // Always set the benchmark so the user sees usable prices
-      setPricingAnalysis(benchmarkPricing);
+      setPricingAnalysis(normalizePricingTiers(benchmarkPricing));
       setAnalysisSource("benchmark");
 
       if (err.message?.includes("QUOTA_EXCEEDED")) {
@@ -640,21 +670,21 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     return description;
   };
 
-  // ── Final price: custom → recommendations tier → pricingAnalysis tier → 0 ──
-  // Never returns 0 when pricingAnalysis or productCosts carry real value.
+  // ── Final price: custom → pricingAnalysis tier → recommendations tier → 0 ──
+  // pricingAnalysis (AI or benchmark) takes priority over market recommendations
+  // because it includes internal product costs in all three tier prices.
   const finalPrice = (() => {
     if (isPriceCustomized && customPrice !== null) return customPrice;
+    if (pricingAnalysis && pricingAnalysis.recommendedPrice > 0) {
+      return selectedTier === "low"     ? pricingAnalysis.floorPrice
+           : selectedTier === "premium" ? pricingAnalysis.premiumPrice
+                                        : pricingAnalysis.recommendedPrice;
+    }
     if (recommendations) {
       return selectedTier === "low"     ? recommendations.lowPrice
            : selectedTier === "safe"    ? recommendations.safePrice
            : selectedTier === "premium" ? recommendations.premiumPrice
                                         : recommendations.recommendedPrice;
-    }
-    // No service selected but pricingAnalysis has real data (e.g. product costs only)
-    if (pricingAnalysis && pricingAnalysis.recommendedPrice > 0) {
-      return selectedTier === "low"     ? pricingAnalysis.floorPrice
-           : selectedTier === "premium" ? pricingAnalysis.premiumPrice
-                                        : pricingAnalysis.recommendedPrice;
     }
     // Last resort: sum product costs as a floor
     const pcTotal = productCosts.reduce((s: number, p: any) => s + (parseFloat(p.totalCost) || 0), 0);
