@@ -10,8 +10,8 @@ export type ModelTier = "smart_saver" | "balanced_intelligence" | "deep_strategy
 
 // Provider model IDs — update these when Gemini releases new versions
 const MODEL_MAP: Record<ModelTier, string> = {
-  smart_saver: "gemini-2.0-flash",           // Fast, cost-efficient, strong
-  balanced_intelligence: "gemini-1.5-pro",   // Stronger reasoning, moderate cost
+  smart_saver: "gemini-2.5-flash",            // Fast, cost-efficient, strong
+  balanced_intelligence: "gemini-2.5-flash", // Default for Smart Quote pricing
   deep_strategy: "gemini-2.5-pro-preview-06-05", // Highest capability, use sparingly
 };
 
