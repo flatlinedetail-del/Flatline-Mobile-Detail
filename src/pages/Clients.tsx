@@ -92,7 +92,8 @@ import {
   normalizeEmail
 } from "../lib/utils";
 import { StandardInput } from "../components/StandardInput";
-import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote, BusinessSettings } from "../types";
+import { Client, ClientType, ClientCategory, Vehicle, Service, Appointment, Invoice, Quote, BusinessSettings, ServiceHistoryEntry } from "../types";
+import { ClientServiceHistory } from "../components/ClientServiceHistory";
 import AddressInput from "../components/AddressInput";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
@@ -453,12 +454,32 @@ export default function Clients() {
   const [newClientAddress, setNewClientAddress] = useState({ address: "", lat: 0, lng: 0 });
   const [isUploading, setIsUploading] = useState(false);
   const [formClientTypeId, setFormClientTypeId] = useState<string>("");
+  const [formServiceHistory, setFormServiceHistory] = useState<ServiceHistoryEntry[]>([]);
+  const [clientServiceHistory, setClientServiceHistory] = useState<ServiceHistoryEntry[]>([]);
+
+  /** Resolves a clientTypeId (Firestore ID or legacy slug) to a readable display name. */
+  const resolveTypeName = useMemo(() => (typeId: string): string => {
+    if (!typeId) return "Individual";
+    const match =
+      clientTypes.find(t => t.id === typeId) ||
+      CLIENT_TYPE_OPTIONS.find(opt => opt.id === typeId);
+    if (match) return match.name;
+    return typeId.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  }, [clientTypes]);
 
   useEffect(() => {
     if (editingClient) {
       setFormClientTypeId(editingClient.clientTypeId || "");
+      getDocs(query(
+        collection(db, "client_service_history"),
+        where("clientId", "==", editingClient.id),
+        orderBy("serviceDate", "desc")
+      )).then(snap => {
+        setFormServiceHistory(snap.docs.map(d => ({ id: d.id, ...d.data() } as ServiceHistoryEntry)));
+      }).catch(() => setFormServiceHistory([]));
     } else {
       setFormClientTypeId("");
+      setFormServiceHistory([]);
     }
   }, [editingClient, isAddDialogOpen]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -661,6 +682,7 @@ export default function Clients() {
       setSignedForms([]);
       setClientInvoices([]);
       setClientQuotes([]);
+      setClientServiceHistory([]);
       return;
     }
 
@@ -711,7 +733,17 @@ export default function Clients() {
     };
 
     fetchClientDetails();
-    
+
+    // Load service history for detail view
+    getDocs(query(
+      collection(db, "client_service_history"),
+      where("clientId", "==", selectedClient.id),
+      orderBy("serviceDate", "desc")
+    )).then(snap => {
+      setClientServiceHistory(snap.docs.map(d => ({ id: d.id, ...d.data() } as ServiceHistoryEntry)));
+    }).catch(() => setClientServiceHistory([]));
+
+
     const unsubVehicles = onSnapshot(query(collection(db, "vehicles"), where("clientId", "==", selectedClient.id)), snap => {
       setClientVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle)));
     }, (error: any) => {
@@ -768,6 +800,34 @@ export default function Clients() {
       derivedName = [firstName, lastName].filter(Boolean).join(" ");
     }
 
+    // Compute marketing intelligence from service history
+    const sortedHistory = [...formServiceHistory].sort(
+      (a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime()
+    );
+    const latestHistEntry = sortedHistory[0];
+    const totalSpend = sortedHistory.reduce((sum, e) => sum + (e.priceCharged || 0), 0);
+    const svcTypes = sortedHistory.map(e => e.serviceType).filter(Boolean);
+    const preferredType = svcTypes.length
+      ? svcTypes.sort((a, b) =>
+          svcTypes.filter(t => t === b).length - svcTypes.filter(t => t === a).length
+        )[0]
+      : undefined;
+    let avgInterval: number | undefined;
+    if (sortedHistory.length >= 2) {
+      const intervals: number[] = [];
+      for (let i = 0; i < sortedHistory.length - 1; i++) {
+        const diff = new Date(sortedHistory[i].serviceDate).getTime() - new Date(sortedHistory[i + 1].serviceDate).getTime();
+        intervals.push(Math.abs(Math.round(diff / (1000 * 60 * 60 * 24))));
+      }
+      avgInterval = Math.round(intervals.reduce((s, v) => s + v, 0) / intervals.length);
+    }
+    let nextRecommended: string | undefined;
+    if (latestHistEntry && avgInterval) {
+      const next = new Date(latestHistEntry.serviceDate);
+      next.setDate(next.getDate() + avgInterval);
+      nextRecommended = next.toISOString().split("T")[0];
+    }
+
     const clientData: any = {
       name: derivedName || "Unnamed Client",
       firstName,
@@ -784,6 +844,14 @@ export default function Clients() {
       isVIP: formData.get("isVIP") === "on",
       isOneTime: formData.get("isOneTime") === "on",
       notes: (formData.get("notes") as string)?.trim(),
+      lastServiceDate: latestHistEntry?.serviceDate || "",
+      lastServiceType: latestHistEntry?.serviceType || "",
+      averageServiceInterval: avgInterval,
+      preferredServiceType: preferredType,
+      totalHistoricalSpend: totalSpend,
+      serviceHistoryCount: sortedHistory.length,
+      marketingEligibleServices: [...new Set(svcTypes)],
+      nextRecommendedServiceDate: nextRecommended,
     };
 
     const isRestricted = systemStatus === 'quota-exhausted' || !navigator.onLine;
@@ -834,16 +902,15 @@ export default function Clients() {
         }
       }
 
+      let savedClientId: string | null = editingClient?.id || null;
+
       if (editingClient) {
         try {
           await updateDoc(doc(db, "clients", editingClient.id), clientData);
           toast.success("Client profile updated");
         } catch (err: any) {
           console.warn("Direct update failed, enqueuing...", err);
-          
-          // Check for permanent failures vs offline
           const isPermanent = err?.code === 'permission-denied' || err?.code === 'invalid-argument';
-          
           if (isPermanent) {
             handleFirestoreError(err, OperationType.UPDATE, `clients/${editingClient.id}`);
           } else {
@@ -853,7 +920,6 @@ export default function Clients() {
         }
       } else {
         try {
-          // Sanitization: Ensure no undefined fields are sent
           const finalData = {
             ...clientData,
             categoryIds: clientData.categoryIds || [],
@@ -861,18 +927,15 @@ export default function Clients() {
             membershipLevel: clientData.membershipLevel || "none",
             createdAt: serverTimestamp(),
           };
-
-          await addDoc(collection(db, "clients"), finalData);
+          const newRef = await addDoc(collection(db, "clients"), finalData);
+          savedClientId = newRef.id;
           toast.success("Client added successfully");
         } catch (err: any) {
           console.warn("Direct add failed, enqueuing...", err);
-          
           const isPermanent = err?.code === 'permission-denied' || err?.code === 'invalid-argument';
-          
           if (isPermanent) {
             handleFirestoreError(err, OperationType.CREATE, "clients");
           } else {
-            // Local fallback data (use simple numeric timestamp)
             const localData = {
               ...clientData,
               categoryIds: [],
@@ -885,7 +948,30 @@ export default function Clients() {
           }
         }
       }
-      
+
+      // Save service history subcollection
+      if (savedClientId && formServiceHistory.length > 0) {
+        const histRef = collection(db, "client_service_history");
+        const existingSnap = await getDocs(query(histRef, where("clientId", "==", savedClientId))).catch(() => null);
+        const existingIds = new Set(existingSnap?.docs.map(d => d.id) || []);
+        const batch = writeBatch(db);
+        for (const entry of formServiceHistory) {
+          if (entry.id.startsWith("local_")) {
+            const { id: _id, ...entryData } = entry;
+            batch.set(doc(histRef), { ...entryData, clientId: savedClientId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+          } else if (existingIds.has(entry.id)) {
+            const { id: _id, ...entryData } = entry;
+            batch.update(doc(histRef, entry.id), { ...entryData, updatedAt: serverTimestamp() });
+          }
+        }
+        if (existingSnap) {
+          const currentIds = new Set(formServiceHistory.filter(e => !e.id.startsWith("local_")).map(e => e.id));
+          existingSnap.docs.forEach(d => { if (!currentIds.has(d.id)) batch.delete(d.ref); });
+        }
+        await batch.commit().catch(e => console.warn("Service history save failed:", e));
+      }
+
+
       // Invalidate cache
       sessionStorage.removeItem('clients_registry_cache');
       sessionStorage.removeItem('clients_registry_cache_time');
@@ -895,6 +981,7 @@ export default function Clients() {
 
       setIsAddDialogOpen(false);
       setEditingClient(null);
+      setFormServiceHistory([]);
       fetchClientsData(); // Sync manually
     } catch (error: any) {
       console.error("Critical Error saving client:", error);
@@ -1160,7 +1247,7 @@ export default function Clients() {
                                 <TableCell className="text-[10px] text-white/60 h-10">{row.email || "-"}</TableCell>
                                 <TableCell className="text-[10px] text-white/60 h-10">{row.phone || "-"}</TableCell>
                                 <TableCell className="text-[10px] text-white/60 h-10 truncate max-w-[100px]">{row.address || "-"}</TableCell>
-                                <TableCell className="text-[10px] text-white/60 h-10 capitalize">{row.clientTypeId || "individual"}</TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10">{resolveTypeName(row.clientTypeId || "individual")}</TableCell>
                                 <TableCell className="text-[10px] text-white/60 h-10">
                                   {row.vehicle ? `${row.vehicle.year || ""} ${row.vehicle.make || ""} ${row.vehicle.model || ""}`.trim() || row.vehicle.vin || row.vehicle.plate : "-"}
                                 </TableCell>
@@ -1257,11 +1344,13 @@ export default function Clients() {
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                         <SelectContent className="bg-[#1A1A1A] border border-white/10 text-white font-bold z-[5000]">
-                          {clientTypes.map(t => (
-                            <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
-                              {t.name}
-                            </SelectItem>
-                          ))}
+                          {[...clientTypes, ...CLIENT_TYPE_OPTIONS]
+                            .filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i)
+                            .map(t => (
+                              <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
+                                {t.name}
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                       <input type="hidden" name="clientTypeId" value={formClientTypeId} />
@@ -1341,6 +1430,15 @@ export default function Clients() {
                     <Label htmlFor="notes" className="font-black uppercase tracking-widest text-[10px] text-white">Internal Notes</Label>
                     <Textarea id="notes" name="notes" defaultValue={editingClient?.notes || ""} placeholder="Any special instructions..." className="bg-white/5 border-white/10 text-white rounded-xl min-h-[100px]" />
                   </div>
+
+                  {/* Previous Service History */}
+                  <div className="p-6 bg-black/20 rounded-2xl border border-white/5">
+                    <ClientServiceHistory
+                      entries={formServiceHistory}
+                      onChange={setFormServiceHistory}
+                    />
+                  </div>
+
                   <Button type="submit" className="w-full bg-primary text-white hover:bg-[#2A6CFF] font-black h-14 rounded-xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105">
                     {editingClient ? "Update Client Profile" : "Register Client Profile"}
                   </Button>
@@ -1420,7 +1518,6 @@ export default function Clients() {
                 </TableRow>
               ) : (
                 filteredClients.map((client) => {
-                  const type = clientTypes.find(t => t.id === client.clientTypeId);
                   return (
                     <TableRow 
                       key={client.id} 
@@ -1484,7 +1581,7 @@ export default function Clients() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest bg-white/10 text-white/60 border-white/10 px-3 py-1 rounded-full">
-                          {type?.name || "Unknown"}
+                          {resolveTypeName(client.clientTypeId || "individual")}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -1601,7 +1698,7 @@ export default function Clients() {
       {/* Client Details Dialog */}
       {selectedClient && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-          <DialogContent className="sm:max-w-[900px] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[96vh] flex flex-col">
+          <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-[96vw] md:max-w-[96vw] lg:max-w-[96vw] xl:max-w-[96vw] 2xl:max-w-[1500px] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[96vh] flex flex-col">
             <div className="bg-gradient-to-r from-primary via-primary/80 to-white/40 p-8 text-white shrink-0 relative overflow-hidden font-sans border-b border-white/10">
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-5"></div>
               
@@ -1713,7 +1810,7 @@ export default function Clients() {
             </div>
 
             <Tabs defaultValue="overview" className="w-full flex-1 flex flex-col overflow-hidden bg-card">
-              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-14 shrink-0 gap-4 overflow-x-auto no-scrollbar scroll-smooth">
+              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-14 shrink-0 gap-4 overflow-x-auto no-scrollbar scroll-smooth flex flex-nowrap">
                 <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Overview</TabsTrigger>
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Profile</TabsTrigger>
                 <TabsTrigger value="appointments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Appointments ({clientHistory.length})</TabsTrigger>
@@ -1737,6 +1834,10 @@ export default function Clients() {
                   <MessageSquare className="w-3.5 h-3.5 mr-2" />
                   Client Comms
                 </TabsTrigger>
+                <TabsTrigger value="service-history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-orange-400">
+                  <History className="w-3.5 h-3.5 mr-2" />
+                  Service History ({clientServiceHistory.length})
+                </TabsTrigger>
               </TabsList>
 
               <div className="flex-1 overflow-y-auto p-8 bg-card custom-scrollbar">
@@ -1755,11 +1856,11 @@ export default function Clients() {
                       </div>
                     </div>
                   )}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 px-2">
+                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-8 px-2">
                     {/* Status Summary */}
-                    <div className="lg:col-span-2 space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
+                    <div className="space-y-6 min-w-0">
+                      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4 min-w-0">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Financial Standing</span>
                             <Receipt className="w-4 h-4 text-primary" />
@@ -1785,7 +1886,7 @@ export default function Clients() {
                           </div>
                         </div>
 
-                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
+                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4 min-w-0">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Service Activity</span>
                             <History className="w-4 h-4 text-emerald-400" />
@@ -1854,8 +1955,8 @@ export default function Clients() {
                                         {format(convertToDate(item.scheduledAt || item.createdAt || item.signedAt), "MMM d, yyyy")}
                                       </span>
                                     </div>
-                                    <div className="flex items-center justify-between">
-                                      <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide truncate">
+                                    <div className="flex items-center justify-between gap-2 min-w-0">
+                                      <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide whitespace-normal break-words min-w-0">
                                         {(item as any).vehicleInfo || (item as any).formName || (item as any).quoteNum || "Entity Operation"}
                                       </p>
                                       <Badge variant="outline" className={cn(
@@ -1874,7 +1975,7 @@ export default function Clients() {
                     </div>
 
                     {/* Pending Actions & Details */}
-                    <div className="space-y-6">
+                    <div className="space-y-6 min-w-0">
                       <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/20">
@@ -1940,7 +2041,7 @@ export default function Clients() {
                 </TabsContent>
 
                 <TabsContent value="profile" className="mt-0 space-y-8 outline-none">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div className="space-y-6">
                       <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Business Entity</Label>
@@ -1972,7 +2073,7 @@ export default function Clients() {
                         client={selectedClient}
                         onUpdate={(updates) => updateClient(updates)}
                       />
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Client Classification</Label>
                           <Select 
@@ -1984,11 +2085,13 @@ export default function Clients() {
                               <SelectValue placeholder="Select type" />
                             </SelectTrigger>
                             <SelectContent className="bg-[#1A1A1A] border border-white/10 text-white font-bold z-[5000]">
-                              {clientTypes.map(t => (
-                                <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
-                                  {t.name}
-                                </SelectItem>
-                              ))}
+                              {[...clientTypes, ...CLIENT_TYPE_OPTIONS]
+                                .filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i)
+                                .map(t => (
+                                  <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
+                                    {t.name}
+                                  </SelectItem>
+                                ))}
                             </SelectContent>
                           </Select>
                         </div>
@@ -2159,7 +2262,7 @@ export default function Clients() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <h4 className="font-black text-white uppercase tracking-tight text-xs truncate">
+                                  <h4 className="font-black text-white uppercase tracking-tight text-xs">
                                     {v.year} {v.make} {v.model}
                                   </h4>
                                   {(() => {
@@ -2385,7 +2488,7 @@ export default function Clients() {
                                 <span className="opacity-30">|</span>
                                 <span className="text-white font-black">{formatCurrency(app.totalAmount)}</span>
                               </div>
-                              <p className="text-[10px] text-white/40 mt-2 font-medium uppercase tracking-wide truncate max-w-[300px]">
+                              <p className="text-[10px] text-white/40 mt-2 font-medium uppercase tracking-wide whitespace-normal break-words">
                                 {app.serviceNames?.join(", ")}
                               </p>
                             </div>
@@ -2553,7 +2656,7 @@ export default function Clients() {
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                   {services.map(service => (
                                     <div key={service.id} className="p-4 bg-black/40 rounded-2xl border border-white/5 flex flex-col gap-3">
-                                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 truncate">{service.name}</Label>
+                                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 whitespace-normal break-words">{service.name}</Label>
                                       <div className="relative">
                                         <NumberInput 
                                           placeholder={service.basePrice?.toString()}
@@ -2594,7 +2697,7 @@ export default function Clients() {
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                           {services.map(service => (
                                             <div key={`${vehicle.id}-${service.id}`} className="p-4 bg-black/40 rounded-2xl border border-white/5 flex flex-col gap-3">
-                                              <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 truncate">{service.name}</Label>
+                                              <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 whitespace-normal break-words">{service.name}</Label>
                                               <div className="relative">
                                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 font-bold">$</span>
                                                 <Input 
@@ -2999,6 +3102,135 @@ export default function Clients() {
 
                 <TabsContent value="comms" className="mt-0 outline-none">
                   <ClientCommunication client={selectedClient} />
+                </TabsContent>
+
+                <TabsContent value="service-history" className="mt-0 outline-none space-y-6">
+                  <div className="p-6 bg-black/20 rounded-2xl border border-white/5">
+                    <ClientServiceHistory
+                      entries={clientServiceHistory}
+                      onChange={async (updated) => {
+                        setClientServiceHistory(updated);
+                        const histRef = collection(db, "client_service_history");
+                        const existingSnap = await getDocs(query(histRef, where("clientId", "==", selectedClient.id))).catch(() => null);
+                        const existingIds = new Set(existingSnap?.docs.map(d => d.id) || []);
+                        const batch = writeBatch(db);
+                        for (const entry of updated) {
+                          if (entry.id.startsWith("local_")) {
+                            const { id: _id, ...entryData } = entry;
+                            batch.set(doc(histRef), { ...entryData, clientId: selectedClient.id, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+                          } else if (existingIds.has(entry.id)) {
+                            const { id: _id, ...entryData } = entry;
+                            batch.update(doc(histRef, entry.id), { ...entryData, updatedAt: serverTimestamp() });
+                          }
+                        }
+                        if (existingSnap) {
+                          const currentIds = new Set(updated.filter(e => !e.id.startsWith("local_")).map(e => e.id));
+                          existingSnap.docs.forEach(d => { if (!currentIds.has(d.id)) batch.delete(d.ref); });
+                        }
+                        await batch.commit().catch(e => console.warn("Service history save:", e));
+                        // Update marketing intelligence on client doc
+                        const sorted = [...updated].sort((a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime());
+                        const latest = sorted[0];
+                        const totalSpend = sorted.reduce((s, e) => s + (e.priceCharged || 0), 0);
+                        const svcTypes = sorted.map(e => e.serviceType).filter(Boolean);
+                        const preferred = svcTypes.length ? svcTypes.sort((a, b) => svcTypes.filter(t => t === b).length - svcTypes.filter(t => t === a).length)[0] : undefined;
+                        await updateDoc(doc(db, "clients", selectedClient.id), {
+                          lastServiceDate: latest?.serviceDate || "",
+                          lastServiceType: latest?.serviceType || "",
+                          totalHistoricalSpend: totalSpend,
+                          serviceHistoryCount: sorted.length,
+                          preferredServiceType: preferred,
+                          marketingEligibleServices: [...new Set(svcTypes)],
+                          updatedAt: serverTimestamp(),
+                        }).catch(() => {});
+                        toast.success("Service history saved");
+                      }}
+                    />
+                  </div>
+                  {clientServiceHistory.length > 0 && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {[
+                        { label: "Total Historical Spend", value: `$${clientServiceHistory.reduce((s, e) => s + (e.priceCharged || 0), 0).toFixed(2)}` },
+                        { label: "Last Service", value: clientServiceHistory[0]?.serviceDate || "—" },
+                        { label: "Preferred Service", value: (() => { const t = clientServiceHistory.map(e => e.serviceType); return t.sort((a, b) => t.filter(x => x === b).length - t.filter(x => x === a).length)[0] || "—"; })() },
+                        { label: "Total Records", value: String(clientServiceHistory.length) },
+                      ].map(stat => (
+                        <div key={stat.label} className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-1">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-white/40">{stat.label}</p>
+                          <p className="text-sm font-black text-white whitespace-normal break-words">{stat.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* DEV/ADMIN UTILITY — remove before production launch */}
+                  <div className="mt-4 p-4 border border-dashed border-yellow-500/30 rounded-2xl bg-yellow-500/5 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-yellow-500/60">Dev / Admin Utility — Remove before launch</p>
+                    <p className="text-[9px] text-yellow-500/50">
+                      {clientServiceHistory.length > 0
+                        ? `This client already has ${clientServiceHistory.length} history record${clientServiceHistory.length !== 1 ? "s" : ""}. Adding sample data is blocked to prevent duplicates.`
+                        : "Adds 3 realistic sample entries (30d, 120d, 220d ago) and recomputes marketing intelligence."}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={clientServiceHistory.length > 0}
+                      className="border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 font-black uppercase tracking-widest text-[10px] h-10 px-6 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={async () => {
+                        if (!selectedClient || clientServiceHistory.length > 0) return;
+                        const daysAgo = (n: number) => {
+                          const dt = new Date();
+                          dt.setDate(dt.getDate() - n);
+                          return dt.toISOString().split("T")[0];
+                        };
+                        const vInfo = clientVehicles[0]
+                          ? `${clientVehicles[0].year} ${clientVehicles[0].make} ${clientVehicles[0].model}`.trim()
+                          : "Client Vehicle";
+                        const samples = [
+                          { serviceType: "Full Detail", serviceDate: daysAgo(30), vehicleInfo: vInfo, priceCharged: 249, notes: "Heavy contamination, paint correction included.", conditionTags: ["heavy_contamination", "swirl_marks"], source: "manual" as const },
+                          { serviceType: "Interior Deep Clean", serviceDate: daysAgo(120), vehicleInfo: vInfo, priceCharged: 149, notes: "Pet hair removal, steam cleaned.", conditionTags: ["pet_hair", "interior_deep_clean"], source: "manual" as const },
+                          { serviceType: "Ceramic Coating Maintenance", serviceDate: daysAgo(220), vehicleInfo: vInfo, priceCharged: 299, notes: "Ceramic top-coat applied. Client inactive > 180 days — reactivation candidate.", conditionTags: ["ceramic_coating", "water_spots"], source: "manual" as const },
+                        ];
+                        try {
+                          const histRef = collection(db, "client_service_history");
+                          const batch = writeBatch(db);
+                          for (const entry of samples) {
+                            batch.set(doc(histRef), { ...entry, clientId: selectedClient.id, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+                          }
+                          await batch.commit();
+                          // Recompute marketing intelligence
+                          const sorted = [...samples].sort((a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime());
+                          const latest = sorted[0];
+                          const totalSpend = sorted.reduce((s, e) => s + (e.priceCharged || 0), 0);
+                          const svcTypes = sorted.map(e => e.serviceType).filter(Boolean);
+                          const preferred = [...svcTypes].sort((a, b) => svcTypes.filter(t => t === b).length - svcTypes.filter(t => t === a).length)[0];
+                          const intervals = sorted.slice(0, -1).map((e, i) => Math.abs(Math.round((new Date(e.serviceDate).getTime() - new Date(sorted[i + 1].serviceDate).getTime()) / 86400000)));
+                          const avgInterval = intervals.length ? Math.round(intervals.reduce((s, v) => s + v, 0) / intervals.length) : undefined;
+                          const nextDate = avgInterval && latest ? new Date(new Date(latest.serviceDate).getTime() + avgInterval * 86400000).toISOString().split("T")[0] : undefined;
+                          await updateDoc(doc(db, "clients", selectedClient.id), {
+                            lastServiceDate: latest?.serviceDate || "",
+                            lastServiceType: latest?.serviceType || "",
+                            totalHistoricalSpend: totalSpend,
+                            serviceHistoryCount: sorted.length,
+                            preferredServiceType: preferred || "",
+                            marketingEligibleServices: [...new Set(svcTypes)],
+                            ...(avgInterval !== undefined ? { averageServiceInterval: avgInterval } : {}),
+                            ...(nextDate ? { nextRecommendedServiceDate: nextDate } : {}),
+                            updatedAt: serverTimestamp(),
+                          });
+                          // Refresh local state
+                          const snap = await getDocs(query(collection(db, "client_service_history"), where("clientId", "==", selectedClient.id), orderBy("serviceDate", "desc")));
+                          setClientServiceHistory(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
+                          toast.success(`3 sample entries added for ${getClientDisplayName(selectedClient)}. Marketing intelligence updated.`);
+                        } catch (err) {
+                          console.error("Sample history error:", err);
+                          toast.error("Failed to add sample history.");
+                        }
+                      }}
+                    >
+                      + Add Sample History (Dev)
+                    </Button>
+                  </div>
                 </TabsContent>
               </div>
             </Tabs>

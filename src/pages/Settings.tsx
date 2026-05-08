@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { doc, updateDoc, getDoc, setDoc, collection, query, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit } from "firebase/firestore";
+import { doc, updateDoc, getDoc, setDoc, collection, query, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit, where, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -48,7 +48,12 @@ import {
   ArrowUp, 
   ArrowDown,
   Image as ImageIcon,
-  DollarSign as DollarIcon
+  DollarSign as DollarIcon,
+  TrendingUp,
+  TrendingDown,
+  RefreshCw,
+  Fuel,
+  Wrench
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -165,6 +170,149 @@ export default function Settings() {
     maxTravelFee: ""
   });
 
+  type FuelIntelligenceState = {
+    travelFee: {
+      enabled: boolean;
+      freeServiceRadius: number;
+      baseTravelFee: number;
+      perMileRate: number;
+      maxTravelFee: number;
+      manualOverrideEnabled: boolean;
+      manualOverrideAmount: number;
+    };
+    fuelAdjustment: {
+      enabled: boolean;
+      pricingMode: "manual" | "hybrid_api";
+      currentFuelPrice: number;
+      suggestedAdjustmentPercent: number;
+      requireApproval: boolean;
+      approvedAdjustmentPercent: number;
+      pendingApprovalPercent?: number;
+      pendingApprovalSource?: "manual" | "api_suggested";
+      pendingApprovalAt?: string;
+      fuelSource: "manual" | "api_suggested" | "override";
+      lastUpdated?: string;
+    };
+  };
+
+  const defaultFuelIntelligence: FuelIntelligenceState = {
+    travelFee: {
+      enabled: false,
+      freeServiceRadius: 10,
+      baseTravelFee: 0,
+      perMileRate: 0,
+      maxTravelFee: 0,
+      manualOverrideEnabled: false,
+      manualOverrideAmount: 0,
+    },
+    fuelAdjustment: {
+      enabled: false,
+      pricingMode: "manual",
+      currentFuelPrice: 0,
+      suggestedAdjustmentPercent: 0,
+      requireApproval: true,
+      approvedAdjustmentPercent: 0,
+      fuelSource: "manual",
+    },
+  };
+
+  const [fuelIntelligence, setFuelIntelligence] = useState<FuelIntelligenceState>(defaultFuelIntelligence);
+  const [fuelSaving, setFuelSaving] = useState(false);
+
+  type EIAFetchStatus = "idle" | "fetching" | "success" | "error" | "no_data" | "missing_key";
+  type EIAData = {
+    currentPrice: number;
+    previousPrice: number | null;
+    priceChange: number | null;
+    priceChangePct: number | null;
+    fuelType: string;
+    region: string;
+    lastUpdated: string;
+    seriesId: string;
+  };
+  const [eiaStatus, setEiaStatus] = useState<EIAFetchStatus>("idle");
+  const [eiaData, setEiaData] = useState<EIAData | null>(null);
+  const [eiaError, setEiaError] = useState<string | null>(null);
+  const [eiaFetching, setEiaFetching] = useState(false);
+
+  const fetchEIAPrice = async () => {
+    const apiKey = import.meta.env.VITE_EIA_API_KEY as string | undefined;
+    if (!apiKey) {
+      setEiaStatus("missing_key");
+      setEiaError("VITE_EIA_API_KEY is not set. Add it to your .env file.");
+      return;
+    }
+    setEiaFetching(true);
+    setEiaStatus("fetching");
+    setEiaError(null);
+    try {
+      // EIA API v2 — Weekly U.S. Regular Gasoline Retail Price
+      // Response shape: { response: { data: Array<{ period: string, value: number|null, "area-name": string, "product-name": string, ... }> } }
+      const seriesId = "PET.EMM_EPMR_PTE_NUS_DPG.W";
+      const url = `https://api.eia.gov/v2/seriesid/${seriesId}?api_key=${apiKey}&out=json`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`EIA API responded with ${res.status} ${res.statusText}`);
+      }
+      const json = await res.json();
+
+      // EIA v2 returns an array of row objects, not tuples
+      type EIARow = { period?: string; value?: number | string | null; "area-name"?: string; "product-name"?: string; units?: string };
+      const rows: EIARow[] = Array.isArray(json?.response?.data) ? json.response.data : [];
+
+      // Filter to rows with a valid numeric value and sort newest first by period string
+      const valid = rows
+        .filter(r => r.value !== null && r.value !== undefined && !isNaN(Number(r.value)))
+        .sort((a, b) => (b.period ?? "").localeCompare(a.period ?? ""));
+
+      if (!valid.length) {
+        setEiaStatus("no_data");
+        setEiaError("No usable EIA fuel price found. The series may have no recent data.");
+        return;
+      }
+
+      const toNum = (v: number | string | null | undefined): number => Number(v);
+
+      const current = valid[0];
+      const previous = valid[1] ?? null;
+      const currentPrice = toNum(current.value);
+      const previousPrice = previous ? toNum(previous.value) : null;
+
+      if (!isFinite(currentPrice)) {
+        setEiaStatus("no_data");
+        setEiaError("No usable EIA fuel price found.");
+        return;
+      }
+
+      const priceChange = previousPrice !== null && isFinite(previousPrice)
+        ? +(currentPrice - previousPrice).toFixed(4)
+        : null;
+      const priceChangePct = priceChange !== null && previousPrice
+        ? +((priceChange / previousPrice) * 100).toFixed(2)
+        : null;
+
+      const fuelType = current["product-name"] ?? "Regular Gasoline";
+      const region = current["area-name"] ?? "U.S. National Average";
+
+      setEiaData({
+        currentPrice: +currentPrice.toFixed(3),
+        previousPrice: previousPrice !== null && isFinite(previousPrice) ? +previousPrice.toFixed(3) : null,
+        priceChange,
+        priceChangePct,
+        fuelType,
+        region,
+        lastUpdated: current.period ?? "Unknown",
+        seriesId,
+      });
+      setEiaStatus("success");
+    } catch (err: any) {
+      setEiaStatus("error");
+      setEiaError(err?.message ?? "Unknown error fetching EIA data.");
+    } finally {
+      setEiaFetching(false);
+    }
+  };
+
   useEffect(() => {
     getGoogleCalendarToken().then(token => setGoogleCalendarLinked(!!token)).catch(() => setGoogleCalendarLinked(false));
   }, []);
@@ -188,6 +336,12 @@ export default function Settings() {
             rotation: parsed.logoSettings?.rotation || 0,
             fit: parsed.logoSettings?.fit || 'contain',
             background: 'transparent'
+          });
+        }
+        if (parsed.fuelIntelligence) {
+          setFuelIntelligence({
+            travelFee: { ...defaultFuelIntelligence.travelFee, ...parsed.fuelIntelligence.travelFee },
+            fuelAdjustment: { ...defaultFuelIntelligence.fuelAdjustment, ...parsed.fuelIntelligence.fuelAdjustment },
           });
         }
         setTravelPricingInputs({
@@ -238,6 +392,12 @@ export default function Settings() {
               freeMilesThreshold: data.travelPricing.freeMilesThreshold.toString(),
               minTravelFee: data.travelPricing.minTravelFee.toString(),
               maxTravelFee: data.travelPricing.maxTravelFee.toString()
+            });
+          }
+          if (data.fuelIntelligence) {
+            setFuelIntelligence({
+              travelFee: { ...defaultFuelIntelligence.travelFee, ...data.fuelIntelligence.travelFee },
+              fuelAdjustment: { ...defaultFuelIntelligence.fuelAdjustment, ...data.fuelIntelligence.fuelAdjustment },
             });
           }
         } else if (profile?.role === "admin") {
@@ -1139,7 +1299,7 @@ export default function Settings() {
   };
 
   const handleTabChange = (value: string) => {
-    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security"];
+    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel"];
     if (sensitiveTabs.includes(value) && !hasAccessToSensitiveSettings) {
       toast.error("Access Restricted. This sector is protected by Admin-Only Protocol.");
       return;
@@ -1148,7 +1308,7 @@ export default function Settings() {
   };
 
   useEffect(() => {
-    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security"];
+    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel"];
     if (sensitiveTabs.includes(activeTab) && !hasAccessToSensitiveSettings && !authLoading) {
       setSearchParams({ tab: "profile" });
     }
@@ -1264,12 +1424,34 @@ export default function Settings() {
               </TabsTrigger>
             )}
             {hasAccessToSensitiveSettings && (
-              <TabsTrigger 
-                value="security" 
+              <TabsTrigger
+                value="security"
                 className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
               >
                 <Shield className="w-4 h-4" /> Security Layers
               </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <>
+                <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Pricing Intelligence</h3>
+                <TabsTrigger
+                  value="travel-fuel"
+                  className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+                >
+                  <Truck className="w-4 h-4" /> Travel & Fuel
+                </TabsTrigger>
+              </>
+            )}
+            {isOwner && (
+              <>
+                <h3 className="px-4 text-[10px] font-black text-yellow-500/60 uppercase tracking-widest mt-6 mb-2">Dev / Admin Tools</h3>
+                <TabsTrigger
+                  value="dev-tools"
+                  className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-yellow-500/20 data-[state=active]:text-yellow-400 data-[state=active]:shadow-none text-yellow-500/60 hover:text-yellow-400 hover:bg-yellow-500/10 transition-all"
+                >
+                  <Wrench className="w-4 h-4" /> Dev Tools
+                </TabsTrigger>
+              </>
             )}
           </TabsList>
         </div>
@@ -5058,6 +5240,675 @@ export default function Settings() {
           </div>
         </TabsContent>
 
+
+        {/* ── Travel & Fuel Intelligence ── */}
+        <TabsContent value="travel-fuel" className="mt-0 space-y-6">
+
+          {/* Travel Fee Controls */}
+          <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">
+                Travel Fee <span className="text-primary italic">Controls</span>
+              </CardTitle>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">
+                Configure distance-based travel pricing — customers see only "Travel Fee"
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-8 space-y-6">
+              <div className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
+                <div>
+                  <p className="text-sm font-bold text-white uppercase">Enable Travel Fee</p>
+                  <p className="text-[10px] text-white/40 mt-0.5">Activate distance-based travel pricing</p>
+                </div>
+                <Switch
+                  checked={fuelIntelligence.travelFee.enabled}
+                  onCheckedChange={(val) =>
+                    setFuelIntelligence(prev => ({ ...prev, travelFee: { ...prev.travelFee, enabled: val } }))
+                  }
+                />
+              </div>
+
+              {fuelIntelligence.travelFee.enabled && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Free Service Radius (miles)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={fuelIntelligence.travelFee.freeServiceRadius}
+                      onChange={(e) => setFuelIntelligence(prev => ({ ...prev, travelFee: { ...prev.travelFee, freeServiceRadius: parseFloat(e.target.value) || 0 } }))}
+                      className="bg-black/40 border-white/10 text-white rounded-xl"
+                    />
+                    <p className="text-[10px] text-white/40">No travel fee charged within this radius</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Base Travel Fee ($)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={fuelIntelligence.travelFee.baseTravelFee}
+                      onChange={(e) => setFuelIntelligence(prev => ({ ...prev, travelFee: { ...prev.travelFee, baseTravelFee: parseFloat(e.target.value) || 0 } }))}
+                      className="bg-black/40 border-white/10 text-white rounded-xl"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Per-Mile Rate ($)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={fuelIntelligence.travelFee.perMileRate}
+                      onChange={(e) => setFuelIntelligence(prev => ({ ...prev, travelFee: { ...prev.travelFee, perMileRate: parseFloat(e.target.value) || 0 } }))}
+                      className="bg-black/40 border-white/10 text-white rounded-xl"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Maximum Travel Fee ($)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={fuelIntelligence.travelFee.maxTravelFee}
+                      onChange={(e) => setFuelIntelligence(prev => ({ ...prev, travelFee: { ...prev.travelFee, maxTravelFee: parseFloat(e.target.value) || 0 } }))}
+                      className="bg-black/40 border-white/10 text-white rounded-xl"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {fuelIntelligence.travelFee.enabled && (
+                <div className="border border-white/5 rounded-2xl p-4 space-y-4 bg-white/3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-white uppercase">Manual Override</p>
+                      <p className="text-[10px] text-white/40 mt-0.5">Bypass calculation and set a fixed travel fee</p>
+                    </div>
+                    <Switch
+                      checked={fuelIntelligence.travelFee.manualOverrideEnabled}
+                      onCheckedChange={(val) =>
+                        setFuelIntelligence(prev => ({ ...prev, travelFee: { ...prev.travelFee, manualOverrideEnabled: val } }))
+                      }
+                    />
+                  </div>
+                  {fuelIntelligence.travelFee.manualOverrideEnabled && (
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Override Amount ($)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={fuelIntelligence.travelFee.manualOverrideAmount}
+                        onChange={(e) => setFuelIntelligence(prev => ({ ...prev, travelFee: { ...prev.travelFee, manualOverrideAmount: parseFloat(e.target.value) || 0 } }))}
+                        className="bg-black/40 border-white/10 text-white rounded-xl"
+                      />
+                      <p className="text-[10px] text-yellow-400/70">This value will be used as the final travel fee, ignoring distance calculation.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Fuel Adjustment Controls */}
+          <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">
+                Fuel Adjustment <span className="text-primary italic">Intelligence</span>
+              </CardTitle>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">
+                Hybrid fuel pricing — adjustments are suggested, never auto-applied
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-8 space-y-6">
+              <div className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
+                <div>
+                  <p className="text-sm font-bold text-white uppercase">Enable Fuel Adjustment</p>
+                  <p className="text-[10px] text-white/40 mt-0.5">Calculate a fuel surcharge on top of travel fee</p>
+                </div>
+                <Switch
+                  checked={fuelIntelligence.fuelAdjustment.enabled}
+                  onCheckedChange={(val) =>
+                    setFuelIntelligence(prev => ({ ...prev, fuelAdjustment: { ...prev.fuelAdjustment, enabled: val } }))
+                  }
+                />
+              </div>
+
+              {fuelIntelligence.fuelAdjustment.enabled && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Fuel Pricing Mode</Label>
+                    <Select
+                      value={fuelIntelligence.fuelAdjustment.pricingMode}
+                      onValueChange={(val: "manual" | "hybrid_api") =>
+                        setFuelIntelligence(prev => ({ ...prev, fuelAdjustment: { ...prev.fuelAdjustment, pricingMode: val } }))
+                      }
+                    >
+                      <SelectTrigger className="bg-black/40 border-white/10 text-white rounded-xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#111] border-white/10 text-white">
+                        <SelectItem value="manual">Manual — Enter fuel price manually</SelectItem>
+                        <SelectItem value="hybrid_api">Hybrid API — Manual with API-suggested overlay</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-white/30">API Only mode is disabled — manual approval is always required.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Current Fuel Price ($/gal)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={fuelIntelligence.fuelAdjustment.currentFuelPrice}
+                        onChange={(e) => setFuelIntelligence(prev => ({ ...prev, fuelAdjustment: { ...prev.fuelAdjustment, currentFuelPrice: parseFloat(e.target.value) || 0 } }))}
+                        className="bg-black/40 border-white/10 text-white rounded-xl"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Suggested Fuel Adjustment (%)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        value={fuelIntelligence.fuelAdjustment.suggestedAdjustmentPercent}
+                        onChange={(e) => setFuelIntelligence(prev => ({ ...prev, fuelAdjustment: { ...prev.fuelAdjustment, suggestedAdjustmentPercent: parseFloat(e.target.value) || 0 } }))}
+                        className="bg-black/40 border-white/10 text-white rounded-xl"
+                      />
+                      <p className="text-[10px] text-white/40">This is a suggested value — approval is required before it applies to customers.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
+                    <div>
+                      <p className="text-sm font-bold text-white uppercase">Require Approval Before Applying</p>
+                      <p className="text-[10px] text-white/40 mt-0.5">Owner/admin must approve before adjustment affects customer pricing</p>
+                    </div>
+                    <Switch
+                      checked={fuelIntelligence.fuelAdjustment.requireApproval}
+                      onCheckedChange={(val) =>
+                        setFuelIntelligence(prev => ({ ...prev, fuelAdjustment: { ...prev.fuelAdjustment, requireApproval: val } }))
+                      }
+                    />
+                  </div>
+
+                  {/* Pending approval banner */}
+                  {fuelIntelligence.fuelAdjustment.pendingApprovalPercent !== undefined && fuelIntelligence.fuelAdjustment.requireApproval && (
+                    <div className="border border-yellow-400/30 bg-yellow-400/5 rounded-2xl p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-yellow-400" />
+                        <p className="text-sm font-bold text-yellow-400 uppercase">Pending Adjustment Awaiting Approval</p>
+                      </div>
+                      <p className="text-xs text-white/60">
+                        Suggested: <span className="text-white font-bold">{fuelIntelligence.fuelAdjustment.pendingApprovalPercent}%</span>
+                        {" "}from <span className="text-white/60 capitalize">{fuelIntelligence.fuelAdjustment.pendingApprovalSource?.replace("_", " ") || "manual"}</span>
+                      </p>
+                      <div className="flex gap-3">
+                        <Button
+                          size="sm"
+                          className="bg-primary text-white rounded-xl font-bold uppercase text-[10px] tracking-widest"
+                          onClick={() => {
+                            const approved = fuelIntelligence.fuelAdjustment.pendingApprovalPercent ?? 0;
+                            setFuelIntelligence(prev => ({
+                              ...prev,
+                              fuelAdjustment: {
+                                ...prev.fuelAdjustment,
+                                approvedAdjustmentPercent: approved,
+                                pendingApprovalPercent: undefined,
+                                pendingApprovalSource: undefined,
+                                pendingApprovalAt: undefined,
+                                lastUpdated: new Date().toISOString(),
+                              }
+                            }));
+                          }}
+                        >
+                          <Check className="w-3 h-3 mr-1" /> Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-white/10 text-white/60 rounded-xl font-bold uppercase text-[10px] tracking-widest"
+                          onClick={() => {
+                            setFuelIntelligence(prev => ({
+                              ...prev,
+                              fuelAdjustment: {
+                                ...prev.fuelAdjustment,
+                                pendingApprovalPercent: undefined,
+                                pendingApprovalSource: undefined,
+                                pendingApprovalAt: undefined,
+                              }
+                            }));
+                          }}
+                        >
+                          Ignore
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Approved adjustment display */}
+                  <div className="p-4 bg-white/5 border border-white/5 rounded-2xl flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Approved Fuel Adjustment</p>
+                      <p className="text-2xl font-black text-white mt-1">{fuelIntelligence.fuelAdjustment.approvedAdjustmentPercent}%</p>
+                      <p className="text-[10px] text-white/30 mt-1">
+                        Source: <span className="capitalize">{fuelIntelligence.fuelAdjustment.fuelSource.replace("_", " ")}</span>
+                        {fuelIntelligence.fuelAdjustment.lastUpdated && (
+                          <> · Updated {new Date(fuelIntelligence.fuelAdjustment.lastUpdated).toLocaleDateString()}</>
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-white/10 text-white/60 rounded-xl font-bold uppercase text-[10px] tracking-widest"
+                      onClick={() => {
+                        const suggested = fuelIntelligence.fuelAdjustment.suggestedAdjustmentPercent;
+                        if (fuelIntelligence.fuelAdjustment.requireApproval) {
+                          setFuelIntelligence(prev => ({
+                            ...prev,
+                            fuelAdjustment: {
+                              ...prev.fuelAdjustment,
+                              pendingApprovalPercent: suggested,
+                              pendingApprovalSource: "manual",
+                              pendingApprovalAt: new Date().toISOString(),
+                            }
+                          }));
+                          toast.info("Adjustment queued for approval.");
+                        } else {
+                          setFuelIntelligence(prev => ({
+                            ...prev,
+                            fuelAdjustment: {
+                              ...prev.fuelAdjustment,
+                              approvedAdjustmentPercent: suggested,
+                              fuelSource: "manual",
+                              lastUpdated: new Date().toISOString(),
+                            }
+                          }));
+                          toast.success("Fuel adjustment applied.");
+                        }
+                      }}
+                    >
+                      Apply Suggested →
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* EIA Fuel Market Averages */}
+          <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">
+                    Fuel Market <span className="text-primary italic">Averages</span>
+                  </CardTitle>
+                  <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">
+                    EIA average price data — admin only, never auto-applied to customers
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={eiaFetching}
+                  className="border-white/10 text-white/60 hover:text-white rounded-xl font-bold uppercase text-[10px] tracking-widest shrink-0"
+                  onClick={fetchEIAPrice}
+                >
+                  {eiaFetching
+                    ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Fetching…</>
+                    : <><RefreshCw className="w-3 h-3 mr-1.5" />Fetch EIA Fuel Price</>}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-8 space-y-5">
+
+              {/* Status row */}
+              <div className="flex items-center gap-2">
+                <Fuel className="w-4 h-4 text-[#A0A0A0]" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Provider:</span>
+                <span className="text-xs font-bold text-white">EIA — U.S. Energy Information Administration</span>
+                <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                  eiaStatus === "success" ? "bg-green-500/20 text-green-400" :
+                  eiaStatus === "fetching" ? "bg-blue-500/20 text-blue-400" :
+                  eiaStatus === "missing_key" ? "bg-yellow-500/20 text-yellow-400" :
+                  eiaStatus === "error" || eiaStatus === "no_data" ? "bg-red-500/20 text-red-400" :
+                  "bg-white/10 text-white/40"
+                }`}>
+                  {eiaStatus === "idle" ? "Not Fetched" :
+                   eiaStatus === "fetching" ? "Fetching…" :
+                   eiaStatus === "success" ? "Connected" :
+                   eiaStatus === "missing_key" ? "Missing API Key" :
+                   eiaStatus === "no_data" ? "No Data Found" :
+                   "Fetch Failed"}
+                </span>
+              </div>
+
+              {/* Error messages */}
+              {(eiaStatus === "missing_key" || eiaStatus === "error" || eiaStatus === "no_data") && eiaError && (
+                <div className="flex items-start gap-3 p-4 rounded-2xl bg-red-500/5 border border-red-500/20">
+                  <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold text-red-400 uppercase">{
+                      eiaStatus === "missing_key" ? "API Key Missing" :
+                      eiaStatus === "no_data" ? "No Data Returned" : "Fetch Error"
+                    }</p>
+                    <p className="text-xs text-white/50 mt-1">{eiaError}</p>
+                    {eiaStatus === "missing_key" && (
+                      <p className="text-[10px] text-white/30 mt-2 font-mono">Add VITE_EIA_API_KEY=your_key to your .env file, then restart the dev server.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Idle hint */}
+              {eiaStatus === "idle" && (
+                <div className="p-4 rounded-2xl bg-white/3 border border-white/5 text-center">
+                  <p className="text-[10px] text-white/30 font-black uppercase tracking-widest">Click "Fetch EIA Fuel Price" to load current market averages</p>
+                  <p className="text-[10px] text-white/20 mt-1">Requires VITE_EIA_API_KEY — free registration at eia.gov/opendata</p>
+                </div>
+              )}
+
+              {/* Data panel */}
+              {eiaStatus === "success" && eiaData && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-1">
+                      <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">EIA Suggested Average</p>
+                      <p className="text-3xl font-black text-white">${eiaData.currentPrice.toFixed(3)}<span className="text-sm text-white/40 font-medium ml-1">/gal</span></p>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-1">
+                      <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Previous Average</p>
+                      <p className="text-3xl font-black text-white/60">
+                        {eiaData.previousPrice !== null ? `$${eiaData.previousPrice.toFixed(3)}` : "—"}
+                        <span className="text-sm text-white/30 font-medium ml-1">/gal</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+                      <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Price Change</p>
+                      {eiaData.priceChange !== null ? (
+                        <div className={`flex items-center gap-1 text-sm font-bold ${eiaData.priceChange >= 0 ? "text-red-400" : "text-green-400"}`}>
+                          {eiaData.priceChange >= 0
+                            ? <TrendingUp className="w-3.5 h-3.5" />
+                            : <TrendingDown className="w-3.5 h-3.5" />}
+                          {eiaData.priceChange >= 0 ? "+" : ""}{eiaData.priceChange.toFixed(3)}
+                        </div>
+                      ) : <span className="text-sm font-bold text-white/30">—</span>}
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+                      <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Change %</p>
+                      {eiaData.priceChangePct !== null ? (
+                        <div className={`flex items-center gap-1 text-sm font-bold ${eiaData.priceChangePct >= 0 ? "text-red-400" : "text-green-400"}`}>
+                          {eiaData.priceChangePct >= 0 ? "+" : ""}{eiaData.priceChangePct.toFixed(2)}%
+                        </div>
+                      ) : <span className="text-sm font-bold text-white/30">—</span>}
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+                      <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Fuel Type</p>
+                      <p className="text-xs font-bold text-white">{eiaData.fuelType}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+                      <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Last Updated</p>
+                      <p className="text-xs font-bold text-white">{eiaData.lastUpdated}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+                      <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Region / Area</p>
+                      <p className="text-xs font-bold text-white">{eiaData.region}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+                      <p className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Source</p>
+                      <p className="text-xs font-bold text-white">EIA Average Fuel Data · Series: {eiaData.seriesId}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-2 border-t border-white/5">
+                    <div className="flex-1">
+                      <p className="text-[10px] text-white/30">Applying moves the EIA price into "Current Fuel Price" only — no changes are sent to customers until you Save and approve the fuel adjustment.</p>
+                    </div>
+                    {eiaData && isFinite(eiaData.currentPrice) && (
+                      <Button
+                        size="sm"
+                        className="bg-primary text-white rounded-xl font-bold uppercase text-[10px] tracking-widest shrink-0"
+                        onClick={() => {
+                          setFuelIntelligence(prev => ({
+                            ...prev,
+                            fuelAdjustment: {
+                              ...prev.fuelAdjustment,
+                              currentFuelPrice: eiaData.currentPrice,
+                              fuelSource: "api_suggested",
+                            }
+                          }));
+                          toast.success("EIA average applied to Current Fuel Price. Click Save to persist.");
+                        }}
+                      >
+                        Apply EIA Average →
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Admin Internal Breakdown Preview */}
+          <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">
+                Admin <span className="text-primary italic">Breakdown Preview</span>
+              </CardTitle>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">
+                Internal view only — customers see only "Travel Fee: $XX.XX"
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-8">
+              {(() => {
+                const tf = fuelIntelligence.travelFee;
+                const fa = fuelIntelligence.fuelAdjustment;
+                const baseFee = tf.manualOverrideEnabled ? tf.manualOverrideAmount : tf.baseTravelFee;
+                const fuelMult = fa.enabled ? (1 + fa.approvedAdjustmentPercent / 100) : 1;
+                const fuelAdjAmt = baseFee * (fuelMult - 1);
+                const finalFee = Math.min(baseFee + fuelAdjAmt, tf.maxTravelFee || Infinity);
+                return (
+                  <div className="space-y-3">
+                    {[
+                      { label: "Base Travel Fee", value: `$${baseFee.toFixed(2)}` },
+                      { label: "Distance Charge (per-mile)", value: `$${tf.perMileRate.toFixed(2)}/mi` },
+                      { label: "Fuel Adjustment", value: fa.enabled ? `+${fa.approvedAdjustmentPercent}% ($${fuelAdjAmt.toFixed(2)})` : "Disabled" },
+                      { label: "Final Travel Fee", value: `$${finalFee.toFixed(2)}`, highlight: true },
+                      { label: "Fuel Source", value: fa.fuelSource.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase()) },
+                      { label: "Last Updated", value: fa.lastUpdated ? new Date(fa.lastUpdated).toLocaleString() : "—" },
+                    ].map(({ label, value, highlight }) => (
+                      <div key={label} className={`flex items-center justify-between p-3 rounded-xl ${highlight ? "bg-primary/10 border border-primary/20" : "bg-white/3"}`}>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">{label}</span>
+                        <span className={`text-sm font-bold ${highlight ? "text-primary" : "text-white"}`}>{value}</span>
+                      </div>
+                    ))}
+                    <div className="mt-4 p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Customer-Facing Label</span>
+                      <span className="text-sm font-bold text-white">Travel Fee: ${finalFee.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+
+          {/* Save Button */}
+          <div className="flex justify-end pt-2">
+            <Button
+              disabled={fuelSaving}
+              className="bg-primary text-white rounded-xl font-bold uppercase tracking-widest text-[10px] px-8 h-12"
+              onClick={async () => {
+                if (!settings) return;
+                setFuelSaving(true);
+                try {
+                  await handleSaveSettings({ fuelIntelligence });
+                } catch {
+                  // handleSaveSettings shows its own toast on error
+                } finally {
+                  setFuelSaving(false);
+                }
+              }}
+            >
+              {fuelSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              Save Fuel Intelligence
+            </Button>
+          </div>
+
+        </TabsContent>
+
+        {/* DEV / ADMIN TOOLS — remove this entire TabsContent before production launch */}
+        <TabsContent value="dev-tools" className="mt-0 space-y-8">
+          <div className="p-6 border border-dashed border-yellow-500/30 rounded-3xl bg-yellow-500/5 space-y-4">
+            <div className="flex items-center gap-3">
+              <Wrench className="w-5 h-5 text-yellow-400" />
+              <div>
+                <h3 className="text-sm font-black text-yellow-400 uppercase tracking-widest">Dev / Admin Utilities</h3>
+                <p className="text-[10px] text-yellow-500/60 font-medium mt-0.5">These tools are for development and testing only. Remove before production launch.</p>
+              </div>
+            </div>
+
+            {/* ── Bulk Sample Service History ── */}
+            <div className="p-5 bg-black/30 rounded-2xl border border-yellow-500/20 space-y-4">
+              <div>
+                <h4 className="text-xs font-black text-white uppercase tracking-widest">Backfill Sample Service History</h4>
+                <p className="text-[10px] text-white/50 mt-1">
+                  Adds 2–3 realistic sample service history records to every client that has <strong className="text-white/80">no existing history</strong>.
+                  Clients with existing records are skipped. After writing history, marketing intelligence fields
+                  (lastServiceDate, preferredServiceType, totalHistoricalSpend, etc.) are recomputed on the client document.
+                </p>
+                <p className="text-[10px] text-yellow-400/70 mt-1 font-bold">Firestore path: <code>client_service_history</code> (clientId field)</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10 font-black uppercase tracking-widest text-[10px] h-10 px-6 rounded-xl"
+                onClick={async () => {
+                  try {
+                    const SERVICE_TYPES = [
+                      "Full Detail", "Interior Deep Clean", "Ceramic Coating Maintenance",
+                      "Paint Correction", "Maintenance Wash", "Premium Detail",
+                      "Odor Removal", "Pet Hair Removal", "Fleet Wash",
+                    ];
+                    const CONDITION_TAGS_POOL = [
+                      "paint_correction", "heavy_contamination", "ceramic_coating",
+                      "interior_deep_clean", "high_mileage", "water_spots",
+                      "pet_hair", "smoke_odor", "swirl_marks",
+                    ];
+                    const PRICES: Record<string, [number, number]> = {
+                      "Full Detail": [200, 450],
+                      "Interior Deep Clean": [175, 400],
+                      "Ceramic Coating Maintenance": [150, 350],
+                      "Paint Correction": [500, 1200],
+                      "Maintenance Wash": [75, 150],
+                      "Premium Detail": [300, 600],
+                      "Odor Removal": [100, 250],
+                      "Pet Hair Removal": [80, 200],
+                      "Fleet Wash": [60, 125],
+                    };
+                    const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+                    const daysAgo = (n: number) => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - n);
+                      return d.toISOString().split("T")[0];
+                    };
+                    const pickTags = () => CONDITION_TAGS_POOL.sort(() => Math.random() - 0.5).slice(0, rand(1, 3));
+
+                    // Load all clients
+                    const clientsSnap = await getDocs(collection(db, "clients"));
+                    const allClients = clientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+                    // Load all existing history clientIds in one query
+                    const histSnap = await getDocs(collection(db, "client_service_history"));
+                    const clientsWithHistory = new Set(histSnap.docs.map(d => (d.data() as any).clientId).filter(Boolean));
+
+                    let updatedCount = 0;
+                    let skippedCount = 0;
+                    let entryCount = 0;
+
+                    for (const client of allClients) {
+                      if (clientsWithHistory.has(client.id)) {
+                        skippedCount++;
+                        continue;
+                      }
+
+                      // Build 2–3 entries: one recent, one mid, one old (>180d) for reactivation testing
+                      const entryOffsets = [rand(15, 60), rand(90, 150), rand(185, 280)].slice(0, rand(2, 3));
+                      const entries = entryOffsets.map((offset, i) => {
+                        const svcType = SERVICE_TYPES[rand(0, SERVICE_TYPES.length - 1)];
+                        const [pMin, pMax] = PRICES[svcType] || [100, 300];
+                        return {
+                          clientId: client.id,
+                          serviceType: svcType,
+                          serviceDate: daysAgo(offset),
+                          vehicleInfo: client.vehicleInfo || (client.vehicles?.[0] ? `${client.vehicles[0].year || ""} ${client.vehicles[0].make || ""} ${client.vehicles[0].model || ""}`.trim() : "Client Vehicle"),
+                          priceCharged: rand(pMin, pMax),
+                          notes: i === 0 ? "Recent service — good condition." : i === 1 ? "Mid-cycle service." : "Older service — reactivation candidate.",
+                          conditionTags: pickTags(),
+                          source: "manual" as const,
+                        };
+                      });
+
+                      // Batch write history entries
+                      const histRef = collection(db, "client_service_history");
+                      const batch = writeBatch(db);
+                      for (const entry of entries) {
+                        const newRef = doc(histRef);
+                        batch.set(newRef, { ...entry, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+                      }
+                      await batch.commit();
+                      entryCount += entries.length;
+
+                      // Recompute marketing intelligence
+                      const sorted = [...entries].sort((a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime());
+                      const latest = sorted[0];
+                      const totalSpend = sorted.reduce((s, e) => s + e.priceCharged, 0);
+                      const svcTypes = sorted.map(e => e.serviceType);
+                      const preferred = svcTypes.sort((a, b) => svcTypes.filter(t => t === b).length - svcTypes.filter(t => t === a).length)[0];
+                      const intervals = sorted.slice(0, -1).map((e, i) => Math.abs(Math.round((new Date(e.serviceDate).getTime() - new Date(sorted[i + 1].serviceDate).getTime()) / 86400000)));
+                      const avgInterval = intervals.length ? Math.round(intervals.reduce((s, v) => s + v, 0) / intervals.length) : undefined;
+                      const nextDate = avgInterval && latest ? new Date(new Date(latest.serviceDate).getTime() + avgInterval * 86400000).toISOString().split("T")[0] : undefined;
+
+                      await updateDoc(doc(db, "clients", client.id), {
+                        lastServiceDate: latest.serviceDate,
+                        lastServiceType: latest.serviceType,
+                        totalHistoricalSpend: totalSpend,
+                        serviceHistoryCount: sorted.length,
+                        preferredServiceType: preferred,
+                        marketingEligibleServices: [...new Set(svcTypes)],
+                        ...(avgInterval !== undefined ? { averageServiceInterval: avgInterval } : {}),
+                        ...(nextDate ? { nextRecommendedServiceDate: nextDate } : {}),
+                        updatedAt: serverTimestamp(),
+                      }).catch(() => {});
+
+                      updatedCount++;
+                    }
+
+                    toast.success(
+                      `Done — ${updatedCount} client${updatedCount !== 1 ? "s" : ""} updated (${entryCount} entries added), ${skippedCount} skipped (already had history).`,
+                      { duration: 8000 }
+                    );
+                  } catch (err) {
+                    console.error("Backfill error:", err);
+                    toast.error("Backfill failed — check console.");
+                  }
+                }}
+              >
+                <Wrench className="w-4 h-4 mr-2" />
+                Backfill Sample History for All Clients
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
 
 </div>
 </Tabs>

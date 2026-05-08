@@ -199,6 +199,30 @@ export interface Client extends SyncMetadata {
   smsConsent?: boolean;
   smsOptOut?: boolean;
   preferredContactMethod?: "email" | "sms" | "both" | "none";
+  // Marketing intelligence
+  lastServiceDate?: string;
+  lastServiceType?: string;
+  averageServiceInterval?: number;
+  preferredServiceType?: string;
+  totalHistoricalSpend?: number;
+  serviceHistoryCount?: number;
+  marketingEligibleServices?: string[];
+  nextRecommendedServiceDate?: string;
+  serviceHistoryNotes?: string;
+}
+
+export interface ServiceHistoryEntry {
+  id: string;
+  clientId: string;
+  serviceType: string;
+  serviceDate: string;
+  vehicleInfo?: string;
+  priceCharged?: number;
+  notes?: string;
+  conditionTags?: string[];
+  source: "imported" | "manual" | "completed_job";
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 export interface Vehicle {
