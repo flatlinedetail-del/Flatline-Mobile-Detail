@@ -334,7 +334,7 @@ export default function Calendar() {
   }, [isLoaded, optimizedStops, settings, date]);
 
   const syncCalendarData = async (showToast = false, forceRange?: { start: Date; end: Date }) => {
-    if (!profile || !isLoaded) return;
+    if (!profile) return;
     
     // Performance marker
     const loadStart = performance.now();
@@ -428,8 +428,9 @@ export default function Calendar() {
       console.log(`📡 [CALENDAR] Appointments Updated: ${data.length} docs for ${rangeKey}`);
     }, (err) => {
       console.error("Calendar listener failed:", err);
-      handleFirestoreError(err, OperationType.LIST, "appointments");
-      setFetchError("Sync intermittent. Check connection.");
+      try { handleFirestoreError(err, OperationType.LIST, "appointments"); } catch (_) {}
+      setFetchError("Calendar could not load appointments. Showing local schedule view.");
+      setLoading(false);
     });
 
     // 2. Time Blocks Listener
@@ -473,15 +474,15 @@ export default function Calendar() {
   };
 
   useEffect(() => {
-    if (authLoading || !profile || !isLoaded) return;
+    if (authLoading || !profile) return;
     syncCalendarData();
-    
+
     return () => {
       if (appointmentsUnsubscribe.current) appointmentsUnsubscribe.current();
       if (blocksUnsubscribe.current) blocksUnsubscribe.current();
       sessionStorage.removeItem(`active_range_listener`);
     };
-  }, [profile, authLoading, isLoaded, calendarView, calendarDate]);
+  }, [profile, authLoading, calendarView, calendarDate]);
 
   // Auto-calculate travel fee when address changes
   useEffect(() => {
