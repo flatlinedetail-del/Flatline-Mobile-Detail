@@ -258,6 +258,15 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
 
   const generateAIEstimate = async () => {
     if (manualVehicles.length === 0 || isGeneratingAI) return;
+
+    // Hard guard: no services selected → no pricing, period.
+    const hasProtocols = selectedServiceSelections.length > 0 || selectedAddOnSelections.length > 0;
+    const hasProductCosts = productCosts.some(p => (parseFloat(p.totalCost) || 0) > 0);
+    if (!hasProtocols && !hasProductCosts) {
+      toast.error("Select a service protocol to generate market benchmark pricing.");
+      return;
+    }
+
     setIsGeneratingAI(true);
 
     // Compute benchmark early — used as fallback regardless of AI outcome
@@ -355,7 +364,10 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       setPricingAnalysis(normalizePricingTiers(benchmarkPricing));
       setAnalysisSource("benchmark");
 
-      if (err.message?.includes("QUOTA_EXCEEDED")) {
+      const hasProtocolsForToast = selectedServiceSelections.length > 0 || selectedAddOnSelections.length > 0;
+      if (!hasProtocolsForToast) {
+        toast.error("Select a service protocol to generate market benchmark pricing.");
+      } else if (err.message?.includes("QUOTA_EXCEEDED")) {
         toast.warning("AI pricing unavailable: spending cap reached. Using market benchmarks.", {
           duration: 8000,
           action: { label: "Manage Cap", onClick: () => window.open("https://ai.studio/spend", "_blank") },
@@ -363,7 +375,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       } else if (err.message?.includes("parse") || err.message?.includes("JSON") || err.message?.includes("json")) {
         toast.warning("AI pricing response could not be read. Using market benchmarks.");
       } else {
-        toast.warning("AI pricing unavailable. Using market benchmarks.");
+        toast.warning("AI unavailable — market benchmark used.");
       }
     } finally {
       setIsGeneratingAI(false);
@@ -388,11 +400,21 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     }
   };
 
+  // Clear stale $0 pricingAnalysis when service selections change.
+  // A no-protocol AI run may have left $0 pricing; once the user selects a
+  // protocol, recommendations will produce real prices — but only if $0
+  // pricingAnalysis doesn't shadow them in finalPrice.
+  useEffect(() => {
+    if (pricingAnalysis && pricingAnalysis.recommendedPrice <= 0 && selectedServiceSelections.length > 0) {
+      setPricingAnalysis(null);
+    }
+  }, [selectedServiceSelections.length]);
+
   const selectedServices = selectedServiceSelections.map(sel => {
     const s = services.find(serv => serv.id === sel.serviceId);
     return { ...s, ...sel };
   }).filter(s => !!s.serviceId);
-  
+
   const selectedAddOns = selectedAddOnSelections.map(sel => {
     const a = addOns.find(add => add.id === sel.addOnId);
     return { ...a, ...sel };
@@ -1749,7 +1771,11 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
 
             <Button
               className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 rounded-2xl uppercase tracking-tight text-sm shadow-glow-blue transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 flex items-center justify-center px-4"
-              disabled={manualVehicles.length === 0 || finalPrice <= 0}
+              disabled={
+                manualVehicles.length === 0 ||
+                finalPrice <= 0 ||
+                (selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0 && !(isPriceCustomized && customPrice && customPrice > 0))
+              }
               onClick={handleApply}
             >
               <span>Convert to Standard Quote</span>
