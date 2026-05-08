@@ -23,6 +23,8 @@ import { SearchableSelector } from "../components/SearchableSelector";
 import { NumberInput } from "../components/NumberInput";
 import { handleFirestoreError, OperationType } from "../firebase";
 import { analyzeReceipt } from "../services/gemini";
+import { canRunAI, loadAISettings, logAIUsage, DEFAULT_AI_SETTINGS } from "../services/aiControlService";
+import { resolveModel } from "../services/aiModelMap";
 
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
@@ -70,6 +72,10 @@ export default function Expenses() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState<
+    "idle" | "analyzing" | "success" | "failed" | "skipped"
+  >("idle");
+  const [analysisMessage, setAnalysisMessage] = useState("");
   const [newExpense, setNewExpense] = useState({
     description: "",
     amount: "",
@@ -126,63 +132,137 @@ export default function Expenses() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // File selection always succeeds — analysis is a separate, optional step
     setReceiptFile(file);
-    
-    // Auto-analyze if it's an image or PDF
-    if (file.type.startsWith("image/") || file.type === "application/pdf") {
-      // Add debounce check
-      const now = Date.now();
-      const lastAIAction = Number(localStorage.getItem('last_receipt_ai_action') || 0);
-      if (now - lastAIAction < 3000) {
-        toast.info("Please wait a moment between receipt analyses.");
-        return;
-      }
-      localStorage.setItem('last_receipt_ai_action', now.toString());
+    setAnalysisStatus("idle");
+    setAnalysisMessage("");
 
-      setIsAnalyzing(true);
-      try {
-        console.log("[Expenses] Receipt Analysis Triggered");
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          try {
-            const base64 = event.target?.result as string;
-            const data = await analyzeReceipt(base64);
-            
-            setNewExpense(prev => ({
-              ...prev,
-              description: data.vendor || prev.description,
-              amount: data.totalAmount?.toString() || prev.amount,
-              date: data.date ? new Date(data.date).toISOString().split("T")[0] : prev.date,
-              category: data.categorySuggestion || prev.category
-            }));
-            toast.success("Receipt analyzed! Fields auto-filled.");
-          } catch (err: any) {
-            console.error("Analysis error:", err);
-            if (err.message?.includes("QUOTA_EXCEEDED")) {
-              toast.error("Monthly spending cap reached. Please manage your limits at ai.studio/spend", {
-                duration: 10000,
-                action: {
-                  label: "Manage Cap",
-                  onClick: () => window.open("https://ai.studio/spend", "_blank")
-                }
-              });
-            } else {
-              toast.error("Could not analyze receipt automatically.");
-            }
-          } finally {
-            setIsAnalyzing(false);
+    const isPDF = file.type === "application/pdf";
+    const isImage = file.type.startsWith("image/");
+
+    if (!isImage && !isPDF) {
+      // Unknown type — still attached, but skip analysis
+      setAnalysisStatus("skipped");
+      setAnalysisMessage("File attached. Automatic analysis supports image and PDF receipts.");
+      return;
+    }
+
+    if (isPDF) {
+      // PDFs cannot be processed as image inline data by the vision model
+      setAnalysisStatus("skipped");
+      setAnalysisMessage("PDF attached. Automatic analysis supports image receipts only. Enter details manually.");
+      return;
+    }
+
+    // === Image receipt — attempt AI analysis ===
+
+    // Debounce: avoid rapid repeated calls
+    const now = Date.now();
+    const lastAIAction = Number(localStorage.getItem("last_receipt_ai_action") || 0);
+    if (now - lastAIAction < 3000) {
+      setAnalysisStatus("skipped");
+      setAnalysisMessage("Receipt attached. Please wait a moment before analyzing again.");
+      return;
+    }
+    localStorage.setItem("last_receipt_ai_action", now.toString());
+
+    // AI control guard
+    let aiSettings = DEFAULT_AI_SETTINGS;
+    try {
+      aiSettings = await loadAISettings();
+    } catch {
+      // If settings can't load, fall through with defaults
+    }
+
+    const guard = await canRunAI("receipt_analysis", "manual", aiSettings, {
+      userId: profile?.uid,
+    });
+
+    if (!guard.allowed) {
+      setAnalysisStatus("skipped");
+      setAnalysisMessage(`Receipt attached. AI analysis unavailable: ${guard.reason} Enter details manually.`);
+      await logAIUsage({
+        featureName: "receipt_analysis",
+        triggerType: "manual",
+        allowed: false,
+        blocked: true,
+        reason: guard.reason,
+        modelTier: guard.modelTier,
+        modelUsed: resolveModel(guard.modelTier),
+        cachedResultUsed: false,
+        userId: profile?.uid,
+      });
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setAnalysisStatus("analyzing");
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const base64 = event.target?.result as string;
+          const data = await analyzeReceipt(base64, guard.modelTier);
+
+          setNewExpense(prev => ({
+            ...prev,
+            description: data.vendor || prev.description,
+            amount: data.totalAmount?.toString() || prev.amount,
+            date: data.date ? new Date(data.date).toISOString().split("T")[0] : prev.date,
+            category: data.categorySuggestion || prev.category,
+          }));
+
+          setAnalysisStatus("success");
+          setAnalysisMessage("Receipt analyzed — fields auto-filled. Review before saving.");
+          toast.success("Receipt analyzed! Fields auto-filled.");
+
+          await logAIUsage({
+            featureName: "receipt_analysis",
+            triggerType: "manual",
+            allowed: true,
+            blocked: false,
+            reason: "OK",
+            modelTier: guard.modelTier,
+            modelUsed: resolveModel(guard.modelTier),
+            cachedResultUsed: false,
+            userId: profile?.uid,
+          });
+        } catch (err: any) {
+          console.error("[Expenses] Receipt analysis error:", err);
+          // File is still attached — only analysis failed
+          setAnalysisStatus("failed");
+          if (err.message?.includes("QUOTA_EXCEEDED")) {
+            setAnalysisMessage("Receipt attached. AI spending cap reached — enter details manually.");
+            toast.warning("Receipt attached. AI spending cap reached. Enter details manually.", {
+              duration: 8000,
+              action: {
+                label: "Manage Cap",
+                onClick: () => window.open("https://ai.studio/spend", "_blank"),
+              },
+            });
+          } else {
+            setAnalysisMessage("Receipt attached. Automatic analysis failed — enter details manually.");
+            toast.warning("Receipt attached. Analysis failed — fields are editable.");
           }
-        };
-        reader.onerror = () => {
-          toast.error("Failed to read file");
+        } finally {
           setIsAnalyzing(false);
-        };
-        reader.readAsDataURL(file);
-      } catch (error) {
-        console.error("File reading error:", error);
-        toast.error("Failed to process file.");
+        }
+      };
+      reader.onerror = () => {
+        console.error("[Expenses] FileReader error");
+        setAnalysisStatus("failed");
+        setAnalysisMessage("Receipt attached. Could not read file for analysis — enter details manually.");
+        toast.warning("Receipt attached. Could not read file — enter details manually.");
         setIsAnalyzing(false);
-      }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error("[Expenses] Unexpected file read error:", err);
+      setAnalysisStatus("failed");
+      setAnalysisMessage("Receipt attached. Unexpected error during analysis — enter details manually.");
+      toast.warning("Receipt attached. Enter details manually.");
+      setIsAnalyzing(false);
     }
   };
 
@@ -270,6 +350,8 @@ export default function Expenses() {
         receiptUrl: ""
       });
       setReceiptFile(null);
+      setAnalysisStatus("idle");
+      setAnalysisMessage("");
       setSelectedAppointmentId("");
     } catch (error) {
       console.error("Error saving expense:", error);
@@ -374,10 +456,24 @@ export default function Expenses() {
                     />
                   </div>
 
-                  {isAnalyzing && (
+                  {analysisStatus === "analyzing" && (
                     <div className="flex items-center gap-3 p-4 bg-primary/5 text-primary rounded-2xl border border-primary/20 animate-pulse">
-                      <Sparkles className="w-4 h-4" />
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em]">AI Analyzing Mission Data...</span>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-[10px] font-black uppercase tracking-[0.2em]">Analyzing Receipt...</span>
+                    </div>
+                  )}
+
+                  {analysisStatus === "success" && (
+                    <div className="flex items-center gap-3 p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                      <Sparkles className="w-4 h-4 shrink-0" />
+                      <span className="text-[10px] font-bold">{analysisMessage}</span>
+                    </div>
+                  )}
+
+                  {(analysisStatus === "failed" || analysisStatus === "skipped") && analysisMessage && (
+                    <div className="flex items-start gap-3 p-3 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                      <FileText className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span className="text-[10px] font-bold leading-relaxed">{analysisMessage}</span>
                     </div>
                   )}
 
@@ -392,7 +488,7 @@ export default function Expenses() {
                     <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
                       <FileText className="w-4 h-4 text-primary" />
                       <span className="text-[10px] font-bold text-white/70 uppercase tracking-widest truncate flex-1">{receiptFile.name}</span>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-white bg-red-500/10 hover:bg-red-500 hover:text-white" onClick={() => setReceiptFile(null)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-white bg-red-500/10 hover:bg-red-500 hover:text-white" onClick={() => { setReceiptFile(null); setAnalysisStatus("idle"); setAnalysisMessage(""); }}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
