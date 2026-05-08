@@ -259,10 +259,9 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const generateAIEstimate = async () => {
     if (manualVehicles.length === 0 || isGeneratingAI) return;
 
-    // Hard guard: no services selected → no pricing, period.
+    // Hard guard: product costs alone are not a service quote — require a protocol.
     const hasProtocols = selectedServiceSelections.length > 0 || selectedAddOnSelections.length > 0;
-    const hasProductCosts = productCosts.some(p => (parseFloat(p.totalCost) || 0) > 0);
-    if (!hasProtocols && !hasProductCosts) {
+    if (!hasProtocols) {
       toast.error("Select a service protocol to generate market benchmark pricing.");
       return;
     }
@@ -400,15 +399,20 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     }
   };
 
-  // Clear stale $0 pricingAnalysis when service selections change.
-  // A no-protocol AI run may have left $0 pricing; once the user selects a
-  // protocol, recommendations will produce real prices — but only if $0
-  // pricingAnalysis doesn't shadow them in finalPrice.
+  // Clear stale pricingAnalysis when service selections change.
+  // Case 1: $0 pricing from a no-protocol AI run — clear so recommendations take over.
+  // Case 2: product-cost-only pricing (no service component) — clear when services are
+  //         added so recommendations + product cost can produce correct tiers.
   useEffect(() => {
-    if (pricingAnalysis && pricingAnalysis.recommendedPrice <= 0 && selectedServiceSelections.length > 0) {
+    if (!pricingAnalysis) return;
+    const noServices = selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0;
+    if (pricingAnalysis.recommendedPrice <= 0 && selectedServiceSelections.length > 0) {
       setPricingAnalysis(null);
+    } else if (!noServices && pricingAnalysis.recommendedPrice > 0) {
+      const svcComponent = pricingAnalysis.recommendedPrice - (pricingAnalysis.totalProductCost || 0);
+      if (svcComponent <= 0) setPricingAnalysis(null);
     }
-  }, [selectedServiceSelections.length]);
+  }, [selectedServiceSelections.length, selectedAddOnSelections.length]);
 
   const selectedServices = selectedServiceSelections.map(sel => {
     const s = services.find(serv => serv.id === sel.serviceId);
@@ -693,11 +697,11 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   };
 
   // ── Final price: custom → pricingAnalysis tier → recommendations tier → 0 ──
-  // pricingAnalysis (AI or benchmark) takes priority over market recommendations
-  // because it includes internal product costs in all three tier prices.
+  // Product costs alone never produce a valid customer quote price.
+  const hasServiceProtocol = selectedServiceSelections.length > 0 || selectedAddOnSelections.length > 0;
   const finalPrice = (() => {
     if (isPriceCustomized && customPrice !== null) return customPrice;
-    if (pricingAnalysis && pricingAnalysis.recommendedPrice > 0) {
+    if (pricingAnalysis && pricingAnalysis.recommendedPrice > 0 && hasServiceProtocol) {
       return selectedTier === "low"     ? pricingAnalysis.floorPrice
            : selectedTier === "premium" ? pricingAnalysis.premiumPrice
                                         : pricingAnalysis.recommendedPrice;
@@ -708,9 +712,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
            : selectedTier === "premium" ? recommendations.premiumPrice
                                         : recommendations.recommendedPrice;
     }
-    // Last resort: sum product costs as a floor
-    const pcTotal = productCosts.reduce((s: number, p: any) => s + (parseFloat(p.totalCost) || 0), 0);
-    return pcTotal;
+    return 0;
   })();
 
   // ── Protocol inference: scan job notes for service keywords ──────────────
@@ -734,12 +736,10 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   }, [jobDescription, services, selectedServiceSelections]);
 
   const handleApply = () => {
-    // Guard: need either services/addons OR pricingAnalysis with real price
+    // Guard: a service protocol is required — product costs alone are not a quote.
     const hasServices = selectedServiceSelections.length > 0 || selectedAddOnSelections.length > 0;
-    const hasPricingData = pricingAnalysis && pricingAnalysis.recommendedPrice > 0;
-    const hasCosts = productCosts.some(p => (parseFloat(p.totalCost) || 0) > 0);
 
-    if (!hasServices && !hasPricingData && !hasCosts) {
+    if (!hasServices && !(isPriceCustomized && customPrice && customPrice > 0)) {
       toast.error("Select at least one service protocol before converting.");
       return;
     }
@@ -747,8 +747,9 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       toast.error("Cannot convert a $0.00 quote. Select a service protocol or run pricing diagnostics first.");
       return;
     }
-    // If no service selected but we have pricingAnalysis, build minimal line items from it
-    if (!recommendations && (hasPricingData || hasCosts)) {
+    // If no service selected but user intentionally set a custom price, build minimal line items
+    const hasPricingData = pricingAnalysis && pricingAnalysis.recommendedPrice > 0;
+    if (!recommendations && hasPricingData && hasServices) {
       const productCostTotal = productCosts.reduce((s: number, p: any) => {
         const v = parseFloat(p.totalCost); return s + (isNaN(v) ? 0 : v);
       }, 0);
@@ -1469,7 +1470,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                 />
                 <Button 
                   onClick={generateAIEstimate}
-                  disabled={isGeneratingAI || manualVehicles.length === 0}
+                  disabled={isGeneratingAI || manualVehicles.length === 0 || (selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0)}
                   className="w-full h-12 bg-black border border-primary/40 text-primary hover:bg-primary/5 font-black rounded-xl uppercase tracking-widest text-[10px] mt-4"
                 >
                   {isGeneratingAI ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
@@ -1690,9 +1691,10 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <Button 
+              <Button
                 variant="outline"
-                className="bg-white/5 border-white/10 text-white font-black uppercase tracking-widest text-[10px] h-12 rounded-xl hover:bg-white/10"
+                className="bg-white/5 border-white/10 text-white font-black uppercase tracking-widest text-[10px] h-12 rounded-xl hover:bg-white/10 disabled:opacity-50"
+                disabled={!hasServiceProtocol}
                 onClick={() => {
                   setIsPriceCustomized(false);
                   setCustomPrice(null);
