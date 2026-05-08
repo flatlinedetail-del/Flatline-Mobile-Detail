@@ -183,19 +183,46 @@ export default function BookAppointment() {
   useEffect(() => {
     const client = clients.find(c => c.id === selectedCustomerId);
     const riskVal = client?.riskLevel || client?.risk_level || client?.riskStatus || client?.clientRiskLevel || client?.riskManagement?.level;
-    const isRisky = Boolean(riskVal);
-    setIsRiskyClient(isRisky);
-    
-    if (isRisky) {
+
+    // Only medium/high risk requires a deposit — "low" or undefined does not
+    const DEPOSIT_RISK_LEVELS = new Set(["medium", "high"]);
+    const riskRequiresDeposit = Boolean(riskVal) && DEPOSIT_RISK_LEVELS.has(String(riskVal).toLowerCase());
+
+    // Any selected service with depositRequired: true triggers a deposit
+    const serviceRequiresDeposit = selectedServices.some(sel => {
+      const svc = services.find((s: any) => s.id === sel.id);
+      return svc?.depositRequired === true;
+    });
+
+    // Business-level global deposit policy
+    const settingsRequireDeposit = Boolean(settings?.depositRequired);
+
+    const depositRequired = riskRequiresDeposit || serviceRequiresDeposit || settingsRequireDeposit;
+    setIsRiskyClient(depositRequired);
+
+    if (depositRequired) {
       const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
-      const deposit = (baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal) * 0.25;
+      const baseTotal = baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal;
+
+      // Sum fixed service deposit amounts; fall back to 25% of total if none specified
+      let fixedServiceDeposit = 0;
+      if (serviceRequiresDeposit) {
+        selectedServices.forEach(sel => {
+          const svc = services.find((s: any) => s.id === sel.id);
+          if (svc?.depositRequired && svc.depositType === "fixed" && svc.depositAmount > 0) {
+            fixedServiceDeposit += svc.depositAmount * sel.qty;
+          }
+        });
+      }
+
+      const deposit = fixedServiceDeposit > 0 ? fixedServiceDeposit : baseTotal * 0.25;
       setRiskyDepositAmount(deposit);
       setActiveDepositAmount(deposit);
     } else {
       setRiskyDepositAmount(0);
       setActiveDepositAmount(0);
     }
-  }, [clients, selectedCustomerId, baseAmount, travelFee, afterHoursFeeDisplay, customFees]);
+  }, [clients, selectedCustomerId, baseAmount, travelFee, afterHoursFeeDisplay, customFees, selectedServices, services, settings]);
 
   const [timingRecommendations, setTimingRecommendations] = useState<ServiceTimingOutput[]>([]);
   const [fetchingTiming, setFetchingTiming] = useState(false);

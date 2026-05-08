@@ -457,6 +457,16 @@ export default function Clients() {
   const [formServiceHistory, setFormServiceHistory] = useState<ServiceHistoryEntry[]>([]);
   const [clientServiceHistory, setClientServiceHistory] = useState<ServiceHistoryEntry[]>([]);
 
+  /** Resolves a clientTypeId (Firestore ID or legacy slug) to a readable display name. */
+  const resolveTypeName = useMemo(() => (typeId: string): string => {
+    if (!typeId) return "Individual";
+    const match =
+      clientTypes.find(t => t.id === typeId) ||
+      CLIENT_TYPE_OPTIONS.find(opt => opt.id === typeId);
+    if (match) return match.name;
+    return typeId.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  }, [clientTypes]);
+
   useEffect(() => {
     if (editingClient) {
       setFormClientTypeId(editingClient.clientTypeId || "");
@@ -1235,7 +1245,7 @@ export default function Clients() {
                                 <TableCell className="text-[10px] text-white/60 h-10">{row.email || "-"}</TableCell>
                                 <TableCell className="text-[10px] text-white/60 h-10">{row.phone || "-"}</TableCell>
                                 <TableCell className="text-[10px] text-white/60 h-10 truncate max-w-[100px]">{row.address || "-"}</TableCell>
-                                <TableCell className="text-[10px] text-white/60 h-10 capitalize">{row.clientTypeId || "individual"}</TableCell>
+                                <TableCell className="text-[10px] text-white/60 h-10">{resolveTypeName(row.clientTypeId || "individual")}</TableCell>
                                 <TableCell className="text-[10px] text-white/60 h-10">
                                   {row.vehicle ? `${row.vehicle.year || ""} ${row.vehicle.make || ""} ${row.vehicle.model || ""}`.trim() || row.vehicle.vin || row.vehicle.plate : "-"}
                                 </TableCell>
@@ -1332,11 +1342,13 @@ export default function Clients() {
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                         <SelectContent className="bg-[#1A1A1A] border border-white/10 text-white font-bold z-[5000]">
-                          {clientTypes.map(t => (
-                            <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
-                              {t.name}
-                            </SelectItem>
-                          ))}
+                          {[...clientTypes, ...CLIENT_TYPE_OPTIONS]
+                            .filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i)
+                            .map(t => (
+                              <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
+                                {t.name}
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                       <input type="hidden" name="clientTypeId" value={formClientTypeId} />
@@ -1504,7 +1516,6 @@ export default function Clients() {
                 </TableRow>
               ) : (
                 filteredClients.map((client) => {
-                  const type = clientTypes.find(t => t.id === client.clientTypeId);
                   return (
                     <TableRow 
                       key={client.id} 
@@ -1568,7 +1579,7 @@ export default function Clients() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest bg-white/10 text-white/60 border-white/10 px-3 py-1 rounded-full">
-                          {type?.name || "Unknown"}
+                          {resolveTypeName(client.clientTypeId || "individual")}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -1685,7 +1696,7 @@ export default function Clients() {
       {/* Client Details Dialog */}
       {selectedClient && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-          <DialogContent className="sm:max-w-[900px] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[96vh] flex flex-col">
+          <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-[96vw] md:max-w-[96vw] lg:max-w-[96vw] xl:max-w-[96vw] 2xl:max-w-[1500px] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[96vh] flex flex-col">
             <div className="bg-gradient-to-r from-primary via-primary/80 to-white/40 p-8 text-white shrink-0 relative overflow-hidden font-sans border-b border-white/10">
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-5"></div>
               
@@ -1797,7 +1808,7 @@ export default function Clients() {
             </div>
 
             <Tabs defaultValue="overview" className="w-full flex-1 flex flex-col overflow-hidden bg-card">
-              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-14 shrink-0 gap-4 overflow-x-auto no-scrollbar scroll-smooth">
+              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-14 shrink-0 gap-4 overflow-x-auto no-scrollbar scroll-smooth flex flex-nowrap">
                 <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Overview</TabsTrigger>
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Profile</TabsTrigger>
                 <TabsTrigger value="appointments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Appointments ({clientHistory.length})</TabsTrigger>
@@ -1843,11 +1854,11 @@ export default function Clients() {
                       </div>
                     </div>
                   )}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 px-2">
+                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-8 px-2">
                     {/* Status Summary */}
-                    <div className="lg:col-span-2 space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
+                    <div className="space-y-6 min-w-0">
+                      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4 min-w-0">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Financial Standing</span>
                             <Receipt className="w-4 h-4 text-primary" />
@@ -1873,7 +1884,7 @@ export default function Clients() {
                           </div>
                         </div>
 
-                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
+                        <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4 min-w-0">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Service Activity</span>
                             <History className="w-4 h-4 text-emerald-400" />
@@ -1942,8 +1953,8 @@ export default function Clients() {
                                         {format(convertToDate(item.scheduledAt || item.createdAt || item.signedAt), "MMM d, yyyy")}
                                       </span>
                                     </div>
-                                    <div className="flex items-center justify-between">
-                                      <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide truncate">
+                                    <div className="flex items-center justify-between gap-2 min-w-0">
+                                      <p className="text-[10px] text-white/40 font-medium uppercase tracking-wide whitespace-normal break-words min-w-0">
                                         {(item as any).vehicleInfo || (item as any).formName || (item as any).quoteNum || "Entity Operation"}
                                       </p>
                                       <Badge variant="outline" className={cn(
@@ -1962,7 +1973,7 @@ export default function Clients() {
                     </div>
 
                     {/* Pending Actions & Details */}
-                    <div className="space-y-6">
+                    <div className="space-y-6 min-w-0">
                       <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/20">
@@ -2028,7 +2039,7 @@ export default function Clients() {
                 </TabsContent>
 
                 <TabsContent value="profile" className="mt-0 space-y-8 outline-none">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div className="space-y-6">
                       <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Business Entity</Label>
@@ -2060,7 +2071,7 @@ export default function Clients() {
                         client={selectedClient}
                         onUpdate={(updates) => updateClient(updates)}
                       />
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Client Classification</Label>
                           <Select 
@@ -2072,11 +2083,13 @@ export default function Clients() {
                               <SelectValue placeholder="Select type" />
                             </SelectTrigger>
                             <SelectContent className="bg-[#1A1A1A] border border-white/10 text-white font-bold z-[5000]">
-                              {clientTypes.map(t => (
-                                <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
-                                  {t.name}
-                                </SelectItem>
-                              ))}
+                              {[...clientTypes, ...CLIENT_TYPE_OPTIONS]
+                                .filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i)
+                                .map(t => (
+                                  <SelectItem key={t.id} value={t.id} className="hover:bg-primary/20 cursor-pointer focus:bg-primary/20 text-white">
+                                    {t.name}
+                                  </SelectItem>
+                                ))}
                             </SelectContent>
                           </Select>
                         </div>
@@ -2247,7 +2260,7 @@ export default function Clients() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <h4 className="font-black text-white uppercase tracking-tight text-xs truncate">
+                                  <h4 className="font-black text-white uppercase tracking-tight text-xs">
                                     {v.year} {v.make} {v.model}
                                   </h4>
                                   {(() => {
@@ -2473,7 +2486,7 @@ export default function Clients() {
                                 <span className="opacity-30">|</span>
                                 <span className="text-white font-black">{formatCurrency(app.totalAmount)}</span>
                               </div>
-                              <p className="text-[10px] text-white/40 mt-2 font-medium uppercase tracking-wide truncate max-w-[300px]">
+                              <p className="text-[10px] text-white/40 mt-2 font-medium uppercase tracking-wide whitespace-normal break-words">
                                 {app.serviceNames?.join(", ")}
                               </p>
                             </div>
@@ -2641,7 +2654,7 @@ export default function Clients() {
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                   {services.map(service => (
                                     <div key={service.id} className="p-4 bg-black/40 rounded-2xl border border-white/5 flex flex-col gap-3">
-                                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 truncate">{service.name}</Label>
+                                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 whitespace-normal break-words">{service.name}</Label>
                                       <div className="relative">
                                         <NumberInput 
                                           placeholder={service.basePrice?.toString()}
@@ -2682,7 +2695,7 @@ export default function Clients() {
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                           {services.map(service => (
                                             <div key={`${vehicle.id}-${service.id}`} className="p-4 bg-black/40 rounded-2xl border border-white/5 flex flex-col gap-3">
-                                              <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 truncate">{service.name}</Label>
+                                              <Label className="text-[10px] font-black uppercase tracking-widest text-white/40 whitespace-normal break-words">{service.name}</Label>
                                               <div className="relative">
                                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 font-bold">$</span>
                                                 <Input 
@@ -3142,7 +3155,7 @@ export default function Clients() {
                       ].map(stat => (
                         <div key={stat.label} className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-1">
                           <p className="text-[9px] font-black uppercase tracking-widest text-white/40">{stat.label}</p>
-                          <p className="text-sm font-black text-white truncate">{stat.value}</p>
+                          <p className="text-sm font-black text-white whitespace-normal break-words">{stat.value}</p>
                         </div>
                       ))}
                     </div>

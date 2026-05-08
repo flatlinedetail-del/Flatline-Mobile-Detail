@@ -196,13 +196,33 @@ export interface Client extends SyncMetadata {
   isOneTime?: boolean;
   gallery?: string[];
   riskLevel?: "low" | "medium" | "high";
-  lastServiceDate?: string;
-  serviceHistoryNotes?: string;
   smsConsent?: boolean;
-  smsEnabled?: boolean;
   smsOptOut?: boolean;
-  emailEnabled?: boolean;
   preferredContactMethod?: "email" | "sms" | "both" | "none";
+  // Marketing intelligence
+  lastServiceDate?: string;
+  lastServiceType?: string;
+  averageServiceInterval?: number;
+  preferredServiceType?: string;
+  totalHistoricalSpend?: number;
+  serviceHistoryCount?: number;
+  marketingEligibleServices?: string[];
+  nextRecommendedServiceDate?: string;
+  serviceHistoryNotes?: string;
+}
+
+export interface ServiceHistoryEntry {
+  id: string;
+  clientId: string;
+  serviceType: string;
+  serviceDate: string;
+  vehicleInfo?: string;
+  priceCharged?: number;
+  notes?: string;
+  conditionTags?: string[];
+  source: "imported" | "manual" | "completed_job";
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 export interface Vehicle {
@@ -682,8 +702,6 @@ export interface BusinessSettings {
     bookingConfirmation: boolean;
     reminder24h: boolean;
     reminder2h: boolean;
-    globalSmsEnabled?: boolean;
-    globalEmailEnabled?: boolean;
   };
   weatherAutomation?: {
     enabled: boolean;

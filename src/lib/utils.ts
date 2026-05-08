@@ -210,9 +210,17 @@ export function formatLicensePlate(plate: string): string {
 
 export function convertToDate(timestamp: any): Date {
   if (!timestamp) return new Date();
-  if (timestamp instanceof Date) return timestamp;
-  if (typeof timestamp.toDate === 'function') return timestamp.toDate();
-  if (timestamp.seconds !== undefined) return new Date(timestamp.seconds * 1000);
+  if (timestamp instanceof Date) {
+    return isNaN(timestamp.getTime()) ? new Date() : timestamp;
+  }
+  if (typeof timestamp.toDate === 'function') {
+    const d = timestamp.toDate();
+    return isNaN(d.getTime()) ? new Date() : d;
+  }
+  if (timestamp.seconds !== undefined) {
+    const d = new Date(Number(timestamp.seconds) * 1000);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }
   if (typeof timestamp === 'string' || typeof timestamp === 'number') {
     const d = new Date(timestamp);
     return isNaN(d.getTime()) ? new Date() : d;
