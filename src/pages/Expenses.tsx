@@ -68,6 +68,7 @@ export default function Expenses() {
   const [editingExpense, setEditingExpense] = useState<any | null>(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [newExpense, setNewExpense] = useState({
     description: "",
@@ -198,10 +199,29 @@ export default function Expenses() {
       let finalReceiptUrl = newExpense.receiptUrl;
 
       if (receiptFile) {
-        const storageRef = ref(storage, `expenses/${Date.now()}_${receiptFile.name}`);
-        await uploadBytes(storageRef, receiptFile);
-        finalReceiptUrl = await getDownloadURL(storageRef);
+        setIsUploading(true);
+        try {
+          const storageRef = ref(storage, `expenses/${Date.now()}_${receiptFile.name}`);
+          await uploadBytes(storageRef, receiptFile);
+          finalReceiptUrl = await getDownloadURL(storageRef);
+        } finally {
+          setIsUploading(false);
+        }
       }
+
+      // Snapshot appointment/invoice details if linked
+      const linkedAppointment = selectedAppointmentId
+        ? appointments.find(a => a.id === selectedAppointmentId)
+        : null;
+      const linkedInvoiceDetails = linkedAppointment ? {
+        appointmentId: linkedAppointment.id,
+        customerName: linkedAppointment.customerName || null,
+        vehicleInfo: linkedAppointment.vehicleInfo || null,
+        scheduledAt: linkedAppointment.scheduledAt || null,
+        totalAmount: linkedAppointment.totalAmount ?? linkedAppointment.total ?? null,
+        invoiceId: linkedAppointment.invoiceId || null,
+        services: linkedAppointment.services || linkedAppointment.selectedServices || null,
+      } : null;
 
       const expenseData = {
         description: newExpense.description,
@@ -210,6 +230,7 @@ export default function Expenses() {
         date: Timestamp.fromDate(new Date(newExpense.date)),
         receiptUrl: finalReceiptUrl,
         linkedAppointmentId: selectedAppointmentId || null,
+        linkedInvoiceDetails,
         createdBy: profile?.uid,
         updatedAt: serverTimestamp(),
       };
@@ -360,6 +381,13 @@ export default function Expenses() {
                     </div>
                   )}
 
+                  {isUploading && (
+                    <div className="flex items-center gap-3 p-4 bg-emerald-500/5 text-emerald-400 rounded-2xl border border-emerald-500/20 animate-pulse">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-[10px] font-black uppercase tracking-[0.2em]">Uploading Document...</span>
+                    </div>
+                  )}
+
                   {receiptFile && (
                     <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
                       <FileText className="w-4 h-4 text-primary" />
@@ -464,8 +492,10 @@ export default function Expenses() {
                   <Button variant="ghost" type="button" onClick={() => setShowAddDialog(false)} className="flex-1 text-white hover:text-white font-black uppercase tracking-widest text-[10px] h-14">
                     Abort
                   </Button>
-                  <Button type="submit" className="flex-[2] bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105">
-                    {editingExpense ? "Authorize Modification" : "Authorize Expenditure"}
+                  <Button type="submit" disabled={isUploading || isAnalyzing} className="flex-[2] bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed">
+                    {isUploading ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</>
+                    ) : editingExpense ? "Authorize Modification" : "Authorize Expenditure"}
                   </Button>
                 </div>
               </form>

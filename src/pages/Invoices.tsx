@@ -77,6 +77,8 @@ export default function Invoices() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
 
   const fetchInvoicesData = async (showToast = false) => {
     // Performance marker
@@ -186,54 +188,104 @@ export default function Invoices() {
     toast.info("Payment system is being rebuilt");
   };
 
-  const handleMarkAsPaid = async (invoice: Invoice | null) => {
+  const handleMarkAsPaid = async (invoice: Invoice | null, method: string = "Manual") => {
     if (!invoice?.id) return;
+    if (isProcessingPayment) return; // prevent double-click
+
+    // Guard: already fully paid
+    const alreadyPaid = (invoice.amountPaid || 0) >= invoice.total;
+    if (alreadyPaid || invoice.status === "paid" || invoice.status === "voided") {
+      toast.info("Invoice is already settled.");
+      setShowPaymentDialog(false);
+      return;
+    }
+
+    // Amount remaining after any prior payments / deposits
+    const balanceRemaining = invoice.total - (invoice.amountPaid || 0);
+    const newAmountPaid = (invoice.amountPaid || 0) + balanceRemaining;
+    const isFullyPaid = newAmountPaid >= invoice.total;
+
+    setIsProcessingPayment(true);
     try {
       toast.loading("Processing payment...", { id: "payment" });
       const invoiceRef = doc(db, "invoices", invoice.id);
       const paymentHistoryEntry = {
-        action: "paid",
+        action: "paid" as const,
         timestamp: serverTimestamp(),
-        method: "Admin Override",
-        provider: "manual"
+        method,
+        amount: balanceRemaining,
+        provider: "manual",
       };
-      await updateDoc(invoiceRef, {
-        status: "paid",
-        paidAt: serverTimestamp(),
-        paymentStatus: "paid",
+
+      const updateData: Record<string, any> = {
+        amountPaid: newAmountPaid,
+        paymentStatus: isFullyPaid ? "paid" : "partial",
+        paymentMethodDetails: method,
         paymentProvider: "manual",
-        paymentHistory: arrayUnion(paymentHistoryEntry)
-      });
-      setSelectedInvoice((prev) => prev ? { 
-        ...prev, 
-        status: "paid", 
-        paymentStatus: "paid", 
+        paymentHistory: arrayUnion(paymentHistoryEntry),
+        updatedAt: serverTimestamp(),
+      };
+      if (isFullyPaid) {
+        updateData.status = "paid";
+        updateData.paidAt = serverTimestamp();
+      }
+
+      await updateDoc(invoiceRef, updateData);
+
+      // Update selected invoice in detail panel
+      setSelectedInvoice(prev => prev ? {
+        ...prev,
+        amountPaid: newAmountPaid,
+        paymentStatus: isFullyPaid ? "paid" : "partial",
+        status: isFullyPaid ? "paid" : prev.status,
+        paymentMethodDetails: method,
         paymentProvider: "manual",
-        paymentHistory: [...(prev.paymentHistory || []), { ...paymentHistoryEntry, timestamp: new Date() }]
+        paymentHistory: [
+          ...(prev.paymentHistory || []),
+          { ...paymentHistoryEntry, timestamp: new Date() }
+        ],
       } as Invoice : null);
-      
-      // Send Payment Receipt SMS
+
+      // Keep invoice list in sync so badge updates immediately
+      setInvoices(prev => prev.map(inv =>
+        inv.id === invoice.id
+          ? {
+              ...inv,
+              amountPaid: newAmountPaid,
+              paymentStatus: isFullyPaid ? "paid" : "partial",
+              status: isFullyPaid ? "paid" : inv.status,
+            }
+          : inv
+      ));
+
+      // Send SMS receipt (fire-and-forget)
       if (invoice.clientPhone) {
         messagingService.sendSms({
           to: invoice.clientPhone,
-          body: `DetailFlow: Payment received. Thank you! We appreciate your business. Reply STOP to opt out.`
-        }).then(() => console.log("Payment Receipt SMS sent successfully."))
-          .catch(e => console.error("Receipt SMS failed:", e));
+          body: `DetailFlow: Payment of ${formatCurrency(balanceRemaining)} received via ${method}. Thank you! Reply STOP to opt out.`
+        }).catch(e => console.error("Receipt SMS failed:", e));
       }
 
       // Invalidate cache
       sessionStorage.removeItem('invoices_cache');
       sessionStorage.removeItem('invoices_cache_time');
-      
-      toast.success("Payment recorded successfully", { id: "payment" });
-      
+
+      toast.success(
+        isFullyPaid ? "Payment recorded — invoice marked paid" : "Partial payment recorded",
+        { id: "payment" }
+      );
+      setShowPaymentDialog(false);
+
+      // Sync appointment payment status
       if (invoice.appointmentId) {
-        const docRef = doc(db, "appointments", invoice.appointmentId);
-        await updateDoc(docRef, { paymentStatus: "paid" });
+        const apptRef = doc(db, "appointments", invoice.appointmentId);
+        await updateDoc(apptRef, { paymentStatus: isFullyPaid ? "paid" : "partial" });
       }
     } catch (error) {
-       console.error("Payment error", error);
-       toast.error("Failed to process payment", { id: "payment" });
+      console.error("Payment error", error);
+      toast.error("Failed to process payment", { id: "payment" });
+    } finally {
+      setIsProcessingPayment(false);
     }
   };
 
@@ -516,6 +568,50 @@ export default function Invoices() {
         </CardContent>
       </Card>
 
+      {/* Payment Method Dialog */}
+      {showPaymentDialog && selectedInvoice && (
+        <Dialog
+          open={showPaymentDialog}
+          onOpenChange={open => { if (!isProcessingPayment) setShowPaymentDialog(open); }}
+        >
+          <DialogContent className="sm:max-w-[420px] p-0 bg-card border-none rounded-3xl overflow-hidden shadow-2xl shadow-black">
+            <DialogHeader className="p-6 border-b border-white/5 bg-black/40">
+              <DialogTitle className="font-black text-lg uppercase tracking-widest text-white flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-green-400" />
+                Record Payment
+              </DialogTitle>
+              <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">
+                {selectedInvoice.clientName} · Balance due:{" "}
+                {formatCurrency(selectedInvoice.total - (selectedInvoice.amountPaid || 0))}
+              </p>
+            </DialogHeader>
+            <div className="p-6 space-y-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-2">
+                Select payment method
+              </p>
+              {[
+                { label: "Cash",                icon: DollarSign },
+                { label: "Credit / Debit Card", icon: CreditCard },
+                { label: "Zelle",               icon: DollarSign },
+                { label: "Apple Pay",           icon: DollarSign },
+                { label: "Check",               icon: FileText },
+              ].map(({ label, icon: Icon }) => (
+                <Button
+                  key={label}
+                  disabled={isProcessingPayment}
+                  variant="ghost"
+                  className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] bg-white/5 border border-white/10 text-white hover:bg-white/10 justify-start px-5 gap-3 disabled:opacity-50"
+                  onClick={() => handleMarkAsPaid(selectedInvoice, label)}
+                >
+                  <Icon className="w-4 h-4 text-primary shrink-0" />
+                  {isProcessingPayment ? "Processing…" : label}
+                </Button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Invoice Details Dialog */}
       {selectedInvoice && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
@@ -587,12 +683,16 @@ export default function Invoices() {
                   <FileText className="w-4 h-4 mr-2 shrink-0" /> Download PDF
                 </Button>
                 
-                {selectedInvoice?.status !== "paid" && selectedInvoice?.status !== "voided" && (
-                  <Button 
-                    className="shrink-0 bg-green-600 hover:bg-green-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-4 sm:px-6 rounded-xl shadow-lg shadow-green-500/20"
-                    onClick={() => handleMarkAsPaid(selectedInvoice)}
+                {selectedInvoice?.status !== "paid" &&
+                 selectedInvoice?.status !== "voided" &&
+                 (selectedInvoice?.total ?? 0) > (selectedInvoice?.amountPaid ?? 0) && (
+                  <Button
+                    disabled={isProcessingPayment}
+                    className="shrink-0 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-black uppercase tracking-widest text-[10px] h-12 px-4 sm:px-6 rounded-xl shadow-lg shadow-green-500/20"
+                    onClick={() => setShowPaymentDialog(true)}
                   >
-                    <DollarSign className="w-4 h-4 mr-2 shrink-0" /> Pay Now
+                    <DollarSign className="w-4 h-4 mr-2 shrink-0" />
+                    {isProcessingPayment ? "Processing…" : "Pay Now"}
                   </Button>
                 )}
 
