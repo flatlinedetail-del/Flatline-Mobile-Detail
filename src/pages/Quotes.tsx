@@ -77,6 +77,7 @@ interface SmartQuoteProps {
     description: string;
     businessName: string;
     productCosts: any[];
+    pricingAnalysis?: PricingAnalysis | null;
   }) => void;
 }
 
@@ -668,7 +669,8 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       notes: jobDescription,
       description: generateHumanDescription(),
       businessName,
-      productCosts: productCosts.length > 0 ? [...productCosts] : []
+      productCosts: productCosts.length > 0 ? [...productCosts] : [],
+      pricingAnalysis: pricingAnalysis ?? null,
     });
   };
 
@@ -1462,6 +1464,7 @@ export default function Quotes() {
   const [travelFeeAmount, setTravelFeeAmount] = useState(0);
   const [customFees, setCustomFees] = useState<CustomFee[]>([]);
   const [productCosts, setProductCosts] = useState<any[]>([]);
+  const [quotePricingAnalysis, setQuotePricingAnalysis] = useState<PricingAnalysis | null>(null);
   const [formsDropdownOpen, setFormsDropdownOpen] = useState(false);
 
   const suggestedClients = clients.filter(c => {
@@ -1703,6 +1706,39 @@ export default function Quotes() {
       });
     }
 
+    // Normalize product costs: ensure numeric values, provide safe fallback names, drop zero-cost blank lines
+    const normalizedProductCosts = productCosts
+      .map((p: any) => ({
+        id: p.id || `pc_${Math.random().toString(36).substr(2, 9)}`,
+        name: (p.name && p.name.toString().trim()) || (p.productName && p.productName.toString().trim()) || "Detail Product Cost",
+        productName: (p.productName && p.productName.toString().trim()) || (p.name && p.name.toString().trim()) || "Detail Product Cost",
+        quantity: isNaN(parseFloat(p.quantity)) ? 1 : parseFloat(p.quantity),
+        unitCost: isNaN(parseFloat(p.unitCost)) ? 0 : parseFloat(p.unitCost),
+        totalCost: isNaN(parseFloat(p.totalCost)) ? 0 : parseFloat(p.totalCost),
+        category: p.category || "misc",
+        costType: p.costType || "must_buy",
+        associatedServiceId: p.associatedServiceId || null,
+        associatedServiceName: p.associatedServiceName || null,
+        notes: p.notes || null,
+      }))
+      // Keep lines that have a real cost OR a real name (don't silently drop named zero-cost products)
+      .filter((p: any) => p.totalCost > 0 || (p.name && p.name !== "Detail Product Cost"));
+
+    const totalProductCost = parseFloat(
+      normalizedProductCosts.reduce((sum: number, p: any) => sum + (p.totalCost || 0), 0).toFixed(2)
+    );
+
+    const quoteTotal = calculateTotal();
+    // internalJobCost = product costs + any labor overhead if available from pricingAnalysis
+    const laborOverhead = quotePricingAnalysis
+      ? (quotePricingAnalysis.laborTarget || 0) + (quotePricingAnalysis.overhead || 0)
+      : 0;
+    const internalJobCost = parseFloat((totalProductCost + laborOverhead).toFixed(2));
+    const estimatedProfit = parseFloat((quoteTotal - internalJobCost).toFixed(2));
+    const estimatedMarginPercent = quoteTotal > 0
+      ? parseFloat(((estimatedProfit / quoteTotal) * 100).toFixed(2))
+      : 0;
+
     const quoteData: any = {
       clientId: selectedClientId || undefined,
       clientName: manualClientInfo.name || `${manualClientInfo.firstName} ${manualClientInfo.lastName}`.trim() || manualClientInfo.businessName || "Valued Client",
@@ -1717,12 +1753,18 @@ export default function Quotes() {
       isPotentialClient: !selectedClientId,
       vehicles,
       lineItems: lineItems.filter(item => item.serviceName),
-      total: calculateTotal(),
+      total: quoteTotal,
       travelFeeAmount: travelFeeAmount,
       customFees: customFees,
       status: editingQuote?.status || "draft",
       attachedFormIds,
-      productCosts: productCosts.length > 0 ? productCosts : [],
+      // --- Internal job cost fields (always saved, never exposed to customer) ---
+      productCosts: normalizedProductCosts,
+      totalProductCost,
+      internalJobCost,
+      estimatedProfit,
+      estimatedMarginPercent,
+      pricingAnalysis: quotePricingAnalysis ?? null,
       updatedAt: serverTimestamp(),
       leadId: activeLeadId || editingQuote?.leadId || null
     };
@@ -1790,6 +1832,7 @@ export default function Quotes() {
     }]);
     setAttachedFormIds([]);
     setProductCosts([]);
+    setQuotePricingAnalysis(null);
     setFormsDropdownOpen(false);
     setIsAddingVehicle(false);
     setNewVehicle({ year: "", make: "", model: "", vin: "", size: "medium" });
@@ -2230,6 +2273,79 @@ export default function Quotes() {
                 </div>
               </div>
 
+              {/* ── Internal Job Costs Panel (admin-only, never shown to customer) ── */}
+              {productCosts.length > 0 && (() => {
+                const totalPC = productCosts.reduce((s: number, p: any) => {
+                  const v = parseFloat(p.totalCost);
+                  return s + (isNaN(v) ? 0 : v);
+                }, 0);
+                const qTotal = calculateTotal();
+                const laborOH = quotePricingAnalysis
+                  ? (quotePricingAnalysis.laborTarget || 0) + (quotePricingAnalysis.overhead || 0)
+                  : 0;
+                const jobCost = totalPC + laborOH;
+                const profit = qTotal - jobCost;
+                const margin = qTotal > 0 ? (profit / qTotal) * 100 : 0;
+                return (
+                  <div className="p-6 bg-amber-500/5 border border-amber-500/20 rounded-3xl space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-amber-400" />
+                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">
+                        Internal Job Costs — Admin Only
+                      </Label>
+                    </div>
+
+                    {/* Product cost lines */}
+                    <div className="space-y-2">
+                      {productCosts.map((p: any, idx: number) => {
+                        const cost = isNaN(parseFloat(p.totalCost)) ? 0 : parseFloat(p.totalCost);
+                        return (
+                          <div key={p.id || idx} className="flex items-center justify-between text-[11px] font-bold text-white/70 bg-white/5 rounded-xl px-4 py-2.5">
+                            <span className="truncate max-w-[60%]">
+                              {p.name || p.productName || "Detail Product Cost"}
+                              {p.quantity && p.quantity !== 1 && (
+                                <span className="ml-2 text-white/40">× {p.quantity}</span>
+                              )}
+                              {p.associatedServiceName && (
+                                <span className="ml-2 text-white/30 text-[9px] uppercase tracking-widest">
+                                  ({p.associatedServiceName})
+                                </span>
+                              )}
+                            </span>
+                            <span className="font-black text-amber-400 shrink-0 ml-2">
+                              {formatCurrency(cost)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Summary row */}
+                    <div className="border-t border-amber-500/10 pt-3 grid grid-cols-3 gap-4">
+                      <div className="text-center">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1">Product Cost</p>
+                        <p className="text-sm font-black text-amber-400">{formatCurrency(totalPC)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1">Est. Profit</p>
+                        <p className={cn("text-sm font-black", profit >= 0 ? "text-primary" : "text-red-400")}>
+                          {formatCurrency(profit)}
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1">Margin</p>
+                        <p className={cn("text-sm font-black", margin >= 0 ? "text-primary" : "text-red-400")}>
+                          {margin.toFixed(1)}%
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-white/30 font-bold uppercase tracking-widest text-center">
+                      Product costs do not affect customer-facing quote total
+                    </p>
+                  </div>
+                );
+              })()}
+
               <div className="p-8 bg-[#121212] border border-white/5 rounded-3xl text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl">
                 <div className="flex items-center gap-6">
                   <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center shadow-glow-blue">
@@ -2293,6 +2409,7 @@ export default function Quotes() {
             setSmartQuoteNotes(data.notes);
             setQuoteDescription(data.description);
             setProductCosts(data.productCosts || []);
+            setQuotePricingAnalysis(data.pricingAnalysis ?? null);
             setActiveTab("smart");
             setIsAddDialogOpen(true);
           }}
@@ -2450,6 +2567,7 @@ export default function Quotes() {
                             setQuoteDescription(q.description || "");
                             setAttachedFormIds(q.attachedFormIds || []);
                             setProductCosts((q as any).productCosts || []);
+                            setQuotePricingAnalysis((q as any).pricingAnalysis ?? null);
                             setSelectedVehicleIds(q.vehicles.map(v => v.id));
                             setIsAddDialogOpen(true);
                           }}

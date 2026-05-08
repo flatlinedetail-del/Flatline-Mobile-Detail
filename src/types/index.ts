@@ -482,11 +482,15 @@ export interface Appointment extends SyncMetadata {
 export interface JobProductCost {
   id: string;
   name: string;
+  productName?: string;
   quantity: number;
   unitCost: number;
   totalCost: number;
-  category: "chemical" | "pad" | "towel" | "tool" | "disposable" | "misc";
-  costType: "inventory" | "must_buy" | "partial_use" | "pass_through";
+  category?: "chemical" | "pad" | "towel" | "tool" | "disposable" | "misc";
+  costType?: "inventory" | "must_buy" | "partial_use" | "pass_through";
+  associatedServiceId?: string;
+  associatedServiceName?: string;
+  notes?: string;
 }
 
 export interface PricingAnalysis {
@@ -595,6 +599,10 @@ export interface Quote {
   attachedFormIds?: string[];
   leadId?: string;
   productCosts?: JobProductCost[];
+  totalProductCost?: number;
+  internalJobCost?: number;
+  estimatedProfit?: number;
+  estimatedMarginPercent?: number;
   pricingAnalysis?: PricingAnalysis;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
