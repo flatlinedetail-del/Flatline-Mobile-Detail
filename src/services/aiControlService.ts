@@ -95,7 +95,8 @@ export type AIFeatureName =
   | "qualify_lead"
   | "receipt_analysis"
   | "revenue_optimization"
-  | "deployment_analysis";
+  | "deployment_analysis"
+  | "smart_quote_pricing";
 
 // ---------------------------------------------------------------------------
 // Feature ↔ settings toggle mapping
@@ -110,7 +111,8 @@ function isFeatureEnabled(feature: AIFeatureName, settings: AISettings): boolean
     case "client_message":
     case "follow_up_message":    return settings.enableClientMessageAI;
     case "estimate_notes":
-    case "quote_wording":        return settings.enableEstimateAI;
+    case "quote_wording":
+    case "smart_quote_pricing":  return settings.enableEstimateAI;
     case "revenue_intelligence":
     case "revenue_optimization": return settings.enableRevenueIntelligenceAI;
     case "risk_explanation":     return settings.enableRiskExplanationAI;

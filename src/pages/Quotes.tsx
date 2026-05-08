@@ -48,6 +48,14 @@ import {
   RevenueOptimizationResponse,
   PricingAnalysis
 } from "../services/gemini";
+import {
+  canRunAI,
+  loadAISettings,
+  DEFAULT_AI_SETTINGS,
+  logAIUsage,
+  hashSnapshot,
+} from "../services/aiControlService";
+import { resolveModel } from "../services/aiModelMap";
 import { generateRecommendationExplanation } from "../lib/recommendationSystem";
 import { VinInput } from "../components/VinInput";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
@@ -105,6 +113,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   // Product Cost State
   const [productCosts, setProductCosts] = useState<any[]>([]);
   const [pricingAnalysis, setPricingAnalysis] = useState<PricingAnalysis | null>(null);
+  const [analysisSource, setAnalysisSource] = useState<"ai" | "benchmark" | "none">("none");
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
 
@@ -150,32 +159,144 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     setProductCosts(productCosts.filter(p => p.id !== costId));
   };
 
+  // Compute a deterministic benchmark PricingAnalysis when AI is unavailable
+  const computeBenchmarkPricing = (svcs: any[], addons: any[], costs: any[], cfg: any): PricingAnalysis => {
+    const svcTotal = svcs.reduce((s: number, svc: any) => s + (svc.basePrice || svc.price || 150), 0);
+    const addonTotal = addons.reduce((s: number, a: any) => s + (a.price || 50) * (a.qty || 1), 0);
+    const totalProductCost = costs.reduce((s: number, p: any) => s + (p.totalCost || 0), 0);
+    const base = svcTotal + addonTotal;
+    const floorPct = cfg?.marginTargets?.floor ?? 20;
+    const recPct = cfg?.marginTargets?.recommended ?? 35;
+    const premPct = cfg?.marginTargets?.premium ?? 50;
+    const floorPrice = base + totalProductCost + (base * floorPct / 100);
+    const recommendedPrice = base + totalProductCost + (base * recPct / 100);
+    const premiumPrice = base + totalProductCost + (base * premPct / 100);
+    const netAfterProductCost = recommendedPrice - totalProductCost;
+    const estimatedMarginDollars = netAfterProductCost - base;
+    const estimatedMarginPercent = recommendedPrice > 0 ? (estimatedMarginDollars / recommendedPrice) * 100 : 0;
+    return {
+      laborTarget: base * 0.6,
+      overhead: base * 0.1,
+      travelFee: 0,
+      totalProductCost,
+      floorPrice,
+      recommendedPrice,
+      premiumPrice,
+      estimatedMarginDollars,
+      estimatedMarginPercent,
+      netAfterProductCost,
+    };
+  };
+
   const generateAIEstimate = async () => {
     if (manualVehicles.length === 0 || isGeneratingAI) return;
-
     setIsGeneratingAI(true);
+
+    // Compute benchmark early — used as fallback regardless of AI outcome
+    const benchmarkPricing = computeBenchmarkPricing(selectedServices, selectedAddOns, productCosts, settings);
+
+    // Build a data snapshot hash so the guard can detect unchanged data
+    const dataHash = hashSnapshot({
+      services: selectedServices.map(s => s.id || s.name),
+      addOns: selectedAddOns.map(a => a.id || a.name),
+      productCosts: productCosts.map(p => ({ id: p.id, cost: p.totalCost })),
+      vehicle: manualVehicles[0],
+      quoteType,
+      intensity,
+      complexity,
+      jobDescription,
+    });
+
+    // --- AI guard ---
+    let aiSettings = DEFAULT_AI_SETTINGS;
     try {
-      // Calculate a rough market benchmark for the AI to consider
-      let marketBenchmark = 0;
-      selectedServices.forEach(s => { marketBenchmark += 150; }); // Simplified fallback
-      selectedAddOns.forEach(a => { marketBenchmark += (a.price || 50); });
+      aiSettings = await loadAISettings();
+    } catch {
+      // If settings fail to load, proceed with defaults
+    }
+
+    const guard = await canRunAI("smart_quote_pricing", "manual", aiSettings, {
+      requestedTier: "balanced_intelligence",
+      dataHash,
+    });
+
+    if (!guard.allowed) {
+      setPricingAnalysis(benchmarkPricing);
+      setAnalysisSource("benchmark");
+      toast.info(`AI pricing skipped: ${guard.reason} Using market benchmarks.`);
+      setIsGeneratingAI(false);
+      await logAIUsage({
+        featureName: "smart_quote_pricing",
+        triggerType: "manual",
+        allowed: false,
+        blocked: true,
+        reason: guard.reason,
+        modelTier: guard.modelTier,
+        modelUsed: resolveModel(guard.modelTier),
+        cachedResultUsed: guard.useCachedResult,
+      });
+      return;
+    }
+
+    // --- AI call ---
+    try {
+      const svcTotal = selectedServices.reduce((s: number, svc: any) => s + (svc.basePrice || svc.price || 150), 0);
+      const addonTotal = selectedAddOns.reduce((s: number, a: any) => s + (a.price || 50) * (a.qty || 1), 0);
 
       const structuredPayload = {
         services: selectedServices.map(s => s.name),
         addOns: selectedAddOns.map(a => a.name),
-        totalPrice: marketBenchmark,
+        totalPrice: svcTotal + addonTotal,
         vehicle: manualVehicles[0],
-        customerType: quoteType
+        customerType: quoteType,
       };
 
-      const response = await getRevenueOptimization(jobDescription || "Standard detailing request", structuredPayload, productCosts, settings);
+      const response = await getRevenueOptimization(
+        jobDescription || "Standard detailing request",
+        structuredPayload,
+        productCosts,
+        settings,
+        [], // images
+        guard.modelTier
+      );
+
       if (response.pricingAnalysis) {
         setPricingAnalysis(response.pricingAnalysis);
+        setAnalysisSource("ai");
         toast.success("AI Pricing Protection Active!");
+      } else {
+        // Response came back but pricingAnalysis field was empty — use benchmark
+        setPricingAnalysis(benchmarkPricing);
+        setAnalysisSource("benchmark");
+        toast.warning("AI pricing response incomplete. Using market benchmarks.");
       }
-    } catch (err) {
-      console.error("AI Estimation Error:", err);
-      toast.error("AI pricing failed. Using market benchmarks instead.");
+
+      await logAIUsage({
+        featureName: "smart_quote_pricing",
+        triggerType: "manual",
+        allowed: true,
+        blocked: false,
+        reason: "OK",
+        modelTier: guard.modelTier,
+        modelUsed: resolveModel(guard.modelTier),
+        cachedResultUsed: false,
+      });
+    } catch (err: any) {
+      console.error("[SmartQuote] AI pricing error:", err);
+      // Always set the benchmark so the user sees usable prices
+      setPricingAnalysis(benchmarkPricing);
+      setAnalysisSource("benchmark");
+
+      if (err.message?.includes("QUOTA_EXCEEDED")) {
+        toast.warning("AI pricing unavailable: spending cap reached. Using market benchmarks.", {
+          duration: 8000,
+          action: { label: "Manage Cap", onClick: () => window.open("https://ai.studio/spend", "_blank") },
+        });
+      } else if (err.message?.includes("parse") || err.message?.includes("JSON") || err.message?.includes("json")) {
+        toast.warning("AI pricing response could not be read. Using market benchmarks.");
+      } else {
+        toast.warning("AI pricing unavailable. Using market benchmarks.");
+      }
     } finally {
       setIsGeneratingAI(false);
     }
@@ -1064,8 +1185,10 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
               {pricingAnalysis ? (
                 <div className="space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
                   <div className="flex items-center gap-2 mb-2">
-                    <Sparkles className="w-3 h-3 text-primary" />
-                    <span className="text-[10px] font-black uppercase text-primary tracking-widest">AI Profit-Protected tiers</span>
+                    <Sparkles className={cn("w-3 h-3", analysisSource === "ai" ? "text-primary" : "text-amber-400")} />
+                    <span className={cn("text-[10px] font-black uppercase tracking-widest", analysisSource === "ai" ? "text-primary" : "text-amber-400")}>
+                      {analysisSource === "ai" ? "AI-Powered Market Estimate" : "Market Benchmark Estimate"}
+                    </span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <button 
@@ -1095,7 +1218,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                         customPrice === pricingAnalysis.recommendedPrice ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
                       )}
                     >
-                      <p className="text-[8px] font-black text-primary uppercase tracking-widest mb-1">AI-Rec</p>
+                      <p className="text-[8px] font-black text-primary uppercase tracking-widest mb-1">{analysisSource === "ai" ? "AI-Rec" : "Rec"}</p>
                       <p className="text-xs font-black text-white">{formatCurrency(pricingAnalysis.recommendedPrice)}</p>
                     </button>
                     <button 
