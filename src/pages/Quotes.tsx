@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, deleteDoc, doc, updateDoc, getDocs, getDoc, limit, where } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Plus, Search, Filter, FileText, Trash2, Car, User as UserIcon, Settings2, Eye, Mail, DollarSign, Sparkles, Zap, TrendingUp, History, ShieldCheck, AlertCircle, ArrowRight, CheckCircle2, Calendar, Loader2, MapPin, RefreshCcw } from "lucide-react";
+import { Plus, Search, Filter, FileText, Trash2, Car, User as UserIcon, Settings2, Eye, Mail, DollarSign, Sparkles, Zap, TrendingUp, History, ShieldCheck, AlertCircle, ArrowRight, CheckCircle2, Calendar, Loader2, MapPin, RefreshCcw, Package } from "lucide-react";
 import { toast } from "sonner";
 import AddressInput from "../components/AddressInput";
 import VehicleSelector from "../components/VehicleSelector";
@@ -22,7 +22,7 @@ import { StandardInput } from "../components/StandardInput";
 import { CustomFeesEditor } from "../components/CustomFeesEditor";
 import { CustomFee } from "../types";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Quote, Client, Vehicle, Service, BusinessSettings, Invoice, Appointment, LineItem, PricingAnalysis, AdminPricingBreakdown, ClientVisibleAddOn } from "../types";
+import { Quote, Client, Vehicle, Service, BusinessSettings, Invoice, Appointment, LineItem, PricingAnalysis, AdminPricingBreakdown, ClientVisibleAddOn, ProductCatalogItem } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { Checkbox } from "../components/ui/checkbox";
 import { Slider } from "../components/ui/slider";
@@ -131,6 +131,12 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
 
+  // Product Catalog
+  const [catalogProducts, setCatalogProducts] = useState<ProductCatalogItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  // Which line's dropdown is open (by product cost id)
+  const [openCatalogFor, setOpenCatalogFor] = useState<string | null>(null);
+
   useEffect(() => {
     const fetchSettings = async () => {
       try {
@@ -143,6 +149,24 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       }
     };
     fetchSettings();
+  }, []);
+
+  // Load product catalog from Firestore
+  useEffect(() => {
+    const loadCatalog = async () => {
+      setCatalogLoading(true);
+      try {
+        const q = query(collection(db, "productCatalog"), where("active", "==", true), orderBy("productName"));
+        const snap = await getDocs(q);
+        setCatalogProducts(snap.docs.map(d => ({ id: d.id, ...d.data() } as ProductCatalogItem)));
+      } catch {
+        // Catalog load failure must not block manual entry
+        setCatalogProducts([]);
+      } finally {
+        setCatalogLoading(false);
+      }
+    };
+    loadCatalog();
   }, []);
 
   const handleAddProductCost = () => {
@@ -616,17 +640,130 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     return description;
   };
 
-  const finalPrice = isPriceCustomized && customPrice !== null 
-    ? customPrice 
-    : selectedTier === "low" 
-      ? (recommendations?.lowPrice || 0)
-      : selectedTier === "safe"
-        ? (recommendations?.safePrice || 0)
-        : selectedTier === "premium"
-          ? (recommendations?.premiumPrice || 0)
-          : (recommendations?.recommendedPrice || 0);
+  // ── Final price: custom → recommendations tier → pricingAnalysis tier → 0 ──
+  // Never returns 0 when pricingAnalysis or productCosts carry real value.
+  const finalPrice = (() => {
+    if (isPriceCustomized && customPrice !== null) return customPrice;
+    if (recommendations) {
+      return selectedTier === "low"     ? recommendations.lowPrice
+           : selectedTier === "safe"    ? recommendations.safePrice
+           : selectedTier === "premium" ? recommendations.premiumPrice
+                                        : recommendations.recommendedPrice;
+    }
+    // No service selected but pricingAnalysis has real data (e.g. product costs only)
+    if (pricingAnalysis && pricingAnalysis.recommendedPrice > 0) {
+      return selectedTier === "low"     ? pricingAnalysis.floorPrice
+           : selectedTier === "premium" ? pricingAnalysis.premiumPrice
+                                        : pricingAnalysis.recommendedPrice;
+    }
+    // Last resort: sum product costs as a floor
+    const pcTotal = productCosts.reduce((s: number, p: any) => s + (parseFloat(p.totalCost) || 0), 0);
+    return pcTotal;
+  })();
+
+  // ── Protocol inference: scan job notes for service keywords ──────────────
+  const inferredServiceMatch = useMemo(() => {
+    if (selectedServiceSelections.length > 0 || !jobDescription || services.length === 0) return null;
+    const lower = jobDescription.toLowerCase();
+    // Try direct name match first, then keyword match
+    const match = services.find(s => {
+      const sName = s.name.toLowerCase();
+      return lower.includes(sName) ||
+        (sName.includes("ceramic") && (lower.includes("ceramic") || lower.includes("coating") || lower.includes("5yr") || lower.includes("5 yr"))) ||
+        (sName.includes("clay") && (lower.includes("clay") || lower.includes("decontam"))) ||
+        (sName.includes("interior") && lower.includes("interior")) ||
+        (sName.includes("exterior") && lower.includes("exterior")) ||
+        (sName.includes("wash") && lower.includes("wash")) ||
+        (sName.includes("polish") && lower.includes("polish")) ||
+        (sName.includes("detail") && lower.includes("detail")) ||
+        (sName.includes("paint correction") && (lower.includes("correction") || lower.includes("swirl") || lower.includes("scratch")));
+    });
+    return match ?? null;
+  }, [jobDescription, services, selectedServiceSelections]);
 
   const handleApply = () => {
+    // Guard: need either services/addons OR pricingAnalysis with real price
+    const hasServices = selectedServiceSelections.length > 0 || selectedAddOnSelections.length > 0;
+    const hasPricingData = pricingAnalysis && pricingAnalysis.recommendedPrice > 0;
+    const hasCosts = productCosts.some(p => (parseFloat(p.totalCost) || 0) > 0);
+
+    if (!hasServices && !hasPricingData && !hasCosts) {
+      toast.error("Select at least one service protocol before converting.");
+      return;
+    }
+    if (finalPrice <= 0) {
+      toast.error("Cannot convert a $0.00 quote. Select a service protocol or run pricing diagnostics first.");
+      return;
+    }
+    // If no service selected but we have pricingAnalysis, build minimal line items from it
+    if (!recommendations && (hasPricingData || hasCosts)) {
+      const productCostTotal = productCosts.reduce((s: number, p: any) => {
+        const v = parseFloat(p.totalCost); return s + (isNaN(v) ? 0 : v);
+      }, 0);
+      const laborCostValue  = pricingAnalysis?.laborTarget ?? 0;
+      const overheadValue   = pricingAnalysis?.overhead   ?? 0;
+      const internalJobCostValue = productCostTotal + laborCostValue + overheadValue;
+      const estimatedProfitValue = finalPrice - internalJobCostValue;
+      const marginPercentValue   = finalPrice > 0 ? (estimatedProfitValue / finalPrice) * 100 : 0;
+
+      // Build a single clean line item
+      const lineItems: LineItem[] = [{
+        serviceName: inferredServiceMatch?.name || jobDescription.split(" ").slice(0, 6).join(" ") || "Professional Detailing Service",
+        price: parseFloat(finalPrice.toFixed(2)),
+        description: `AI/benchmark-priced detailing service. ${jobDescription}`.slice(0, 200),
+        quantity: 1,
+        total: parseFloat(finalPrice.toFixed(2)),
+        source: "ai",
+        protocolAccepted: true,
+      }];
+
+      const adminBreakdown: AdminPricingBreakdown = {
+        baseServicePrice: 0,
+        conditionMultiplier: 1,
+        vehicleSizeAdjustment: 0,
+        laborCost: parseFloat(laborCostValue.toFixed(2)),
+        materialCost: parseFloat(productCostTotal.toFixed(2)),
+        travelCost: parseFloat((pricingAnalysis?.travelFee ?? 0).toFixed(2)),
+        addonTotal: 0,
+        discountTotal: 0,
+        aiRecommendedPrice: parseFloat(finalPrice.toFixed(2)),
+        selectedTier: isPriceCustomized ? "custom" : selectedTier,
+        finalQuoteTotal: parseFloat(finalPrice.toFixed(2)),
+        estimatedProfit: parseFloat(estimatedProfitValue.toFixed(2)),
+        marginPercent: parseFloat(marginPercentValue.toFixed(2)),
+        pricingConfidence: analysisSource === "ai" ? 85 : 60,
+        conditionAdjustments: {},
+        internalNotes: `Product-cost-only benchmark pricing. Job: ${jobDescription}`,
+        source: analysisSource,
+      };
+
+      onApply({
+        clientId: "",
+        clientInfo: { name: `${firstName} ${lastName}`.trim() || "Valued Client", firstName, lastName, email, phone, address: address || serviceAddress, serviceAddress: serviceAddress || address, businessName },
+        manualVehicles,
+        lineItems,
+        notes: jobDescription,
+        description: generateHumanDescription(),
+        businessName,
+        productCosts: productCosts.length > 0 ? [...productCosts] : [],
+        pricingAnalysis: pricingAnalysis ?? null,
+        quoteSource: "ai",
+        adminPricingBreakdown: adminBreakdown,
+        clientDisplayPrice: parseFloat(finalPrice.toFixed(2)),
+        clientVisibleAddOns: [],
+        aiRecommendedPrice: parseFloat(finalPrice.toFixed(2)),
+        baseServicePrice: 0,
+        laborCost: parseFloat(laborCostValue.toFixed(2)),
+        materialCost: parseFloat(productCostTotal.toFixed(2)),
+        addonTotal: 0,
+        internalJobCost: parseFloat(internalJobCostValue.toFixed(2)),
+        finalQuoteTotal: parseFloat(finalPrice.toFixed(2)),
+        selectedServiceName: inferredServiceMatch?.name ?? "",
+        internalNotes: adminBreakdown.internalNotes,
+      });
+      return;
+    }
+
     if (!recommendations) return;
 
     // ─── 1. Compute internal cost totals ───────────────────────────────────
@@ -1139,49 +1276,116 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   </div>
                 </div>
 
-                {/* Product Cost Area */}
+                {/* Product Cost Area — with catalog dropdown */}
                 <div className="space-y-6 md:col-span-1">
                   <h3 className="text-xs font-black text-white uppercase tracking-[0.2em] flex items-center gap-2">
                     <DollarSign className="w-4 h-4 text-primary" />
                     Internal Job Costs (Products)
                   </h3>
-                  
+
                   <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-4">
                     {productCosts.length > 0 ? (
                       <div className="space-y-3">
                         {productCosts.map((cost) => (
-                          <div key={cost.id} className="grid grid-cols-12 gap-2 items-center bg-black/40 p-2 rounded-xl border border-white/5">
-                            <div className="col-span-5">
-                              <Input 
-                                placeholder="Product Name" 
-                                value={cost.name}
-                                onChange={(e) => handleUpdateProductCost(cost.id, { name: e.target.value })}
-                                className="h-8 text-[10px] bg-transparent border-white/10 text-white"
-                              />
-                            </div>
-                            <div className="col-span-3">
-                              <Input
-                                type="number"
-                                placeholder="Cost"
-                                value={cost.unitCost}
-                                onFocus={(e) => { if (parseFloat(e.target.value) === 0) e.target.value = ""; }}
-                                onBlur={(e) => { if (e.target.value === "") handleUpdateProductCost(cost.id, { unitCost: 0 }); }}
-                                onChange={(e) => handleUpdateProductCost(cost.id, { unitCost: parseFloat(e.target.value) || 0 })}
-                                className="h-8 text-[10px] bg-transparent border-white/10 text-white"
-                              />
-                            </div>
-                            <div className="col-span-3">
-                              <span className="text-[10px] font-black text-primary">{formatCurrency(cost.totalCost)}</span>
-                            </div>
-                            <div className="col-span-1 flex justify-end">
-                              <button onClick={() => handleDeleteProductCost(cost.id)} className="text-white hover:text-red-500 bg-white/10 p-1.5 rounded-md transition-colors">
+                          <div key={cost.id} className="space-y-2 bg-black/40 p-3 rounded-xl border border-white/5">
+                            {/* Row 1: Catalog picker + manual name */}
+                            <div className="flex gap-2 items-center">
+                              <div className="flex-1">
+                                <Select
+                                  value={cost.catalogId || "__manual__"}
+                                  onValueChange={(val) => {
+                                    if (val === "__manual__") {
+                                      handleUpdateProductCost(cost.id, { catalogId: null });
+                                      return;
+                                    }
+                                    const cat = catalogProducts.find(c => c.id === val);
+                                    if (cat) {
+                                      handleUpdateProductCost(cost.id, {
+                                        catalogId: cat.id,
+                                        name: cat.productName,
+                                        category: cat.category,
+                                        unitCost: cat.defaultUnitCost,
+                                        quantity: cat.defaultQuantity || 1,
+                                        source: "catalog",
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 text-[10px] bg-transparent border-white/10 text-white">
+                                    <SelectValue placeholder={catalogLoading ? "Loading…" : "Select from catalog"} />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-[#0B0B0B] border-white/10 text-white">
+                                    <SelectItem value="__manual__" className="text-[10px] text-white/50 focus:bg-white/5">
+                                      <span className="flex items-center gap-2">
+                                        <Plus className="w-3 h-3" /> Enter manually
+                                      </span>
+                                    </SelectItem>
+                                    {catalogProducts.map(cat => (
+                                      <SelectItem key={cat.id} value={cat.id} className="text-[10px] focus:bg-primary/20 focus:text-primary">
+                                        {cat.productName}
+                                        <span className="ml-2 text-white/30">${cat.defaultUnitCost}/{cat.unitType}</span>
+                                      </SelectItem>
+                                    ))}
+                                    {catalogProducts.length === 0 && !catalogLoading && (
+                                      <div className="px-2 py-1.5 text-[9px] text-white/20 uppercase tracking-widest">
+                                        No catalog products — add in Settings → Product Catalog
+                                      </div>
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteProductCost(cost.id)}
+                                className="text-white hover:text-red-500 bg-white/10 p-1.5 rounded-md transition-colors shrink-0"
+                              >
                                 <Trash2 className="w-3 h-3" />
                               </button>
+                            </div>
+                            {/* Row 2: Manual name (shown when no catalog item selected or overriding) */}
+                            <Input
+                              placeholder="Product / material name"
+                              value={cost.name}
+                              onChange={(e) => handleUpdateProductCost(cost.id, { name: e.target.value, catalogId: null })}
+                              className="h-8 text-[10px] bg-transparent border-white/10 text-white"
+                            />
+                            {/* Row 3: Qty × unit cost = total */}
+                            <div className="grid grid-cols-3 gap-2 items-center">
+                              <div>
+                                <p className="text-[8px] text-white/30 font-black uppercase tracking-widest mb-1">Qty</p>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  placeholder="1"
+                                  value={cost.quantity}
+                                  onFocus={(e) => { if (parseFloat(e.target.value) === 1) e.target.value = ""; }}
+                                  onBlur={(e) => { if (e.target.value === "") handleUpdateProductCost(cost.id, { quantity: 1 }); }}
+                                  onChange={(e) => handleUpdateProductCost(cost.id, { quantity: parseFloat(e.target.value) || 1 })}
+                                  className="h-8 text-[10px] bg-transparent border-white/10 text-white"
+                                />
+                              </div>
+                              <div>
+                                <p className="text-[8px] text-white/30 font-black uppercase tracking-widest mb-1">Unit Cost</p>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  placeholder="0.00"
+                                  value={cost.unitCost}
+                                  onFocus={(e) => { if (parseFloat(e.target.value) === 0) e.target.value = ""; }}
+                                  onBlur={(e) => { if (e.target.value === "") handleUpdateProductCost(cost.id, { unitCost: 0 }); }}
+                                  onChange={(e) => handleUpdateProductCost(cost.id, { unitCost: parseFloat(e.target.value) || 0 })}
+                                  className="h-8 text-[10px] bg-transparent border-white/10 text-white"
+                                />
+                              </div>
+                              <div className="text-center">
+                                <p className="text-[8px] text-white/30 font-black uppercase tracking-widest mb-1">Total</p>
+                                <span className="text-[11px] font-black text-primary">{formatCurrency(cost.totalCost || 0)}</span>
+                              </div>
                             </div>
                           </div>
                         ))}
                         <div className="flex justify-between items-center py-2 border-t border-white/5">
-                          <span className="text-[9px] font-black uppercase text-white/60 tracking-widest">Total cost</span>
+                          <span className="text-[9px] font-black uppercase text-white/60 tracking-widest">Total internal cost</span>
                           <span className="text-xs font-black text-primary">{formatCurrency(productCosts.reduce((sum, p) => sum + (parseFloat((p.totalCost || 0).toFixed(2))), 0))}</span>
                         </div>
                       </div>
@@ -1190,9 +1394,9 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                         No materials recorded
                       </div>
                     )}
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={handleAddProductCost}
                       className="w-full h-8 text-[9px] font-black uppercase tracking-widest border-white/10 hover:bg-white/5 text-white"
                     >
@@ -1359,20 +1563,28 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                     </button>
                   </div>
                   
-                  <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
-                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                      <span className="text-white">Total Job Cost</span>
-                      <span className="text-white">{formatCurrency(pricingAnalysis.totalProductCost)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                      <span className="text-white">Net Profit</span>
-                      <span className="text-primary">{formatCurrency(pricingAnalysis.estimatedMarginDollars)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                      <span className="text-white">Profit Margin</span>
-                      <span className="text-primary">{pricingAnalysis.estimatedMarginPercent.toFixed(1)}%</span>
-                    </div>
-                  </div>
+                  {(() => {
+                    const livePCTotal = productCosts.reduce((s: number, p: any) => s + (parseFloat(p.totalCost) || 0), 0);
+                    const liveJobCost = livePCTotal + (pricingAnalysis.laborTarget || 0) + (pricingAnalysis.overhead || 0);
+                    const liveProfit  = finalPrice - liveJobCost;
+                    const liveMargin  = finalPrice > 0 ? (liveProfit / finalPrice) * 100 : 0;
+                    return (
+                      <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                        <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                          <span className="text-white">Total Job Cost</span>
+                          <span className="text-white">{formatCurrency(liveJobCost)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                          <span className="text-white">Net Profit</span>
+                          <span className={liveProfit >= 0 ? "text-primary" : "text-red-400"}>{formatCurrency(liveProfit)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                          <span className="text-white">Profit Margin</span>
+                          <span className={liveMargin >= 0 ? "text-primary" : "text-red-400"}>{liveMargin.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div className="grid grid-cols-3 gap-2">
@@ -1505,21 +1717,49 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
               </div>
             </div>
 
-            <Button 
+            <Button
               className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-14 rounded-2xl uppercase tracking-tight text-sm shadow-glow-blue transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 flex items-center justify-center px-4"
-              disabled={manualVehicles.length === 0 || (selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0)}
+              disabled={manualVehicles.length === 0 || finalPrice <= 0}
               onClick={handleApply}
             >
               <span>Convert to Standard Quote</span>
               <ArrowRight className="w-4 h-4 ml-2 shrink-0" />
             </Button>
-            
+
             {manualVehicles.length === 0 && (
               <div className="flex items-center gap-2 p-4 bg-yellow-500/10 rounded-2xl border border-yellow-500/20">
                 <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0" />
                 <p className="text-[9px] text-yellow-500 font-black uppercase tracking-widest leading-relaxed">
                   Asset configuration required for market analysis.
                 </p>
+              </div>
+            )}
+
+            {manualVehicles.length > 0 && selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0 && (
+              <div className="flex items-start gap-2 p-4 bg-yellow-500/10 rounded-2xl border border-yellow-500/20">
+                <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-[9px] text-yellow-500 font-black uppercase tracking-widest leading-relaxed">
+                    No service protocol selected.
+                  </p>
+                  {inferredServiceMatch ? (
+                    <p className="text-[9px] text-yellow-400 font-bold leading-relaxed">
+                      Suggested match from notes: <span className="font-black">{inferredServiceMatch.name}</span> —{" "}
+                      <button
+                        type="button"
+                        className="underline font-black text-primary hover:text-primary/80"
+                        onClick={() => setSelectedServiceSelections([{ serviceId: inferredServiceMatch.id }])}
+                      >
+                        Select it
+                      </button>
+                    </p>
+                  ) : (
+                    <p className="text-[9px] text-yellow-400 font-bold leading-relaxed">
+                      Select at least one service protocol before generating pricing.
+                      {pricingAnalysis && finalPrice > 0 && " Benchmark pricing from product costs is available — you may still convert."}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </CardContent>

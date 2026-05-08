@@ -479,6 +479,21 @@ export interface Appointment extends SyncMetadata {
   };
 }
 
+/** Catalog entry stored in Firestore `productCatalog` collection */
+export interface ProductCatalogItem {
+  id: string;
+  businessId?: string;
+  productName: string;
+  category: string;
+  unitType: "bottle" | "ounce" | "gallon" | "pad" | "towel" | "job" | "kit" | "each" | "other";
+  defaultUnitCost: number;
+  defaultQuantity: number;
+  active: boolean;
+  notes?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
 export interface JobProductCost {
   id: string;
   name: string;

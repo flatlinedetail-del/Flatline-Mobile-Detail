@@ -81,7 +81,7 @@ import { StandardInput } from "../components/StandardInput";
 import { StableInput } from "../components/StableInput";
 import { StableTextarea } from "../components/StableTextarea";
 import { NumberInput } from "../components/NumberInput";
-import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon } from "../types";
+import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon, ProductCatalogItem } from "../types";
 import { migrateDataToClients } from "../services/clientService";
 import { processFollowUps } from "../services/automationService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -110,6 +110,217 @@ const removeUndefined = (obj: any): any => {
   }
   return obj;
 };
+
+// ── Product Catalog Management Component ──────────────────────────────────────
+const UNIT_TYPES = ["bottle","ounce","gallon","pad","towel","job","kit","each","other"] as const;
+const PRODUCT_CATEGORIES = ["chemical","pad","towel","tool","disposable","coating","protection","misc"] as const;
+
+const BLANK_PRODUCT: Omit<ProductCatalogItem,"id"> = {
+  productName: "",
+  category: "chemical",
+  unitType: "bottle",
+  defaultUnitCost: 0,
+  defaultQuantity: 1,
+  active: true,
+  notes: "",
+};
+
+function ProductCatalogTab() {
+  const [products, setProducts] = useState<ProductCatalogItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<Omit<ProductCatalogItem,"id">>(BLANK_PRODUCT);
+  const [showForm, setShowForm] = useState(false);
+
+  const loadProducts = async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(query(collection(db, "productCatalog"), orderBy("productName")));
+      setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() } as ProductCatalogItem)));
+    } catch { /* silent */ }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadProducts(); }, []);
+
+  const openNew = () => { setEditingId(null); setForm(BLANK_PRODUCT); setShowForm(true); };
+  const openEdit = (p: ProductCatalogItem) => {
+    setEditingId(p.id);
+    setForm({ productName: p.productName, category: p.category, unitType: p.unitType, defaultUnitCost: p.defaultUnitCost, defaultQuantity: p.defaultQuantity, active: p.active, notes: p.notes || "" });
+    setShowForm(true);
+  };
+  const closeForm = () => { setShowForm(false); setEditingId(null); setForm(BLANK_PRODUCT); };
+
+  const handleSave = async () => {
+    if (!form.productName.trim()) { toast.error("Product name is required."); return; }
+    setSaving(true);
+    try {
+      const payload = { ...form, defaultUnitCost: parseFloat(String(form.defaultUnitCost)) || 0, defaultQuantity: parseFloat(String(form.defaultQuantity)) || 1, updatedAt: serverTimestamp() };
+      if (editingId) {
+        await updateDoc(doc(db, "productCatalog", editingId), payload);
+        toast.success("Product updated.");
+      } else {
+        await addDoc(collection(db, "productCatalog"), { ...payload, createdAt: serverTimestamp() });
+        toast.success("Product added to catalog.");
+      }
+      await loadProducts();
+      closeForm();
+    } catch { toast.error("Failed to save product."); }
+    setSaving(false);
+  };
+
+  const handleToggleActive = async (p: ProductCatalogItem) => {
+    try {
+      await updateDoc(doc(db, "productCatalog", p.id), { active: !p.active, updatedAt: serverTimestamp() });
+      setProducts(prev => prev.map(x => x.id === p.id ? { ...x, active: !x.active } : x));
+    } catch { toast.error("Failed to update status."); }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "productCatalog", id));
+      setProducts(prev => prev.filter(p => p.id !== id));
+      toast.success("Product removed.");
+    } catch { toast.error("Failed to delete product."); }
+  };
+
+  return (
+    <TabsContent value="product-catalog" className="mt-0 space-y-6">
+      <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+        <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">
+                Product Catalog <span className="text-primary italic">— Internal</span>
+              </CardTitle>
+              <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mt-1">
+                Internal materials and supplies used in Smart Quote pricing. Never visible to customers.
+              </p>
+            </div>
+            <Button
+              onClick={openNew}
+              className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue"
+            >
+              <Plus className="w-4 h-4 mr-2" /> Add Product
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-8 space-y-6">
+
+          {/* Add / Edit Form */}
+          {showForm && (
+            <div className="p-6 bg-white/5 border border-primary/20 rounded-2xl space-y-4">
+              <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">
+                {editingId ? "Edit Product" : "New Product"}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-white">Product Name *</Label>
+                  <Input value={form.productName} onChange={e => setForm(f => ({...f, productName: e.target.value}))} placeholder="e.g. Ceramic Coating" className="bg-white/5 border-white/10 text-white h-11 rounded-xl font-bold" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-white">Category</Label>
+                  <Select value={form.category} onValueChange={v => setForm(f => ({...f, category: v}))}>
+                    <SelectTrigger className="h-11 bg-white/5 border-white/10 text-white rounded-xl font-bold"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-[#0B0B0B] border-white/10 text-white">
+                      {PRODUCT_CATEGORIES.map(c => <SelectItem key={c} value={c} className="focus:bg-primary/20 focus:text-primary capitalize">{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-white">Unit Type</Label>
+                  <Select value={form.unitType} onValueChange={v => setForm(f => ({...f, unitType: v as any}))}>
+                    <SelectTrigger className="h-11 bg-white/5 border-white/10 text-white rounded-xl font-bold"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-[#0B0B0B] border-white/10 text-white">
+                      {UNIT_TYPES.map(u => <SelectItem key={u} value={u} className="focus:bg-primary/20 focus:text-primary capitalize">{u}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-white">Default Cost / Unit ($)</Label>
+                  <Input type="number" min="0" step="0.01" value={form.defaultUnitCost} onChange={e => setForm(f => ({...f, defaultUnitCost: parseFloat(e.target.value) || 0}))} className="bg-white/5 border-white/10 text-white h-11 rounded-xl font-bold" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-white">Default Quantity</Label>
+                  <Input type="number" min="0" step="0.01" value={form.defaultQuantity} onChange={e => setForm(f => ({...f, defaultQuantity: parseFloat(e.target.value) || 1}))} className="bg-white/5 border-white/10 text-white h-11 rounded-xl font-bold" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-white">Notes (optional)</Label>
+                  <Input value={form.notes || ""} onChange={e => setForm(f => ({...f, notes: e.target.value}))} placeholder="e.g. Use per job, not per oz" className="bg-white/5 border-white/10 text-white h-11 rounded-xl font-bold" />
+                </div>
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-white">Active in Smart Quote</Label>
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({...f, active: !f.active}))}
+                  className={cn("w-10 h-5 rounded-full transition-colors relative", form.active ? "bg-primary" : "bg-white/20")}
+                >
+                  <span className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all", form.active ? "left-5" : "left-0.5")} />
+                </button>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-8 rounded-xl uppercase tracking-widest text-[10px] shadow-glow-blue">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                  {editingId ? "Save Changes" : "Add to Catalog"}
+                </Button>
+                <Button variant="outline" onClick={closeForm} className="border-white/10 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px]">Cancel</Button>
+              </div>
+            </div>
+          )}
+
+          {/* Product List */}
+          {loading ? (
+            <div className="flex items-center gap-3 text-white/40 py-6">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-[10px] font-black uppercase tracking-widest">Loading catalog…</span>
+            </div>
+          ) : products.length === 0 ? (
+            <div className="text-center py-12 text-white/20 text-[10px] font-black uppercase tracking-widest">
+              No products in catalog yet. Click "Add Product" to get started.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {products.map(p => (
+                <div key={p.id} className={cn("flex items-center gap-4 p-4 rounded-2xl border transition-all", p.active ? "bg-white/5 border-white/10" : "bg-black/20 border-white/5 opacity-50")}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-black text-white text-sm uppercase tracking-widest">{p.productName}</span>
+                      <Badge className={cn("border-none text-[8px] font-black uppercase", p.active ? "bg-primary/20 text-primary" : "bg-white/10 text-white/40")}>
+                        {p.active ? "Active" : "Inactive"}
+                      </Badge>
+                      <Badge className="bg-white/10 text-white/50 border-none text-[8px] font-black uppercase">{p.category}</Badge>
+                    </div>
+                    <p className="text-[10px] text-white/50 font-bold mt-0.5">
+                      ${p.defaultUnitCost}/{p.unitType} · Default qty: {p.defaultQuantity}
+                      {p.notes && <span className="ml-2 text-white/30">· {p.notes}</span>}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => handleToggleActive(p)}
+                      title={p.active ? "Deactivate" : "Activate"}
+                      className={cn("h-8 w-8 rounded-xl flex items-center justify-center text-[10px] font-black transition-colors", p.active ? "bg-white/10 text-white/60 hover:bg-amber-500/20 hover:text-amber-400" : "bg-white/5 text-white/30 hover:bg-primary/20 hover:text-primary")}
+                    >
+                      {p.active ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                    </button>
+                    <button onClick={() => openEdit(p)} className="h-8 w-8 rounded-xl bg-white/10 text-white/60 hover:bg-primary/20 hover:text-primary flex items-center justify-center transition-colors">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => handleDelete(p.id)} className="h-8 w-8 rounded-xl bg-white/5 text-white/30 hover:bg-red-500/20 hover:text-red-400 flex items-center justify-center transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </TabsContent>
+  );
+}
 
 export default function Settings() {
   const { 
@@ -1340,7 +1551,7 @@ export default function Settings() {
   };
 
   const handleTabChange = (value: string) => {
-    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel"];
+    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel", "product-catalog"];
     if (sensitiveTabs.includes(value) && !hasAccessToSensitiveSettings) {
       toast.error("Access Restricted. This sector is protected by Admin-Only Protocol.");
       return;
@@ -1349,7 +1560,7 @@ export default function Settings() {
   };
 
   useEffect(() => {
-    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel"];
+    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel", "product-catalog"];
     if (sensitiveTabs.includes(activeTab) && !hasAccessToSensitiveSettings && !authLoading) {
       setSearchParams({ tab: "profile" });
     }
@@ -1488,6 +1699,12 @@ export default function Settings() {
                   className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
                 >
                   <Truck className="w-4 h-4" /> Travel & Fuel
+                </TabsTrigger>
+                <TabsTrigger
+                  value="product-catalog"
+                  className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+                >
+                  <DollarIcon className="w-4 h-4" /> Product Catalog
                 </TabsTrigger>
               </>
             )}
@@ -5814,6 +6031,9 @@ export default function Settings() {
           </div>
 
         </TabsContent>
+
+        {/* ── PRODUCT CATALOG ─────────────────────────────────────────────── */}
+        <ProductCatalogTab />
 
         {/* ── NEURAL INTELLIGENCE — AI Settings ─────────────────────────────── */}
         <TabsContent value="ai-settings" className="mt-0 space-y-8">
