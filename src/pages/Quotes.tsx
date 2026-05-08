@@ -1617,15 +1617,14 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   </div>
                   
                   {(() => {
-                    const livePCTotal = productCosts.reduce((s: number, p: any) => s + (parseFloat(p.totalCost) || 0), 0);
-                    const liveJobCost = livePCTotal + (pricingAnalysis.laborTarget || 0) + (pricingAnalysis.overhead || 0);
-                    const liveProfit  = finalPrice - liveJobCost;
+                    const actualCost = productCosts.reduce((s: number, p: any) => s + (parseFloat(p.totalCost) || 0), 0);
+                    const liveProfit  = finalPrice - actualCost;
                     const liveMargin  = finalPrice > 0 ? (liveProfit / finalPrice) * 100 : 0;
                     return (
                       <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
                         <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                          <span className="text-white">Total Job Cost</span>
-                          <span className="text-white">{formatCurrency(liveJobCost)}</span>
+                          <span className="text-white">Total Out-of-Pocket Cost</span>
+                          <span className="text-white">{formatCurrency(actualCost)}</span>
                         </div>
                         <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
                           <span className="text-white">Net Profit</span>
