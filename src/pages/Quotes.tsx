@@ -1546,46 +1546,46 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                     </span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
-                    <button 
+                    <button
                       type="button"
                       onClick={() => {
-                        setCustomPrice(pricingAnalysis.floorPrice);
-                        setIsPriceCustomized(true);
                         setSelectedTier("low");
+                        setIsPriceCustomized(false);
+                        setCustomPrice(null);
                       }}
                       className={cn(
                         "p-3 rounded-xl border transition-all text-center",
-                        customPrice === pricingAnalysis.floorPrice ? "bg-amber-500/20 border-amber-500/40 ring-1 ring-amber-500" : "bg-white/5 border-white/5 hover:bg-white/10"
+                        selectedTier === "low" && !isPriceCustomized ? "bg-amber-500/20 border-amber-500/40 ring-1 ring-amber-500" : "bg-white/5 border-white/5 hover:bg-white/10"
                       )}
                     >
                       <p className="text-[8px] font-black text-amber-500 uppercase tracking-widest mb-1">Floor</p>
                       <p className="text-xs font-black text-white">{formatCurrency(pricingAnalysis.floorPrice)}</p>
                     </button>
-                    <button 
+                    <button
                       type="button"
                       onClick={() => {
-                        setCustomPrice(pricingAnalysis.recommendedPrice);
-                        setIsPriceCustomized(true);
                         setSelectedTier("recommended");
+                        setIsPriceCustomized(false);
+                        setCustomPrice(null);
                       }}
                       className={cn(
                         "p-3 rounded-xl border transition-all text-center",
-                        customPrice === pricingAnalysis.recommendedPrice ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
+                        selectedTier === "recommended" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
                       )}
                     >
                       <p className="text-[8px] font-black text-primary uppercase tracking-widest mb-1">{analysisSource === "ai" ? "AI-Rec" : "Rec"}</p>
                       <p className="text-xs font-black text-white">{formatCurrency(pricingAnalysis.recommendedPrice)}</p>
                     </button>
-                    <button 
+                    <button
                       type="button"
                       onClick={() => {
-                        setCustomPrice(pricingAnalysis.premiumPrice);
-                        setIsPriceCustomized(true);
                         setSelectedTier("premium");
+                        setIsPriceCustomized(false);
+                        setCustomPrice(null);
                       }}
                       className={cn(
                         "p-3 rounded-xl border transition-all text-center",
-                        customPrice === pricingAnalysis.premiumPrice ? "bg-purple-500/20 border-purple-500/40 ring-1 ring-purple-500" : "bg-white/5 border-white/5 hover:bg-white/10"
+                        selectedTier === "premium" && !isPriceCustomized ? "bg-purple-500/20 border-purple-500/40 ring-1 ring-purple-500" : "bg-white/5 border-white/5 hover:bg-white/10"
                        )}
                     >
                       <p className="text-[8px] font-black text-purple-400 uppercase tracking-widest mb-1">Premium</p>
