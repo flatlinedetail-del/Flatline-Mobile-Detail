@@ -66,7 +66,7 @@ import {
 } from "lucide-react";
 import { ProtectedClient, Client, RiskNetworkSettings } from "../types";
 import { cn } from "../lib/utils";
-import { normalizeRiskLevel } from "../lib/riskUtils";
+import { normalizeRiskLevel, getProtectionLevelLabel, getProtectionLevelBadgeClass } from "../lib/riskUtils";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -78,30 +78,13 @@ function isFlagged(level: ProtectionLevel): boolean {
   return FLAGGED_LEVELS.includes(level);
 }
 
+// Delegate to shared riskUtils so badge styling stays consistent across the app
 function riskBadgeClass(level: ProtectionLevel): string {
-  switch (level) {
-    case "Critical":
-    case "Do Not Book":
-    case "Block Booking":
-      return "bg-red-900/40 text-red-400 border-red-500/30";
-    case "High":
-      return "bg-red-500/10 text-red-500 border-red-500/20";
-    case "Med":
-      return "bg-yellow-500/10 text-yellow-400 border-yellow-500/20";
-    default:
-      return "bg-green-500/10 text-green-500 border-green-500/20";
-  }
+  return getProtectionLevelBadgeClass(level);
 }
 
 function riskLabel(level: ProtectionLevel): string {
-  switch (level) {
-    case "Med": return "Medium Risk";
-    case "High": return "High Risk";
-    case "Critical": return "Critical";
-    case "Do Not Book": return "Do Not Book";
-    case "Block Booking": return "Block Booking";
-    default: return "Low Risk";
-  }
+  return getProtectionLevelLabel(level);
 }
 
 const SHARED_RISK_CATEGORIES = [

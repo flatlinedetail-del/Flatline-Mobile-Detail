@@ -45,12 +45,82 @@ export function riskBlocksBooking(level: "low" | "medium" | "high" | null): bool
 }
 
 // ---------------------------------------------------------------------------
+// Full 6-level canonical risk (for display)
+// ---------------------------------------------------------------------------
+
+/**
+ * Full canonical risk type used for badge display.
+ * Keeps critical / do_not_book / block_booking distinct so the UI can
+ * show the correct label and colour instead of collapsing everything to "high".
+ *
+ * Note: normalizeRiskLevel() (above) still collapses to 3 levels for deposit
+ * policy — that's intentional and must not change.
+ */
+export type CanonicalRisk =
+  | "low"
+  | "medium"
+  | "high"
+  | "critical"
+  | "do_not_book"
+  | "block_booking"
+  | null;
+
+/**
+ * Normalize any raw value to the full 6-level CanonicalRisk.
+ * Handles all known field spellings including ProtectedClient capitalized values.
+ */
+export function normalizeRiskFull(val: any): CanonicalRisk {
+  if (!val) return null;
+  const s = String(val).toLowerCase().trim().replace(/[_\s-]+/g, " ");
+  if (s === "low" || s === "low risk" || s === "normal") return "low";
+  if (s === "medium" || s === "med" || s === "medium risk") return "medium";
+  if (s === "high" || s === "high risk") return "high";
+  if (s === "critical") return "critical";
+  if (s === "do not book" || s === "donotbook") return "do_not_book";
+  if (s === "block booking" || s === "blockbooking") return "block_booking";
+  return null;
+}
+
+/**
+ * Read the risk value from a client object, checking all known field aliases,
+ * then return the full 6-level CanonicalRisk.
+ *
+ * Priority order (most specific first):
+ *   protectionLevel → riskManagement.level → protectedClient.protectionLevel
+ *   → riskLevel → risk_level → riskStatus → clientRiskLevel
+ */
+export function getEffectiveRisk(client: any): CanonicalRisk {
+  if (!client) return null;
+  const raw =
+    client.protectionLevel ??
+    client.riskManagement?.level ??
+    client.protectedClient?.protectionLevel ??
+    client.riskLevel ??
+    client.risk_level ??
+    client.riskStatus ??
+    client.clientRiskLevel;
+  return normalizeRiskFull(raw);
+}
+
+// ---------------------------------------------------------------------------
 // Badge helpers
 // ---------------------------------------------------------------------------
 
-export function getRiskBadgeLabel(level: "low" | "medium" | "high" | null): string {
-  if (!level) return "";
-  return `${level.toUpperCase()} RISK`;
+/**
+ * Human-readable badge label.
+ * null → "No Risk Set" so a badge is always rendered on every client card.
+ */
+export function getRiskBadgeLabel(level: CanonicalRisk | any): string {
+  const canonical = typeof level === "string" ? normalizeRiskFull(level) : level;
+  switch (canonical) {
+    case "low":          return "Low Risk";
+    case "medium":       return "Medium Risk";
+    case "high":         return "High Risk";
+    case "critical":     return "Critical";
+    case "do_not_book":  return "Do Not Book";
+    case "block_booking":return "Block Booking";
+    default:             return "No Risk Set";
+  }
 }
 
 export type RiskBadgeVariant = "low" | "medium" | "high" | "none";
@@ -63,13 +133,45 @@ export function getRiskBadgeVariant(riskLevel: any): RiskBadgeVariant {
   return "none";
 }
 
-/** Tailwind class string for risk badge backgrounds. */
-export function getRiskBadgeClass(riskLevel: any): string {
-  const variant = getRiskBadgeVariant(riskLevel);
-  if (variant === "high") return "bg-red-500 text-white";
-  if (variant === "medium") return "bg-orange-500 text-white";
-  if (variant === "low") return "bg-yellow-400 text-black";
-  return "";
+/** Tailwind class string for risk badge backgrounds (supports all 6 canonical levels). */
+export function getRiskBadgeClass(riskLevel: CanonicalRisk | any): string {
+  const canonical = typeof riskLevel === "string" ? normalizeRiskFull(riskLevel) : riskLevel;
+  switch (canonical) {
+    case "block_booking":
+    case "do_not_book":
+      return "bg-red-900/40 text-red-400 border-red-500/30";
+    case "critical":
+      return "bg-red-700/30 text-red-400 border-red-600/30";
+    case "high":
+      return "bg-red-500/20 text-red-400 border-red-500/20";
+    case "medium":
+      return "bg-orange-500/20 text-orange-400 border-orange-500/20";
+    case "low":
+      return "bg-emerald-500/15 text-emerald-400 border-emerald-500/20";
+    default:
+      // null / no-risk: subtle neutral — always visible but not alarming
+      return "bg-white/5 text-white/40 border-white/10";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ProtectedClients bridge helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Get badge label from a ProtectedClient protectionLevel string.
+ * Delegates to getRiskBadgeLabel via normalizeRiskFull.
+ */
+export function getProtectionLevelLabel(level: string | null | undefined): string {
+  return getRiskBadgeLabel(normalizeRiskFull(level));
+}
+
+/**
+ * Get badge class from a ProtectedClient protectionLevel string.
+ * Delegates to getRiskBadgeClass via normalizeRiskFull.
+ */
+export function getProtectionLevelBadgeClass(level: string | null | undefined): string {
+  return getRiskBadgeClass(normalizeRiskFull(level));
 }
 
 // ---------------------------------------------------------------------------
