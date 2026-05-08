@@ -362,8 +362,8 @@ export default function Layout() {
           <GlobalSearch />
         </div>
 
-        <main className="flex-1 p-4 sm:p-6 md:p-10 overflow-auto bg-background selection:bg-primary/30">
-          <div className="max-w-[1440px] mx-auto w-full">
+        <main className="flex-1 p-4 sm:p-6 md:p-8 xl:p-10 overflow-auto bg-background selection:bg-primary/30">
+          <div className="w-full min-w-0">
             <Outlet />
           </div>
         </main>

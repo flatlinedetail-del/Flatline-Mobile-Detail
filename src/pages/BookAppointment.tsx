@@ -115,24 +115,42 @@ export default function BookAppointment() {
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [discountAmount, setDiscountAmount] = useState(0);
   const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  // Manual discount state (independent of coupon)
+  const [manualDiscountValue, setManualDiscountValue] = useState<number | string>(0);
+  const [manualDiscountType, setManualDiscountType] = useState<"fixed" | "percent">("fixed");
+  const [manualDiscountReason, setManualDiscountReason] = useState("");
 
-  // Calculate discount based on applied coupon
+  // Recompute total discount whenever coupon, manual discount, or baseAmount changes.
+  // Both coupon and manual discount apply to the service subtotal (baseAmount).
+  // The combined discount is then subtracted from the full booking total (incl. fees).
   useEffect(() => {
-    if (!appliedCoupon) {
-      setDiscountAmount(0);
-      return;
+    // --- coupon portion ---
+    let couponDiscount = 0;
+    if (appliedCoupon) {
+      if (appliedCoupon.discountType === "percentage") {
+        couponDiscount = (baseAmount * (appliedCoupon.discountValue || 0)) / 100;
+      } else {
+        couponDiscount = appliedCoupon.discountValue || 0;
+      }
+      // Coupon can't discount more than the service subtotal
+      couponDiscount = Math.min(couponDiscount, baseAmount);
     }
 
-    let discount = 0;
-    if (appliedCoupon.discountType === "percentage") {
-      discount = (baseAmount * (appliedCoupon.discountValue || 0)) / 100;
-    } else {
-      discount = appliedCoupon.discountValue || 0;
+    // --- manual discount portion ---
+    const manualVal = typeof manualDiscountValue === "string"
+      ? parseFloat(manualDiscountValue) || 0
+      : (manualDiscountValue || 0);
+    let manualDiscount = 0;
+    if (manualVal > 0) {
+      if (manualDiscountType === "percent") {
+        manualDiscount = (baseAmount * Math.min(manualVal, 100)) / 100;
+      } else {
+        manualDiscount = manualVal;
+      }
     }
-    
-    // Cap discount at baseAmount
-    setDiscountAmount(Math.min(discount, baseAmount));
-  }, [appliedCoupon, baseAmount]);
+
+    setDiscountAmount(couponDiscount + manualDiscount);
+  }, [appliedCoupon, baseAmount, manualDiscountValue, manualDiscountType]);
 
   const handleApplyCoupon = async () => {
     if (!couponCode.trim()) return;
@@ -1093,9 +1111,11 @@ export default function BookAppointment() {
           vehicleId: b.vehicleId
         }));
       
-      // Compute deposit snapshot at save time so it's accurate regardless of state timing
+      // Compute deposit snapshot at save time so it's accurate regardless of state timing.
+      // Discount is already included in discountAmount state (coupon + manual).
       const customFeesTotalAtSave = customFees.reduce((acc, f) => acc + f.amount, 0);
-      const bookingTotalAtSave = baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotalAtSave;
+      const totalBeforeDiscountAtSave = baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotalAtSave;
+      const bookingTotalAtSave = Math.max(0, totalBeforeDiscountAtSave - discountAmount);
       const depositSnap = computeDepositRequirement({
         client: client ?? null,
         selectedServices,
@@ -1135,7 +1155,21 @@ export default function BookAppointment() {
         baseAmount: baseAmount,
         travelFee: travelFee,
         discountAmount: discountAmount,
-        couponCode: appliedCoupon?.code || "",
+        couponCode: appliedCoupon?.code || null,
+        couponId: appliedCoupon?.id || null,
+        discountType: appliedCoupon
+          ? appliedCoupon.discountType
+          : ((typeof manualDiscountValue === "string" ? parseFloat(manualDiscountValue) : manualDiscountValue) > 0
+              ? manualDiscountType
+              : null),
+        discountPercent: appliedCoupon?.discountType === "percentage"
+          ? appliedCoupon.discountValue
+          : (manualDiscountType === "percent"
+              ? (typeof manualDiscountValue === "string" ? parseFloat(manualDiscountValue) : manualDiscountValue)
+              : null),
+        discountReason: manualDiscountReason || (appliedCoupon ? "coupon" : null),
+        totalBeforeDiscount: totalBeforeDiscountAtSave,
+        totalAfterDiscount: Math.max(0, totalBeforeDiscountAtSave - discountAmount),
         travelFeeBreakdown: travelInfo ? {
           miles: travelInfo.miles,
           rate: travelInfo.rate,
@@ -1253,15 +1287,15 @@ export default function BookAppointment() {
 
   if (loading) {
     return (
-      <div className="flex-1 overflow-y-auto bg-black flex items-center justify-center p-8 h-full">
+      <div className="flex items-center justify-center py-20">
         <div className="animate-spin h-8 w-8 border-4 border-emerald-500 border-t-transparent rounded-full" />
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-black p-4 md:p-8 font-sans">
-      <div className="max-w-6xl mx-auto">
+    <div className="w-full font-sans">
+      <div className="w-full min-w-0">
         <div className="flex items-center gap-4 mb-8">
           <button onClick={() => navigate(-1)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full text-white transition-colors">
             <ChevronLeft size={24} />
@@ -2066,9 +2100,9 @@ export default function BookAppointment() {
               </div>
             </div>
 
-            {/* 4. SUMMARY */}
+            {/* 4. BOOKING INTELLIGENCE (PRICING SUMMARY) */}
             <div className="bg-black/40 border border-white/10 rounded-2xl p-6 space-y-4">
-              <h3 className="text-xs font-black uppercase tracking-widest text-white/40 mb-4">Price Summary</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest text-white/40 mb-4">Booking Intelligence</h3>
               
               <div className="space-y-3 max-h-40 overflow-y-auto mb-4 pr-2 custom-scrollbar">
                 {selectedVehicleIds.map(vId => {
@@ -2123,52 +2157,160 @@ export default function BookAppointment() {
                   <span className="text-white font-black">{travelFee > 0 ? formatCurrency(travelFee) : (appointmentAddress.lat ? "Waived / Included" : "$0.00")}</span>
                 </div>
                 
-                <CustomFeesEditor 
-                  fees={customFees} 
+                <CustomFeesEditor
+                  fees={customFees}
                   onChange={setCustomFees}
                   serviceFeeLabel={settings?.serviceFeeLabel}
                   onTravelFeeChange={setTravelFee}
                   travelFeeAmount={travelFee}
                 />
 
+                {/* Live discount row — shown whenever any discount is active */}
+                {discountAmount > 0 && (
+                  <div className="flex justify-between items-center text-sm pt-1">
+                    <span className="text-emerald-400 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" /> Discount
+                    </span>
+                    <span className="text-emerald-400 font-black">-{formatCurrency(discountAmount)}</span>
+                  </div>
+                )}
+
+                {/* ── COUPON CODE ── */}
                 <div className="space-y-2 pt-3 border-t border-white/5">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Coupon Code</p>
                   <div className="flex items-center justify-between gap-2">
                     <div className="relative flex-1">
                       <Input
-                        placeholder="COUPON CODE"
+                        placeholder="ENTER CODE"
                         className="bg-black/40 border-white/10 text-white font-black uppercase tracking-widest text-[10px] h-10 pr-10"
                         value={couponCode}
                         onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyCoupon(); } }}
+                        disabled={!!appliedCoupon}
                       />
                       <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500/50" />
                     </div>
-                    <Button 
-                      type="button"
-                      variant="outline"
-                      className="border-white/10 bg-white/5 text-white font-black h-10 px-4 uppercase tracking-widest text-[9px] hover:bg-white/10"
-                      onClick={handleApplyCoupon}
-                      disabled={isValidatingCoupon}
-                    >
-                      {isValidatingCoupon ? <Loader2 className="w-3 h-3 animate-spin" /> : "Apply"}
-                    </Button>
+                    {!appliedCoupon ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-white/10 bg-white/5 text-white font-black h-10 px-4 uppercase tracking-widest text-[9px] hover:bg-white/10"
+                        onClick={handleApplyCoupon}
+                        disabled={isValidatingCoupon || !couponCode.trim()}
+                      >
+                        {isValidatingCoupon ? <Loader2 className="w-3 h-3 animate-spin" /> : "Apply"}
+                      </Button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setAppliedCoupon(null); setCouponCode(""); }}
+                        className="h-10 px-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors text-[9px] font-black uppercase tracking-widest"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                   {appliedCoupon && (
-                    <div className="flex justify-between items-center px-1">
+                    <div className="flex justify-between items-center px-1 py-1 bg-emerald-500/5 rounded-lg border border-emerald-500/10">
                       <div className="flex items-center gap-2">
                         <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-black text-[8px] uppercase tracking-widest">
-                          {appliedCoupon.code} Active
+                          ✓ {appliedCoupon.code}
                         </Badge>
-                        <button 
-                          type="button"
-                          onClick={() => { setAppliedCoupon(null); setCouponCode(""); }}
-                          className="text-white/40 hover:text-white transition-colors"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                        <span className="text-[9px] text-emerald-400/70 font-bold uppercase tracking-wide">
+                          {appliedCoupon.discountType === "percentage"
+                            ? `${appliedCoupon.discountValue}% off services`
+                            : `${formatCurrency(appliedCoupon.discountValue)} off`}
+                        </span>
                       </div>
-                      <span className="text-emerald-500 font-bold text-xs">-{formatCurrency(discountAmount)}</span>
+                      <span className="text-emerald-400 font-black text-xs">-{formatCurrency(appliedCoupon.discountType === "percentage"
+                        ? Math.min((baseAmount * (appliedCoupon.discountValue || 0)) / 100, baseAmount)
+                        : Math.min(appliedCoupon.discountValue || 0, baseAmount))}</span>
                     </div>
                   )}
+                </div>
+
+                {/* ── MANUAL DISCOUNT ── */}
+                <div className="space-y-2 pt-3 border-t border-white/5">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Manual Discount</p>
+                  <div className="flex items-center gap-2">
+                    {/* Type toggle */}
+                    <div className="flex rounded-lg overflow-hidden border border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => setManualDiscountType("fixed")}
+                        className={`px-3 h-10 text-[9px] font-black uppercase tracking-widest transition-colors ${
+                          manualDiscountType === "fixed"
+                            ? "bg-primary text-white"
+                            : "bg-white/5 text-white/50 hover:bg-white/10"
+                        }`}
+                      >
+                        $ Fixed
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManualDiscountType("percent")}
+                        className={`px-3 h-10 text-[9px] font-black uppercase tracking-widest transition-colors ${
+                          manualDiscountType === "percent"
+                            ? "bg-primary text-white"
+                            : "bg-white/5 text-white/50 hover:bg-white/10"
+                        }`}
+                      >
+                        % Off
+                      </button>
+                    </div>
+                    {/* Amount input */}
+                    <div className="relative flex-1">
+                      <Input
+                        type="number"
+                        min="0"
+                        max={manualDiscountType === "percent" ? 100 : undefined}
+                        step="0.01"
+                        placeholder={manualDiscountType === "fixed" ? "0.00" : "0"}
+                        value={manualDiscountValue === 0 ? "" : manualDiscountValue}
+                        onFocus={(e) => { if (parseFloat(e.target.value) === 0 || e.target.value === "") e.target.value = ""; }}
+                        onChange={(e) => setManualDiscountValue(e.target.value === "" ? 0 : e.target.value)}
+                        className="bg-black/40 border-white/10 text-white font-black text-[10px] h-10"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 text-[10px] font-black">
+                        {manualDiscountType === "fixed" ? "$" : "%"}
+                      </span>
+                    </div>
+                    {/* Clear button */}
+                    {(typeof manualDiscountValue === "string" ? parseFloat(manualDiscountValue) : manualDiscountValue) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setManualDiscountValue(0); setManualDiscountReason(""); }}
+                        className="h-10 w-10 flex items-center justify-center rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {/* Optional reason */}
+                  {(typeof manualDiscountValue === "string" ? parseFloat(manualDiscountValue) : manualDiscountValue) > 0 && (
+                    <Input
+                      placeholder="Discount reason (optional)"
+                      value={manualDiscountReason}
+                      onChange={(e) => setManualDiscountReason(e.target.value)}
+                      className="bg-black/40 border-white/10 text-white/70 font-medium text-[10px] h-9"
+                    />
+                  )}
+                  {/* Preview the manual discount amount */}
+                  {(() => {
+                    const val = typeof manualDiscountValue === "string" ? parseFloat(manualDiscountValue) || 0 : manualDiscountValue;
+                    if (val <= 0) return null;
+                    const computed = manualDiscountType === "percent"
+                      ? (baseAmount * Math.min(val, 100)) / 100
+                      : val;
+                    return (
+                      <div className="flex justify-between items-center px-1 py-1 bg-emerald-500/5 rounded-lg border border-emerald-500/10">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400/70">
+                          {manualDiscountType === "percent" ? `${val}% off services` : "Fixed discount"}
+                        </span>
+                        <span className="text-emerald-400 font-black text-xs">-{formatCurrency(computed)}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {isRiskyClient && (
@@ -2266,14 +2408,29 @@ export default function BookAppointment() {
                     <span className="text-yellow-500 font-black">{formatCurrency(afterHoursFeeDisplay)}</span>
                   </div>
                 )}
-                <div className="pt-3 border-t border-white/10 flex justify-between items-center">
-                  <span className="text-primary font-black uppercase tracking-widest text-xs">Projected Total</span>
-                  <span className="text-2xl font-black text-white tracking-tighter">
-                    {(() => {
-                      const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
-                      return formatCurrency(baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal);
-                    })()}
-                  </span>
+                <div className="pt-3 border-t border-white/10 space-y-1">
+                  {discountAmount > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-white/40 font-bold uppercase tracking-wider text-[10px]">Subtotal</span>
+                      <span className="text-white/50 font-bold text-sm line-through">
+                        {(() => {
+                          const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
+                          return formatCurrency(baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal);
+                        })()}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center">
+                    <span className="text-primary font-black uppercase tracking-widest text-xs">
+                      {discountAmount > 0 ? "Total After Discount" : "Projected Total"}
+                    </span>
+                    <span className="text-2xl font-black text-white tracking-tighter">
+                      {(() => {
+                        const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
+                        return formatCurrency(Math.max(0, baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal - discountAmount));
+                      })()}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

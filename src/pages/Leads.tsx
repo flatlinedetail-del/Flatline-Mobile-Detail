@@ -363,7 +363,7 @@ export default function Leads() {
   };
 
   return (
-    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto">
+    <div className="space-y-8 pb-20 w-full">
       <PageHeader 
         title="Lead PIPELINE" 
         accentWord="PIPELINE" 

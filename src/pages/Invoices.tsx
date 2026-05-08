@@ -423,7 +423,7 @@ export default function Invoices() {
   );
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-8 pb-20">
+    <div className="w-full space-y-8 pb-20">
       <PageHeader 
         title="Financial Ledger" 
         accentWord="Ledger" 
