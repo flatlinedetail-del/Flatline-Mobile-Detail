@@ -14,26 +14,27 @@ import { Badge } from "../components/ui/badge";
 import { Textarea } from "../components/ui/textarea";
 import { cn, formatPhoneNumber, cleanAddress } from "../lib/utils";
 import { StandardInput } from "../components/StandardInput";
-import { 
-  UserPlus, 
-  Search, 
-  Filter, 
-  MoreHorizontal, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  Calendar, 
-  Clock, 
-  ArrowRight, 
-  CheckCircle2, 
-  XCircle, 
+import {
+  UserPlus,
+  Search,
+  Filter,
+  MoreHorizontal,
+  Phone,
+  Mail,
+  MapPin,
+  Calendar,
+  Clock,
+  ArrowRight,
+  CheckCircle2,
+  XCircle,
   MessageSquare,
   History,
   ExternalLink,
   Trash2,
   Settings2,
   DatabaseZap,
-  RefreshCcw
+  RefreshCcw,
+  Camera,
 } from "lucide-react";
 import { toast } from "sonner";
 import { syncService } from "../services/syncService";
@@ -68,15 +69,21 @@ export default function Leads() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [newVehicleData, setNewVehicleData] = useState({ year: "", make: "", model: "" });
-  const [newLeadAddress, setNewLeadAddress] = useState({ 
-    address: "", 
-    lat: 0, 
+  const [newLeadAddress, setNewLeadAddress] = useState({
+    address: "",
+    lat: 0,
     lng: 0,
     city: "",
     state: "",
     zipCode: "",
     placeId: ""
   });
+  const [vinInput, setVinInput] = useState("");
+  const [isScanningVin, setIsScanningVin] = useState(false);
+  const [isGeolocating, setIsGeolocating] = useState(false);
+  const [showSmsPrompt, setShowSmsPrompt] = useState(false);
+  const [pendingSmsPhone, setPendingSmsPhone] = useState("");
+  const [pendingSmsName, setPendingSmsName] = useState("");
 
   const fetchLeads = async (showToast = false) => {
     // Check cache first if not performing a manual sync
@@ -124,6 +131,84 @@ export default function Leads() {
     fetchLeads();
   }, [profile, authLoading]);
 
+  const handleVinScan = async () => {
+    if (!("BarcodeDetector" in window)) {
+      toast.error("Barcode scanning is not supported on this device/browser. Please enter VIN manually.");
+      return;
+    }
+    setIsScanningVin(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true");
+      await video.play();
+
+      // @ts-ignore
+      const detector = new (window as any).BarcodeDetector({ formats: ["code_128", "code_39", "qr_code", "data_matrix"] });
+      let detected = false;
+      const scanLoop = async () => {
+        if (detected) return;
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0) {
+            detected = true;
+            const raw = barcodes[0].rawValue || "";
+            const vin = raw.replace(/[^A-HJ-NPR-Z0-9]/gi, "").toUpperCase().slice(0, 17);
+            if (vin.length === 17) {
+              setVinInput(vin);
+              toast.success(`VIN scanned: ${vin}`);
+            } else {
+              toast.warning("Could not extract a valid 17-char VIN. Please verify manually.");
+              setVinInput(raw);
+            }
+            stream.getTracks().forEach(t => t.stop());
+            setIsScanningVin(false);
+            return;
+          }
+        } catch (_) {}
+        if (!detected) requestAnimationFrame(scanLoop);
+      };
+      setTimeout(() => {
+        if (!detected) {
+          stream.getTracks().forEach(t => t.stop());
+          setIsScanningVin(false);
+          toast.info("Scan timed out. Please try again or enter VIN manually.");
+        }
+      }, 8000);
+      requestAnimationFrame(scanLoop);
+    } catch (err: any) {
+      console.error("VIN scan error:", err);
+      toast.error("Camera access denied or unavailable. Please enter VIN manually.");
+      setIsScanningVin(false);
+    }
+  };
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported on this device.");
+      return;
+    }
+    setIsGeolocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setNewLeadAddress(prev => ({
+          ...prev,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        }));
+        toast.success(`Location captured: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
+        setIsGeolocating(false);
+      },
+      (err) => {
+        console.error("Geolocation error:", err);
+        toast.error("Could not get your location. Please allow location access or enter address manually.");
+        setIsGeolocating(false);
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  };
+
   const handleAddLead = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -132,13 +217,14 @@ export default function Leads() {
       phone: formData.get("phone"),
       email: formData.get("email"),
       address: newLeadAddress.address,
-      latitude: newLeadAddress.lat,
-      longitude: newLeadAddress.lng,
+      latitude: newLeadAddress.lat || null,
+      longitude: newLeadAddress.lng || null,
       city: newLeadAddress.city,
       state: newLeadAddress.state,
       zipCode: newLeadAddress.zipCode,
       placeId: newLeadAddress.placeId,
       vehicleInfo: `${newVehicleData.year} ${newVehicleData.make} ${newVehicleData.model}`.trim(),
+      vin: vinInput.trim() || null,
       requestedService: formData.get("requestedService"),
       source: formData.get("source") || "Direct",
       status: editingLead?.status || "new",
@@ -176,6 +262,13 @@ export default function Leads() {
           });
 
           toast.success("Lead added successfully");
+          // Prompt to send SMS if phone is provided
+          const phone = (leadData.phone || "").toString().trim();
+          if (phone) {
+            setPendingSmsPhone(phone);
+            setPendingSmsName((leadData.name || "").toString());
+            setShowSmsPrompt(true);
+          }
         } catch (err) {
           console.warn("Direct add failed, enqueuing...", err);
           await syncService.enqueueTask("leads", {
@@ -185,13 +278,14 @@ export default function Leads() {
           toast.info("Offline: Lead saved locally and will sync later");
         }
       }
-      
+
       // Invalidate cache
       sessionStorage.removeItem('leads_cache');
       sessionStorage.removeItem('leads_cache_time');
-      
+
       setIsAddDialogOpen(false);
       setEditingLead(null);
+      setVinInput("");
       fetchLeads();
     } catch (error) {
       console.error("Error saving lead:", error);
@@ -362,12 +456,23 @@ export default function Leads() {
                   />
                 </div>
                 <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">Mission Coordinates (Address)</Label>
-                  <AddressInput 
+                  <div className="flex items-center justify-between">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Mission Coordinates (Address)</Label>
+                    <button
+                      type="button"
+                      onClick={handleUseMyLocation}
+                      disabled={isGeolocating}
+                      className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-primary hover:text-white/80 transition-colors disabled:opacity-50"
+                    >
+                      <MapPin className="w-3 h-3" />
+                      {isGeolocating ? "Locating..." : "Use My Location"}
+                    </button>
+                  </div>
+                  <AddressInput
                     defaultValue={editingLead?.address || ""}
-                    onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({ 
-                      address, 
-                      lat, 
+                    onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({
+                      address,
+                      lat,
                       lng,
                       city: structured?.city || "",
                       state: structured?.state || "",
@@ -377,10 +482,15 @@ export default function Leads() {
                     placeholder="123 Main St, City, ST"
                     className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold"
                   />
+                  {newLeadAddress.lat !== 0 && newLeadAddress.lng !== 0 && (
+                    <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest">
+                      ✓ Coordinates captured: {newLeadAddress.lat.toFixed(5)}, {newLeadAddress.lng.toFixed(5)}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-3">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-white">Asset Profile (Vehicle)</Label>
-                  <VehicleSelector 
+                  <VehicleSelector
                     onSelect={setNewVehicleData}
                     initialValues={editingLead?.vehicleInfo ? {
                       year: editingLead.vehicleInfo.split(" ")[0] || "",
@@ -388,6 +498,34 @@ export default function Leads() {
                       model: editingLead.vehicleInfo.split(" ").slice(2).join(" ") || ""
                     } : undefined}
                   />
+                </div>
+                <div className="space-y-3">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">VIN (Optional)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={vinInput}
+                      onChange={(e) => setVinInput(e.target.value.toUpperCase().slice(0, 17))}
+                      placeholder="17-character VIN"
+                      maxLength={17}
+                      className="flex-1 bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold tracking-widest"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleVinScan}
+                      disabled={isScanningVin}
+                      title="Scan VIN barcode"
+                      className="h-12 px-4 rounded-xl bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      {isScanningVin ? (
+                        <><Clock className="w-4 h-4 animate-spin" /> Scanning</>
+                      ) : (
+                        <><Camera className="w-4 h-4" /> Scan</>
+                      )}
+                    </button>
+                  </div>
+                  {vinInput.length === 17 && (
+                    <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest">✓ Valid VIN length</p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-3">
@@ -720,6 +858,48 @@ export default function Leads() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* SMS Confirmation Dialog */}
+      <Dialog open={showSmsPrompt} onOpenChange={setShowSmsPrompt}>
+        <DialogContent className="bg-[#0B0B0B] border border-white/10 p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black sm:max-w-[400px]">
+          <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <MessageSquare className="w-5 h-5 text-primary" />
+              </div>
+              <DialogTitle className="font-black text-lg tracking-tighter text-white uppercase">Send Welcome SMS?</DialogTitle>
+            </div>
+          </DialogHeader>
+          <div className="p-8 space-y-6">
+            <p className="text-sm text-white/70 font-medium leading-relaxed">
+              Send an introductory SMS to <span className="text-white font-black">{pendingSmsName}</span> at{" "}
+              <span className="text-primary font-black">{pendingSmsPhone}</span>?
+            </p>
+            <div className="flex items-center gap-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowSmsPrompt(false)}
+                className="flex-1 text-white hover:text-white font-black uppercase tracking-widest text-[10px] h-12 border border-white/10"
+              >
+                Skip
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  const smsUrl = `sms:${pendingSmsPhone}?body=${encodeURIComponent(`Hi ${pendingSmsName}, thanks for your interest! We'll be in touch shortly to discuss your detailing needs. – DetailFlow`)}`;
+                  window.open(smsUrl, "_blank");
+                  setShowSmsPrompt(false);
+                }}
+                className="flex-[2] bg-primary text-white hover:opacity-90 font-black h-12 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-glow-blue"
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                Open SMS
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -330,18 +330,46 @@ export default function AILeadEngine() {
 
   const handleImportLead = async (lead: any) => {
     try {
-      // Destructure to avoid saving ID if it exists
       const { id, ...leadData } = lead;
-      
+
+      // Dedup: check for existing lead with same clientId to avoid creating duplicates
+      if (lead.clientId) {
+        const q = query(collection(db, "leads"), where("clientId", "==", lead.clientId), limit(1));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const existingDoc = snap.docs[0];
+          const existing = existingDoc.data();
+          // Merge vehicleOpportunities arrays instead of creating a duplicate
+          const existingOpportunities: any[] = existing.vehicleOpportunities || [];
+          const newOpportunity = lead.vehicleInfo
+            ? { vehicleInfo: lead.vehicleInfo, requestedService: lead.requestedService || null, aiScore: lead.aiScore || null, importedAt: new Date().toISOString() }
+            : null;
+          const merged = newOpportunity
+            ? [...existingOpportunities.filter(o => o.vehicleInfo !== newOpportunity.vehicleInfo), newOpportunity]
+            : existingOpportunities;
+          await updateDoc(doc(db, "leads", existingDoc.id), {
+            vehicleOpportunities: merged,
+            lastEngineUpdate: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          toast.success(`Merged opportunity into existing lead: ${lead.name}`);
+          setGeneratedLeads(prev => prev.filter(l => l.name !== lead.name));
+          return;
+        }
+      }
+
       await addDoc(collection(db, "leads"), {
         ...leadData,
         source: lead.source || "AI Lead Engine",
         status: "new",
         priority: lead.aiScore > 80 ? "hot" : lead.aiScore > 50 ? "medium" : "low",
+        vehicleOpportunities: lead.vehicleInfo
+          ? [{ vehicleInfo: lead.vehicleInfo, requestedService: lead.requestedService || null, aiScore: lead.aiScore || null, importedAt: new Date().toISOString() }]
+          : [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      
+
       toast.success(`Imported ${lead.name} to pipeline`);
       setGeneratedLeads(prev => prev.filter(l => l.name !== lead.name));
     } catch (error) {

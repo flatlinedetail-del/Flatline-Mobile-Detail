@@ -913,10 +913,12 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                               />
                             </div>
                             <div className="col-span-3">
-                              <Input 
+                              <Input
                                 type="number"
-                                placeholder="Cost" 
+                                placeholder="Cost"
                                 value={cost.unitCost}
+                                onFocus={(e) => { if (parseFloat(e.target.value) === 0) e.target.value = ""; }}
+                                onBlur={(e) => { if (e.target.value === "") handleUpdateProductCost(cost.id, { unitCost: 0 }); }}
                                 onChange={(e) => handleUpdateProductCost(cost.id, { unitCost: parseFloat(e.target.value) || 0 })}
                                 className="h-8 text-[10px] bg-transparent border-white/10 text-white"
                               />
@@ -1590,6 +1592,7 @@ export default function Quotes() {
       customFees: customFees,
       status: editingQuote?.status || "draft",
       attachedFormIds,
+      productCosts: productCosts.length > 0 ? productCosts : [],
       updatedAt: serverTimestamp(),
       leadId: activeLeadId || editingQuote?.leadId || null
     };
@@ -1855,28 +1858,73 @@ export default function Quotes() {
                 </div>
 
                 <div className="space-y-4 p-6 bg-white/5 rounded-2xl border border-white/10">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">Attach Forms & Waivers</Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Attach Forms & Waivers</Label>
+                    {formTemplates.some(f => {
+                      const assigned: string[] = f.assignedServices || [];
+                      return assigned.length > 0 && selectedServiceSelections.some(sel => assigned.includes(sel.serviceId));
+                    }) && (
+                      <span className="text-[9px] font-black uppercase tracking-widest text-primary">
+                        ✦ Suggested by services
+                      </span>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                    {formTemplates.map((form) => (
-                      <div key={form.id} className="flex items-center space-x-3 p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-all">
-                        <Checkbox 
-                          id={`form-${form.id}`} 
-                          checked={attachedFormIds.includes(form.id)}
-                          onCheckedChange={(checked) => {
-                            if (checked) setAttachedFormIds([...attachedFormIds, form.id]);
-                            else setAttachedFormIds(attachedFormIds.filter(id => id !== form.id));
-                          }}
-                          className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                        />
-                        <label htmlFor={`form-${form.id}`} className="text-[10px] font-bold text-white uppercase tracking-widest cursor-pointer flex-1">
-                          {form.title}
-                        </label>
-                      </div>
-                    ))}
+                    {formTemplates.map((form) => {
+                      const assignedServices: string[] = form.assignedServices || [];
+                      const isSuggested = assignedServices.length > 0 &&
+                        selectedServiceSelections.some(sel => assignedServices.includes(sel.serviceId));
+                      return (
+                        <div
+                          key={form.id}
+                          className={`flex items-center space-x-3 p-3 rounded-xl border transition-all ${
+                            isSuggested
+                              ? "bg-primary/5 border-primary/20 hover:bg-primary/10"
+                              : "bg-white/5 border-white/5 hover:bg-white/10"
+                          }`}
+                        >
+                          <Checkbox
+                            id={`form-${form.id}`}
+                            checked={attachedFormIds.includes(form.id)}
+                            onCheckedChange={(checked) => {
+                              if (checked) setAttachedFormIds([...attachedFormIds, form.id]);
+                              else setAttachedFormIds(attachedFormIds.filter(id => id !== form.id));
+                            }}
+                            className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                          />
+                          <label htmlFor={`form-${form.id}`} className="text-[10px] font-bold text-white uppercase tracking-widest cursor-pointer flex-1">
+                            {form.title}
+                          </label>
+                          {isSuggested && (
+                            <span className="text-[8px] font-black uppercase tracking-widest text-primary bg-primary/10 px-1.5 py-0.5 rounded">Auto</span>
+                          )}
+                        </div>
+                      );
+                    })}
                     {formTemplates.length === 0 && (
                       <p className="text-[10px] text-white font-black uppercase tracking-widest italic p-4 text-center col-span-2">No forms detected in system.</p>
                     )}
                   </div>
+                  {formTemplates.some(f => {
+                    const assigned: string[] = f.assignedServices || [];
+                    return assigned.length > 0 && selectedServiceSelections.some(sel => assigned.includes(sel.serviceId)) && !attachedFormIds.includes(f.id);
+                  }) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const suggested = formTemplates
+                          .filter(f => {
+                            const assigned: string[] = f.assignedServices || [];
+                            return assigned.length > 0 && selectedServiceSelections.some(sel => assigned.includes(sel.serviceId));
+                          })
+                          .map(f => f.id);
+                        setAttachedFormIds(prev => [...new Set([...prev, ...suggested])]);
+                      }}
+                      className="text-[9px] font-black uppercase tracking-widest text-primary hover:text-white transition-colors"
+                    >
+                      + Auto-attach all suggested forms
+                    </button>
+                  )}
                 </div>
 
                 {(selectedClientId || manualVehicles.length > 0) && (

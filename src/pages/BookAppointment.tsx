@@ -186,7 +186,7 @@ export default function BookAppointment() {
   useEffect(() => {
     const client = clients.find(c => c.id === selectedCustomerId) ?? null;
     const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
-    const bookingTotal = baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal;
+    const bookingTotal = baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal - discountAmount;
 
     const depositReq = computeDepositRequirement({
       client,
@@ -199,7 +199,7 @@ export default function BookAppointment() {
     setIsRiskyClient(depositReq.required);
     setRiskyDepositAmount(depositReq.required ? depositReq.amount : 0);
     setActiveDepositAmount(depositReq.required ? depositReq.amount : 0);
-  }, [clients, selectedCustomerId, baseAmount, travelFee, afterHoursFeeDisplay, customFees, selectedServices, services, settings]);
+  }, [clients, selectedCustomerId, baseAmount, travelFee, afterHoursFeeDisplay, customFees, selectedServices, services, settings, discountAmount]);
 
   const [timingRecommendations, setTimingRecommendations] = useState<ServiceTimingOutput[]>([]);
   const [fetchingTiming, setFetchingTiming] = useState(false);
@@ -1261,7 +1261,7 @@ export default function BookAppointment() {
 
   return (
     <div className="flex-1 overflow-y-auto bg-black p-4 md:p-8 font-sans">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="flex items-center gap-4 mb-8">
           <button onClick={() => navigate(-1)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full text-white transition-colors">
             <ChevronLeft size={24} />
