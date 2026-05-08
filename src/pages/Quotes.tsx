@@ -43,12 +43,15 @@ import {
   AlertDialogTrigger 
 } from "@/components/ui/alert-dialog";
 
-import { 
-  getRevenueOptimization, 
-  RevenueOptimizationResponse, 
-  PricingAnalysis 
+import {
+  getRevenueOptimization,
+  RevenueOptimizationResponse,
+  PricingAnalysis
 } from "../services/gemini";
 import { generateRecommendationExplanation } from "../lib/recommendationSystem";
+import { VinInput } from "../components/VinInput";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { ChevronDown, X as XIcon } from "lucide-react";
 
 interface SmartQuoteProps {
   clients: Client[];
@@ -65,6 +68,7 @@ interface SmartQuoteProps {
     notes: string;
     description: string;
     businessName: string;
+    productCosts: any[];
   }) => void;
 }
 
@@ -542,7 +546,8 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       lineItems,
       notes: jobDescription,
       description: generateHumanDescription(),
-      businessName
+      businessName,
+      productCosts: productCosts.length > 0 ? [...productCosts] : []
     });
   };
 
@@ -1297,7 +1302,7 @@ export default function Quotes() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [activeTab, setActiveTab] = useState("standard");
+  const [activeTab, setActiveTab] = useState("smart");
   const [manualVehicles, setManualVehicles] = useState<{ year: string; make: string; model: string; size: string }[]>([]);
   const [smartQuoteNotes, setSmartQuoteNotes] = useState("");
   const [quoteDescription, setQuoteDescription] = useState("");
@@ -1333,6 +1338,8 @@ export default function Quotes() {
   const [formTemplates, setFormTemplates] = useState<any[]>([]);
   const [travelFeeAmount, setTravelFeeAmount] = useState(0);
   const [customFees, setCustomFees] = useState<CustomFee[]>([]);
+  const [productCosts, setProductCosts] = useState<any[]>([]);
+  const [formsDropdownOpen, setFormsDropdownOpen] = useState(false);
 
   const suggestedClients = clients.filter(c => {
     const search = clientSearchTerm.toLowerCase();
@@ -1659,6 +1666,8 @@ export default function Quotes() {
       protocolAccepted: true 
     }]);
     setAttachedFormIds([]);
+    setProductCosts([]);
+    setFormsDropdownOpen(false);
     setIsAddingVehicle(false);
     setNewVehicle({ year: "", make: "", model: "", vin: "", size: "medium" });
     setActiveLeadId(null);
@@ -1699,7 +1708,7 @@ export default function Quotes() {
   );
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-8 pb-20">
+    <div className="w-full space-y-8 pb-20">
       <PageHeader 
         title="Service Estimates" 
         accentWord="Estimates" 
@@ -1732,7 +1741,7 @@ export default function Quotes() {
                 Generate Quote
               </Button>
             } />
-          <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto bg-[#0B0B0B] border border-white/10 rounded-3xl shadow-2xl shadow-black p-0">
+          <DialogContent className="sm:max-w-[920px] max-h-[90vh] overflow-y-auto bg-[#0B0B0B] border border-white/10 rounded-3xl shadow-2xl shadow-black p-0">
             <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -1857,74 +1866,114 @@ export default function Quotes() {
                   </div>
                 </div>
 
-                <div className="space-y-4 p-6 bg-white/5 rounded-2xl border border-white/10">
-                  <div className="flex items-center justify-between">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Attach Forms & Waivers</Label>
-                    {formTemplates.some(f => {
-                      const assigned: string[] = f.assignedServices || [];
-                      return assigned.length > 0 && selectedServiceSelections.some(sel => assigned.includes(sel.serviceId));
-                    }) && (
-                      <span className="text-[9px] font-black uppercase tracking-widest text-primary">
-                        ✦ Suggested by services
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                    {formTemplates.map((form) => {
-                      const assignedServices: string[] = form.assignedServices || [];
-                      const isSuggested = assignedServices.length > 0 &&
-                        selectedServiceSelections.some(sel => assignedServices.includes(sel.serviceId));
-                      return (
-                        <div
-                          key={form.id}
-                          className={`flex items-center space-x-3 p-3 rounded-xl border transition-all ${
-                            isSuggested
-                              ? "bg-primary/5 border-primary/20 hover:bg-primary/10"
-                              : "bg-white/5 border-white/5 hover:bg-white/10"
-                          }`}
-                        >
-                          <Checkbox
-                            id={`form-${form.id}`}
-                            checked={attachedFormIds.includes(form.id)}
-                            onCheckedChange={(checked) => {
-                              if (checked) setAttachedFormIds([...attachedFormIds, form.id]);
-                              else setAttachedFormIds(attachedFormIds.filter(id => id !== form.id));
-                            }}
-                            className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                          />
-                          <label htmlFor={`form-${form.id}`} className="text-[10px] font-bold text-white uppercase tracking-widest cursor-pointer flex-1">
+                {/* Forms & Waivers Multi-Select Dropdown */}
+                <div className="space-y-3 p-6 bg-white/5 rounded-2xl border border-white/10">
+                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">Attach Forms & Waivers</Label>
+
+                  {/* Selected form badges */}
+                  {attachedFormIds.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {attachedFormIds.map(fid => {
+                        const form = formTemplates.find(f => f.id === fid);
+                        if (!form) return null;
+                        return (
+                          <span key={fid} className="flex items-center gap-1.5 bg-primary/10 border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg">
                             {form.title}
-                          </label>
-                          {isSuggested && (
-                            <span className="text-[8px] font-black uppercase tracking-widest text-primary bg-primary/10 px-1.5 py-0.5 rounded">Auto</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {formTemplates.length === 0 && (
-                      <p className="text-[10px] text-white font-black uppercase tracking-widest italic p-4 text-center col-span-2">No forms detected in system.</p>
-                    )}
-                  </div>
-                  {formTemplates.some(f => {
-                    const assigned: string[] = f.assignedServices || [];
-                    return assigned.length > 0 && selectedServiceSelections.some(sel => assigned.includes(sel.serviceId)) && !attachedFormIds.includes(f.id);
-                  }) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const suggested = formTemplates
-                          .filter(f => {
-                            const assigned: string[] = f.assignedServices || [];
-                            return assigned.length > 0 && selectedServiceSelections.some(sel => assigned.includes(sel.serviceId));
-                          })
-                          .map(f => f.id);
-                        setAttachedFormIds(prev => [...new Set([...prev, ...suggested])]);
-                      }}
-                      className="text-[9px] font-black uppercase tracking-widest text-primary hover:text-white transition-colors"
-                    >
-                      + Auto-attach all suggested forms
-                    </button>
+                            <button
+                              type="button"
+                              onClick={() => setAttachedFormIds(attachedFormIds.filter(id => id !== fid))}
+                              className="hover:text-white transition-colors"
+                            >
+                              <XIcon className="w-3 h-3" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
                   )}
+
+                  {/* Dropdown trigger */}
+                  <Popover open={formsDropdownOpen} onOpenChange={setFormsDropdownOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between h-11 px-4 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-colors"
+                      >
+                        <span>
+                          {attachedFormIds.length === 0
+                            ? "Select forms to attach…"
+                            : `${attachedFormIds.length} form${attachedFormIds.length > 1 ? "s" : ""} selected`}
+                        </span>
+                        <ChevronDown className="w-4 h-4 text-white/40" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="w-[420px] p-2 bg-[#0B0B0B] border border-white/10 rounded-2xl shadow-2xl"
+                      align="start"
+                    >
+                      {formTemplates.length === 0 ? (
+                        <p className="text-[10px] text-white/40 font-black uppercase tracking-widest italic p-4 text-center">
+                          No forms detected in system.
+                        </p>
+                      ) : (
+                        <div className="max-h-56 overflow-y-auto custom-scrollbar space-y-1 pr-1">
+                          {formTemplates.map((form) => {
+                            const isChecked = attachedFormIds.includes(form.id);
+                            return (
+                              <div
+                                key={form.id}
+                                className={cn(
+                                  "flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all",
+                                  isChecked
+                                    ? "bg-primary/10 border border-primary/20"
+                                    : "hover:bg-white/5 border border-transparent"
+                                )}
+                                onClick={() => {
+                                  if (isChecked) {
+                                    setAttachedFormIds(attachedFormIds.filter(id => id !== form.id));
+                                  } else {
+                                    setAttachedFormIds([...attachedFormIds, form.id]);
+                                  }
+                                }}
+                              >
+                                <Checkbox
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) setAttachedFormIds([...attachedFormIds, form.id]);
+                                    else setAttachedFormIds(attachedFormIds.filter(id => id !== form.id));
+                                  }}
+                                  className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary shrink-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <span className="text-[10px] font-bold text-white uppercase tracking-widest flex-1">
+                                  {form.title}
+                                </span>
+                                {form.type && (
+                                  <span className="text-[8px] font-black uppercase tracking-widest text-white/30 bg-white/5 px-1.5 py-0.5 rounded">
+                                    {form.type}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {attachedFormIds.length > 0 && (
+                        <div className="pt-2 border-t border-white/5 mt-2 flex justify-between items-center px-2">
+                          <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">
+                            {attachedFormIds.length} selected
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setAttachedFormIds([])}
+                            className="text-[9px] font-black uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
+                          >
+                            Clear all
+                          </button>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 {(selectedClientId || manualVehicles.length > 0) && (
@@ -1960,12 +2009,11 @@ export default function Quotes() {
                           initialValues={newVehicle}
                         />
                         <div className="grid grid-cols-1 gap-4 mt-2">
-                          <StandardInput 
-                            variant="vin"
-                            placeholder="VIN (Optional)" 
-                            value={newVehicle.vin} 
-                            onValueChange={(val) => setNewVehicle(prev => ({ ...prev, vin: val }))}
-                            className="bg-white/5 border-white/10 h-12 rounded-xl font-bold uppercase font-mono text-white"
+                          <VinInput
+                            value={newVehicle.vin}
+                            onChange={(val) => setNewVehicle(prev => ({ ...prev, vin: val }))}
+                            label="VIN (Optional)"
+                            placeholder="VIN (Optional)"
                           />
                         </div>
                       </div>
@@ -2000,23 +2048,23 @@ export default function Quotes() {
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Service Protocols (Line Items)</Label>
-                    <Button 
-                      type="button" 
-                      variant="outline" 
-                      size="sm" 
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Services (Line Items)</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
                       onClick={handleAddLineItem}
                       className="text-[10px] font-black uppercase tracking-widest border-white/10 hover:bg-white/5 h-8 px-4"
                     >
-                      <Plus className="w-3 h-3 mr-2" /> Add Protocol
+                      <Plus className="w-3 h-3 mr-2" /> Add Service
                     </Button>
                   </div>
                   <div className="space-y-4">
                     {lineItems.map((item, index) => (
                       <div key={index} className="flex gap-4 items-start p-4 bg-white/5 rounded-2xl border border-white/10 group">
                         <div className="flex-1">
-                          <StandardInput 
-                            placeholder="Protocol name" 
+                          <StandardInput
+                            placeholder="Service name"
                             value={item.serviceName}
                             onValueChange={(val) => handleLineItemChange(index, "serviceName", val)}
                             className="bg-white/5 border-white/10 h-12 rounded-xl font-bold text-white"
@@ -2096,15 +2144,37 @@ export default function Quotes() {
 
     <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
       <TabsList className="bg-card/50 border border-white/5 p-1 rounded-2xl">
-        <TabsTrigger value="standard" className="rounded-xl px-8 py-3 font-black uppercase tracking-widest text-[10px] data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
-          <FileText className="w-4 h-4 mr-2" />
-          Standard Proposals
-        </TabsTrigger>
         <TabsTrigger value="smart" className="rounded-xl px-8 py-3 font-black uppercase tracking-widest text-[10px] data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
           <Sparkles className="w-4 h-4 mr-2" />
           Smart Quote AI
         </TabsTrigger>
+        <TabsTrigger value="standard" className="rounded-xl px-8 py-3 font-black uppercase tracking-widest text-[10px] data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
+          <FileText className="w-4 h-4 mr-2" />
+          Quote History
+        </TabsTrigger>
       </TabsList>
+
+      <TabsContent value="smart">
+        <SmartQuote
+          clients={clients}
+          allVehicles={allVehicles}
+          services={services}
+          addOns={addOns}
+          invoices={invoices}
+          appointments={appointments}
+          onApply={(data) => {
+            setSelectedClientId(data.clientId);
+            setManualClientInfo(data.clientInfo);
+            setManualVehicles(data.manualVehicles);
+            setLineItems(data.lineItems);
+            setSmartQuoteNotes(data.notes);
+            setQuoteDescription(data.description);
+            setProductCosts(data.productCosts || []);
+            setActiveTab("smart");
+            setIsAddDialogOpen(true);
+          }}
+        />
+      </TabsContent>
 
       <TabsContent value="standard" className="space-y-8">
         <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
@@ -2256,6 +2326,7 @@ export default function Quotes() {
                             setLineItems(q.lineItems);
                             setQuoteDescription(q.description || "");
                             setAttachedFormIds(q.attachedFormIds || []);
+                            setProductCosts((q as any).productCosts || []);
                             setSelectedVehicleIds(q.vehicles.map(v => v.id));
                             setIsAddDialogOpen(true);
                           }}
@@ -2288,26 +2359,6 @@ export default function Quotes() {
       </Card>
       </TabsContent>
 
-      <TabsContent value="smart">
-        <SmartQuote 
-          clients={clients}
-          allVehicles={allVehicles}
-          services={services}
-          addOns={addOns}
-          invoices={invoices}
-          appointments={appointments}
-          onApply={(data) => {
-            setSelectedClientId(data.clientId);
-            setManualClientInfo(data.clientInfo);
-            setManualVehicles(data.manualVehicles);
-            setLineItems(data.lineItems);
-            setSmartQuoteNotes(data.notes);
-            setQuoteDescription(data.description);
-            setActiveTab("standard");
-            setIsAddDialogOpen(true);
-          }}
-        />
-      </TabsContent>
     </Tabs>
 
       {/* Quote Details Dialog */}

@@ -34,7 +34,6 @@ import {
   Settings2,
   DatabaseZap,
   RefreshCcw,
-  Camera,
 } from "lucide-react";
 import { toast } from "sonner";
 import { syncService } from "../services/syncService";
@@ -44,6 +43,7 @@ import { useNavigate } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
 import { createNotification } from "../services/notificationService";
 import VehicleSelector from "../components/VehicleSelector";
+import { VinInput } from "../components/VinInput";
 
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
@@ -79,8 +79,8 @@ export default function Leads() {
     placeId: ""
   });
   const [vinInput, setVinInput] = useState("");
-  const [isScanningVin, setIsScanningVin] = useState(false);
   const [isGeolocating, setIsGeolocating] = useState(false);
+  const [addressInputKey, setAddressInputKey] = useState(0);
   const [showSmsPrompt, setShowSmsPrompt] = useState(false);
   const [pendingSmsPhone, setPendingSmsPhone] = useState("");
   const [pendingSmsName, setPendingSmsName] = useState("");
@@ -131,77 +131,53 @@ export default function Leads() {
     fetchLeads();
   }, [profile, authLoading]);
 
-  const handleVinScan = async () => {
-    if (!("BarcodeDetector" in window)) {
-      toast.error("Barcode scanning is not supported on this device/browser. Please enter VIN manually.");
-      return;
-    }
-    setIsScanningVin(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      const video = document.createElement("video");
-      video.srcObject = stream;
-      video.setAttribute("playsinline", "true");
-      await video.play();
-
-      // @ts-ignore
-      const detector = new (window as any).BarcodeDetector({ formats: ["code_128", "code_39", "qr_code", "data_matrix"] });
-      let detected = false;
-      const scanLoop = async () => {
-        if (detected) return;
-        try {
-          const barcodes = await detector.detect(video);
-          if (barcodes.length > 0) {
-            detected = true;
-            const raw = barcodes[0].rawValue || "";
-            const vin = raw.replace(/[^A-HJ-NPR-Z0-9]/gi, "").toUpperCase().slice(0, 17);
-            if (vin.length === 17) {
-              setVinInput(vin);
-              toast.success(`VIN scanned: ${vin}`);
-            } else {
-              toast.warning("Could not extract a valid 17-char VIN. Please verify manually.");
-              setVinInput(raw);
-            }
-            stream.getTracks().forEach(t => t.stop());
-            setIsScanningVin(false);
-            return;
-          }
-        } catch (_) {}
-        if (!detected) requestAnimationFrame(scanLoop);
-      };
-      setTimeout(() => {
-        if (!detected) {
-          stream.getTracks().forEach(t => t.stop());
-          setIsScanningVin(false);
-          toast.info("Scan timed out. Please try again or enter VIN manually.");
-        }
-      }, 8000);
-      requestAnimationFrame(scanLoop);
-    } catch (err: any) {
-      console.error("VIN scan error:", err);
-      toast.error("Camera access denied or unavailable. Please enter VIN manually.");
-      setIsScanningVin(false);
-    }
-  };
-
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
       toast.error("Geolocation is not supported on this device.");
       return;
     }
     setIsGeolocating(true);
+    toast.loading("Getting location...", { id: "geo-lead" });
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        toast.loading("Finding address...", { id: "geo-lead" });
+
+        let resolvedAddress = `Near ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        let locationSource = "geolocation_coords_only";
+        try {
+          const apiKey = (import.meta as any).env.VITE_GOOGLE_MAPS_API_KEY;
+          if (apiKey) {
+            const res = await fetch(
+              `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`
+            );
+            const data = await res.json();
+            if (data.results && data.results.length > 0) {
+              resolvedAddress = data.results[0].formatted_address;
+              locationSource = "geolocation_geocoded";
+            }
+          }
+        } catch (geoErr) {
+          console.error("Reverse geocoding failed:", geoErr);
+        }
+
         setNewLeadAddress(prev => ({
           ...prev,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
+          address: resolvedAddress,
+          lat,
+          lng,
         }));
-        toast.success(`Location captured: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
+        // Force AddressInput to re-render with the new default value
+        setAddressInputKey(k => k + 1);
+        toast.success(`Location set: ${resolvedAddress}`, { id: "geo-lead" });
         setIsGeolocating(false);
+        // Store locationSource for save
+        (window as any).__leadLocationSource = locationSource;
       },
       (err) => {
         console.error("Geolocation error:", err);
+        toast.dismiss("geo-lead");
         toast.error("Could not get your location. Please allow location access or enter address manually.");
         setIsGeolocating(false);
       },
@@ -223,6 +199,8 @@ export default function Leads() {
       state: newLeadAddress.state,
       zipCode: newLeadAddress.zipCode,
       placeId: newLeadAddress.placeId,
+      locationSource: (window as any).__leadLocationSource || (newLeadAddress.lat ? "geolocation" : "manual"),
+      createdLocation: newLeadAddress.lat && newLeadAddress.lng ? { lat: newLeadAddress.lat, lng: newLeadAddress.lng } : null,
       vehicleInfo: `${newVehicleData.year} ${newVehicleData.make} ${newVehicleData.model}`.trim(),
       vin: vinInput.trim() || null,
       requestedService: formData.get("requestedService"),
@@ -469,7 +447,8 @@ export default function Leads() {
                     </button>
                   </div>
                   <AddressInput
-                    defaultValue={editingLead?.address || ""}
+                    key={addressInputKey}
+                    defaultValue={newLeadAddress.address || editingLead?.address || ""}
                     onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({
                       address,
                       lat,
@@ -499,34 +478,12 @@ export default function Leads() {
                     } : undefined}
                   />
                 </div>
-                <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">VIN (Optional)</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={vinInput}
-                      onChange={(e) => setVinInput(e.target.value.toUpperCase().slice(0, 17))}
-                      placeholder="17-character VIN"
-                      maxLength={17}
-                      className="flex-1 bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold tracking-widest"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleVinScan}
-                      disabled={isScanningVin}
-                      title="Scan VIN barcode"
-                      className="h-12 px-4 rounded-xl bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest"
-                    >
-                      {isScanningVin ? (
-                        <><Clock className="w-4 h-4 animate-spin" /> Scanning</>
-                      ) : (
-                        <><Camera className="w-4 h-4" /> Scan</>
-                      )}
-                    </button>
-                  </div>
-                  {vinInput.length === 17 && (
-                    <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest">✓ Valid VIN length</p>
-                  )}
-                </div>
+                <VinInput
+                  value={vinInput}
+                  onChange={setVinInput}
+                  label="VIN (Optional)"
+                  placeholder="17-character VIN"
+                />
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-3">
                     <Label className="font-black uppercase tracking-widest text-[10px] text-white">Requested Protocol (Service)</Label>

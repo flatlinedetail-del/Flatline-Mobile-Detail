@@ -102,6 +102,7 @@ import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
 import { getRiskBadgeClass, getRiskBadgeLabel, getRiskBadgeVariant } from "../lib/riskUtils";
+import { VinInput } from "../components/VinInput";
 
 interface AddVehicleFormProps {
   clientId: string;
@@ -111,6 +112,7 @@ interface AddVehicleFormProps {
 
 function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFormProps) {
   const [vData, setVData] = useState({ year: "", make: "", model: "" });
+  const [vinValue, setVinValue] = useState("");
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -124,7 +126,7 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       model: vData.model,
       color: formData.get("color")?.toString().trim(),
       size: formData.get("size"),
-      vin: formData.get("vin")?.toString().trim().toUpperCase(),
+      vin: vinValue.trim().toUpperCase() || null,
       roNumber: formData.get("roNumber")?.toString().trim() || null,
       createdAt: serverTimestamp(),
     };
@@ -160,10 +162,12 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
           <Label className="text-[10px] font-black uppercase tracking-widest text-white">Color</Label>
           <Input name="color" placeholder="Color" className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
         </div>
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-white">VIN</Label>
-          <Input name="vin" placeholder="VIN (Optional)" className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
-        </div>
+        <VinInput
+          value={vinValue}
+          onChange={setVinValue}
+          label="VIN (Optional)"
+          placeholder="VIN (Optional)"
+        />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -452,6 +456,7 @@ export default function Clients() {
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [isEditVehicleOpen, setIsEditVehicleOpen] = useState(false);
+  const [editVehicleVin, setEditVehicleVin] = useState("");
   const [newClientAddress, setNewClientAddress] = useState({ address: "", lat: 0, lng: 0 });
   const [isUploading, setIsUploading] = useState(false);
   const [formClientTypeId, setFormClientTypeId] = useState<string>("");
@@ -2252,6 +2257,7 @@ export default function Clients() {
                               key={v.id} 
                               onClick={() => {
                                 setEditingVehicle(v);
+                                setEditVehicleVin(v.vin || "");
                                 setIsEditVehicleOpen(true);
                               }}
                               className="p-4 rounded-3xl border border-white/5 bg-white/5 flex items-center gap-4 group/v transition-all duration-300 hover:bg-white/[0.08] cursor-pointer"
@@ -2346,7 +2352,7 @@ export default function Clients() {
                                     const formData = new FormData(e.currentTarget);
                                     const updates = {
                                       color: formData.get("color") as string,
-                                      vin: formData.get("vin") as string,
+                                      vin: editVehicleVin.trim().toUpperCase() || null,
                                       size: formData.get("size") as any,
                                       roNumber: formData.get("roNumber") as string || null,
                                       notes: formData.get("notes") as string || null,
@@ -2379,10 +2385,13 @@ export default function Clients() {
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Exterior Color</Label>
                                       <Input name="color" defaultValue={editingVehicle.color} className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
                                     </div>
-                                    <div className="space-y-2">
-                                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">VIN (Chassis Number)</Label>
-                                      <Input name="vin" defaultValue={editingVehicle.vin} className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
-                                    </div>
+                                    <VinInput
+                                      value={editVehicleVin}
+                                      onChange={setEditVehicleVin}
+                                      label="VIN (Chassis Number)"
+                                      labelClassName="text-white/40"
+                                      placeholder="17-char VIN"
+                                    />
                                   </div>
 
                                   <div className="grid grid-cols-2 gap-6">
