@@ -3161,71 +3161,74 @@ export default function Clients() {
                     </div>
                   )}
 
-                  {/* DEV/ADMIN UTILITY — safe to remove before production launch */}
-                  {clientServiceHistory.length === 0 && (
-                    <div className="mt-4 p-4 border border-dashed border-yellow-500/30 rounded-2xl bg-yellow-500/5">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-yellow-500/60 mb-3">Dev / Admin Utility — Remove before launch</p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 font-black uppercase tracking-widest text-[10px] h-10 px-6 rounded-xl"
-                        onClick={async () => {
-                          if (!selectedClient) return;
-                          const today = new Date();
-                          const d = (offset: number) => {
-                            const dt = new Date(today);
-                            dt.setDate(dt.getDate() - offset);
-                            return dt.toISOString().split("T")[0];
-                          };
-                          const samples = [
-                            { serviceType: "Full Detail", serviceDate: d(30), vehicleInfo: clientVehicles[0] ? `${clientVehicles[0].year} ${clientVehicles[0].make} ${clientVehicles[0].model}` : "Client Vehicle", priceCharged: 249, notes: "Heavy contamination, paint correction included.", conditionTags: ["heavy_contamination", "swirl_marks"], source: "manual" as const },
-                            { serviceType: "Interior Deep Clean", serviceDate: d(120), vehicleInfo: clientVehicles[0] ? `${clientVehicles[0].year} ${clientVehicles[0].make} ${clientVehicles[0].model}` : "Client Vehicle", priceCharged: 149, notes: "Pet hair removal, steam cleaned.", conditionTags: ["pet_hair", "interior_deep_clean"], source: "manual" as const },
-                            { serviceType: "Ceramic Coating", serviceDate: d(240), vehicleInfo: clientVehicles[0] ? `${clientVehicles[0].year} ${clientVehicles[0].make} ${clientVehicles[0].model}` : "Client Vehicle", priceCharged: 799, notes: "9H ceramic applied, 2-year warranty issued.", conditionTags: ["ceramic_coating", "new_vehicle"], source: "manual" as const },
-                          ];
-                          try {
-                            const histRef = collection(db, "client_service_history");
-                            const batch = writeBatch(db);
-                            const newDocs: typeof samples = [];
-                            for (const entry of samples) {
-                              const newRef = doc(histRef);
-                              batch.set(newRef, { ...entry, clientId: selectedClient.id, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-                              newDocs.push(entry);
-                            }
-                            await batch.commit();
-                            // Recompute marketing intelligence
-                            const sorted = [...samples].sort((a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime());
-                            const latest = sorted[0];
-                            const totalSpend = sorted.reduce((s, e) => s + (e.priceCharged || 0), 0);
-                            const svcTypes = sorted.map(e => e.serviceType).filter(Boolean);
-                            const preferred = svcTypes.sort((a, b) => svcTypes.filter(t => t === b).length - svcTypes.filter(t => t === a).length)[0];
-                            const intervals = sorted.slice(0, -1).map((e, i) => Math.abs(Math.round((new Date(e.serviceDate).getTime() - new Date(sorted[i + 1].serviceDate).getTime()) / 86400000)));
-                            const avgInterval = intervals.length ? Math.round(intervals.reduce((s, v) => s + v, 0) / intervals.length) : undefined;
-                            const nextDate = avgInterval && latest ? new Date(new Date(latest.serviceDate).getTime() + avgInterval * 86400000).toISOString().split("T")[0] : undefined;
-                            await updateDoc(doc(db, "clients", selectedClient.id), {
-                              lastServiceDate: latest?.serviceDate || "",
-                              lastServiceType: latest?.serviceType || "",
-                              totalHistoricalSpend: totalSpend,
-                              serviceHistoryCount: sorted.length,
-                              preferredServiceType: preferred || "",
-                              marketingEligibleServices: [...new Set(svcTypes)],
-                              ...(avgInterval !== undefined ? { averageServiceInterval: avgInterval } : {}),
-                              ...(nextDate ? { nextRecommendedServiceDate: nextDate } : {}),
-                              updatedAt: serverTimestamp(),
-                            });
-                            // Refresh local state
-                            const snap = await getDocs(query(collection(db, "client_service_history"), where("clientId", "==", selectedClient.id), orderBy("serviceDate", "desc")));
-                            setClientServiceHistory(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
-                            toast.success("Sample history added and marketing intelligence updated.");
-                          } catch (err) {
-                            console.error("Sample history error:", err);
-                            toast.error("Failed to add sample history.");
+                  {/* DEV/ADMIN UTILITY — remove before production launch */}
+                  <div className="mt-4 p-4 border border-dashed border-yellow-500/30 rounded-2xl bg-yellow-500/5 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-yellow-500/60">Dev / Admin Utility — Remove before launch</p>
+                    <p className="text-[9px] text-yellow-500/50">
+                      {clientServiceHistory.length > 0
+                        ? `This client already has ${clientServiceHistory.length} history record${clientServiceHistory.length !== 1 ? "s" : ""}. Adding sample data is blocked to prevent duplicates.`
+                        : "Adds 3 realistic sample entries (30d, 120d, 220d ago) and recomputes marketing intelligence."}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={clientServiceHistory.length > 0}
+                      className="border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 font-black uppercase tracking-widest text-[10px] h-10 px-6 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={async () => {
+                        if (!selectedClient || clientServiceHistory.length > 0) return;
+                        const daysAgo = (n: number) => {
+                          const dt = new Date();
+                          dt.setDate(dt.getDate() - n);
+                          return dt.toISOString().split("T")[0];
+                        };
+                        const vInfo = clientVehicles[0]
+                          ? `${clientVehicles[0].year} ${clientVehicles[0].make} ${clientVehicles[0].model}`.trim()
+                          : "Client Vehicle";
+                        const samples = [
+                          { serviceType: "Full Detail", serviceDate: daysAgo(30), vehicleInfo: vInfo, priceCharged: 249, notes: "Heavy contamination, paint correction included.", conditionTags: ["heavy_contamination", "swirl_marks"], source: "manual" as const },
+                          { serviceType: "Interior Deep Clean", serviceDate: daysAgo(120), vehicleInfo: vInfo, priceCharged: 149, notes: "Pet hair removal, steam cleaned.", conditionTags: ["pet_hair", "interior_deep_clean"], source: "manual" as const },
+                          { serviceType: "Ceramic Coating Maintenance", serviceDate: daysAgo(220), vehicleInfo: vInfo, priceCharged: 299, notes: "Ceramic top-coat applied. Client inactive > 180 days — reactivation candidate.", conditionTags: ["ceramic_coating", "water_spots"], source: "manual" as const },
+                        ];
+                        try {
+                          const histRef = collection(db, "client_service_history");
+                          const batch = writeBatch(db);
+                          for (const entry of samples) {
+                            batch.set(doc(histRef), { ...entry, clientId: selectedClient.id, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
                           }
-                        }}
-                      >
-                        + Add Sample History (Dev)
-                      </Button>
-                    </div>
-                  )}
+                          await batch.commit();
+                          // Recompute marketing intelligence
+                          const sorted = [...samples].sort((a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime());
+                          const latest = sorted[0];
+                          const totalSpend = sorted.reduce((s, e) => s + (e.priceCharged || 0), 0);
+                          const svcTypes = sorted.map(e => e.serviceType).filter(Boolean);
+                          const preferred = [...svcTypes].sort((a, b) => svcTypes.filter(t => t === b).length - svcTypes.filter(t => t === a).length)[0];
+                          const intervals = sorted.slice(0, -1).map((e, i) => Math.abs(Math.round((new Date(e.serviceDate).getTime() - new Date(sorted[i + 1].serviceDate).getTime()) / 86400000)));
+                          const avgInterval = intervals.length ? Math.round(intervals.reduce((s, v) => s + v, 0) / intervals.length) : undefined;
+                          const nextDate = avgInterval && latest ? new Date(new Date(latest.serviceDate).getTime() + avgInterval * 86400000).toISOString().split("T")[0] : undefined;
+                          await updateDoc(doc(db, "clients", selectedClient.id), {
+                            lastServiceDate: latest?.serviceDate || "",
+                            lastServiceType: latest?.serviceType || "",
+                            totalHistoricalSpend: totalSpend,
+                            serviceHistoryCount: sorted.length,
+                            preferredServiceType: preferred || "",
+                            marketingEligibleServices: [...new Set(svcTypes)],
+                            ...(avgInterval !== undefined ? { averageServiceInterval: avgInterval } : {}),
+                            ...(nextDate ? { nextRecommendedServiceDate: nextDate } : {}),
+                            updatedAt: serverTimestamp(),
+                          });
+                          // Refresh local state
+                          const snap = await getDocs(query(collection(db, "client_service_history"), where("clientId", "==", selectedClient.id), orderBy("serviceDate", "desc")));
+                          setClientServiceHistory(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
+                          toast.success(`3 sample entries added for ${getClientDisplayName(selectedClient)}. Marketing intelligence updated.`);
+                        } catch (err) {
+                          console.error("Sample history error:", err);
+                          toast.error("Failed to add sample history.");
+                        }
+                      }}
+                    >
+                      + Add Sample History (Dev)
+                    </Button>
+                  </div>
                 </TabsContent>
               </div>
             </Tabs>

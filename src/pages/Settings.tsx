@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { doc, updateDoc, getDoc, setDoc, collection, query, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit } from "firebase/firestore";
+import { doc, updateDoc, getDoc, setDoc, collection, query, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit, where, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -52,7 +52,8 @@ import {
   TrendingUp,
   TrendingDown,
   RefreshCw,
-  Fuel
+  Fuel,
+  Wrench
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -1438,6 +1439,17 @@ export default function Settings() {
                   className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
                 >
                   <Truck className="w-4 h-4" /> Travel & Fuel
+                </TabsTrigger>
+              </>
+            )}
+            {isOwner && (
+              <>
+                <h3 className="px-4 text-[10px] font-black text-yellow-500/60 uppercase tracking-widest mt-6 mb-2">Dev / Admin Tools</h3>
+                <TabsTrigger
+                  value="dev-tools"
+                  className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-yellow-500/20 data-[state=active]:text-yellow-400 data-[state=active]:shadow-none text-yellow-500/60 hover:text-yellow-400 hover:bg-yellow-500/10 transition-all"
+                >
+                  <Wrench className="w-4 h-4" /> Dev Tools
                 </TabsTrigger>
               </>
             )}
@@ -5752,6 +5764,150 @@ export default function Settings() {
             </Button>
           </div>
 
+        </TabsContent>
+
+        {/* DEV / ADMIN TOOLS — remove this entire TabsContent before production launch */}
+        <TabsContent value="dev-tools" className="mt-0 space-y-8">
+          <div className="p-6 border border-dashed border-yellow-500/30 rounded-3xl bg-yellow-500/5 space-y-4">
+            <div className="flex items-center gap-3">
+              <Wrench className="w-5 h-5 text-yellow-400" />
+              <div>
+                <h3 className="text-sm font-black text-yellow-400 uppercase tracking-widest">Dev / Admin Utilities</h3>
+                <p className="text-[10px] text-yellow-500/60 font-medium mt-0.5">These tools are for development and testing only. Remove before production launch.</p>
+              </div>
+            </div>
+
+            {/* ── Bulk Sample Service History ── */}
+            <div className="p-5 bg-black/30 rounded-2xl border border-yellow-500/20 space-y-4">
+              <div>
+                <h4 className="text-xs font-black text-white uppercase tracking-widest">Backfill Sample Service History</h4>
+                <p className="text-[10px] text-white/50 mt-1">
+                  Adds 2–3 realistic sample service history records to every client that has <strong className="text-white/80">no existing history</strong>.
+                  Clients with existing records are skipped. After writing history, marketing intelligence fields
+                  (lastServiceDate, preferredServiceType, totalHistoricalSpend, etc.) are recomputed on the client document.
+                </p>
+                <p className="text-[10px] text-yellow-400/70 mt-1 font-bold">Firestore path: <code>client_service_history</code> (clientId field)</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10 font-black uppercase tracking-widest text-[10px] h-10 px-6 rounded-xl"
+                onClick={async () => {
+                  try {
+                    const SERVICE_TYPES = [
+                      "Full Detail", "Interior Deep Clean", "Ceramic Coating Maintenance",
+                      "Paint Correction", "Maintenance Wash", "Premium Detail",
+                      "Odor Removal", "Pet Hair Removal", "Fleet Wash",
+                    ];
+                    const CONDITION_TAGS_POOL = [
+                      "paint_correction", "heavy_contamination", "ceramic_coating",
+                      "interior_deep_clean", "high_mileage", "water_spots",
+                      "pet_hair", "smoke_odor", "swirl_marks",
+                    ];
+                    const PRICES: Record<string, [number, number]> = {
+                      "Full Detail": [200, 450],
+                      "Interior Deep Clean": [175, 400],
+                      "Ceramic Coating Maintenance": [150, 350],
+                      "Paint Correction": [500, 1200],
+                      "Maintenance Wash": [75, 150],
+                      "Premium Detail": [300, 600],
+                      "Odor Removal": [100, 250],
+                      "Pet Hair Removal": [80, 200],
+                      "Fleet Wash": [60, 125],
+                    };
+                    const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+                    const daysAgo = (n: number) => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - n);
+                      return d.toISOString().split("T")[0];
+                    };
+                    const pickTags = () => CONDITION_TAGS_POOL.sort(() => Math.random() - 0.5).slice(0, rand(1, 3));
+
+                    // Load all clients
+                    const clientsSnap = await getDocs(collection(db, "clients"));
+                    const allClients = clientsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+                    // Load all existing history clientIds in one query
+                    const histSnap = await getDocs(collection(db, "client_service_history"));
+                    const clientsWithHistory = new Set(histSnap.docs.map(d => (d.data() as any).clientId).filter(Boolean));
+
+                    let updatedCount = 0;
+                    let skippedCount = 0;
+                    let entryCount = 0;
+
+                    for (const client of allClients) {
+                      if (clientsWithHistory.has(client.id)) {
+                        skippedCount++;
+                        continue;
+                      }
+
+                      // Build 2–3 entries: one recent, one mid, one old (>180d) for reactivation testing
+                      const entryOffsets = [rand(15, 60), rand(90, 150), rand(185, 280)].slice(0, rand(2, 3));
+                      const entries = entryOffsets.map((offset, i) => {
+                        const svcType = SERVICE_TYPES[rand(0, SERVICE_TYPES.length - 1)];
+                        const [pMin, pMax] = PRICES[svcType] || [100, 300];
+                        return {
+                          clientId: client.id,
+                          serviceType: svcType,
+                          serviceDate: daysAgo(offset),
+                          vehicleInfo: client.vehicleInfo || (client.vehicles?.[0] ? `${client.vehicles[0].year || ""} ${client.vehicles[0].make || ""} ${client.vehicles[0].model || ""}`.trim() : "Client Vehicle"),
+                          priceCharged: rand(pMin, pMax),
+                          notes: i === 0 ? "Recent service — good condition." : i === 1 ? "Mid-cycle service." : "Older service — reactivation candidate.",
+                          conditionTags: pickTags(),
+                          source: "manual" as const,
+                        };
+                      });
+
+                      // Batch write history entries
+                      const histRef = collection(db, "client_service_history");
+                      const batch = writeBatch(db);
+                      for (const entry of entries) {
+                        const newRef = doc(histRef);
+                        batch.set(newRef, { ...entry, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+                      }
+                      await batch.commit();
+                      entryCount += entries.length;
+
+                      // Recompute marketing intelligence
+                      const sorted = [...entries].sort((a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime());
+                      const latest = sorted[0];
+                      const totalSpend = sorted.reduce((s, e) => s + e.priceCharged, 0);
+                      const svcTypes = sorted.map(e => e.serviceType);
+                      const preferred = svcTypes.sort((a, b) => svcTypes.filter(t => t === b).length - svcTypes.filter(t => t === a).length)[0];
+                      const intervals = sorted.slice(0, -1).map((e, i) => Math.abs(Math.round((new Date(e.serviceDate).getTime() - new Date(sorted[i + 1].serviceDate).getTime()) / 86400000)));
+                      const avgInterval = intervals.length ? Math.round(intervals.reduce((s, v) => s + v, 0) / intervals.length) : undefined;
+                      const nextDate = avgInterval && latest ? new Date(new Date(latest.serviceDate).getTime() + avgInterval * 86400000).toISOString().split("T")[0] : undefined;
+
+                      await updateDoc(doc(db, "clients", client.id), {
+                        lastServiceDate: latest.serviceDate,
+                        lastServiceType: latest.serviceType,
+                        totalHistoricalSpend: totalSpend,
+                        serviceHistoryCount: sorted.length,
+                        preferredServiceType: preferred,
+                        marketingEligibleServices: [...new Set(svcTypes)],
+                        ...(avgInterval !== undefined ? { averageServiceInterval: avgInterval } : {}),
+                        ...(nextDate ? { nextRecommendedServiceDate: nextDate } : {}),
+                        updatedAt: serverTimestamp(),
+                      }).catch(() => {});
+
+                      updatedCount++;
+                    }
+
+                    toast.success(
+                      `Done — ${updatedCount} client${updatedCount !== 1 ? "s" : ""} updated (${entryCount} entries added), ${skippedCount} skipped (already had history).`,
+                      { duration: 8000 }
+                    );
+                  } catch (err) {
+                    console.error("Backfill error:", err);
+                    toast.error("Backfill failed — check console.");
+                  }
+                }}
+              >
+                <Wrench className="w-4 h-4 mr-2" />
+                Backfill Sample History for All Clients
+              </Button>
+            </div>
+          </div>
         </TabsContent>
 
 </div>
