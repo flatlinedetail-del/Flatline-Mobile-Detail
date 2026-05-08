@@ -760,6 +760,25 @@ export interface BusinessSettings {
   smsTemplates?: Record<string, string>;
   calendarColors?: Record<string, string>;
   serviceColors?: Record<string, string>;
+  aiSettings?: {
+    aiEnabled: boolean;
+    aiMode: "off" | "manual_only" | "smart_scheduled";
+    preferredModelTier: "smart_saver" | "balanced_intelligence" | "deep_strategy";
+    allowModelEscalation: boolean;
+    dailyAICallLimit: number;
+    weeklyAICallLimit: number;
+    monthlyAICallLimit: number;
+    enableDailyBusinessAdvisor: boolean;
+    enableWeeklyBusinessReport: boolean;
+    enableAILeadEngine: boolean;
+    enableClientMessageAI: boolean;
+    enableEstimateAI: boolean;
+    enableRevenueIntelligenceAI: boolean;
+    enableRiskExplanationAI: boolean;
+    lastDailyAdvisorRunAt?: any;
+    lastWeeklyReportRunAt?: any;
+    lastAILeadEngineRunAt?: any;
+  };
 }
 
 export interface Payment {

@@ -1,8 +1,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { generateRecommendationExplanation } from "../lib/recommendationSystem";
+import { resolveModel, type ModelTier } from "./aiModelMap";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const DEFAULT_MODEL = "gemini-3-flash-preview";
+// Fallback model used when no tier is passed (keeps backward compatibility)
+const DEFAULT_MODEL = resolveModel("smart_saver");
 
 // Cache for AI results
 const aiCache = new Map<string, { result: any; timestamp: number }>();
@@ -91,7 +93,7 @@ export interface UpsellRecommendation {
   recommendedPrice: number;
 }
 
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, attempt = 1, fnName = "unknown", args: any[] = []): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, attempt = 1, fnName = "unknown", args: any[] = [], modelId = DEFAULT_MODEL): Promise<T> {
   const cacheKey = getCacheKey(fnName, args);
   const cachedResult = getFromCache(cacheKey);
   if (cachedResult) return cachedResult;
@@ -103,7 +105,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, att
   }
 
   activeRequestCount++;
-  console.log(`[AI Request] ${fnName} | Attempt ${attempt} | Model: ${DEFAULT_MODEL}`);
+  console.log(`[AI Request] ${fnName} | Attempt ${attempt} | Model: ${modelId}`);
 
   try {
     const result = await fn();
@@ -142,7 +144,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, att
       const nextDelay = delay + Math.random() * 2000; 
       console.warn(`[AI Retry] Busy (${code || status || name}), retrying in ${Math.round(nextDelay)}ms... (${retries} left)`);
       await new Promise(resolve => setTimeout(resolve, nextDelay));
-      return withRetry(fn, retries - 1, delay * 2, attempt + 1, fnName, args);
+      return withRetry(fn, retries - 1, delay * 2, attempt + 1, fnName, args, modelId);
     }
 
     // Only log as error on the final failure
@@ -156,22 +158,23 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, att
 /**
  * Qualifies a lead and generates outreach content
  */
-export async function qualifyLeadAI(lead: any): Promise<{
+export async function qualifyLeadAI(lead: any, modelTier?: ModelTier): Promise<{
   aiScore: number;
   aiClassification: string;
   aiValueEstimate: number;
   aiRecommendedAction: string;
   aiOutreachDrafts: { sms: string, email: string, callScript: string };
 }> {
+  const _modelId = resolveModel(modelTier);
   return withRetry(async () => {
-    const isCollisionCenter = lead.businessType === "collision_center" || 
+    const isCollisionCenter = lead.businessType === "collision_center" ||
                              (lead.name && lead.name.toLowerCase().includes("collision")) ||
                              (lead.name && lead.name.toLowerCase().includes("body shop"));
 
     const response = await ai.models.generateContent({
-      model: DEFAULT_MODEL,
-      contents: [{ 
-        role: "user", 
+      model: _modelId,
+      contents: [{
+        role: "user",
         parts: [{ text: `Qualify this lead for a mobile detailing business:
           Name: ${lead.name}
           Type: ${lead.businessType || lead.aiClassification || "Unknown"}
@@ -275,10 +278,11 @@ export async function qualifyLeadAI(lead: any): Promise<{
  * AI Assistant Integration Logic
  * Extracts structured data from natural language input
  */
-export async function askAssistant(input: string, context?: any): Promise<AIResponse> {
+export async function askAssistant(input: string, context?: any, modelTier?: ModelTier): Promise<AIResponse> {
+  const _modelId = resolveModel(modelTier);
   return withRetry(async () => {
     const response = await ai.models.generateContent({
-      model: DEFAULT_MODEL,
+      model: _modelId,
       contents: [{ role: "user", parts: [{ text: `Context: ${JSON.stringify(context)}\n\nUser Request: ${input}` }] }],
       config: {
         systemInstruction: `You are a world-class business consultant, marketing director, and AI assistant for DetailFlow Operations OS.
@@ -404,13 +408,14 @@ export async function askAssistant(input: string, context?: any): Promise<AIResp
  * Receipt Analysis Logic
  * Extracts data from receipt images
  */
-export async function analyzeReceipt(base64Data: string): Promise<ReceiptData> {
+export async function analyzeReceipt(base64Data: string, modelTier?: ModelTier): Promise<ReceiptData> {
+  const _modelId = resolveModel(modelTier);
   const mimeType = base64Data.match(/^data:([^;]+);base64,/)?.[1] || "image/jpeg";
   const base64 = base64Data.split(",")[1] || base64Data;
 
   return withRetry(async () => {
     const response = await ai.models.generateContent({
-      model: DEFAULT_MODEL,
+      model: _modelId,
       contents: [
         {
           role: "user",
@@ -501,7 +506,7 @@ export interface RevenueOptimizationResponse {
  * Optimizes job revenue based on technician assessment and job data
  */
 export async function getRevenueOptimization(
-  assessment: string, 
+  assessment: string,
   jobData: {
     services: string[];
     addOns: string[];
@@ -512,8 +517,10 @@ export async function getRevenueOptimization(
   },
   productCosts: any[] = [],
   settings: any = {},
-  images: string[] = []
+  images: string[] = [],
+  modelTier?: ModelTier
 ): Promise<RevenueOptimizationResponse> {
+  const _modelId = resolveModel(modelTier ?? "balanced_intelligence");
   console.log("[AI Protocol] Request Payload:", JSON.stringify({ jobData, productCosts }, null, 2));
 
   return withRetry(async () => {
@@ -522,7 +529,7 @@ export async function getRevenueOptimization(
     const marginTargets = settings.marginTargets || { floor: 20, recommended: 35, premium: 50 };
 
     const response = await ai.models.generateContent({
-      model: DEFAULT_MODEL,
+      model: _modelId,
       contents: [{ 
         role: "user", 
         parts: [
@@ -682,10 +689,11 @@ export interface DeploymentStrategyResponse {
  * Deployment Intelligence Logic
  * Analyzes operational context for mission-specific billable items
  */
-export async function analyzeDeployment(jobData: any): Promise<DeploymentStrategyResponse> {
+export async function analyzeDeployment(jobData: any, modelTier?: ModelTier): Promise<DeploymentStrategyResponse> {
+  const _modelId = resolveModel(modelTier);
   return withRetry(async () => {
     const response = await ai.models.generateContent({
-      model: DEFAULT_MODEL,
+      model: _modelId,
       contents: [{ 
         role: "user", 
         parts: [{ text: `Analyze this mobile detailing deployment for operational billable items:

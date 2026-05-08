@@ -38,10 +38,15 @@ import {
   Calendar, 
   Link, 
   Building2, 
-  Zap, 
-  Save, 
-  Clock, 
-  MessageSquare, 
+  Zap,
+  Save,
+  Clock,
+  MessageSquare,
+  Brain,
+  Bot,
+  Sparkles,
+  Activity,
+  BarChart3,
   Smartphone, 
   Send, 
   AlertCircle, 
@@ -59,6 +64,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { seedDemoData, seedServiceTimingDemo, importFullServiceSystem } from "../services/seedData";
+import {
+  loadAISettings,
+  saveAISettings,
+  getAIUsageSummary,
+  DEFAULT_AI_SETTINGS,
+  type AISettings,
+} from "../services/aiControlService";
+import { MODEL_TIER_LABELS, MODEL_TIER_DESCRIPTIONS } from "../services/aiModelMap";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
@@ -139,6 +152,10 @@ export default function Settings() {
 
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [aiSettings, setAISettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
+  const [aiSettingsDirty, setAISettingsDirty] = useState(false);
+  const [isSavingAI, setIsSavingAI] = useState(false);
+  const [aiUsage, setAIUsage] = useState({ today: 0, week: 0, month: 0 });
   const [services, setServices] = useState<Service[]>([]);
   const [addons, setAddons] = useState<AddOn[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -370,7 +387,12 @@ export default function Settings() {
             data = { ...data, ...intSnap.data() };
           }
           setSettings(data);
-          
+
+          // Load AI settings from the nested aiSettings field
+          if (data?.aiSettings) {
+            setAISettings({ ...DEFAULT_AI_SETTINGS, ...data.aiSettings });
+          }
+
           if (data) {
             setLogoAdjustments({
               scale: data.logoSettings?.scale || 1,
@@ -464,7 +486,8 @@ export default function Settings() {
     };
     if (profile) {
       fetchSettings();
-      
+      getAIUsageSummary(profile.uid).then(setAIUsage).catch(() => {});
+
       const fetchMetaData = async () => {
         // Attempt metadata caching (10 min)
         const cachedMeta = sessionStorage.getItem('settings_metadata_cache');
@@ -738,6 +761,24 @@ export default function Settings() {
     if (avatarInputRef.current) {
       avatarInputRef.current.value = "";
     }
+  };
+
+  const handleSaveAISettings = async () => {
+    setIsSavingAI(true);
+    try {
+      await saveAISettings(aiSettings);
+      setAISettingsDirty(false);
+      toast.success("AI settings saved.");
+    } catch {
+      toast.error("Failed to save AI settings.");
+    } finally {
+      setIsSavingAI(false);
+    }
+  };
+
+  const updateAI = <K extends keyof AISettings>(key: K, value: AISettings[K]) => {
+    setAISettings(prev => ({ ...prev, [key]: value }));
+    setAISettingsDirty(true);
   };
 
   const handleSaveProfile = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -1429,6 +1470,14 @@ export default function Settings() {
                 className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
               >
                 <Shield className="w-4 h-4" /> Security Layers
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger
+                value="ai-settings"
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <Brain className="w-4 h-4" /> Neural Intelligence
               </TabsTrigger>
             )}
             {hasAccessToSensitiveSettings && (
@@ -5764,6 +5813,263 @@ export default function Settings() {
             </Button>
           </div>
 
+        </TabsContent>
+
+        {/* ── NEURAL INTELLIGENCE — AI Settings ─────────────────────────────── */}
+        <TabsContent value="ai-settings" className="mt-0 space-y-8">
+          <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading flex items-center gap-3">
+                    <Brain className="w-5 h-5 text-primary" />
+                    Neural <span className="text-primary italic">Intelligence</span>
+                  </CardTitle>
+                  <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">
+                    AI feature controls, model tiers, and usage limits
+                  </CardDescription>
+                </div>
+                <Button
+                  onClick={handleSaveAISettings}
+                  disabled={!aiSettingsDirty || isSavingAI}
+                  className="gap-2"
+                >
+                  {isSavingAI ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {aiSettingsDirty ? "Save Changes" : "Saved"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-8 space-y-10">
+
+              {/* Master on/off */}
+              <div className="space-y-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Master Control</h3>
+                <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                  <div className="flex items-center gap-3">
+                    <Bot className="w-5 h-5 text-primary" />
+                    <div>
+                      <p className="text-sm font-bold text-white">AI Enabled</p>
+                      <p className="text-[10px] text-[#A0A0A0]">Master switch — overrides all other AI settings when off</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={aiSettings.aiEnabled}
+                    onCheckedChange={v => updateAI("aiEnabled", v)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">AI Mode</Label>
+                  <Select
+                    value={aiSettings.aiMode}
+                    onValueChange={(v: any) => updateAI("aiMode", v)}
+                  >
+                    <SelectTrigger className="bg-white/5 border-white/10 text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="off">Off — AI completely disabled</SelectItem>
+                      <SelectItem value="manual_only">Manual Only — AI runs only when you click a button</SelectItem>
+                      <SelectItem value="smart_scheduled">Smart Scheduled — Daily/weekly automation allowed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-[#A0A0A0]">
+                    {aiSettings.aiMode === "off" && "No AI calls will run. Cached results shown where available."}
+                    {aiSettings.aiMode === "manual_only" && "AI runs only on button click. Scheduled features are paused."}
+                    {aiSettings.aiMode === "smart_scheduled" && "Manual + scheduled features run when toggled below."}
+                  </p>
+                </div>
+              </div>
+
+              {/* Model tier */}
+              <div className="space-y-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Model Tier</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {(["smart_saver", "balanced_intelligence", "deep_strategy"] as const).map(tier => (
+                    <button
+                      key={tier}
+                      type="button"
+                      onClick={() => updateAI("preferredModelTier", tier)}
+                      className={cn(
+                        "p-4 rounded-2xl border text-left transition-all",
+                        aiSettings.preferredModelTier === tier
+                          ? "border-primary bg-primary/10 shadow-glow-blue"
+                          : "border-white/10 bg-white/5 hover:border-white/20"
+                      )}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Sparkles className={cn("w-4 h-4", tier === "smart_saver" ? "text-emerald-400" : tier === "balanced_intelligence" ? "text-blue-400" : "text-purple-400")} />
+                        <span className="text-xs font-black text-white uppercase tracking-widest">{MODEL_TIER_LABELS[tier]}</span>
+                        {tier === "smart_saver" && <Badge className="text-[9px] bg-emerald-500/20 text-emerald-400 border-none ml-auto">Default</Badge>}
+                        {tier === "deep_strategy" && <Badge className="text-[9px] bg-purple-500/20 text-purple-400 border-none ml-auto">Manual Only</Badge>}
+                      </div>
+                      <p className="text-[10px] text-[#A0A0A0] leading-relaxed">{MODEL_TIER_DESCRIPTIONS[tier]}</p>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                  <div>
+                    <p className="text-sm font-bold text-white">Allow Model Escalation</p>
+                    <p className="text-[10px] text-[#A0A0A0]">Let features use a stronger tier when needed. Increases cost.</p>
+                  </div>
+                  <Switch
+                    checked={aiSettings.allowModelEscalation}
+                    onCheckedChange={v => updateAI("allowModelEscalation", v)}
+                  />
+                </div>
+              </div>
+
+              {/* Usage limits */}
+              <div className="space-y-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Usage Limits</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {([
+                    { key: "dailyAICallLimit" as const, label: "Daily Limit", sub: "Max AI calls per day" },
+                    { key: "weeklyAICallLimit" as const, label: "Weekly Limit", sub: "Max AI calls per week" },
+                    { key: "monthlyAICallLimit" as const, label: "Monthly Limit", sub: "Max AI calls per month" },
+                  ]).map(({ key, label, sub }) => (
+                    <div key={key} className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">{label}</Label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={9999}
+                        value={aiSettings[key]}
+                        onChange={e => updateAI(key, Number(e.target.value) || 1)}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm font-bold focus:outline-none focus:border-primary/50"
+                      />
+                      <p className="text-[10px] text-[#A0A0A0]">{sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Usage summary */}
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Activity className="w-4 h-4 text-primary" />
+                    <span className="text-xs font-black uppercase tracking-widest text-white">Current Usage</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto h-6 text-[10px] text-[#A0A0A0] hover:text-white"
+                      onClick={() => getAIUsageSummary(profile?.uid).then(setAIUsage).catch(() => {})}
+                    >
+                      <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    {[
+                      { label: "Today", count: aiUsage.today, limit: aiSettings.dailyAICallLimit },
+                      { label: "This Week", count: aiUsage.week, limit: aiSettings.weeklyAICallLimit },
+                      { label: "This Month", count: aiUsage.month, limit: aiSettings.monthlyAICallLimit },
+                    ].map(({ label, count, limit }) => (
+                      <div key={label}>
+                        <p className="text-xs font-black text-white">{count} <span className="text-[#A0A0A0] font-normal">/ {limit}</span></p>
+                        <p className="text-[10px] text-[#A0A0A0] mt-0.5">{label}</p>
+                        <div className="mt-1.5 h-1 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full transition-all", count / limit > 0.8 ? "bg-red-500" : count / limit > 0.5 ? "bg-orange-400" : "bg-emerald-500")}
+                            style={{ width: `${Math.min(100, (count / limit) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Feature toggles */}
+              <div className="space-y-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Feature Toggles</h3>
+
+                <div className="space-y-2">
+                  <p className="text-[10px] text-[#A0A0A0] font-bold uppercase tracking-widest mb-3">Manual-Only Features</p>
+                  {([
+                    { key: "enableAILeadEngine" as const, label: "AI Lead Engine", sub: "Qualify and score leads on demand" },
+                    { key: "enableClientMessageAI" as const, label: "Client Message AI", sub: "Draft follow-ups and outreach messages" },
+                    { key: "enableEstimateAI" as const, label: "Estimate & Quote AI", sub: "Generate estimate notes and quote wording" },
+                    { key: "enableRiskExplanationAI" as const, label: "Risk Explanation AI", sub: "Explain client risk flags and suggest actions" },
+                  ]).map(({ key, label, sub }) => (
+                    <div key={key} className="flex items-center justify-between p-3.5 bg-white/5 rounded-xl border border-white/10">
+                      <div>
+                        <p className="text-sm font-bold text-white">{label}</p>
+                        <p className="text-[10px] text-[#A0A0A0]">{sub}</p>
+                      </div>
+                      <Switch checked={aiSettings[key]} onCheckedChange={v => updateAI(key, v)} />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-2 mt-4">
+                  <p className="text-[10px] text-[#A0A0A0] font-bold uppercase tracking-widest mb-3">
+                    Scheduled Features
+                    {aiSettings.aiMode !== "smart_scheduled" && (
+                      <span className="ml-2 text-orange-400">(requires Smart Scheduled mode)</span>
+                    )}
+                  </p>
+                  {([
+                    {
+                      key: "enableDailyBusinessAdvisor" as const,
+                      label: "Daily Business Advisor",
+                      sub: "Runs once per day — actionable recommendations from yesterday's activity",
+                      lastRun: aiSettings.lastDailyAdvisorRunAt,
+                    },
+                    {
+                      key: "enableWeeklyBusinessReport" as const,
+                      label: "Weekly Business Report",
+                      sub: "Runs once per week — revenue, services, leads, and missed opportunity analysis",
+                      lastRun: aiSettings.lastWeeklyReportRunAt,
+                    },
+                    {
+                      key: "enableRevenueIntelligenceAI" as const,
+                      label: "Revenue Intelligence AI",
+                      sub: "Analyzes completed jobs and payments for pricing and upsell opportunities",
+                      lastRun: null,
+                    },
+                  ]).map(({ key, label, sub, lastRun }) => (
+                    <div key={key} className={cn(
+                      "flex items-start justify-between p-3.5 bg-white/5 rounded-xl border transition-colors",
+                      aiSettings.aiMode !== "smart_scheduled" ? "border-white/5 opacity-60" : "border-white/10"
+                    )}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white">{label}</p>
+                        <p className="text-[10px] text-[#A0A0A0] leading-relaxed">{sub}</p>
+                        {lastRun && (
+                          <p className="text-[10px] text-primary/70 mt-1">
+                            Last run: {lastRun?.toDate ? lastRun.toDate().toLocaleString() : "—"}
+                          </p>
+                        )}
+                      </div>
+                      <Switch
+                        checked={aiSettings[key]}
+                        disabled={aiSettings.aiMode !== "smart_scheduled"}
+                        onCheckedChange={v => updateAI(key, v)}
+                        className="ml-4 shrink-0"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cost safety callout */}
+              <div className="p-5 bg-amber-500/5 border border-amber-500/20 rounded-2xl flex gap-4">
+                <BarChart3 className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-xs font-black text-amber-400 uppercase tracking-widest">Cost Safety Rules</p>
+                  <ul className="text-[11px] text-[#A0A0A0] space-y-1 list-disc list-inside leading-relaxed">
+                    <li>Smart Saver is the default — strong and cost-efficient</li>
+                    <li>Deep Strategy never runs on auto — manual button only</li>
+                    <li>Scheduled features run at most once per day/week</li>
+                    <li>AI will not rerun if data hasn't changed</li>
+                    <li>Daily/weekly/monthly limits hard-block further calls</li>
+                    <li>All AI messages are drafts only — never auto-sent</li>
+                  </ul>
+                </div>
+              </div>
+
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* DEV / ADMIN TOOLS — remove this entire TabsContent before production launch */}
