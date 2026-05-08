@@ -2,7 +2,14 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { generateRecommendationExplanation } from "../lib/recommendationSystem";
 import { resolveModel, type ModelTier } from "./aiModelMap";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const _geminiKey = process.env.GEMINI_API_KEY ?? "";
+if (_geminiKey) {
+  const masked = _geminiKey.slice(0, 6) + "..." + _geminiKey.slice(-4);
+  console.log(`[Gemini] API key loaded: ${masked} (${_geminiKey.length} chars)`);
+} else {
+  console.error("[Gemini] API key is missing — all AI calls will fail.");
+}
+const ai = new GoogleGenAI({ apiKey: _geminiKey });
 // Fallback model used when no tier is passed (keeps backward compatibility)
 const DEFAULT_MODEL = resolveModel("smart_saver");
 
