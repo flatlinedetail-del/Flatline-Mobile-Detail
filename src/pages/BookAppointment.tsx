@@ -57,6 +57,55 @@ import { calculateDistance, calculateTravelFee } from "../services/travelService
 import { BundleOffer, fetchClientBundles, saveBundleOffer, updateBundleStatus } from "../services/bundleService";
 import { createNotification } from "../services/notificationService";
 
+// --- Deposit helpers ---
+
+/** Normalize any risk value string to a canonical level. */
+function normalizeRiskLevel(val: any): "low" | "medium" | "high" | null {
+  if (!val) return null;
+  const s = String(val).toLowerCase().trim().replace(/[_\s-]+/g, " ");
+  if (["medium", "med"].includes(s)) return "medium";
+  if (["high", "critical", "do not book", "block booking"].includes(s)) return "high";
+  if (s === "low") return "low";
+  return null;
+}
+
+/** Treat boolean true, string "true", 1, or "1" as truthy — everything else false. */
+function boolish(val: any): boolean {
+  return val === true || val === "true" || val === 1 || val === "1";
+}
+
+/** Return true if any selected service requires a deposit (checks multiple field aliases). */
+function selectedServiceRequiresDeposit(
+  selectedServices: { id: string; qty: number }[],
+  services: any[]
+): boolean {
+  return selectedServices.some(sel => {
+    const svc = services.find((s: any) => s.id === sel.id);
+    if (!svc) return false;
+    return boolish(svc.depositRequired) || boolish(svc.requireDeposit) || boolish(svc.requiresDeposit);
+  });
+}
+
+/** Compute the deposit dollar amount from selected services + fallback to pct of total. */
+function computeRequiredDepositAmount(
+  selectedServices: { id: string; qty: number }[],
+  services: any[],
+  baseTotal: number
+): number {
+  let fixedTotal = 0;
+  for (const sel of selectedServices) {
+    const svc = services.find((s: any) => s.id === sel.id);
+    if (!svc) continue;
+    const requiresDeposit = boolish(svc.depositRequired) || boolish(svc.requireDeposit) || boolish(svc.requiresDeposit);
+    if (requiresDeposit && svc.depositType === "fixed" && Number(svc.depositAmount) > 0) {
+      fixedTotal += Number(svc.depositAmount) * sel.qty;
+    }
+  }
+  return fixedTotal > 0 ? fixedTotal : baseTotal * 0.25;
+}
+
+// -------------------------
+
 export default function BookAppointment() {
   const [searchParams] = useSearchParams();
   const prefillClientId = searchParams.get("clientId");
@@ -182,40 +231,28 @@ export default function BookAppointment() {
 
   useEffect(() => {
     const client = clients.find(c => c.id === selectedCustomerId);
-    const riskVal = client?.riskLevel || client?.risk_level || client?.riskStatus || client?.clientRiskLevel || client?.riskManagement?.level;
 
-    // Only medium/high risk requires a deposit — "low" or undefined does not
-    const DEPOSIT_RISK_LEVELS = new Set(["medium", "high"]);
-    const riskRequiresDeposit = Boolean(riskVal) && DEPOSIT_RISK_LEVELS.has(String(riskVal).toLowerCase());
+    // Pull risk from any field alias the client document might use
+    const rawRisk = client?.riskLevel ?? client?.risk_level ?? client?.riskStatus
+      ?? client?.clientRiskLevel ?? client?.riskManagement?.level;
+    const risk = normalizeRiskLevel(rawRisk);
+    const riskRequiresDeposit = risk === "medium" || risk === "high";
 
-    // Any selected service with depositRequired: true triggers a deposit
-    const serviceRequiresDeposit = selectedServices.some(sel => {
-      const svc = services.find((s: any) => s.id === sel.id);
-      return svc?.depositRequired === true;
-    });
+    // Check every selected service for any deposit-required alias
+    const serviceDeposit = selectedServiceRequiresDeposit(selectedServices, services);
 
-    // Business-level global deposit policy
-    const settingsRequireDeposit = Boolean(settings?.depositRequired);
+    // Check all business-settings field aliases for a global deposit policy
+    const settingsDeposit = boolish(settings?.depositRequired)
+      || boolish(settings?.requireDeposit)
+      || boolish(settings?.depositsEnabled);
 
-    const depositRequired = riskRequiresDeposit || serviceRequiresDeposit || settingsRequireDeposit;
+    const depositRequired = riskRequiresDeposit || serviceDeposit || settingsDeposit;
     setIsRiskyClient(depositRequired);
 
     if (depositRequired) {
       const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
       const baseTotal = baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal;
-
-      // Sum fixed service deposit amounts; fall back to 25% of total if none specified
-      let fixedServiceDeposit = 0;
-      if (serviceRequiresDeposit) {
-        selectedServices.forEach(sel => {
-          const svc = services.find((s: any) => s.id === sel.id);
-          if (svc?.depositRequired && svc.depositType === "fixed" && svc.depositAmount > 0) {
-            fixedServiceDeposit += svc.depositAmount * sel.qty;
-          }
-        });
-      }
-
-      const deposit = fixedServiceDeposit > 0 ? fixedServiceDeposit : baseTotal * 0.25;
+      const deposit = computeRequiredDepositAmount(selectedServices, services, baseTotal);
       setRiskyDepositAmount(deposit);
       setActiveDepositAmount(deposit);
     } else {

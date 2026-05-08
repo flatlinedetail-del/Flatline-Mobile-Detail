@@ -160,14 +160,25 @@ export const aiLeadService = {
 
       let isInactive = false;
       if (clientApps.length === 0) {
+        // No appointments — fall back to marketing intelligence date field
         const lastManualDate = client.lastServiceDate ? new Date(client.lastServiceDate) : null;
-        if (!lastManualDate || lastManualDate < ninetyDaysAgo) {
+        if (!lastManualDate || isNaN(lastManualDate.getTime()) || lastManualDate < ninetyDaysAgo) {
           isInactive = true;
         }
       } else {
         const lastApp = clientApps[0];
-        const lastDate = lastApp.scheduledAt.toDate();
-        if (lastDate < ninetyDaysAgo) {
+        // scheduledAt may be a Firestore Timestamp, a Date, or a plain string/number
+        let lastDate: Date | null = null;
+        try {
+          if (lastApp.scheduledAt && typeof lastApp.scheduledAt.toDate === "function") {
+            lastDate = lastApp.scheduledAt.toDate();
+          } else if (lastApp.scheduledAt) {
+            lastDate = new Date(lastApp.scheduledAt as any);
+          }
+        } catch {
+          lastDate = null;
+        }
+        if (!lastDate || isNaN(lastDate.getTime()) || lastDate < ninetyDaysAgo) {
           isInactive = true;
         }
       }
@@ -175,7 +186,13 @@ export const aiLeadService = {
       if (isInactive) {
         const serviceHistory = await getClientServiceHistory(clientId);
         const intel = computeMarketingIntelligence(client, serviceHistory, clientApps);
-        newLeads.push(this.mapClientToLead({ ...client, ...intel }, "inactive", intel));
+        // Mark insufficient history so downstream consumers can handle gracefully
+        const enriched = {
+          ...client,
+          ...intel,
+          insufficientHistory: serviceHistory.length === 0 && clientApps.length === 0,
+        };
+        newLeads.push(this.mapClientToLead(enriched as any, "inactive", intel));
       }
     }
 
@@ -185,8 +202,17 @@ export const aiLeadService = {
     quotesSnap.docs.forEach(quoteDoc => {
       const quote = quoteDoc.data() as Quote;
       // If quote is older than 3 days, it's a lead
-      const createdAt = (quote.createdAt as Timestamp).toDate();
-      if (createdAt < new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)) {
+      let createdAt: Date | null = null;
+      try {
+        if (quote.createdAt && typeof (quote.createdAt as any).toDate === "function") {
+          createdAt = (quote.createdAt as Timestamp).toDate();
+        } else if (quote.createdAt) {
+          createdAt = new Date(quote.createdAt as any);
+        }
+      } catch {
+        createdAt = null;
+      }
+      if (createdAt && !isNaN(createdAt.getTime()) && createdAt < new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)) {
         newLeads.push(this.mapQuoteToLead(quote));
       }
     });
@@ -200,13 +226,18 @@ export const aiLeadService = {
     const preferred = intel?.preferredServiceType || (client as any).preferredServiceType || "";
     const nextRec = intel?.nextRecommendedServiceDate || (client as any).nextRecommendedServiceDate || "";
     const totalSpend = intel?.totalHistoricalSpend || (client as any).totalHistoricalSpend || 0;
+    const insufficientHistory = Boolean((client as any).insufficientHistory);
 
     let marketingNote = client.notes || "";
+    if (insufficientHistory) marketingNote += " | No service history on record";
     if (lastType) marketingNote += ` | Last Service: ${lastType}`;
     if (daysSinceLast != null) marketingNote += ` | ${daysSinceLast}d since last visit`;
     if (preferred) marketingNote += ` | Prefers: ${preferred}`;
     if (nextRec) marketingNote += ` | Due: ${nextRec}`;
     if (totalSpend > 0) marketingNote += ` | Lifetime: $${totalSpend.toFixed(2)}`;
+
+    // >180 days inactive = high priority; insufficient history = medium (not high — can't be sure)
+    const priority = (!insufficientHistory && daysSinceLast != null && daysSinceLast > 180) ? "high" : "medium";
 
     return {
       name: client.name,
@@ -215,7 +246,7 @@ export const aiLeadService = {
       address: client.address,
       source: `Internal: ${type}`,
       status: "reactivation",
-      priority: daysSinceLast != null && daysSinceLast > 180 ? "high" : "medium",
+      priority,
       isInternal: true,
       internalSourceType: type,
       notes: marketingNote.trim(),
