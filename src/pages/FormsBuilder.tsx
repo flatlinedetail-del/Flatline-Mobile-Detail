@@ -98,7 +98,16 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
       unsubscribeServices();
       unsubscribeAddons();
     };
-  }, [profile, authLoading]);
+  // Deps use profile?.uid (stable primitive) instead of the profile object itself.
+  // useAuth() returns effectiveProfile — a new object spread on every AuthProvider render.
+  // Depending on the whole object reference causes this effect to re-run on every
+  // AuthProvider re-render (services load, addons load, settings load, etc.).
+  // Because onSnapshot fires synchronously from Firestore's local cache, each re-run
+  // immediately calls setTemplates/setServices/setAddons synchronously, creating a
+  // rapid-fire nested setState chain that exceeds React's 50-update depth limit.
+  // canAccessManager is also added — it was missing and is read inside the effect body.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.uid, authLoading, canAccessManager]);
 
   const activeTemplates = useMemo(() => templates.filter(t => t.isActive), [templates]);
   const inactiveTemplates = useMemo(() => templates.filter(t => !t.isActive), [templates]);
