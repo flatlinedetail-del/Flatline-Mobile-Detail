@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, deleteDoc, getDocs } from "firebase/firestore";
 import { cn } from "../lib/utils";
 import { db, handleFirestoreError, OperationType } from "../firebase";
@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Search, X, Check } from "lucide-react";
-import { Plus, FileText, Edit2, Trash2, ShieldCheck, Settings2, AlertCircle, CheckCircle2, ShieldAlert, ChevronDown } from "lucide-react";
+import { Plus, FileText, Edit2, Trash2, ShieldCheck, Settings2, AlertCircle, CheckCircle2, ShieldAlert, ChevronDown, Loader2, Clock, Send, Zap, Eye, Info } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
@@ -29,6 +29,7 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
   const [loading, setLoading] = useState(true);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<any>(null);
+  const [previewServiceId, setPreviewServiceId] = useState<string>("");
 
   // Form State
   const [formData, setFormData] = useState({
@@ -58,7 +59,6 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
   useEffect(() => {
     if (authLoading || !profile || !canAccessManager) return;
 
-    // Listen to form templates
     const q = query(collection(db, "form_templates"));
     const unsubscribeTemplates = onSnapshot(q, (snapshot) => {
       setTemplates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -66,9 +66,9 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
     }, (error) => {
       console.error("Error listening to form templates:", error);
       handleFirestoreError(error, OperationType.GET, "form_templates");
+      setLoading(false);
     });
 
-    // Listen to services for real-time mapping
     const unsubscribeServices = onSnapshot(collection(db, "services"), (snap) => {
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setServices(data);
@@ -81,7 +81,6 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
       }
     });
 
-    // Listen to addons for real-time mapping
     const unsubscribeAddons = onSnapshot(collection(db, "addons"), (snap) => {
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAddons(data);
@@ -100,6 +99,18 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
       unsubscribeAddons();
     };
   }, [profile, authLoading]);
+
+  const activeTemplates = useMemo(() => templates.filter(t => t.isActive), [templates]);
+  const inactiveTemplates = useMemo(() => templates.filter(t => !t.isActive), [templates]);
+
+  const previewForms = useMemo(() => {
+    if (!previewServiceId) return [];
+    return activeTemplates.filter(t => {
+      const hasService = t.assignedServices?.includes(previewServiceId);
+      const noSpecific = !t.assignedServices?.length && !t.assignedAddons?.length;
+      return hasService || noSpecific;
+    });
+  }, [previewServiceId, activeTemplates]);
 
   if (!canAccessManager) {
     return (
@@ -172,8 +183,7 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
     }
 
     const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
-    
-    // Supplement names for IDs
+
     const assignedServiceNames = formData.assignedServices
       .map(id => services.find(s => s.id === id)?.name)
       .filter(Boolean);
@@ -193,8 +203,6 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
         toast.info("Offline/Quota Mode: Template saved locally (pending sync).", {
           description: "Database is unreachable. Changes will sync when reconnected."
         });
-        // Optimistically update local state if we had a dedicated local storage sync, 
-        // but for now we just close the dialog.
         setShowEditDialog(false);
         return;
       }
@@ -222,16 +230,13 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
   };
 
   const handleDelete = async (id: string) => {
-    // Optimistic delete
     const previousTemplates = [...templates];
     setTemplates(prev => prev.filter(t => t.id !== id));
     toast.success("Template deleted");
-    
-    // Background sync
+
     try {
       await deleteDoc(doc(db, "form_templates", id));
     } catch (error) {
-      // Revert if error
       setTemplates(previousTemplates);
       toast.error("Failed to delete template");
     }
@@ -271,10 +276,30 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
     }));
   };
 
-  // Role check handled above at component level
+  const enforcementLabel = (e: string) => {
+    const map: Record<string, string> = {
+      before_start: "Before Starting Job",
+      before_complete: "Before Completing Job",
+      before_invoice: "Before Sending Invoice",
+      before_payment: "Before Taking Payment",
+      optional: "Optional",
+    };
+    return map[e] || e.replace(/_/g, " ");
+  };
+
+  const frequencyLabel = (f: string) => {
+    const map: Record<string, string> = {
+      every_job: "Every Job",
+      once_per_client: "Once Per Client",
+      once_per_vehicle: "Once Per Vehicle",
+      expires_after: "Expires After Period",
+    };
+    return map[f] || f.replace(/_/g, " ");
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* ── A. HEADER ── */}
       {!embedded && (
         <PageHeader
           title="Forms & WAIVERS"
@@ -292,93 +317,304 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
         />
       )}
       {embedded && (
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-black text-white uppercase tracking-tight">Forms & Waivers</h3>
-            <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-0.5">Legal Compliance & Protocol Management</p>
+        <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+          <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+            <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading flex items-center gap-3">
+              <ShieldCheck className="w-6 h-6 text-primary" />
+              Forms & <span className="text-primary italic">Waivers</span>
+            </CardTitle>
+            <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">
+              Backend/admin configuration for service-based required forms, waivers, and compliance documents.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-8">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] font-black uppercase tracking-widest">
+                  {activeTemplates.length} Active
+                </Badge>
+                {inactiveTemplates.length > 0 && (
+                  <Badge className="bg-white/5 text-white/40 border-white/10 text-[10px] font-black uppercase tracking-widest">
+                    {inactiveTemplates.length} Archived
+                  </Badge>
+                )}
+              </div>
+              <Button
+                onClick={() => handleOpenEdit()}
+                className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Create Form Template
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── LOADING STATE ── */}
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Loading Form Templates...</span>
           </div>
-          <Button
-            onClick={() => handleOpenEdit()}
-            className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Form
-          </Button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {templates.map((template) => (
-          <Card key={template.id} className="border-none shadow-sm hover:shadow-md transition-shadow bg-white overflow-hidden flex flex-col">
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-start">
-                <div className="p-2 bg-red-50 rounded-lg">
-                  <FileText className="w-5 h-5 text-primary" />
+      {/* ── B. FORM TEMPLATES ── */}
+      {!loading && (
+        <div className="space-y-4">
+          <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Form Templates</h3>
+
+          {templates.length === 0 ? (
+            <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden">
+              <CardContent className="p-12 text-center space-y-4">
+                <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto border border-white/10">
+                  <ShieldCheck className="w-8 h-8 text-white/20" />
                 </div>
-                <Badge variant={template.isActive ? "default" : "secondary"} className={template.isActive ? "bg-green-100 text-green-700" : ""}>
-                  {template.isActive ? "Active" : "Inactive"}
-                </Badge>
+                <div className="space-y-1">
+                  <h3 className="font-black text-white text-lg uppercase tracking-tight">No form templates yet</h3>
+                  <p className="text-sm text-white/40 max-w-md mx-auto">
+                    Create your first liability waiver, acknowledgment, or inspection form. Forms will auto-attach to services and block job start until signed.
+                  </p>
+                </div>
+                <Button onClick={() => handleOpenEdit()} className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create First Template
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {templates.map((template) => (
+                <Card key={template.id} className={cn(
+                  "border-white/10 rounded-2xl overflow-hidden flex flex-col transition-all hover:border-white/20",
+                  template.isActive ? "bg-[#0B0B0B]" : "bg-[#0B0B0B]/50 opacity-60"
+                )}>
+                  <CardHeader className="pb-2 p-5">
+                    <div className="flex justify-between items-start">
+                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <Badge className={cn(
+                        "text-[9px] font-black uppercase tracking-widest",
+                        template.isActive
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                          : "bg-white/5 text-white/30 border-white/10"
+                      )}>
+                        {template.isActive ? "Active" : "Archived"}
+                      </Badge>
+                    </div>
+                    <CardTitle className="mt-3 text-sm font-black text-white uppercase tracking-tight">{template.title}</CardTitle>
+                    <CardDescription className="capitalize text-white/40 text-[10px] font-bold">{template.category} • v{template.version || 1}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex-1 space-y-3 p-5 pt-0">
+                    <div className="text-xs text-white/50 line-clamp-2 leading-relaxed">
+                      {template.content}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {template.assignedServices?.length > 0 && (
+                        <Badge className="text-[9px] bg-primary/10 text-primary border-primary/20">{template.assignedServices.length} Services</Badge>
+                      )}
+                      {template.assignedAddons?.length > 0 && (
+                        <Badge className="text-[9px] bg-blue-500/10 text-blue-400 border-blue-500/20">{template.assignedAddons.length} Add-ons</Badge>
+                      )}
+                      <Badge className="text-[9px] bg-white/5 text-white/50 border-white/10 capitalize">{enforcementLabel(template.enforcement || "before_start")}</Badge>
+                      {template.signatureFrequency && template.signatureFrequency !== "every_job" && (
+                        <Badge className="text-[9px] bg-amber-500/10 text-amber-400 border-amber-500/20 capitalize">{frequencyLabel(template.signatureFrequency)}</Badge>
+                      )}
+                      {template.priceThreshold != null && (
+                        <Badge className="text-[9px] bg-emerald-500/10 text-emerald-400 border-emerald-500/20">${template.priceThreshold}+</Badge>
+                      )}
+                      {template.riskTriggers?.length > 0 && (
+                        <Badge className="text-[9px] bg-red-500/10 text-red-400 border-red-500/20">{template.riskTriggers.length} Risk Triggers</Badge>
+                      )}
+                    </div>
+                  </CardContent>
+                  <div className="p-4 border-t border-white/5 flex justify-end gap-2">
+                    <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(template)} className="h-8 w-8 p-0 text-white/40 hover:text-primary hover:bg-primary/10 rounded-xl">
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </Button>
+                    <DeleteConfirmationDialog
+                      trigger={
+                        <Button variant="ghost" size="icon" className="h-8 w-8 p-0 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-xl">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      }
+                      title="Delete Form Template?"
+                      itemName={template.title}
+                      onConfirm={() => handleDelete(template.id)}
+                    />
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── C. ASSIGNMENT RULES ── */}
+      {!loading && (
+        <div className="space-y-4">
+          <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Assignment & Signature Rules</h3>
+          <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden">
+            <CardContent className="p-6 space-y-6">
+              {activeTemplates.length === 0 ? (
+                <p className="text-sm text-white/30 text-center py-6">Create a form template above to configure assignment rules.</p>
+              ) : (
+                <div className="space-y-4">
+                  {activeTemplates.map(t => (
+                    <div key={t.id} className="flex items-start justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-primary" />
+                          <span className="text-sm font-black text-white uppercase tracking-tight">{t.title}</span>
+                          <Badge className="text-[8px] bg-white/5 text-white/40 border-white/10">{t.enforcement === "optional" ? "Optional" : "Required"}</Badge>
+                        </div>
+                        <div className="flex flex-wrap gap-x-6 gap-y-1 text-[10px] text-white/40">
+                          <span><strong className="text-white/60">Enforcement:</strong> {enforcementLabel(t.enforcement || "before_start")}</span>
+                          <span><strong className="text-white/60">Frequency:</strong> {frequencyLabel(t.signatureFrequency || "every_job")}{t.signatureFrequency === "expires_after" && t.expiresAfterDays ? ` (${t.expiresAfterDays} days)` : ""}</span>
+                          {t.assignedServiceNames?.length > 0 && (
+                            <span><strong className="text-white/60">Services:</strong> {t.assignedServiceNames.join(", ")}</span>
+                          )}
+                          {t.assignedAddonNames?.length > 0 && (
+                            <span><strong className="text-white/60">Add-ons:</strong> {t.assignedAddonNames.join(", ")}</span>
+                          )}
+                          {t.priceThreshold != null && (
+                            <span><strong className="text-white/60">Price Gate:</strong> Jobs over ${t.priceThreshold}</span>
+                          )}
+                          {t.riskTriggers?.length > 0 && (
+                            <span><strong className="text-white/60">Risk:</strong> {t.riskTriggers.join(", ")}</span>
+                          )}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(t)} className="text-white/30 hover:text-primary text-[9px] font-black uppercase tracking-widest">
+                        Edit
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── D. AUTOMATION RULES ── */}
+      {!loading && (
+        <div className="space-y-4">
+          <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Automation Rules</h3>
+          <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden">
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                <div className="flex items-center gap-3">
+                  <Send className="w-4 h-4 text-primary" />
+                  <div>
+                    <p className="text-sm font-bold text-white">Auto-send after online booking</p>
+                    <p className="text-[10px] text-white/40">When a customer books online, required forms are created and signing links can be sent by SMS/email.</p>
+                  </div>
+                </div>
+                <Badge className="text-[9px] bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Active</Badge>
               </div>
-              <CardTitle className="mt-4 text-lg font-bold">{template.title}</CardTitle>
-              <CardDescription className="capitalize">{template.category} • v{template.version || 1}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex-1 space-y-4">
-              <div className="text-sm text-gray-500 line-clamp-3">
-                {template.content}
+              <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-4 h-4 text-amber-400" />
+                  <div>
+                    <p className="text-sm font-bold text-white">Block job start if unsigned</p>
+                    <p className="text-[10px] text-white/40">Technicians cannot start service until all required forms with "Before Starting Job" enforcement are signed.</p>
+                  </div>
+                </div>
+                <Badge className="text-[9px] bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Active</Badge>
               </div>
-              <div className="flex flex-wrap gap-1">
-                {template.assignedServices?.length > 0 && (
-                  <Badge variant="outline" className="text-[10px]">{template.assignedServices.length} Services</Badge>
-                )}
-                {template.assignedAddons?.length > 0 && (
-                  <Badge variant="outline" className="text-[10px]">{template.assignedAddons.length} Add-ons</Badge>
-                )}
-                <Badge variant="outline" className="text-[10px] capitalize">{(template.enforcement || "before_start").replace(/_/g, " ")}</Badge>
-                {template.signatureFrequency && template.signatureFrequency !== "every_job" && (
-                  <Badge variant="outline" className="text-[10px] capitalize">{template.signatureFrequency.replace(/_/g, " ")}</Badge>
-                )}
-                {template.priceThreshold != null && (
-                  <Badge variant="outline" className="text-[10px]">${template.priceThreshold}+</Badge>
-                )}
-                {template.riskTriggers?.length > 0 && (
-                  <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-200">{template.riskTriggers.length} Risk Triggers</Badge>
-                )}
+              <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                <div className="flex items-center gap-3">
+                  <ShieldAlert className="w-4 h-4 text-amber-400" />
+                  <div>
+                    <p className="text-sm font-bold text-white">Owner/admin override</p>
+                    <p className="text-[10px] text-white/40">Owners and admins can waive required forms with a recorded reason for audit trail.</p>
+                  </div>
+                </div>
+                <Badge className="text-[9px] bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Active</Badge>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                <div className="flex items-center gap-3">
+                  <Clock className="w-4 h-4 text-blue-400" />
+                  <div>
+                    <p className="text-sm font-bold text-white">Signature expiration tracking</p>
+                    <p className="text-[10px] text-white/40">Forms with "Expires After" frequency are automatically flagged when re-signing is needed.</p>
+                  </div>
+                </div>
+                <Badge className="text-[9px] bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Active</Badge>
               </div>
             </CardContent>
-            <div className="p-4 border-t border-gray-50 bg-gray-50/50 flex justify-end gap-2">
-              <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(template)} className="h-9 w-9 p-0 text-gray-500 hover:text-primary hover:bg-primary/10 rounded-xl">
-                <Edit2 className="w-4 h-4" />
-              </Button>
-              <DeleteConfirmationDialog
-                trigger={
-                  <Button variant="ghost" size="icon" className="h-9 w-9 p-0 text-white hover:text-white bg-red-500/10 hover:bg-red-500 rounded-xl">
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                }
-                title="Delete Form Template?"
-                itemName={template.title}
-                onConfirm={() => handleDelete(template.id)}
-              />
-            </div>
           </Card>
-        ))}
+        </div>
+      )}
 
-        {templates.length === 0 && !loading && (
-          <div className="col-span-full py-20 text-center space-y-4 bg-white rounded-2xl border-2 border-dashed border-gray-100">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto">
-              <ShieldCheck className="w-8 h-8 text-gray-300" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="font-bold text-gray-900">No forms created yet</h3>
-              <p className="text-sm text-gray-500 max-w-xs mx-auto">Create your first liability waiver or acknowledgment form to start enforcing them in your workflow.</p>
-            </div>
-            <Button onClick={() => handleOpenEdit()} variant="outline" className="font-bold">
-              Get Started
-            </Button>
-          </div>
-        )}
-      </div>
+      {/* ── E. REQUIRED FORMS PREVIEW ── */}
+      {!loading && (
+        <div className="space-y-4">
+          <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Required Forms Preview</h3>
+          <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden">
+            <CardContent className="p-6 space-y-4">
+              <p className="text-[10px] text-white/40">Select a service to preview which forms would auto-attach.</p>
+              <Select value={previewServiceId} onValueChange={setPreviewServiceId}>
+                <SelectTrigger className="w-full bg-white/5 border-white/10 text-white font-bold text-sm rounded-xl h-12">
+                  <SelectValue placeholder="Select a service..." />
+                </SelectTrigger>
+                <SelectContent className="bg-[#111] border-white/10 text-white">
+                  {services.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                  {services.length === 0 && (
+                    <SelectItem value="__none" disabled>No services configured</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {previewServiceId && (
+                <div className="space-y-2 mt-4">
+                  {previewForms.length === 0 ? (
+                    <p className="text-sm text-white/30 py-4 text-center">No forms are assigned to this service.</p>
+                  ) : (
+                    previewForms.map(t => (
+                      <div key={t.id} className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                        <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                        <div className="flex-1">
+                          <span className="text-sm font-bold text-white">{t.title}</span>
+                          <span className="text-[10px] text-white/40 ml-2">{enforcementLabel(t.enforcement || "before_start")}</span>
+                        </div>
+                        <Badge className="text-[8px] bg-primary/10 text-primary border-primary/20">{t.enforcement === "optional" ? "Optional" : "Required"}</Badge>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
+      {/* ── F. STATUS / READINESS ── */}
+      {!loading && (
+        <div className="space-y-4">
+          <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Status & Readiness</h3>
+          <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden">
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-start gap-3 p-4 bg-white/5 rounded-2xl border border-white/10">
+                <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                <div className="space-y-3 text-sm text-white/60 leading-relaxed">
+                  <p><strong className="text-white">Unsigned required forms block job start.</strong> Technicians will see a prompt to collect signatures before they can begin service. Only forms with "Before Starting Job" enforcement block the start button.</p>
+                  <p><strong className="text-white">Signed forms clear alerts.</strong> Once a required form is signed, it clears from the job's pending items and any dashboard/notification alerts.</p>
+                  <p><strong className="text-white">Forms + deposits = job readiness.</strong> A job is considered "ready to start" when all required forms are signed and any required deposits are collected. Both contribute to the readiness indicator on the calendar and job detail views.</p>
+                  <p><strong className="text-white">Customer signing flow.</strong> Each form instance generates a unique signing link (<code className="bg-white/10 px-1.5 py-0.5 rounded text-[11px]">/sign/:token</code>) that customers can access on any device to review and sign electronically.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── EDIT/CREATE DIALOG ── */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden bg-card border-none rounded-3xl shadow-2xl shadow-black">
           <DialogHeader className="p-6 border-b border-white/5 bg-black/40 shrink-0">
@@ -386,14 +622,14 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
               {editingTemplate ? "Edit Form Template" : "Create New Form Template"}
             </DialogTitle>
           </DialogHeader>
-          
+
           <DialogBody className="flex-1 overflow-y-auto p-6 space-y-8">
             {/* Basic Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label>Form Title</Label>
-                <Input 
-                  placeholder="e.g. General Liability Waiver" 
+                <Input
+                  placeholder="e.g. General Liability Waiver"
                   value={formData.title}
                   onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
                   className="bg-white border-gray-200 text-[#111111] h-12 rounded-xl font-bold placeholder:text-gray-400 focus:bg-white focus:text-[#111111]"
@@ -419,7 +655,7 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
             <div className="space-y-2">
               <Label>Form Content (Markdown supported)</Label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-64">
-                <Textarea 
+                <Textarea
                   placeholder="Enter the legal text or acknowledgment content here..."
                   className="h-full resize-none font-mono text-xs bg-white border-gray-200 text-[#111111] rounded-xl p-4 placeholder:text-gray-400 focus:bg-white focus:text-[#111111]"
                   value={formData.content}
@@ -436,44 +672,44 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
               <Label className="text-base font-bold">Required Fields & Actions</Label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="flex items-center space-x-2 p-3 border rounded-lg bg-white">
-                  <Switch 
-                    checked={formData.requiresSignature} 
-                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresSignature: v }))} 
+                  <Switch
+                    checked={formData.requiresSignature}
+                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresSignature: v }))}
                   />
                   <Label className="text-xs">Signature</Label>
                 </div>
                 <div className="flex items-center space-x-2 p-3 border rounded-lg bg-white">
-                  <Switch 
-                    checked={formData.requiresPrintedName} 
-                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresPrintedName: v }))} 
+                  <Switch
+                    checked={formData.requiresPrintedName}
+                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresPrintedName: v }))}
                   />
                   <Label className="text-xs">Printed Name</Label>
                 </div>
                 <div className="flex items-center space-x-2 p-3 border rounded-lg bg-white">
-                  <Switch 
-                    checked={formData.requiresDate} 
-                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresDate: v }))} 
+                  <Switch
+                    checked={formData.requiresDate}
+                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresDate: v }))}
                   />
                   <Label className="text-xs">Date</Label>
                 </div>
                 <div className="flex items-center space-x-2 p-3 border rounded-lg bg-white">
-                  <Switch 
-                    checked={formData.requiresInitials} 
-                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresInitials: v }))} 
+                  <Switch
+                    checked={formData.requiresInitials}
+                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresInitials: v }))}
                   />
                   <Label className="text-xs">Initials</Label>
                 </div>
                 <div className="flex items-center space-x-2 p-3 border rounded-lg bg-white">
-                  <Switch 
-                    checked={formData.requiresPhoto} 
-                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresPhoto: v }))} 
+                  <Switch
+                    checked={formData.requiresPhoto}
+                    onCheckedChange={v => setFormData(prev => ({ ...prev, requiresPhoto: v }))}
                   />
                   <Label className="text-xs">Photo Attachment</Label>
                 </div>
                 <div className="flex items-center space-x-2 p-3 border rounded-lg bg-white">
-                  <Switch 
-                    checked={formData.isActive} 
-                    onCheckedChange={v => setFormData(prev => ({ ...prev, isActive: v }))} 
+                  <Switch
+                    checked={formData.isActive}
+                    onCheckedChange={v => setFormData(prev => ({ ...prev, isActive: v }))}
                   />
                   <Label className="text-xs">Active Template</Label>
                 </div>
@@ -484,8 +720,8 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
             <div className="space-y-4">
               <Label className="text-base font-bold">Required Acknowledgment Checkboxes</Label>
               <div className="flex gap-2">
-                <Input 
-                  placeholder="e.g. I agree that the vehicle is in the condition stated above." 
+                <Input
+                  placeholder="e.g. I agree that the vehicle is in the condition stated above."
                   value={newAck}
                   onChange={e => setNewAck(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && addAcknowledgment()}
@@ -520,6 +756,7 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                       <SelectItem value="before_complete">Before Completing Job</SelectItem>
                       <SelectItem value="before_invoice">Before Sending Invoice</SelectItem>
                       <SelectItem value="before_payment">Before Taking Payment</SelectItem>
+                      <SelectItem value="optional">Optional</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -527,16 +764,16 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                   <Label>Client Type Assignment</Label>
                   <div className="flex gap-4 p-3 border rounded-lg bg-white">
                     <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="assign-retail" 
+                      <Checkbox
+                        id="assign-retail"
                         checked={formData.assignedToRetail}
                         onCheckedChange={(v: boolean) => setFormData(prev => ({ ...prev, assignedToRetail: v }))}
                       />
                       <Label htmlFor="assign-retail" className="text-sm">Retail Clients</Label>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="assign-vendor" 
+                      <Checkbox
+                        id="assign-vendor"
                         checked={formData.assignedToVendors}
                         onCheckedChange={(v: boolean) => setFormData(prev => ({ ...prev, assignedToVendors: v }))}
                       />
@@ -619,8 +856,8 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                   <Popover>
                     <PopoverTrigger className="w-full h-12 flex items-center justify-between border border-gray-200 bg-white text-[#111111] hover:bg-gray-50 rounded-xl px-4 text-sm font-bold transition-colors">
                       <span className="truncate">
-                        {formData.assignedServices.length > 0 
-                          ? `${formData.assignedServices.length} Services Selected` 
+                        {formData.assignedServices.length > 0
+                          ? `${formData.assignedServices.length} Services Selected`
                           : "Select Services..."}
                       </span>
                       <ChevronDown className="w-4 h-4 opacity-50 ml-2" />
@@ -628,8 +865,8 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                     <PopoverContent className="w-[350px] p-0 bg-white border-gray-200 rounded-2xl shadow-xl z-[200]" align="start">
                       <div className="p-2 border-b border-gray-100 flex items-center gap-2">
                         <Search className="w-4 h-4 text-gray-400" />
-                        <Input 
-                          placeholder="Filter services..." 
+                        <Input
+                          placeholder="Filter services..."
                           className="h-8 border-none focus:ring-0 text-xs text-[#111111]"
                           onChange={(e) => {
                             const val = e.target.value.toLowerCase();
@@ -647,19 +884,19 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                           </div>
                         ) : (
                           <div className="flex gap-2 mb-2 p-1 border-b pb-2">
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               type="button"
-                              size="sm" 
+                              size="sm"
                               className="h-7 text-[9px] uppercase font-bold text-primary"
                               onClick={() => setFormData(p => ({ ...p, assignedServices: services.map(s => s.id) }))}
                             >
                               All
                             </Button>
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               type="button"
-                              size="sm" 
+                              size="sm"
                               className="h-7 text-[9px] uppercase font-bold text-red-500"
                               onClick={() => setFormData(p => ({ ...p, assignedServices: [] }))}
                             >
@@ -668,7 +905,7 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                           </div>
                         )}
                         {services.map(s => (
-                          <div 
+                          <div
                             key={s.id}
                             data-service-popover-item
                             data-name={s.name}
@@ -704,8 +941,8 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                   <Popover>
                     <PopoverTrigger className="w-full h-12 flex items-center justify-between border border-gray-200 bg-white text-[#111111] hover:bg-gray-50 rounded-xl px-4 text-sm font-bold transition-colors">
                       <span className="truncate">
-                        {formData.assignedAddons.length > 0 
-                          ? `${formData.assignedAddons.length} Items Selected` 
+                        {formData.assignedAddons.length > 0
+                          ? `${formData.assignedAddons.length} Items Selected`
                           : "Select Add-ons..."}
                       </span>
                       <ChevronDown className="w-4 h-4 opacity-50 ml-2" />
@@ -713,8 +950,8 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                     <PopoverContent className="w-[350px] p-0 bg-white border-gray-200 rounded-2xl shadow-xl z-[200]" align="start">
                       <div className="p-2 border-b border-gray-100 flex items-center gap-2">
                         <Search className="w-4 h-4 text-gray-400" />
-                        <Input 
-                          placeholder="Filter add-ons..." 
+                        <Input
+                          placeholder="Filter add-ons..."
                           className="h-8 border-none focus:ring-0 text-xs text-[#111111]"
                           onChange={(e) => {
                             const val = e.target.value.toLowerCase();
@@ -732,19 +969,19 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                           </div>
                         ) : (
                           <div className="flex gap-2 mb-2 p-1 border-b pb-2">
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               type="button"
-                              size="sm" 
+                              size="sm"
                               className="h-7 text-[9px] uppercase font-bold text-primary"
                               onClick={() => setFormData(p => ({ ...p, assignedAddons: addons.map(a => a.id) }))}
                             >
                               All
                             </Button>
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               type="button"
-                              size="sm" 
+                              size="sm"
                               className="h-7 text-[9px] uppercase font-bold text-red-500"
                               onClick={() => setFormData(p => ({ ...p, assignedAddons: [] }))}
                             >
@@ -753,7 +990,7 @@ export default function FormsBuilder({ embedded = false }: { embedded?: boolean 
                           </div>
                         )}
                         {addons.map(a => (
-                          <div 
+                          <div
                             key={a.id}
                             data-addon-popover-item
                             data-name={a.name}
