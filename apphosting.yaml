@@ -9,23 +9,27 @@ runConfig:
 env:
   - variable: NODE_ENV
     value: production
+  - variable: PUBLIC_APP_URL
+    value: https://gen-lang-client-0494336976.web.app
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY
   - variable: VITE_GEMINI_API_KEY
     secret: GEMINI_API_KEY
-  - variable: SENDGRID_API_KEY
-    secret: SENDGRID_API_KEY
-  - variable: SENDGRID_FROM_EMAIL
-    secret: SENDGRID_FROM_EMAIL
-  - variable: SENDGRID_FROM_NAMES
-    secret: SENDGRID_FROM_NAMES
-  - variable: STRIPE_SECRET_KEY
-    secret: STRIPE_SECRET_KEY
-  - variable: VITE_GOOGLE_MAPS_API_KEY
-    secret: VITE_GOOGLE_MAPS_API_KEY
-  - variable: VITE_OPENWEATHER_API_KEY
-    secret: VITE_OPENWEATHER_API_KEY
-  - variable: VITE_EIA_API_KEY
-    secret: VITE_EIA_API_KEY
-  - variable: PUBLIC_APP_URL
-    value: https://gen-lang-client-0494336976.web.app
+
+  # Optional provider secrets — add each back AFTER creating the secret
+  # in Google Secret Manager and granting App Hosting backend access.
+  #
+  # - variable: SENDGRID_API_KEY
+  #   secret: SENDGRID_API_KEY
+  # - variable: SENDGRID_FROM_EMAIL
+  #   secret: SENDGRID_FROM_EMAIL
+  # - variable: SENDGRID_FROM_NAMES
+  #   secret: SENDGRID_FROM_NAMES
+  # - variable: STRIPE_SECRET_KEY
+  #   secret: STRIPE_SECRET_KEY
+  # - variable: VITE_GOOGLE_MAPS_API_KEY
+  #   secret: VITE_GOOGLE_MAPS_API_KEY
+  # - variable: VITE_OPENWEATHER_API_KEY
+  #   secret: VITE_OPENWEATHER_API_KEY
+  # - variable: VITE_EIA_API_KEY
+  #   secret: VITE_EIA_API_KEY
