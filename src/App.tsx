@@ -14,7 +14,6 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Leads = lazy(() => import("./pages/Leads"));
 const Clients = lazy(() => import("./pages/Clients"));
 const ProtectedClients = lazy(() => import("./pages/ProtectedClients"));
-const Communications = lazy(() => import("./pages/Communications"));
 const Waitlist = lazy(() => import("./pages/Waitlist"));
 const Calendar = lazy(() => import("./pages/Calendar"));
 const JobDetail = lazy(() => import("./pages/JobDetail"));
@@ -88,7 +87,11 @@ function AppContent() {
             <Route path="leads/engine" element={<AILeadEngine />} />
             <Route path="clients" element={<Clients />} />
             <Route path="protected-clients" element={<ProtectedClients />} />
-            <Route path="communications" element={<Communications />} />
+            {/* Communications is no longer a primary tab — keep the route
+                accessible only as a redirect for any old in-app links and
+                outside bookmarks. The actual client-scoped history lives
+                inside Client Profile → Communications. */}
+            <Route path="communications" element={<Navigate to="/clients" replace />} />
             <Route path="waitlist" element={<Waitlist />} />
             <Route path="book-appointment" element={<BookAppointment />} />
             <Route path="calendar" element={<Calendar />} />
