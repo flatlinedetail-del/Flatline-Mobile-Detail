@@ -58,8 +58,7 @@ import {
   TrendingDown,
   RefreshCw,
   Fuel,
-  Wrench,
-  ShieldCheck
+  Wrench
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
