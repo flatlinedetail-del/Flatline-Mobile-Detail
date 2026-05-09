@@ -388,10 +388,14 @@ export interface Appointment extends SyncMetadata {
   totalAmount: number;
   depositAmount: number;
   customFees?: CustomFee[];
-  depositType: "fixed" | "percentage"; // New
-  depositPaid: boolean; 
-  depositPaidAt?: Timestamp; // New
-  depositPaymentProvider?: string; // New
+  depositType: "fixed" | "percentage";
+  depositPaid: boolean;
+  depositPaidAt?: Timestamp;
+  depositPaymentProvider?: string;
+  depositRequired?: boolean;
+  depositReasons?: string[];
+  depositSource?: "risk" | "service" | "settings" | "mixed" | "none";
+  clientRiskLevelAtBooking?: "low" | "medium" | "high" | null;
   paymentStatus: "unpaid" | "partial" | "paid";
   paymentMethod?: "cash" | "card" | "venmo" | "check" | "invoice";
   commissionAmount?: number;
@@ -475,14 +479,33 @@ export interface Appointment extends SyncMetadata {
   };
 }
 
+/** Catalog entry stored in Firestore `productCatalog` collection */
+export interface ProductCatalogItem {
+  id: string;
+  businessId?: string;
+  productName: string;
+  category: string;
+  unitType: "bottle" | "ounce" | "gallon" | "pad" | "towel" | "job" | "kit" | "each" | "other";
+  defaultUnitCost: number;
+  defaultQuantity: number;
+  active: boolean;
+  notes?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
 export interface JobProductCost {
   id: string;
   name: string;
+  productName?: string;
   quantity: number;
   unitCost: number;
   totalCost: number;
-  category: "chemical" | "pad" | "towel" | "tool" | "disposable" | "misc";
-  costType: "inventory" | "must_buy" | "partial_use" | "pass_through";
+  category?: "chemical" | "pad" | "towel" | "tool" | "disposable" | "misc";
+  costType?: "inventory" | "must_buy" | "partial_use" | "pass_through";
+  associatedServiceId?: string;
+  associatedServiceName?: string;
+  notes?: string;
 }
 
 export interface PricingAnalysis {
@@ -496,6 +519,48 @@ export interface PricingAnalysis {
   estimatedMarginDollars: number;
   estimatedMarginPercent: number;
   netAfterProductCost: number;
+}
+
+export interface AdminPricingBreakdown {
+  /** Raw market-rate service subtotal before condition adjustments */
+  baseServicePrice: number;
+  /** Multiplier applied for vehicle condition (severity × intensity × complexity) */
+  conditionMultiplier: number;
+  /** Dollar delta from vehicle-size multipliers */
+  vehicleSizeAdjustment: number;
+  /** Internal labor cost allocation */
+  laborCost: number;
+  /** Internal material/supply cost (= totalProductCost) */
+  materialCost: number;
+  /** Travel fee applied */
+  travelCost: number;
+  /** Sum of all customer-facing add-ons */
+  addonTotal: number;
+  /** Any discounts applied */
+  discountTotal: number;
+  /** AI or benchmark recommended price (already includes materialCost) */
+  aiRecommendedPrice: number;
+  /** Tier the user chose (low/safe/recommended/premium) */
+  selectedTier: string;
+  /** Final customer-facing price */
+  finalQuoteTotal: number;
+  estimatedProfit: number;
+  marginPercent: number;
+  /** 0-100 confidence score from AI, or 60 for benchmark */
+  pricingConfidence: number;
+  /** Map of condition flags that increased price, e.g. { mold: 0.45, smoke: 0.35 } */
+  conditionAdjustments: Record<string, number>;
+  /** AI/benchmark explanation text for internal reference */
+  internalNotes?: string;
+  /** "ai" | "benchmark" | "manual" */
+  source: string;
+}
+
+export interface ClientVisibleAddOn {
+  id: string;
+  name: string;
+  price: number;
+  selected: boolean;
 }
 
 export interface LineItem {
@@ -590,8 +655,39 @@ export interface Quote {
   description?: string;
   attachedFormIds?: string[];
   leadId?: string;
+  // ── Internal cost tracking ──
   productCosts?: JobProductCost[];
+  totalProductCost?: number;
+  internalJobCost?: number;
+  estimatedProfit?: number;
+  estimatedMarginPercent?: number;
   pricingAnalysis?: PricingAnalysis;
+  // ── AI quote provenance ──
+  quoteSource?: "standard" | "ai";
+  aiQuoteId?: string;
+  // ── Service metadata (primary selected service) ──
+  selectedServiceId?: string;
+  selectedServiceName?: string;
+  baseServicePrice?: number;
+  // ── AI pricing components ──
+  aiRecommendedPrice?: number;
+  laborCost?: number;
+  materialCost?: number;
+  travelCost?: number;
+  conditionAdjustments?: Record<string, number>;
+  vehicleSizeAdjustment?: number;
+  addonTotal?: number;
+  discountTotal?: number;
+  // ── Full admin breakdown (internal only) ──
+  adminPricingBreakdown?: AdminPricingBreakdown;
+  // ── Client-facing data ──
+  clientDisplayPrice?: number;
+  clientVisibleAddOns?: ClientVisibleAddOn[];
+  finalQuoteTotal?: number;
+  // ── Metadata ──
+  pricingConfidence?: number;
+  internalNotes?: string;
+  clientQuoteMessage?: string;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 
@@ -756,6 +852,25 @@ export interface BusinessSettings {
   smsTemplates?: Record<string, string>;
   calendarColors?: Record<string, string>;
   serviceColors?: Record<string, string>;
+  aiSettings?: {
+    aiEnabled: boolean;
+    aiMode: "off" | "manual_only" | "smart_scheduled";
+    preferredModelTier: "smart_saver" | "balanced_intelligence" | "deep_strategy";
+    allowModelEscalation: boolean;
+    dailyAICallLimit: number;
+    weeklyAICallLimit: number;
+    monthlyAICallLimit: number;
+    enableDailyBusinessAdvisor: boolean;
+    enableWeeklyBusinessReport: boolean;
+    enableAILeadEngine: boolean;
+    enableClientMessageAI: boolean;
+    enableEstimateAI: boolean;
+    enableRevenueIntelligenceAI: boolean;
+    enableRiskExplanationAI: boolean;
+    lastDailyAdvisorRunAt?: any;
+    lastWeeklyReportRunAt?: any;
+    lastAILeadEngineRunAt?: any;
+  };
 }
 
 export interface Payment {
@@ -923,4 +1038,17 @@ export interface ProtectedClient {
   linkedClientId?: string;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
+}
+
+export interface RiskNetworkSettings {
+  sharedNetworkEnabled: boolean;
+  shareHighRiskAlerts: boolean;
+  shareDoNotBookAlerts: boolean;
+  allowContactRequests: boolean;
+  requireApprovalBeforeSharing: boolean;
+  depositForHighRisk: boolean;
+  depositForCritical: boolean;
+  depositForSharedMatch: boolean;
+  cardOnFileForHighRisk: boolean;
+  managerApprovalForCritical: boolean;
 }

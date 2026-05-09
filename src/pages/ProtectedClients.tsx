@@ -8,6 +8,7 @@ import {
   serverTimestamp,
   orderBy,
   getDocs,
+  onSnapshot,
   deleteDoc,
   getDoc,
   setDoc,
@@ -65,6 +66,7 @@ import {
 } from "lucide-react";
 import { ProtectedClient, Client, RiskNetworkSettings } from "../types";
 import { cn } from "../lib/utils";
+import { normalizeRiskLevel, getProtectionLevelLabel, getProtectionLevelBadgeClass } from "../lib/riskUtils";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -76,30 +78,13 @@ function isFlagged(level: ProtectionLevel): boolean {
   return FLAGGED_LEVELS.includes(level);
 }
 
+// Delegate to shared riskUtils so badge styling stays consistent across the app
 function riskBadgeClass(level: ProtectionLevel): string {
-  switch (level) {
-    case "Critical":
-    case "Do Not Book":
-    case "Block Booking":
-      return "bg-red-900/40 text-red-400 border-red-500/30";
-    case "High":
-      return "bg-red-500/10 text-red-500 border-red-500/20";
-    case "Med":
-      return "bg-yellow-500/10 text-yellow-400 border-yellow-500/20";
-    default:
-      return "bg-green-500/10 text-green-500 border-green-500/20";
-  }
+  return getProtectionLevelBadgeClass(level);
 }
 
 function riskLabel(level: ProtectionLevel): string {
-  switch (level) {
-    case "Med": return "Medium Risk";
-    case "High": return "High Risk";
-    case "Critical": return "Critical";
-    case "Do Not Book": return "Do Not Book";
-    case "Block Booking": return "Block Booking";
-    default: return "Low Risk";
-  }
+  return getProtectionLevelLabel(level);
 }
 
 const SHARED_RISK_CATEGORIES = [
@@ -180,22 +165,25 @@ export default function ProtectedClients() {
   // ── load data ────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [snapRules, snapClients] = await Promise.all([
-          getDocs(query(collection(db, "protected_clients"), orderBy("createdAt", "desc"))),
-          getDocs(collection(db, "clients")),
-        ]);
-        setProtectedClients(snapRules.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient)));
-        setAllClients(snapClients.docs.map(d => ({ id: d.id, ...d.data() } as Client)));
-      } catch (error: any) {
+    // Real-time listener for protected clients
+    const unsubRules = onSnapshot(
+      query(collection(db, "protected_clients"), orderBy("createdAt", "desc")),
+      snap => setProtectedClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as ProtectedClient))),
+      (error: any) => {
         if (error?.code === "resource-exhausted" || error?.message?.includes("quota")) {
           toast.error("Database quota reached. Showing cached data.");
         } else {
-          console.error("[RiskManagement] fetch error", error);
+          console.error("[RiskManagement] protected_clients snapshot error", error);
         }
       }
-    };
+    );
+
+    // Real-time listener for clients
+    const unsubClients = onSnapshot(
+      collection(db, "clients"),
+      snap => setAllClients(snap.docs.map(d => ({ id: d.id, ...d.data() } as Client))),
+      (error: any) => console.error("[RiskManagement] clients snapshot error", error)
+    );
 
     const fetchNetworkSettings = async () => {
       try {
@@ -208,8 +196,12 @@ export default function ProtectedClients() {
       }
     };
 
-    fetchData();
     fetchNetworkSettings();
+
+    return () => {
+      unsubRules();
+      unsubClients();
+    };
   }, []);
 
   // ── network settings save ─────────────────────────────────────────────────

@@ -101,6 +101,8 @@ import { getClientTypes, getClientCategories, migrateDataToClients, ensureClient
 import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
+import { getEffectiveRisk, getRiskBadgeClass, getRiskBadgeLabel, getRiskBadgeVariant } from "../lib/riskUtils";
+import { VinInput } from "../components/VinInput";
 
 interface AddVehicleFormProps {
   clientId: string;
@@ -110,6 +112,7 @@ interface AddVehicleFormProps {
 
 function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFormProps) {
   const [vData, setVData] = useState({ year: "", make: "", model: "" });
+  const [vinValue, setVinValue] = useState("");
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -123,7 +126,7 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
       model: vData.model,
       color: formData.get("color")?.toString().trim(),
       size: formData.get("size"),
-      vin: formData.get("vin")?.toString().trim().toUpperCase(),
+      vin: vinValue.trim().toUpperCase() || null,
       roNumber: formData.get("roNumber")?.toString().trim() || null,
       createdAt: serverTimestamp(),
     };
@@ -159,10 +162,12 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
           <Label className="text-[10px] font-black uppercase tracking-widest text-white">Color</Label>
           <Input name="color" placeholder="Color" className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
         </div>
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-white">VIN</Label>
-          <Input name="vin" placeholder="VIN (Optional)" className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
-        </div>
+        <VinInput
+          value={vinValue}
+          onChange={setVinValue}
+          label="VIN (Optional)"
+          placeholder="VIN (Optional)"
+        />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -451,6 +456,7 @@ export default function Clients() {
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [isEditVehicleOpen, setIsEditVehicleOpen] = useState(false);
+  const [editVehicleVin, setEditVehicleVin] = useState("");
   const [newClientAddress, setNewClientAddress] = useState({ address: "", lat: 0, lng: 0 });
   const [isUploading, setIsUploading] = useState(false);
   const [formClientTypeId, setFormClientTypeId] = useState<string>("");
@@ -1543,19 +1549,16 @@ export default function Clients() {
                               )}
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
                               {(() => {
-                                const risk = client.riskLevel;
-                                if (!risk) return null;
+                                const risk = getEffectiveRisk(client);
                                 return (
-                                  <Badge 
-                                    variant="outline" 
+                                  <Badge
+                                    variant="outline"
                                     className={cn(
-                                      "text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest border-none ml-1",
-                                      risk === "high" ? "bg-red-500/20 text-red-500" :
-                                      risk === "medium" ? "bg-orange-500/20 text-orange-400" :
-                                      "bg-emerald-500/20 text-emerald-400"
+                                      "text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ml-1",
+                                      getRiskBadgeClass(risk)
                                     )}
                                   >
-                                    {risk}
+                                    {getRiskBadgeLabel(risk)}
                                   </Badge>
                                 );
                               })()}
@@ -1769,18 +1772,19 @@ export default function Clients() {
                 <div className="text-right flex flex-col items-end gap-4">
                   <div className="flex items-center gap-3 bg-black/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/10">
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">DETAIL</span>
-                    {selectedClient.riskLevel && (
-                      <Badge 
-                        className={cn(
-                          "border-none font-black uppercase tracking-widest text-[9px] px-3 py-1 rounded-full shadow-lg",
-                          selectedClient.riskLevel === "high" ? "bg-red-500 text-white" :
-                          selectedClient.riskLevel === "medium" ? "bg-orange-500 text-white" :
-                          "bg-emerald-500 text-white"
-                        )}
-                      >
-                        {selectedClient.riskLevel} RISK
-                      </Badge>
-                    )}
+                    {(() => {
+                      const risk = getEffectiveRisk(selectedClient);
+                      return (
+                        <Badge
+                          className={cn(
+                            "font-black uppercase tracking-widest text-[9px] px-3 py-1 rounded-full shadow-lg",
+                            getRiskBadgeClass(risk)
+                          )}
+                        >
+                          {getRiskBadgeLabel(risk)}
+                        </Badge>
+                      );
+                    })()}
                   </div>
                   <div className="flex flex-col items-end">
                     <p className="text-4xl font-black tracking-tighter leading-none text-primary drop-shadow-sm">{selectedClient.loyaltyPoints || 0} <span className="text-sm uppercase tracking-widest opacity-100 ml-1 text-primary/60">Credits</span></p>
@@ -1842,20 +1846,39 @@ export default function Clients() {
 
               <div className="flex-1 overflow-y-auto p-8 bg-card custom-scrollbar">
                 <TabsContent value="overview" className="mt-0 space-y-8 outline-none">
-                  {selectedClient.riskLevel === 'high' && (
-                    <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-[2rem] flex items-center gap-6 animate-in fade-in slide-in-from-top-4">
-                      <div className="w-16 h-16 bg-red-500/20 rounded-2xl flex items-center justify-center text-red-500 shrink-0 shadow-glow-red">
-                        <AlertOctagon className="w-8 h-8" />
+                  {(() => {
+                    const risk = getEffectiveRisk(selectedClient);
+                    if (!risk || risk === "low") return null;
+                    const isBlocked = risk === "block_booking" || risk === "do_not_book";
+                    return (
+                      <div className={cn(
+                        "p-6 border rounded-[2rem] flex items-center gap-6 animate-in fade-in slide-in-from-top-4",
+                        isBlocked
+                          ? "bg-red-900/20 border-red-700/40"
+                          : "bg-red-500/10 border-red-500/20"
+                      )}>
+                        <div className={cn(
+                          "w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 shadow-glow-red",
+                          isBlocked ? "bg-red-900/40 text-red-400" : "bg-red-500/20 text-red-500"
+                        )}>
+                          <AlertOctagon className="w-8 h-8" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-black text-red-400 uppercase tracking-tighter">
+                            {getRiskBadgeLabel(risk)} — Risk Alert
+                          </h3>
+                          <p className="text-xs text-white/70 font-medium mt-1 leading-relaxed">
+                            {isBlocked
+                              ? "This account is restricted. Do not book without manager approval."
+                              : "This client has been flagged. Previous history shows pattern of no-shows or payment issues."}
+                            {(risk === "high" || risk === "critical" || isBlocked) && (
+                              <strong className="text-red-400"> REQUIRED: ALWAYS COLLECT DEPOSIT BEFORE BOOKING.</strong>
+                            )}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="text-lg font-black text-red-500 uppercase tracking-tighter">Critical Risk Profile Detected</h3>
-                        <p className="text-xs text-white/70 font-medium mt-1 leading-relaxed">
-                          This client has been flagged as HEAVILY UNRELIABLE. Previous operations show pattern of NO-SHOWS or PAYMENT FAILURE. 
-                          <strong className="text-red-400"> REQUIRED: ALWAYS COLLECT DEPOSIT BEFORE BOOKING.</strong>
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-8 px-2">
                     {/* Status Summary */}
                     <div className="space-y-6 min-w-0">
@@ -1984,12 +2007,18 @@ export default function Clients() {
                           <p className="text-sm font-black text-white uppercase tracking-widest">Active Alerts</p>
                         </div>
                         <div className="space-y-3">
-                          {selectedClient.riskLevel === 'high' && (
-                            <div className="flex items-center gap-3 p-3 bg-red-600/40 rounded-xl border border-red-500/50 animate-pulse">
-                              <AlertOctagon className="w-4 h-4 text-white" />
-                              <span className="text-[10px] font-black uppercase text-white tracking-widest">CRITICAL RISK WARNING</span>
-                            </div>
-                          )}
+                          {(() => {
+                            const risk = getEffectiveRisk(selectedClient);
+                            if (!risk || risk === "low") return null;
+                            return (
+                              <div className="flex items-center gap-3 p-3 bg-red-600/40 rounded-xl border border-red-500/50 animate-pulse">
+                                <AlertOctagon className="w-4 h-4 text-white" />
+                                <span className="text-[10px] font-black uppercase text-white tracking-widest">
+                                  {getRiskBadgeLabel(risk)} WARNING
+                                </span>
+                              </div>
+                            );
+                          })()}
                           {clientInvoices.some(i => i.status !== "paid") && (
                             <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
                               <AlertTriangle className="w-4 h-4 text-white" />
@@ -2253,6 +2282,7 @@ export default function Clients() {
                               key={v.id} 
                               onClick={() => {
                                 setEditingVehicle(v);
+                                setEditVehicleVin(v.vin || "");
                                 setIsEditVehicleOpen(true);
                               }}
                               className="p-4 rounded-3xl border border-white/5 bg-white/5 flex items-center gap-4 group/v transition-all duration-300 hover:bg-white/[0.08] cursor-pointer"
@@ -2347,7 +2377,7 @@ export default function Clients() {
                                     const formData = new FormData(e.currentTarget);
                                     const updates = {
                                       color: formData.get("color") as string,
-                                      vin: formData.get("vin") as string,
+                                      vin: editVehicleVin.trim().toUpperCase() || null,
                                       size: formData.get("size") as any,
                                       roNumber: formData.get("roNumber") as string || null,
                                       notes: formData.get("notes") as string || null,
@@ -2380,10 +2410,13 @@ export default function Clients() {
                                       <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">Exterior Color</Label>
                                       <Input name="color" defaultValue={editingVehicle.color} className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
                                     </div>
-                                    <div className="space-y-2">
-                                      <Label className="text-[10px] font-black uppercase tracking-widest text-white/40">VIN (Chassis Number)</Label>
-                                      <Input name="vin" defaultValue={editingVehicle.vin} className="bg-white/5 border-white/10 text-white rounded-xl h-12" />
-                                    </div>
+                                    <VinInput
+                                      value={editVehicleVin}
+                                      onChange={setEditVehicleVin}
+                                      label="VIN (Chassis Number)"
+                                      labelClassName="text-white/40"
+                                      placeholder="17-char VIN"
+                                    />
                                   </div>
 
                                   <div className="grid grid-cols-2 gap-6">

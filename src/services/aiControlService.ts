@@ -1,344 +1,484 @@
 /**
  * AI Control Service
  *
- * Central run guard for all AI features.
- * Every AI call must pass through checkAIRunGuard() before touching any model.
- *
- * Responsibilities:
- * - Enforce master on/off, mode, and per-feature toggles
- * - Enforce daily / weekly / monthly call limits
- * - Enforce once-per-day / once-per-week frequency guards for scheduled features
- * - Return cached results when the data snapshot hasn't changed
- * - Resolve the correct model tier (respecting escalation settings)
- * - Log every attempt (allowed or blocked) to the ai_usage_logs Firestore collection
- * - Cache results in sessionStorage + localStorage for fast repeat calls
+ * Every AI feature must call canRunAI() before making an AI request.
+ * This module also owns:
+ *   - Firestore-persisted caching (ai_cache collection)
+ *   - Usage logging (ai_usage_logs collection)
+ *   - Data snapshot hashing for change detection
  */
 
-import { collection, addDoc, getDocs, query, where, limit, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase";
 import {
-  AISettings,
-  AIRunGuardResult,
-  AICacheEntry,
-  AIUsageLog,
-  AIModelTier,
-  AITriggerType,
-  DEFAULT_AI_SETTINGS,
-  FEATURE_DEFAULT_TIERS,
-  SCHEDULABLE_FEATURES,
-  DAILY_ONCE_FEATURES,
-  WEEKLY_ONCE_FEATURES,
-} from "../types/aiSettings";
+  collection,
+  doc,
+  getDoc,
+  setDoc,
+  addDoc,
+  query,
+  where,
+  getDocs,
+  serverTimestamp,
+  Timestamp,
+} from "firebase/firestore";
+import { db } from "../firebase";
+import type { ModelTier } from "./aiModelMap";
 
 // ---------------------------------------------------------------------------
-// Model tier → actual Gemini model ID mapping
-// Update these strings when new Gemini models become available.
+// Types
 // ---------------------------------------------------------------------------
-export const MODEL_TIER_MAP: Record<AIModelTier, string> = {
-  smart_saver: "gemini-2.0-flash-lite",        // cost-efficient, fast
-  balanced_intelligence: "gemini-2.0-flash",   // stronger reasoning
-  deep_strategy: "gemini-1.5-pro",             // highest capability, use sparingly
+
+export type AIMode = "off" | "manual_only" | "smart_scheduled";
+export type TriggerType = "manual" | "scheduled";
+
+export interface AISettings {
+  aiEnabled: boolean;
+  aiMode: AIMode;
+  preferredModelTier: ModelTier;
+  allowModelEscalation: boolean;
+  dailyAICallLimit: number;
+  weeklyAICallLimit: number;
+  monthlyAICallLimit: number;
+  enableDailyBusinessAdvisor: boolean;
+  enableWeeklyBusinessReport: boolean;
+  enableAILeadEngine: boolean;
+  enableClientMessageAI: boolean;
+  enableEstimateAI: boolean;
+  enableRevenueIntelligenceAI: boolean;
+  enableRiskExplanationAI: boolean;
+  lastDailyAdvisorRunAt?: Timestamp | null;
+  lastWeeklyReportRunAt?: Timestamp | null;
+  lastAILeadEngineRunAt?: Timestamp | null;
+}
+
+export const DEFAULT_AI_SETTINGS: AISettings = {
+  aiEnabled: true,
+  aiMode: "manual_only",
+  preferredModelTier: "smart_saver",
+  allowModelEscalation: false,
+  dailyAICallLimit: 50,
+  weeklyAICallLimit: 200,
+  monthlyAICallLimit: 500,
+  enableDailyBusinessAdvisor: false,
+  enableWeeklyBusinessReport: false,
+  enableAILeadEngine: true,
+  enableClientMessageAI: true,
+  enableEstimateAI: true,
+  enableRevenueIntelligenceAI: false,
+  enableRiskExplanationAI: true,
+  lastDailyAdvisorRunAt: null,
+  lastWeeklyReportRunAt: null,
+  lastAILeadEngineRunAt: null,
 };
 
-// Session-level in-memory cache (cleared on page reload)
-const sessionCache = new Map<string, AICacheEntry>();
+export interface AIRunGuardResult {
+  allowed: boolean;
+  reason: string;
+  useCachedResult: boolean;
+  modelTier: ModelTier;
+}
 
-// Session-level call counter (fallback when Firestore is unavailable)
-let _sessionCallCount = 0;
+// Feature names used across the app — must match what's passed to canRunAI
+export type AIFeatureName =
+  | "daily_business_advisor"
+  | "weekly_business_report"
+  | "ai_lead_engine"
+  | "client_message"
+  | "estimate_notes"
+  | "quote_wording"
+  | "client_analysis"
+  | "follow_up_message"
+  | "job_summary"
+  | "revenue_intelligence"
+  | "risk_explanation"
+  | "deep_analysis"
+  | "ask_assistant"
+  | "qualify_lead"
+  | "receipt_analysis"
+  | "revenue_optimization"
+  | "deployment_analysis"
+  | "smart_quote_pricing";
 
 // ---------------------------------------------------------------------------
-// Hash helpers
+// Feature ↔ settings toggle mapping
 // ---------------------------------------------------------------------------
-function generateHash(data: any): string {
-  const str = JSON.stringify(data);
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = Math.imul(31, h) + str.charCodeAt(i) | 0;
+
+function isFeatureEnabled(feature: AIFeatureName, settings: AISettings): boolean {
+  switch (feature) {
+    case "daily_business_advisor": return settings.enableDailyBusinessAdvisor;
+    case "weekly_business_report": return settings.enableWeeklyBusinessReport;
+    case "ai_lead_engine":
+    case "qualify_lead":         return settings.enableAILeadEngine;
+    case "client_message":
+    case "follow_up_message":    return settings.enableClientMessageAI;
+    case "estimate_notes":
+    case "quote_wording":
+    case "smart_quote_pricing":  return settings.enableEstimateAI;
+    case "revenue_intelligence":
+    case "revenue_optimization": return settings.enableRevenueIntelligenceAI;
+    case "risk_explanation":     return settings.enableRiskExplanationAI;
+    // These are always allowed if AI is on — no dedicated toggle
+    case "client_analysis":
+    case "job_summary":
+    case "ask_assistant":
+    case "receipt_analysis":
+    case "deployment_analysis":
+    case "deep_analysis":        return true;
+    default:                     return true;
   }
-  return Math.abs(h).toString(36);
-}
-
-export function generateDataHash(data: any): string {
-  return generateHash(data);
 }
 
 // ---------------------------------------------------------------------------
-// Cache helpers
+// Usage counting
 // ---------------------------------------------------------------------------
-function cacheKey(featureName: string, dataHash: string): string {
-  return `ai_cache__${featureName}__${dataHash}`;
-}
 
-function readLocalCache(featureName: string, dataHash: string): AICacheEntry | null {
-  const key = cacheKey(featureName, dataHash);
-  const memHit = sessionCache.get(key);
-  if (memHit) return memHit;
-
+async function getUsageCounts(userId?: string): Promise<{ daily: number; weekly: number; monthly: number }> {
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const entry: AICacheEntry = JSON.parse(raw);
-    // TTL: 1 hour for manual, 24 hours for scheduled
-    const maxAge = entry.triggerType === "scheduled" ? 86_400_000 : 3_600_000;
-    if (Date.now() - new Date(entry.lastRunAt).getTime() > maxAge) {
-      localStorage.removeItem(key);
-      return null;
-    }
-    sessionCache.set(key, entry); // warm session cache
-    return entry;
-  } catch {
-    return null;
-  }
-}
-
-function writeLocalCache(featureName: string, dataHash: string, entry: AICacheEntry): void {
-  const key = cacheKey(featureName, dataHash);
-  sessionCache.set(key, entry);
-  try {
-    localStorage.setItem(key, JSON.stringify(entry));
-  } catch {
-    // ignore quota errors
-  }
-}
-
-// Public API for callers to store results after a successful AI call
-export function cacheAIResult(
-  featureName: string,
-  dataSnapshot: any,
-  entry: Omit<AICacheEntry, "dataSnapshotHash">
-): void {
-  const hash = generateHash(dataSnapshot ?? {});
-  writeLocalCache(featureName, hash, { ...entry, dataSnapshotHash: hash });
-}
-
-// ---------------------------------------------------------------------------
-// Call-count helpers (Firestore-backed with session fallback)
-// ---------------------------------------------------------------------------
-async function getCallCount(since: Date, userId?: string): Promise<number> {
-  try {
-    const constraints: any[] = [
-      where("timestamp", ">=", since.toISOString()),
-      where("allowed", "==", true),
-      limit(1000),
-    ];
-    if (userId) constraints.push(where("userId", "==", userId));
-    const snap = await getDocs(query(collection(db, "ai_usage_logs"), ...constraints));
-    return snap.size;
-  } catch {
-    return _sessionCallCount;
-  }
-}
-
-async function getDailyCallCount(userId?: string): Promise<number> {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  return getCallCount(startOfDay, userId);
-}
-
-async function getWeeklyCallCount(userId?: string): Promise<number> {
-  const d = new Date();
-  d.setDate(d.getDate() - d.getDay());
-  d.setHours(0, 0, 0, 0);
-  return getCallCount(d, userId);
-}
-
-async function getMonthlyCallCount(userId?: string): Promise<number> {
-  const d = new Date();
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return getCallCount(d, userId);
-}
-
-// ---------------------------------------------------------------------------
-// Tier utilities
-// ---------------------------------------------------------------------------
-function tierLevel(tier: AIModelTier): number {
-  return { smart_saver: 1, balanced_intelligence: 2, deep_strategy: 3 }[tier];
-}
-
-function resolveModelTier(
-  featureName: string,
-  preferredTier: AIModelTier,
-  forceModelTier: AIModelTier | undefined,
-  allowEscalation: boolean,
-  triggerType: AITriggerType
-): AIModelTier {
-  // Manual "Deep Analysis" button always gets deep_strategy
-  if (forceModelTier === "deep_strategy" && triggerType === "manual") {
-    return "deep_strategy";
-  }
-
-  let tier = forceModelTier ?? preferredTier;
-  const featureMin = FEATURE_DEFAULT_TIERS[featureName];
-
-  // If the feature needs a stronger tier and escalation is permitted, upgrade
-  if (featureMin && tierLevel(featureMin) > tierLevel(tier) && allowEscalation) {
-    tier = featureMin;
-  }
-
-  return tier;
-}
-
-// ---------------------------------------------------------------------------
-// Core run guard
-// ---------------------------------------------------------------------------
-export async function checkAIRunGuard(params: {
-  featureName: string;
-  triggerType: AITriggerType;
-  aiSettings: AISettings | null | undefined;
-  dataSnapshot?: any;
-  forceModelTier?: AIModelTier;
-  userId?: string;
-}): Promise<AIRunGuardResult> {
-  const { featureName, triggerType, dataSnapshot, forceModelTier, userId } = params;
-  const s = params.aiSettings ?? DEFAULT_AI_SETTINGS;
-  const noop = (reason: string): AIRunGuardResult =>
-    ({ allowed: false, reason, useCachedResult: false, modelTier: "smart_saver" });
-
-  // 1. Master toggle
-  if (!s.aiEnabled) return noop("AI is disabled. Enable it in AI Settings.");
-
-  // 2. Mode guard
-  if (s.aiMode === "off") return noop("AI mode is Off.");
-  if (s.aiMode === "manual_only" && triggerType === "scheduled") {
-    return noop("Scheduled AI is disabled. Switch mode to Smart Scheduled to allow it.");
-  }
-
-  // 3. Schedulable check
-  if (triggerType === "scheduled" && !SCHEDULABLE_FEATURES.has(featureName)) {
-    return noop(`'${featureName}' is manual-only and cannot run on a schedule.`);
-  }
-
-  // 4. Per-feature toggle
-  const toggleMap: Record<string, boolean> = {
-    dailyBusinessAdvisor: s.enableDailyBusinessAdvisor,
-    weeklyBusinessReport: s.enableWeeklyBusinessReport,
-    aiLeadEngine: s.enableAILeadEngine,
-    clientMessageAI: s.enableClientMessageAI,
-    estimateAI: s.enableEstimateAI,
-    revenueIntelligenceAI: s.enableRevenueIntelligenceAI,
-    riskExplanationAI: s.enableRiskExplanationAI,
-    marketingCampaignAI: s.enableMarketingCampaignAI,
-    receiptAnalysisAI: s.enableReceiptAnalysisAI,
-    jobUpsellAI: s.enableJobUpsellAI,
-    deploymentAnalysisAI: true, // always on when AI is enabled
-    deepAnalysis: true,          // user-triggered, always allowed
-  };
-  if (toggleMap[featureName] === false) {
-    return noop(`Feature '${featureName}' is disabled in AI Settings.`);
-  }
-
-  // 5. Frequency guards for scheduled features
-  if (triggerType === "scheduled") {
     const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekStart = new Date(todayStart);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    if (DAILY_ONCE_FEATURES.has(featureName)) {
-      const lastRunStr =
-        featureName === "dailyBusinessAdvisor" ? s.lastDailyAdvisorRunAt :
-        featureName === "aiLeadEngine" ? s.lastAILeadEngineRunAt : undefined;
+    const logsRef = collection(db, "ai_usage_logs");
+    const snap = await getDocs(
+      query(
+        logsRef,
+        where("timestamp", ">=", Timestamp.fromDate(monthStart)),
+        ...(userId ? [where("userId", "==", userId)] : [])
+      )
+    );
 
-      if (lastRunStr) {
-        const lastRun = new Date(lastRunStr);
-        if (lastRun.toDateString() === now.toDateString()) {
-          const hash = generateHash(dataSnapshot ?? {});
-          const cached = readLocalCache(featureName, hash);
-          if (cached) {
-            return { allowed: false, reason: "Already ran today — serving cached result.", useCachedResult: true, modelTier: s.preferredModelTier, cachedResult: cached.result };
-          }
-          return noop(`'${featureName}' already ran today.`);
-        }
+    let daily = 0, weekly = 0, monthly = 0;
+    snap.docs.forEach(d => {
+      const data = d.data();
+      const ts: Timestamp = data.timestamp;
+      if (!ts) return;
+      const t = ts.toDate();
+      monthly++;
+      if (t >= weekStart) weekly++;
+      if (t >= todayStart) daily++;
+    });
+
+    return { daily, weekly, monthly };
+  } catch {
+    // If logging isn't set up yet, don't block AI
+    return { daily: 0, weekly: 0, monthly: 0 };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Run guard
+// ---------------------------------------------------------------------------
+
+export async function canRunAI(
+  feature: AIFeatureName,
+  trigger: TriggerType,
+  settings: AISettings,
+  options: {
+    userId?: string;
+    requestedTier?: ModelTier;
+    cachedResultAvailable?: boolean;
+    dataHash?: string;
+    lastCachedHash?: string;
+    lastRunAt?: Date | null;
+  } = {}
+): Promise<AIRunGuardResult> {
+  const {
+    userId,
+    requestedTier,
+    cachedResultAvailable = false,
+    dataHash,
+    lastCachedHash,
+    lastRunAt,
+  } = options;
+
+  // 1. Master kill switch
+  if (!settings.aiEnabled) {
+    return {
+      allowed: false,
+      reason: "AI is disabled in settings.",
+      useCachedResult: cachedResultAvailable,
+      modelTier: settings.preferredModelTier,
+    };
+  }
+
+  // 2. Mode check
+  if (settings.aiMode === "off") {
+    return {
+      allowed: false,
+      reason: "AI mode is set to Off.",
+      useCachedResult: cachedResultAvailable,
+      modelTier: settings.preferredModelTier,
+    };
+  }
+
+  if (settings.aiMode === "manual_only" && trigger === "scheduled") {
+    return {
+      allowed: false,
+      reason: "AI is in Manual Only mode. Scheduled AI is disabled.",
+      useCachedResult: cachedResultAvailable,
+      modelTier: settings.preferredModelTier,
+    };
+  }
+
+  // 3. Feature toggle
+  if (!isFeatureEnabled(feature, settings)) {
+    return {
+      allowed: false,
+      reason: `${feature} is disabled in AI settings.`,
+      useCachedResult: cachedResultAvailable,
+      modelTier: settings.preferredModelTier,
+    };
+  }
+
+  // 4. Data snapshot — skip if data hasn't changed
+  if (dataHash && lastCachedHash && dataHash === lastCachedHash && cachedResultAvailable) {
+    return {
+      allowed: false,
+      reason: "Data unchanged since last run. Using cached result.",
+      useCachedResult: true,
+      modelTier: settings.preferredModelTier,
+    };
+  }
+
+  // 5. Cooldown guards for scheduled features
+  if (trigger === "scheduled") {
+    const now = Date.now();
+    if (feature === "daily_business_advisor" && lastRunAt) {
+      const msSinceLast = now - lastRunAt.getTime();
+      if (msSinceLast < 20 * 60 * 60 * 1000) { // 20 hours
+        return {
+          allowed: false,
+          reason: "Daily Business Advisor already ran today.",
+          useCachedResult: cachedResultAvailable,
+          modelTier: settings.preferredModelTier,
+        };
       }
     }
-
-    if (WEEKLY_ONCE_FEATURES.has(featureName)) {
-      const lastRunStr =
-        featureName === "weeklyBusinessReport" ? s.lastWeeklyReportRunAt : undefined;
-
-      if (lastRunStr) {
-        const lastRun = new Date(lastRunStr);
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() - now.getDay());
-        weekStart.setHours(0, 0, 0, 0);
-        if (lastRun >= weekStart) {
-          const hash = generateHash(dataSnapshot ?? {});
-          const cached = readLocalCache(featureName, hash);
-          if (cached) {
-            return { allowed: false, reason: "Already ran this week — serving cached result.", useCachedResult: true, modelTier: s.preferredModelTier, cachedResult: cached.result };
-          }
-          return noop(`'${featureName}' already ran this week.`);
-        }
+    if (feature === "weekly_business_report" && lastRunAt) {
+      const msSinceLast = now - lastRunAt.getTime();
+      if (msSinceLast < 6 * 24 * 60 * 60 * 1000) { // 6 days
+        return {
+          allowed: false,
+          reason: "Weekly Business Report already ran this week.",
+          useCachedResult: cachedResultAvailable,
+          modelTier: settings.preferredModelTier,
+        };
+      }
+    }
+    if (feature === "ai_lead_engine" && lastRunAt) {
+      const msSinceLast = now - lastRunAt.getTime();
+      if (msSinceLast < 20 * 60 * 60 * 1000) {
+        return {
+          allowed: false,
+          reason: "AI Lead Engine already ran today.",
+          useCachedResult: cachedResultAvailable,
+          modelTier: settings.preferredModelTier,
+        };
       }
     }
   }
 
-  // 6. Data-snapshot cache check (covers both manual and scheduled)
-  if (dataSnapshot !== undefined) {
-    const hash = generateHash(dataSnapshot);
-    const cached = readLocalCache(featureName, hash);
-    if (cached) {
-      const modelTier = resolveModelTier(featureName, s.preferredModelTier, forceModelTier, s.allowModelEscalation, triggerType);
-      return { allowed: true, reason: "Cache hit — data unchanged.", useCachedResult: true, modelTier, cachedResult: cached.result };
-    }
+  // 6. Usage limits
+  const counts = await getUsageCounts(userId);
+  if (counts.daily >= settings.dailyAICallLimit) {
+    return {
+      allowed: false,
+      reason: `Daily AI call limit reached (${settings.dailyAICallLimit}).`,
+      useCachedResult: cachedResultAvailable,
+      modelTier: settings.preferredModelTier,
+    };
+  }
+  if (counts.weekly >= settings.weeklyAICallLimit) {
+    return {
+      allowed: false,
+      reason: `Weekly AI call limit reached (${settings.weeklyAICallLimit}).`,
+      useCachedResult: cachedResultAvailable,
+      modelTier: settings.preferredModelTier,
+    };
+  }
+  if (counts.monthly >= settings.monthlyAICallLimit) {
+    return {
+      allowed: false,
+      reason: `Monthly AI call limit reached (${settings.monthlyAICallLimit}).`,
+      useCachedResult: cachedResultAvailable,
+      modelTier: settings.preferredModelTier,
+    };
   }
 
-  // 7. Daily call limit
-  const daily = await getDailyCallCount(userId);
-  if (daily >= s.dailyAICallLimit) {
-    return noop(`Daily AI call limit reached (${s.dailyAICallLimit} calls/day). Reset tomorrow.`);
+  // 7. Model tier resolution
+  let modelTier: ModelTier = requestedTier ?? settings.preferredModelTier;
+  // Escalation guard — if escalation not allowed, cap at preferred tier
+  const tierRank: Record<ModelTier, number> = {
+    smart_saver: 0,
+    balanced_intelligence: 1,
+    deep_strategy: 2,
+  };
+  if (
+    !settings.allowModelEscalation &&
+    tierRank[modelTier] > tierRank[settings.preferredModelTier]
+  ) {
+    modelTier = settings.preferredModelTier;
   }
 
-  // 8. Weekly call limit
-  const weekly = await getWeeklyCallCount(userId);
-  if (weekly >= s.weeklyAICallLimit) {
-    return noop(`Weekly AI call limit reached (${s.weeklyAICallLimit} calls/week).`);
-  }
-
-  // 9. Monthly call limit
-  const monthly = await getMonthlyCallCount(userId);
-  if (monthly >= s.monthlyAICallLimit) {
-    return noop(`Monthly AI call limit reached (${s.monthlyAICallLimit} calls/month).`);
-  }
-
-  // 10. Resolve model tier
-  const modelTier = resolveModelTier(
-    featureName,
-    s.preferredModelTier,
-    forceModelTier,
-    s.allowModelEscalation,
-    triggerType
-  );
-
-  return { allowed: true, reason: "OK", useCachedResult: false, modelTier };
+  return {
+    allowed: true,
+    reason: "OK",
+    useCachedResult: false,
+    modelTier,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Usage logging
 // ---------------------------------------------------------------------------
-export async function logAIUsage(log: AIUsageLog): Promise<void> {
-  if (log.allowed) _sessionCallCount++;
+
+export async function logAIUsage(entry: {
+  featureName: AIFeatureName;
+  triggerType: TriggerType;
+  allowed: boolean;
+  blocked: boolean;
+  reason: string;
+  modelTier: ModelTier;
+  modelUsed: string;
+  cachedResultUsed: boolean;
+  userId?: string;
+  tokenEstimate?: number;
+  estimatedCost?: number;
+}): Promise<void> {
   try {
     await addDoc(collection(db, "ai_usage_logs"), {
-      ...log,
-      createdAt: serverTimestamp(),
+      ...entry,
+      timestamp: serverTimestamp(),
     });
   } catch {
-    // Logging failures must never break the app
+    // Non-critical — never let logging failure block the app
   }
 }
 
 // ---------------------------------------------------------------------------
-// Convenience: get today/week/month counts for the UI
+// Firestore AI result cache
 // ---------------------------------------------------------------------------
-export async function getAIUsageSummary(userId?: string): Promise<{
-  today: number;
-  thisWeek: number;
-  thisMonth: number;
-}> {
-  const [today, thisWeek, thisMonth] = await Promise.all([
-    getDailyCallCount(userId),
-    getWeeklyCallCount(userId),
-    getMonthlyCallCount(userId),
-  ]);
-  return { today, thisWeek, thisMonth };
+
+export interface AICacheEntry {
+  featureName: string;
+  result: any;
+  createdAt: any;
+  updatedAt: any;
+  lastRunAt: any;
+  dataSnapshotHash: string;
+  modelUsed: string;
+  modelTier: ModelTier;
+  triggerType: TriggerType;
+  cachedResultUsed: boolean;
+  tokenEstimate?: number;
+  estimatedCost?: number;
 }
 
+export async function getAICache(
+  featureName: string,
+  dataHash?: string
+): Promise<{ result: any; entry: AICacheEntry } | null> {
+  try {
+    const snap = await getDoc(doc(db, "ai_cache", featureName));
+    if (!snap.exists()) return null;
+    const entry = snap.data() as AICacheEntry;
+    // If caller provides a hash and data changed, treat as cache miss
+    if (dataHash && entry.dataSnapshotHash !== dataHash) return null;
+    return { result: entry.result, entry };
+  } catch {
+    return null;
+  }
+}
+
+export async function setAICache(
+  featureName: string,
+  result: any,
+  meta: {
+    dataSnapshotHash: string;
+    modelUsed: string;
+    modelTier: ModelTier;
+    triggerType: TriggerType;
+    tokenEstimate?: number;
+    estimatedCost?: number;
+  }
+): Promise<void> {
+  try {
+    await setDoc(
+      doc(db, "ai_cache", featureName),
+      {
+        featureName,
+        result,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastRunAt: serverTimestamp(),
+        dataSnapshotHash: meta.dataSnapshotHash,
+        modelUsed: meta.modelUsed,
+        modelTier: meta.modelTier,
+        triggerType: meta.triggerType,
+        cachedResultUsed: false,
+        ...(meta.tokenEstimate != null && { tokenEstimate: meta.tokenEstimate }),
+        ...(meta.estimatedCost != null && { estimatedCost: meta.estimatedCost }),
+      },
+      { merge: true }
+    );
+  } catch {
+    // Non-critical
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Data snapshot hashing (lightweight, no crypto dep needed)
+// ---------------------------------------------------------------------------
+
+export function hashSnapshot(data: any): string {
+  const str = JSON.stringify(data);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return String(hash >>> 0);
+}
+
+// ---------------------------------------------------------------------------
+// AI settings loader (reads from settings/business doc)
+// ---------------------------------------------------------------------------
+
+export async function loadAISettings(): Promise<AISettings> {
+  try {
+    const snap = await getDoc(doc(db, "settings", "business"));
+    if (snap.exists()) {
+      const data = snap.data();
+      const saved = data?.aiSettings ?? {};
+      return { ...DEFAULT_AI_SETTINGS, ...saved };
+    }
+  } catch {
+    // Fall through to defaults
+  }
+  return { ...DEFAULT_AI_SETTINGS };
+}
+
+export async function saveAISettings(
+  aiSettings: AISettings,
+  lastRunUpdates?: Partial<Pick<AISettings, "lastDailyAdvisorRunAt" | "lastWeeklyReportRunAt" | "lastAILeadEngineRunAt">>
+): Promise<void> {
+  const merged = lastRunUpdates ? { ...aiSettings, ...lastRunUpdates } : aiSettings;
+  await setDoc(
+    doc(db, "settings", "business"),
+    { aiSettings: merged },
+    { merge: true }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Usage summary (for settings UI display)
+// ---------------------------------------------------------------------------
+
+export async function getAIUsageSummary(userId?: string): Promise<{
+  today: number;
+  week: number;
+  month: number;
+}> {
+  const counts = await getUsageCounts(userId);
+  return { today: counts.daily, week: counts.weekly, month: counts.monthly };
+}

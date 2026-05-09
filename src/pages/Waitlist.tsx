@@ -96,7 +96,7 @@ export default function Waitlist() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-black p-8">
+    <div className="w-full">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-4xl font-black text-white uppercase tracking-tight">Waitlist Queue</h1>

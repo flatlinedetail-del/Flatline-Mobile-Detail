@@ -14,26 +14,26 @@ import { Badge } from "../components/ui/badge";
 import { Textarea } from "../components/ui/textarea";
 import { cn, formatPhoneNumber, cleanAddress } from "../lib/utils";
 import { StandardInput } from "../components/StandardInput";
-import { 
-  UserPlus, 
-  Search, 
-  Filter, 
-  MoreHorizontal, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  Calendar, 
-  Clock, 
-  ArrowRight, 
-  CheckCircle2, 
-  XCircle, 
+import {
+  UserPlus,
+  Search,
+  Filter,
+  MoreHorizontal,
+  Phone,
+  Mail,
+  MapPin,
+  Calendar,
+  Clock,
+  ArrowRight,
+  CheckCircle2,
+  XCircle,
   MessageSquare,
   History,
   ExternalLink,
   Trash2,
   Settings2,
   DatabaseZap,
-  RefreshCcw
+  RefreshCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { syncService } from "../services/syncService";
@@ -43,6 +43,7 @@ import { useNavigate } from "react-router-dom";
 import AddressInput from "../components/AddressInput";
 import { createNotification } from "../services/notificationService";
 import VehicleSelector from "../components/VehicleSelector";
+import { VinInput } from "../components/VinInput";
 
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
@@ -68,15 +69,21 @@ export default function Leads() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [newVehicleData, setNewVehicleData] = useState({ year: "", make: "", model: "" });
-  const [newLeadAddress, setNewLeadAddress] = useState({ 
-    address: "", 
-    lat: 0, 
+  const [newLeadAddress, setNewLeadAddress] = useState({
+    address: "",
+    lat: 0,
     lng: 0,
     city: "",
     state: "",
     zipCode: "",
     placeId: ""
   });
+  const [vinInput, setVinInput] = useState("");
+  const [isGeolocating, setIsGeolocating] = useState(false);
+  const [addressInputKey, setAddressInputKey] = useState(0);
+  const [showSmsPrompt, setShowSmsPrompt] = useState(false);
+  const [pendingSmsPhone, setPendingSmsPhone] = useState("");
+  const [pendingSmsName, setPendingSmsName] = useState("");
 
   const fetchLeads = async (showToast = false) => {
     // Check cache first if not performing a manual sync
@@ -124,6 +131,60 @@ export default function Leads() {
     fetchLeads();
   }, [profile, authLoading]);
 
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported on this device.");
+      return;
+    }
+    setIsGeolocating(true);
+    toast.loading("Getting location...", { id: "geo-lead" });
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        toast.loading("Finding address...", { id: "geo-lead" });
+
+        let resolvedAddress = `Near ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        let locationSource = "geolocation_coords_only";
+        try {
+          const apiKey = (import.meta as any).env.VITE_GOOGLE_MAPS_API_KEY;
+          if (apiKey) {
+            const res = await fetch(
+              `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`
+            );
+            const data = await res.json();
+            if (data.results && data.results.length > 0) {
+              resolvedAddress = data.results[0].formatted_address;
+              locationSource = "geolocation_geocoded";
+            }
+          }
+        } catch (geoErr) {
+          console.error("Reverse geocoding failed:", geoErr);
+        }
+
+        setNewLeadAddress(prev => ({
+          ...prev,
+          address: resolvedAddress,
+          lat,
+          lng,
+        }));
+        // Force AddressInput to re-render with the new default value
+        setAddressInputKey(k => k + 1);
+        toast.success(`Location set: ${resolvedAddress}`, { id: "geo-lead" });
+        setIsGeolocating(false);
+        // Store locationSource for save
+        (window as any).__leadLocationSource = locationSource;
+      },
+      (err) => {
+        console.error("Geolocation error:", err);
+        toast.dismiss("geo-lead");
+        toast.error("Could not get your location. Please allow location access or enter address manually.");
+        setIsGeolocating(false);
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  };
+
   const handleAddLead = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -132,13 +193,16 @@ export default function Leads() {
       phone: formData.get("phone"),
       email: formData.get("email"),
       address: newLeadAddress.address,
-      latitude: newLeadAddress.lat,
-      longitude: newLeadAddress.lng,
+      latitude: newLeadAddress.lat || null,
+      longitude: newLeadAddress.lng || null,
       city: newLeadAddress.city,
       state: newLeadAddress.state,
       zipCode: newLeadAddress.zipCode,
       placeId: newLeadAddress.placeId,
+      locationSource: (window as any).__leadLocationSource || (newLeadAddress.lat ? "geolocation" : "manual"),
+      createdLocation: newLeadAddress.lat && newLeadAddress.lng ? { lat: newLeadAddress.lat, lng: newLeadAddress.lng } : null,
       vehicleInfo: `${newVehicleData.year} ${newVehicleData.make} ${newVehicleData.model}`.trim(),
+      vin: vinInput.trim() || null,
       requestedService: formData.get("requestedService"),
       source: formData.get("source") || "Direct",
       status: editingLead?.status || "new",
@@ -176,6 +240,13 @@ export default function Leads() {
           });
 
           toast.success("Lead added successfully");
+          // Prompt to send SMS if phone is provided
+          const phone = (leadData.phone || "").toString().trim();
+          if (phone) {
+            setPendingSmsPhone(phone);
+            setPendingSmsName((leadData.name || "").toString());
+            setShowSmsPrompt(true);
+          }
         } catch (err) {
           console.warn("Direct add failed, enqueuing...", err);
           await syncService.enqueueTask("leads", {
@@ -185,13 +256,14 @@ export default function Leads() {
           toast.info("Offline: Lead saved locally and will sync later");
         }
       }
-      
+
       // Invalidate cache
       sessionStorage.removeItem('leads_cache');
       sessionStorage.removeItem('leads_cache_time');
-      
+
       setIsAddDialogOpen(false);
       setEditingLead(null);
+      setVinInput("");
       fetchLeads();
     } catch (error) {
       console.error("Error saving lead:", error);
@@ -269,7 +341,7 @@ export default function Leads() {
   };
 
   return (
-    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto">
+    <div className="space-y-8 pb-20 w-full">
       <PageHeader 
         title="Lead PIPELINE" 
         accentWord="PIPELINE" 
@@ -362,12 +434,24 @@ export default function Leads() {
                   />
                 </div>
                 <div className="space-y-3">
-                  <Label className="font-black uppercase tracking-widest text-[10px] text-white">Mission Coordinates (Address)</Label>
-                  <AddressInput 
-                    defaultValue={editingLead?.address || ""}
-                    onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({ 
-                      address, 
-                      lat, 
+                  <div className="flex items-center justify-between">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Mission Coordinates (Address)</Label>
+                    <button
+                      type="button"
+                      onClick={handleUseMyLocation}
+                      disabled={isGeolocating}
+                      className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-primary hover:text-white/80 transition-colors disabled:opacity-50"
+                    >
+                      <MapPin className="w-3 h-3" />
+                      {isGeolocating ? "Locating..." : "Use My Location"}
+                    </button>
+                  </div>
+                  <AddressInput
+                    key={addressInputKey}
+                    defaultValue={newLeadAddress.address || editingLead?.address || ""}
+                    onAddressSelect={(address, lat, lng, structured) => setNewLeadAddress({
+                      address,
+                      lat,
                       lng,
                       city: structured?.city || "",
                       state: structured?.state || "",
@@ -377,10 +461,15 @@ export default function Leads() {
                     placeholder="123 Main St, City, ST"
                     className="bg-white/5 border-white/10 text-white rounded-xl h-12 font-bold"
                   />
+                  {newLeadAddress.lat !== 0 && newLeadAddress.lng !== 0 && (
+                    <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest">
+                      ✓ Coordinates captured: {newLeadAddress.lat.toFixed(5)}, {newLeadAddress.lng.toFixed(5)}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-3">
                   <Label className="font-black uppercase tracking-widest text-[10px] text-white">Asset Profile (Vehicle)</Label>
-                  <VehicleSelector 
+                  <VehicleSelector
                     onSelect={setNewVehicleData}
                     initialValues={editingLead?.vehicleInfo ? {
                       year: editingLead.vehicleInfo.split(" ")[0] || "",
@@ -389,6 +478,12 @@ export default function Leads() {
                     } : undefined}
                   />
                 </div>
+                <VinInput
+                  value={vinInput}
+                  onChange={setVinInput}
+                  label="VIN (Optional)"
+                  placeholder="17-character VIN"
+                />
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-3">
                     <Label className="font-black uppercase tracking-widest text-[10px] text-white">Requested Protocol (Service)</Label>
@@ -720,6 +815,48 @@ export default function Leads() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* SMS Confirmation Dialog */}
+      <Dialog open={showSmsPrompt} onOpenChange={setShowSmsPrompt}>
+        <DialogContent className="bg-[#0B0B0B] border border-white/10 p-0 overflow-hidden rounded-3xl shadow-2xl shadow-black sm:max-w-[400px]">
+          <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <MessageSquare className="w-5 h-5 text-primary" />
+              </div>
+              <DialogTitle className="font-black text-lg tracking-tighter text-white uppercase">Send Welcome SMS?</DialogTitle>
+            </div>
+          </DialogHeader>
+          <div className="p-8 space-y-6">
+            <p className="text-sm text-white/70 font-medium leading-relaxed">
+              Send an introductory SMS to <span className="text-white font-black">{pendingSmsName}</span> at{" "}
+              <span className="text-primary font-black">{pendingSmsPhone}</span>?
+            </p>
+            <div className="flex items-center gap-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowSmsPrompt(false)}
+                className="flex-1 text-white hover:text-white font-black uppercase tracking-widest text-[10px] h-12 border border-white/10"
+              >
+                Skip
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  const smsUrl = `sms:${pendingSmsPhone}?body=${encodeURIComponent(`Hi ${pendingSmsName}, thanks for your interest! We'll be in touch shortly to discuss your detailing needs. – DetailFlow`)}`;
+                  window.open(smsUrl, "_blank");
+                  setShowSmsPrompt(false);
+                }}
+                className="flex-[2] bg-primary text-white hover:opacity-90 font-black h-12 rounded-2xl uppercase tracking-[0.2em] text-xs shadow-glow-blue"
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                Open SMS
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

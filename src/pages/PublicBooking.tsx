@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
-import { collection, query, addDoc, serverTimestamp, doc, getDoc, getDocs, where } from "firebase/firestore";
+import { collection, query, addDoc, serverTimestamp, doc, getDoc, getDocs, where, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CheckCircle2, Loader2, ArrowRight, Truck, Star, Clock, User, Calendar, MapPin, Receipt, ShieldCheck, Phone, XCircle, Car, CircleDot, AlertCircle } from "lucide-react";
+import { CheckCircle2, Loader2, ArrowRight, Truck, Star, Clock, User, Calendar, MapPin, Receipt, ShieldCheck, Phone, XCircle, Car, CircleDot, AlertCircle, Tag, X as XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import AddressInput from "../components/AddressInput";
@@ -160,6 +160,12 @@ export default function PublicBooking() {
   const [clientNote, setClientNote] = useState("");
   const [alternativeTimes, setAlternativeTimes] = useState<Date[]>([]);
   const [isBackupAvailable, setIsBackupAvailable] = useState<boolean | null>(null);
+
+  // Coupon / discount state
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<any | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState("");
 
   const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
 
@@ -394,6 +400,49 @@ export default function PublicBooking() {
     }
   }, [clientGoal, condition, services, addons, step]);
 
+  // Apply coupon against Firestore coupons collection
+  const handleApplyCoupon = async () => {
+    const code = couponInput.trim().toUpperCase();
+    if (!code) return;
+    setCouponLoading(true);
+    setCouponError("");
+    try {
+      const snap = await getDocs(
+        query(collection(db, "coupons"), where("code", "==", code), where("isActive", "==", true))
+      );
+      if (snap.empty) {
+        setCouponError("Invalid or expired coupon code.");
+        setAppliedCoupon(null);
+        setCouponLoading(false);
+        return;
+      }
+      const coupon = { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
+      // Check expiry
+      if (coupon.expiryDate) {
+        const expiry = coupon.expiryDate.toDate ? coupon.expiryDate.toDate() : new Date(coupon.expiryDate);
+        if (new Date() > expiry) {
+          setCouponError("This coupon has expired.");
+          setAppliedCoupon(null);
+          setCouponLoading(false);
+          return;
+        }
+      }
+      setAppliedCoupon(coupon);
+      setCouponInput("");
+      toast.success(`Coupon applied: ${coupon.title || code}`);
+    } catch (err) {
+      console.error("Coupon lookup error:", err);
+      setCouponError("Could not validate coupon. Please try again.");
+    }
+    setCouponLoading(false);
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponError("");
+    setCouponInput("");
+  };
+
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!scheduledAt) {
@@ -431,7 +480,15 @@ export default function PublicBooking() {
         updatedAt: serverTimestamp(),
         customerType: "retail",
         baseAmount: totalPrice,
-        totalAmount: totalPrice + (isAfterHours && afterHoursFee ? afterHoursFee * 100 : 0),
+        totalBeforeDiscount: totalPrice,
+        discountAmount: discountAmount,
+        totalAfterDiscount: finalTotal,
+        couponId: appliedCoupon?.id || null,
+        couponCode: appliedCoupon?.code || null,
+        couponTitle: appliedCoupon?.title || null,
+        discountType: appliedCoupon?.discountType || null,
+        discountPercent: appliedCoupon?.discountType === "percentage" ? appliedCoupon.discountValue : null,
+        totalAmount: finalTotal + (isAfterHours && afterHoursFee ? afterHoursFee : 0),
         estimatedDuration: totalDuration,
         afterHoursRecord: isAfterHours ? {
           isAfterHours: true,
@@ -542,6 +599,21 @@ export default function PublicBooking() {
      return price;
   }, [selectedServices, selectedAddons, services, addons]);
 
+  // Compute discount from applied coupon
+  const discountAmount = useMemo(() => {
+    if (!appliedCoupon) return 0;
+    if (appliedCoupon.discountType === "percentage") {
+      return Math.min(totalPrice * (appliedCoupon.discountValue / 100), totalPrice);
+    }
+    if (appliedCoupon.discountType === "fixed") {
+      return Math.min(appliedCoupon.discountValue, totalPrice);
+    }
+    return 0;
+  }, [appliedCoupon, totalPrice]);
+
+  // Final customer-facing total after discount
+  const finalTotal = Math.max(0, totalPrice - discountAmount);
+
   const depositInfo = useMemo(() => {
     let amount = 0;
     let type: "fixed" | "percentage" = "fixed";
@@ -569,13 +641,17 @@ export default function PublicBooking() {
       });
     }
 
-    // If percentage from risk rule, calculate now
+    // If percentage from risk rule, calculate from discounted total
     if (source === "risk_rule" && type === "percentage") {
-      amount = (totalPrice * amount) / 100;
+      amount = (finalTotal * amount) / 100;
     }
 
+    // Cap deposit at final total
+    amount = Math.min(amount, finalTotal);
+
     return { amount, isRequired, source, riskLevel: matchedRiskRule?.protectionLevel };
-  }, [matchedRiskRule, selectedServices, services, totalPrice]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchedRiskRule, selectedServices, services, finalTotal]);
 
 
   if (loading) {
@@ -590,7 +666,7 @@ export default function PublicBooking() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="max-w-md w-full border-none shadow-2xl rounded-3xl overflow-hidden">
-          <div className="bg-green-500 p-8 flex justify-center">
+          <div className="bg-primary p-8 flex justify-center">
             <CheckCircle2 className="w-20 h-20 text-white" />
           </div>
           <CardContent className="p-8 text-center space-y-4">
@@ -619,8 +695,8 @@ export default function PublicBooking() {
            
            <div className="hidden sm:flex items-center gap-8">
              <div className="flex items-center gap-2">
-               <ShieldCheck className="w-5 h-5 text-emerald-500" />
-               <span className="text-xs font-black uppercase tracking-widest text-emerald-50">Secure Booking</span>
+               <ShieldCheck className="w-5 h-5 text-primary" />
+               <span className="text-xs font-black uppercase tracking-widest text-white">Secure Booking</span>
              </div>
              {settings?.businessPhone && (
                <div className="flex items-center gap-2 text-white">
@@ -987,7 +1063,7 @@ export default function PublicBooking() {
                           {scheduledAt && isTimeAvailable !== null && (
                             <div className={cn(
                               "mt-4 p-5 rounded-2xl border flex flex-col gap-4",
-                              isTimeAvailable ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"
+                              isTimeAvailable ? "bg-blue-50 border-blue-200 text-blue-800" : "bg-red-50 border-red-200 text-red-800"
                             )}>
                               <div className="flex items-start gap-3">
                                 {isTimeAvailable ? (
@@ -1161,7 +1237,7 @@ export default function PublicBooking() {
                               placeholder="(555) 000-0000" 
                               className="border-gray-300 text-gray-900 placeholder:text-gray-400 focus-visible:ring-primary/20 h-11"
                               value={clientInfo.phone}
-                              onChange={e => setClientInfo(prev => ({ ...prev, phone: e.target.value }))}
+                              onChange={e => setClientInfo(prev => ({ ...prev, phone: formatPhoneNumber(e.target.value) }))}
                               required
                             />
                           </div>
@@ -1250,14 +1326,79 @@ export default function PublicBooking() {
                              </p>
                            </div>
                             <div className="text-right">
+                              {discountAmount > 0 && (
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-0.5 line-through">
+                                  {formatCurrency(totalPrice)}
+                                </p>
+                              )}
+                              {discountAmount > 0 && (
+                                <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
+                                  − {formatCurrency(discountAmount)} saved
+                                </p>
+                              )}
                               {depositInfo.isRequired && (
                                 <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
                                   Deposit Required: {formatCurrency(depositInfo.amount)}
                                 </p>
                               )}
-                              <span className="text-3xl font-black text-primary">{formatCurrency(totalPrice)}</span>
+                              <span className="text-3xl font-black text-primary">{formatCurrency(finalTotal)}</span>
                             </div>
                         </div>
+                      </div>
+
+                      {/* Coupon entry */}
+                      <div className="space-y-3 p-5 bg-gray-50 border border-gray-200 rounded-2xl">
+                        <p className="text-xs font-black uppercase tracking-widest text-gray-700 flex items-center gap-2">
+                          <Tag className="w-4 h-4 text-primary" />
+                          Promo / Coupon Code
+                        </p>
+                        {appliedCoupon ? (
+                          <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-xl px-4 py-3">
+                            <div>
+                              <p className="text-sm font-black text-primary">{appliedCoupon.title || appliedCoupon.code}</p>
+                              <p className="text-xs font-bold text-primary/80">
+                                {appliedCoupon.discountType === "percentage"
+                                  ? `${appliedCoupon.discountValue}% off`
+                                  : `$${appliedCoupon.discountValue} off`}
+                                {" "}— saves {formatCurrency(discountAmount)}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleRemoveCoupon}
+                              className="text-primary/60 hover:text-red-500 transition-colors"
+                            >
+                              <XIcon className="w-5 h-5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Enter coupon code"
+                              value={couponInput}
+                              onChange={(e) => {
+                                setCouponInput(e.target.value.toUpperCase());
+                                setCouponError("");
+                              }}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyCoupon(); } }}
+                              className="flex-1 h-11 px-4 border-2 border-gray-300 rounded-xl text-sm font-bold text-gray-900 bg-white focus:border-primary outline-none placeholder:text-gray-400 transition-colors"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleApplyCoupon}
+                              disabled={couponLoading || !couponInput.trim()}
+                              className="h-11 px-5 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-xl disabled:opacity-50 hover:bg-[#2A6CFF] transition-colors"
+                            >
+                              {couponLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply"}
+                            </button>
+                          </div>
+                        )}
+                        {couponError && (
+                          <p className="text-xs font-bold text-red-600 flex items-center gap-1">
+                            <XCircle className="w-3.5 h-3.5" /> {couponError}
+                          </p>
+                        )}
                       </div>
 
                       {matchedRiskRule && (
@@ -1338,12 +1479,12 @@ export default function PublicBooking() {
                {/* Show Recommendation Panel starting Step 3 or 4 */}
                {(step >= 3 && recommendedChoice.recommendedService) && (
                  <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-900 text-xs font-black uppercase tracking-widest gap-2 border border-emerald-200 shadow-sm">
-                      <Star className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600" />
+                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-black uppercase tracking-widest gap-2 border border-primary/20 shadow-sm">
+                      <Star className="w-3.5 h-3.5 fill-primary text-primary" />
                       Recommended for your vehicle
                     </div>
                     
-                    <Card className="border-2 border-emerald-500 shadow-xl overflow-hidden rounded-3xl bg-white transition-all">
+                    <Card className="border-2 border-primary shadow-xl shadow-primary/10 overflow-hidden rounded-3xl bg-white transition-all">
                       <CardContent className="p-6">
                         <div className="flex justify-between items-start mb-4">
                           <div>
@@ -1369,7 +1510,7 @@ export default function PublicBooking() {
                           <div className="space-y-1.5 mb-4 px-2">
                             {recommendedChoice.recommendedService.description.split('\n').filter(Boolean).map((item, idx) => (
                               <div key={idx} className="flex items-start gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                                 <span className="text-sm font-medium text-gray-700">{item.replace(/^-\s*/, '')}</span>
                               </div>
                             ))}
@@ -1390,7 +1531,7 @@ export default function PublicBooking() {
                         <Button 
                           type="button" 
                           onClick={handleAcceptRecommendation}
-                          className="w-full mt-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-lg shadow-emerald-200 group"
+                          className="w-full mt-6 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest h-12 rounded-xl shadow-glow-blue group"
                         >
                           Accept Recommendation
                           <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
@@ -1458,6 +1599,14 @@ export default function PublicBooking() {
                               )
                            })}
                         </div>
+                        {discountAmount > 0 && (
+                          <div className="flex justify-between items-center text-sm pt-1 border-t border-gray-100">
+                            <span className="font-bold text-primary flex items-center gap-1">
+                              <Tag className="w-3 h-3" /> Coupon discount
+                            </span>
+                            <span className="font-black text-primary">− {formatCurrency(discountAmount)}</span>
+                          </div>
+                        )}
                         <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
                            <div>
                              <p className="text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1">Estimated Total</p>
@@ -1466,12 +1615,15 @@ export default function PublicBooking() {
                              </p>
                            </div>
                            <div className="text-right">
+                             {discountAmount > 0 && (
+                               <p className="text-[10px] text-gray-400 line-through mb-0.5">{formatCurrency(totalPrice)}</p>
+                             )}
                              {depositInfo.isRequired && (
                                <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
                                  Deposit Required: {formatCurrency(depositInfo.amount)}
                                </p>
                              )}
-                             <span className="text-3xl font-black text-primary">${totalPrice}</span>
+                             <span className="text-3xl font-black text-primary">{formatCurrency(finalTotal)}</span>
                            </div>
                         </div>
                      </>
