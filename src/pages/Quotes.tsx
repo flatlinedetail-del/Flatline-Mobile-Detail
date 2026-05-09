@@ -2888,7 +2888,19 @@ export default function Quotes() {
                     type="button" 
                     variant="ghost" 
                     className="text-white hover:text-white font-black uppercase tracking-widest text-[10px] h-14 px-8"
-                    onClick={() => setIsPreviewOpen(true)}
+                    onClick={() => {
+                      const validLineItems = lineItems.filter(item => item.serviceName);
+                      if (!manualClientInfo.name) {
+                        toast.error("Add a client before previewing.");
+                        return;
+                      }
+                      if (validLineItems.length === 0) {
+                        toast.error("Select at least one service before previewing.");
+                        return;
+                      }
+                      console.log("[QuotePreview] Preview clicked", { client: manualClientInfo.name, services: validLineItems.length, total: calculateTotal() });
+                      setIsPreviewOpen(true);
+                    }}
                   >
                     <Eye className="w-4 h-4 mr-2" />
                     Preview
@@ -2907,6 +2919,47 @@ export default function Quotes() {
         </div>
       }
     />
+
+    <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+      <DialogContent className="max-w-5xl p-0 overflow-hidden bg-gray-100 border-none flex flex-col max-h-[90vh]">
+        <div className="flex-1 overflow-y-auto">
+          <DocumentPreview
+            type="quote"
+            settings={settings}
+            document={{
+              clientName: manualClientInfo.name,
+              clientEmail: manualClientInfo.email,
+              clientPhone: manualClientInfo.phone,
+              clientAddress: manualClientInfo.address,
+              serviceAddress: manualClientInfo.serviceAddress || manualClientInfo.address,
+              lineItems: lineItems.filter(item => item.serviceName),
+              total: calculateTotal(),
+              status: editingQuote?.status || "draft",
+              vehicles: [
+                ...selectedVehicleIds.map(id => {
+                  const v = allVehicles.find(veh => veh.id === id);
+                  return v ? { id: v.id, year: v.year, make: v.make, model: v.model } : null;
+                }).filter(Boolean),
+                ...manualVehicles.map((mv, i) => ({ id: `manual-${i}`, year: mv.year, make: mv.make, model: mv.model })),
+              ] as any,
+              travelFeeAmount: travelFeeAmount || 0,
+              customFees: customFees || [],
+              description: quoteDescription || smartQuoteNotes || "",
+              attachedFormIds: attachedFormIds,
+              createdAt: editingQuote?.createdAt || undefined,
+            } as any}
+            onAddRecommendation={(item) => {
+              setLineItems(current => [...current, { ...item, quantity: item.quantity || 1, total: item.price * (item.quantity || 1) }]);
+            }}
+          />
+        </div>
+        <DialogFooter className="p-4 bg-white border-t shrink-0">
+          <Button variant="outline" onClick={() => setIsPreviewOpen(false)} className="font-bold">
+            Close Preview
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
       <TabsList className="bg-card/50 border border-white/5 p-1 rounded-2xl">
@@ -2951,40 +3004,6 @@ export default function Quotes() {
       </TabsContent>
 
       <TabsContent value="standard" className="space-y-8">
-        <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-          <DialogContent className="max-w-5xl p-0 overflow-hidden bg-gray-100 border-none flex flex-col max-h-[90vh]">
-            <div className="flex-1 overflow-y-auto">
-              <DocumentPreview 
-                type="quote"
-                settings={settings}
-                document={{
-                  clientName: manualClientInfo.name,
-                  clientEmail: manualClientInfo.email,
-                  clientPhone: manualClientInfo.phone,
-                  clientAddress: manualClientInfo.address,
-                  serviceAddress: manualClientInfo.serviceAddress || manualClientInfo.address,
-                  lineItems: lineItems.filter(item => item.serviceName),
-                  total: calculateTotal(),
-                  status: editingQuote?.status || "draft",
-                  vehicles: selectedVehicleIds.map(id => {
-                    const v = allVehicles.find(veh => veh.id === id);
-                    return v ? { id: v.id, year: v.year, make: v.make, model: v.model } : null;
-                  }).filter(Boolean) as any,
-                  createdAt: editingQuote?.createdAt || undefined,
-                }}
-                onAddRecommendation={(item) => {
-                  setLineItems(current => [...current, { ...item, quantity: item.quantity || 1, total: item.price * (item.quantity || 1) }]);
-                }}
-              />
-            </div>
-            <DialogFooter className="p-4 bg-white border-t shrink-0">
-              <Button variant="outline" onClick={() => setIsPreviewOpen(false)} className="font-bold">
-                Close Preview
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
       <Card className="border-none shadow-xl bg-[#0B0B0B] rounded-3xl overflow-hidden border border-white/5">
         <CardHeader className="bg-black/40 border-b border-white/5 p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="relative flex-1 max-w-md">
