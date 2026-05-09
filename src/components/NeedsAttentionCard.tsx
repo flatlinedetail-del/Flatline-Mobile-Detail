@@ -128,7 +128,11 @@ export function NeedsAttentionCard() {
               <Button
                 variant="ghost"
                 className="w-full text-white/60 hover:text-white hover:bg-white/5 text-[11px] font-black uppercase tracking-widest"
-                onClick={() => navigate("/clients")}
+                // ?attention=1 puts Client Registry into "needs attention"
+                // mode: clients with unresolved items sort to the top and
+                // get a red badge + count. See Clients.tsx for the filter
+                // banner and per-row highlight.
+                onClick={() => navigate("/clients?attention=1")}
               >
                 View all {unresolvedCount} items
               </Button>

@@ -74,7 +74,8 @@ import {
   Brain,
   MessageSquare,
   RefreshCcw,
-  Zap
+  Zap,
+  AlertCircle
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -104,6 +105,8 @@ import { ClientCommunicationsTab } from "../components/ClientCommunicationsTab";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
 import { getEffectiveRisk, getRiskBadgeClass, getRiskBadgeLabel, getRiskBadgeVariant } from "../lib/riskUtils";
 import { VinInput } from "../components/VinInput";
+import { useActionCenter } from "../hooks/useActionCenter";
+import type { ActionItem, ActionItemType } from "../services/actionCenter";
 
 interface AddVehicleFormProps {
   clientId: string;
@@ -197,6 +200,24 @@ function AddVehicleForm({ clientId, isCollisionCenter, onSuccess }: AddVehicleFo
   );
 }
 
+// Short, customer-safe labels for each Action Center item type. Used as
+// the "top reason" pill next to the Needs Attention badge in the registry.
+const ATTENTION_REASON_LABEL: Record<ActionItemType, string> = {
+  unread_message: "Unread Msg",
+  needs_reply: "Needs Reply",
+  failed_send: "Failed Send",
+  unsigned_form: "Unsigned Form",
+  unpaid_deposit: "Unpaid Deposit",
+  overdue_invoice: "Overdue Invoice",
+  quote_followup_due: "Quote Follow-up",
+  booking_confirmation_missing: "Booking Confirm",
+  customer_approval_pending: "Approval Pending",
+  job_blocked: "Job Blocked",
+  risk_review_required: "Risk Review",
+  form_signed_confirmation: "Form Signed",
+  deposit_paid_confirmation: "Deposit Paid",
+};
+
 const CLIENT_TYPE_OPTIONS = [
   { id: "individual", name: "Individual" },
   { id: "business", name: "Business" },
@@ -235,6 +256,69 @@ export default function Clients() {
     const match = clients.find((c) => c.id === deepLinkClientId);
     if (match) setSelectedClient(match);
   }, [deepLinkClientId, clients]);
+
+  // "Needs Attention" filter mode — set when the Dashboard "View All"
+  // button routes here as /clients?attention=1. While active, the
+  // registry is sorted so clients with unresolved Action Center items
+  // appear first, and those rows get a red highlight + count badge.
+  const attentionMode = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const v = params.get("attention") || params.get("filter");
+    return v === "1" || v === "needs-attention";
+  }, [location.search]);
+
+  // Single source of truth — same hook the dashboard card and the bell
+  // already consume. We only read; the underlying Firestore listeners
+  // live inside the hook.
+  const { unresolved: unresolvedActionItems } = useActionCenter();
+
+  // Per-client index: clientId → { count, priorityScore, topType, items }.
+  // Recomputes whenever the unresolved list changes, so resolving an item
+  // (retry success, mark handled, sign form, pay deposit) automatically
+  // shrinks the count and clears the highlight when it hits zero.
+  const attentionByClient = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        count: number;
+        priorityScore: number;
+        topType: ActionItemType;
+        items: ActionItem[];
+      }
+    >();
+    const PRIO: Record<string, number> = { urgent: 4, high: 3, normal: 2, low: 1 };
+    for (const it of unresolvedActionItems) {
+      if (!it.clientId) continue;
+      const cur = map.get(it.clientId);
+      const score = PRIO[it.priority] || 1;
+      if (!cur) {
+        map.set(it.clientId, {
+          count: 1,
+          priorityScore: score,
+          topType: it.type,
+          items: [it],
+        });
+      } else {
+        cur.count += 1;
+        cur.priorityScore += score;
+        cur.items.push(it);
+        // Keep the highest-priority type as "top" reason.
+        if (score > (PRIO[cur.items[0].priority] || 1)) {
+          cur.topType = it.type;
+        }
+      }
+    }
+    return map;
+  }, [unresolvedActionItems]);
+
+  const clearAttentionFilter = () => {
+    // Preserve any other query params (e.g. clientId / tab).
+    const params = new URLSearchParams(location.search);
+    params.delete("attention");
+    params.delete("filter");
+    const next = params.toString();
+    navigate(next ? `/clients?${next}` : "/clients", { replace: true });
+  };
   const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
   const [clientTypes, setClientTypes] = useState<ClientType[]>(CLIENT_TYPE_OPTIONS as any);
   const [categories, setCategories] = useState<ClientCategory[]>([]);
@@ -1157,8 +1241,8 @@ export default function Clients() {
 
   const filteredClients = useMemo(() => {
     const normalizedSearch = searchTerm.toLowerCase().trim();
-    
-    return clients.filter(client => {
+
+    const matched = clients.filter(client => {
       // 1. Basic Client Info Search
       const firstName = (client.firstName || "").toLowerCase();
       const lastName = (client.lastName || "").toLowerCase();
@@ -1168,7 +1252,7 @@ export default function Clients() {
       const email = (client.email || "").toLowerCase();
       const name = (client.name || "").toLowerCase();
 
-      const matchesSearch = 
+      const matchesSearch =
         name.includes(normalizedSearch) ||
         firstName.includes(normalizedSearch) ||
         lastName.includes(normalizedSearch) ||
@@ -1176,13 +1260,31 @@ export default function Clients() {
         businessName.includes(normalizedSearch) ||
         phone.includes(normalizedSearch) ||
         email.includes(normalizedSearch);
-      
+
       const matchesType = typeFilter === "all" || client.clientTypeId === typeFilter;
       const matchesCategory = categoryFilter === "all" || client.categoryIds?.includes(categoryFilter);
 
       return matchesSearch && matchesType && matchesCategory;
     });
-  }, [clients, searchTerm, typeFilter, categoryFilter]);
+
+    // When ?attention=1 is active, sort clients with unresolved Action
+    // Center items to the top — primary key: priorityScore (urgent items
+    // outweigh low-priority noise), secondary: count. Clients with zero
+    // unresolved items keep their natural order beneath them.
+    if (attentionMode) {
+      return [...matched].sort((a, b) => {
+        const aa = attentionByClient.get(a.id);
+        const bb = attentionByClient.get(b.id);
+        const aScore = aa?.priorityScore || 0;
+        const bScore = bb?.priorityScore || 0;
+        if (aScore !== bScore) return bScore - aScore;
+        const aCount = aa?.count || 0;
+        const bCount = bb?.count || 0;
+        return bCount - aCount;
+      });
+    }
+    return matched;
+  }, [clients, searchTerm, typeFilter, categoryFilter, attentionMode, attentionByClient]);
 
   const getSystemStatusLabel = () => {
     switch (systemStatus) {
@@ -1478,6 +1580,33 @@ export default function Clients() {
         }
       />
 
+      {/* Attention-mode banner. Shown when the user arrives via
+          /clients?attention=1 from the Dashboard "View All" button. */}
+      {attentionMode && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center">
+              <AlertCircle className="w-5 h-5 text-red-300" />
+            </div>
+            <div>
+              <p className="text-sm font-black text-white uppercase tracking-widest">
+                Showing clients with unresolved attention items
+              </p>
+              <p className="text-[11px] text-white/60 font-bold uppercase tracking-widest">
+                {attentionByClient.size} client{attentionByClient.size === 1 ? "" : "s"} need follow-up
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl px-4 h-10 text-[10px] font-black uppercase tracking-widest"
+            onClick={clearAttentionFilter}
+          >
+            Clear Filter
+          </Button>
+        </div>
+      )}
+
       <Card className="border-none bg-card rounded-3xl overflow-hidden shadow-xl">
         <CardHeader className="p-8 border-b border-white/5 bg-black/40">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -1545,12 +1674,28 @@ export default function Clients() {
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-20 text-white uppercase tracking-widest text-[10px] font-black">No matching records found.</TableCell>
                 </TableRow>
+              ) : attentionMode && attentionByClient.size === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-20 text-white uppercase tracking-widest text-[10px] font-black">
+                    No clients currently need attention.
+                  </TableCell>
+                </TableRow>
               ) : (
                 filteredClients.map((client) => {
+                  // Action Center attention status for this row — drives
+                  // the red highlight, the count badge, and the "top reason"
+                  // pill. `undefined` when the client has zero unresolved
+                  // items, which means no highlight (auto-clears on resolve).
+                  const attention = attentionByClient.get(client.id);
+                  const attentionRow = !!attention && attention.count > 0;
                   return (
-                    <TableRow 
-                      key={client.id} 
-                      className="border-border hover:bg-white/5 transition-all duration-300 cursor-pointer group"
+                    <TableRow
+                      key={client.id}
+                      className={cn(
+                        "border-border hover:bg-white/5 transition-all duration-300 cursor-pointer group",
+                        attentionRow &&
+                          "bg-red-500/5 ring-1 ring-inset ring-red-500/30 hover:bg-red-500/10"
+                      )}
                       onClick={() => {
                         setSelectedClient(client);
                         setIsDetailOpen(true);
@@ -1569,6 +1714,29 @@ export default function Clients() {
                                   <RefreshCcw className="w-2.5 h-2.5 mr-1" />
                                   Pending Sync
                                 </Badge>
+                              )}
+                              {/* Needs Attention badge — shows the unresolved
+                                  Action Center count for this client and the
+                                  top alert reason. Auto-clears when count
+                                  hits 0 (item resolved → useActionCenter
+                                  reduces unresolved → attentionByClient drops
+                                  the entry → attentionRow becomes false). */}
+                              {attentionRow && (
+                                <>
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-red-500/15 text-red-300 border-red-500/30 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ml-1"
+                                    title={`${attention!.count} unresolved attention item${attention!.count === 1 ? "" : "s"}`}
+                                  >
+                                    Needs Attention · {attention!.count}
+                                  </Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-white/5 text-white/80 border-white/10 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ml-1"
+                                  >
+                                    {ATTENTION_REASON_LABEL[attention!.topType] || "Action needed"}
+                                  </Badge>
+                                </>
                               )}
                               {client.isVIP && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
                               {(() => {
