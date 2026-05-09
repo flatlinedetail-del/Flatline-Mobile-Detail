@@ -25,7 +25,7 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = parseInt(process.env.PORT || "3000", 10);
 
   // Start background jobs
   startScheduler();
@@ -303,7 +303,15 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    const env = process.env.NODE_ENV || "development";
+    const keys = {
+      GEMINI: !!process.env.GEMINI_API_KEY,
+      SENDGRID: !!process.env.SENDGRID_API_KEY,
+      STRIPE: !!process.env.STRIPE_SECRET_KEY,
+      TWILIO: !!process.env.TWILIO_ACCOUNT_SID,
+    };
+    console.log(`[DetailFlow] Server listening on port ${PORT} (${env})`);
+    console.log(`[DetailFlow] API keys present: ${JSON.stringify(keys)}`);
   });
 }
 
