@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { doc, updateDoc, getDoc, setDoc, collection, query, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit, where, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage, handleFirestoreError, OperationType } from "../firebase";
@@ -84,6 +84,7 @@ import { NumberInput } from "../components/NumberInput";
 import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon, ProductCatalogItem } from "../types";
 import { migrateDataToClients } from "../services/clientService";
 import { processFollowUps } from "../services/automationService";
+const FormsBuilder = lazy(() => import("./FormsBuilder"));
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
@@ -1551,7 +1552,7 @@ export default function Settings() {
   };
 
   const handleTabChange = (value: string) => {
-    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel", "product-catalog"];
+    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel", "product-catalog", "forms"];
     if (sensitiveTabs.includes(value) && !hasAccessToSensitiveSettings) {
       toast.error("Access Restricted. This sector is protected by Admin-Only Protocol.");
       return;
@@ -1560,7 +1561,7 @@ export default function Settings() {
   };
 
   useEffect(() => {
-    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel", "product-catalog"];
+    const sensitiveTabs = ["business", "branding", "staff", "automation", "communications", "integrations", "security", "travel-fuel", "product-catalog", "forms"];
     if (sensitiveTabs.includes(activeTab) && !hasAccessToSensitiveSettings && !authLoading) {
       setSearchParams({ tab: "profile" });
     }
@@ -1697,6 +1698,14 @@ export default function Settings() {
                 className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
               >
                 <Brain className="w-4 h-4" /> Neural Intelligence
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger
+                value="forms"
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <ShieldCheck className="w-4 h-4" /> Forms & Waivers
               </TabsTrigger>
             )}
             {hasAccessToSensitiveSettings && (
@@ -6042,6 +6051,20 @@ export default function Settings() {
 
         {/* ── PRODUCT CATALOG ─────────────────────────────────────────────── */}
         <ProductCatalogTab />
+
+        {/* ── FORMS & WAIVERS ── */}
+        <TabsContent value="forms" className="mt-0">
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-20">
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-5 h-5 border border-white/10 border-t-white/40 rounded-full animate-spin" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-white/20">Loading Forms...</span>
+              </div>
+            </div>
+          }>
+            <FormsBuilder embedded />
+          </Suspense>
+        </TabsContent>
 
         {/* ── NEURAL INTELLIGENCE — AI Settings ─────────────────────────────── */}
         <TabsContent value="ai-settings" className="mt-0 space-y-8">

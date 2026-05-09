@@ -1264,6 +1264,23 @@ export default function BookAppointment() {
           await updateDoc(docRef, { "reminders.confirmation": "skipped" });
         }
 
+        try {
+          const { loadActiveFormTemplates, resolveRequiredForms, createFormInstances } = await import("../services/formService");
+          const templates = await loadActiveFormTemplates();
+          const requirements = resolveRequiredForms(
+            templates,
+            appointmentData.serviceIds || [],
+            appointmentData.addOnIds || [],
+            client?.riskLevel || null,
+            finalAmount,
+          );
+          if (requirements.length > 0) {
+            await createFormInstances(docRef.id, client?.id || "walk-in", requirements, appointmentData.vehicleId);
+          }
+        } catch (e) {
+          console.error("Form instance creation failed (non-blocking):", e);
+        }
+
         toast.success("Appointment successfully created!");
         navigate("/calendar");
         return;

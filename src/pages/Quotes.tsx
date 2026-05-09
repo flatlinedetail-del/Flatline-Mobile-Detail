@@ -100,6 +100,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [sqSelectedClientId, setSqSelectedClientId] = useState<string>("");
   const [address, setAddress] = useState("");
   const [serviceAddress, setServiceAddress] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -257,6 +258,14 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   };
 
   const generateAIEstimate = async () => {
+    console.log("[SmartQuote] Run Profit-Protected AI Diagnostics clicked", {
+      vehicles: manualVehicles,
+      services: selectedServiceSelections.map(s => s.serviceId),
+      addOns: selectedAddOnSelections.map(a => a.addOnId),
+      productCosts: productCosts.map(p => ({ name: p.name, cost: p.totalCost })),
+      isGeneratingAI,
+    });
+
     if (manualVehicles.length === 0 || isGeneratingAI) return;
 
     // Hard guard: product costs alone are not a service quote — require a protocol.
@@ -374,7 +383,13 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       } else if (err.message?.includes("parse") || err.message?.includes("JSON") || err.message?.includes("json")) {
         toast.warning("AI pricing response could not be read. Using market benchmarks.");
       } else {
-        toast.warning("AI unavailable — market benchmark used.");
+        // Surface the real error so the root cause is diagnosable
+        const rawMsg =
+          err?.error?.message || err?.message || String(err) || "Unknown error";
+        console.error("[SmartQuote] AI pricing — unhandled error:", rawMsg, "\nFull:", err);
+        toast.warning(`AI unavailable — market benchmark used. (${rawMsg.slice(0, 120)})`, {
+          duration: 8000,
+        });
       }
     } finally {
       setIsGeneratingAI(false);
@@ -397,6 +412,26 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     if (rawValue.length <= 10) {
       setPhone(formatPhoneNumber(e.target.value));
     }
+  };
+
+  const handleSqClientSelect = (clientId: string) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    setSqSelectedClientId(clientId);
+    setFirstName(client.firstName || "");
+    setLastName(client.lastName || "");
+    setEmail(client.email || "");
+    setBusinessName(client.businessName || "");
+    const raw = client.phone || "";
+    const digits = raw.replace(/[^\d]/g, "");
+    const formatted =
+      digits.length === 10
+        ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`
+        : raw;
+    setPhone(formatted);
+    const addr = (client as any).serviceAddress || client.address || "";
+    setAddress(addr);
+    setServiceAddress(addr);
   };
 
   // Clear stale pricingAnalysis when service selections change.
@@ -1032,10 +1067,32 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                 <UserIcon className="w-4 h-4 text-primary" />
                 Target Entity Information
               </h3>
+              {clients.length > 0 && (
+                <div className="space-y-2 pb-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-white/60">
+                    Auto-fill from existing client (optional)
+                  </Label>
+                  <SearchableSelector
+                    options={clients.map(c => ({
+                      value: c.id,
+                      label: c.businessName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unnamed Client",
+                      description: [c.email, c.phone].filter(Boolean).join(" • ") || "No contact info",
+                    }))}
+                    value={sqSelectedClientId}
+                    onSelect={handleSqClientSelect}
+                    placeholder="Search existing clients to auto-fill address..."
+                  />
+                  {!sqSelectedClientId && (
+                    <p className="text-[9px] text-white/30 font-bold uppercase tracking-widest">
+                      Or enter manually below
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-white">First Name</Label>
-                  <Input 
+                  <Input
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
                     placeholder="John"
@@ -1468,7 +1525,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   onChange={(e) => setJobDescription(e.target.value)}
                   className="bg-white/5 border-white/10 rounded-2xl min-h-[100px] text-white font-medium"
                 />
-                <Button 
+                <Button
                   onClick={generateAIEstimate}
                   disabled={isGeneratingAI || manualVehicles.length === 0 || (selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0)}
                   className="w-full h-12 bg-black border border-primary/40 text-primary hover:bg-primary/5 font-black rounded-xl uppercase tracking-widest text-[10px] mt-4"
@@ -1476,6 +1533,16 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   {isGeneratingAI ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
                   Run Profit-Protected AI Diagnostics
                 </Button>
+                {manualVehicles.length === 0 && (
+                  <p className="text-[9px] text-amber-400/70 font-bold uppercase tracking-widest text-center -mt-1">
+                    Add an asset above first, then click Run Diagnostics
+                  </p>
+                )}
+                {manualVehicles.length > 0 && selectedServiceSelections.length === 0 && selectedAddOnSelections.length === 0 && (
+                  <p className="text-[9px] text-amber-400/70 font-bold uppercase tracking-widest text-center -mt-1">
+                    Select a service protocol above first
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -1618,74 +1685,120 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                   
                   {(() => {
                     const actualCost = productCosts.reduce((s: number, p: any) => s + (parseFloat(p.totalCost) || 0), 0);
+                    // pricingAnalysis prices already bake in totalProductCost via computeBenchmarkPricing / AI.
+                    // Net profit = final price minus material costs (labor/overhead baked into margin targets).
                     const liveProfit  = finalPrice - actualCost;
                     const liveMargin  = finalPrice > 0 ? (liveProfit / finalPrice) * 100 : 0;
                     return (
-                      <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
-                        <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                          <span className="text-white">Total Out-of-Pocket Cost</span>
-                          <span className="text-white">{formatCurrency(actualCost)}</span>
+                      <>
+                        {actualCost > 0 && (
+                          <div className="flex items-center gap-1.5 px-1">
+                            <Package className="w-3 h-3 text-amber-400 shrink-0" />
+                            <p className="text-[9px] text-amber-400 font-bold uppercase tracking-widest">
+                              Price includes {formatCurrency(actualCost)} in product costs
+                            </p>
+                          </div>
+                        )}
+                        <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                            <span className="text-white/60">Product Cost</span>
+                            <span className="text-white">{formatCurrency(actualCost)}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                            <span className="text-white">Net After Product Costs</span>
+                            <span className={liveProfit >= 0 ? "text-primary" : "text-red-400"}>{formatCurrency(liveProfit)}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                            <span className="text-white">Gross Margin</span>
+                            <span className={liveMargin >= 0 ? "text-primary" : "text-red-400"}>{liveMargin.toFixed(1)}%</span>
+                          </div>
                         </div>
-                        <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                          <span className="text-white">Net Profit</span>
-                          <span className={liveProfit >= 0 ? "text-primary" : "text-red-400"}>{formatCurrency(liveProfit)}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                          <span className="text-white">Profit Margin</span>
-                          <span className={liveMargin >= 0 ? "text-primary" : "text-red-400"}>{liveMargin.toFixed(1)}%</span>
-                        </div>
-                      </div>
+                      </>
                     );
                   })()}
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSelectedTier("low");
-                      setIsPriceCustomized(false);
-                      setCustomPrice(null);
-                    }}
-                    className={cn(
-                      "p-3 rounded-xl border transition-all text-center",
-                      selectedTier === "low" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
-                    )}
-                  >
-                    <p className="text-[8px] font-black text-white uppercase tracking-widest mb-1">Low</p>
-                    <p className="text-xs font-black text-white">{formatCurrency(recommendations?.lowPrice || 0)}</p>
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSelectedTier("safe");
-                      setIsPriceCustomized(false);
-                      setCustomPrice(null);
-                    }}
-                    className={cn(
-                      "p-3 rounded-xl border transition-all text-center",
-                      selectedTier === "safe" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
-                    )}
-                  >
-                    <p className="text-[8px] font-black text-primary uppercase tracking-widest mb-1">Safe</p>
-                    <p className="text-xs font-black text-white">{formatCurrency(recommendations?.safePrice || 0)}</p>
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSelectedTier("premium");
-                      setIsPriceCustomized(false);
-                      setCustomPrice(null);
-                    }}
-                    className={cn(
-                      "p-3 rounded-xl border transition-all text-center",
-                      selectedTier === "premium" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
-                    )}
-                  >
-                    <p className="text-[8px] font-black text-white uppercase tracking-widest mb-1">Premium</p>
-                    <p className="text-xs font-black text-white">{formatCurrency(recommendations?.premiumPrice || 0)}</p>
-                  </button>
-                </div>
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedTier("low");
+                        setIsPriceCustomized(false);
+                        setCustomPrice(null);
+                      }}
+                      className={cn(
+                        "p-3 rounded-xl border transition-all text-center",
+                        selectedTier === "low" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      <p className="text-[8px] font-black text-white uppercase tracking-widest mb-1">Low</p>
+                      <p className="text-xs font-black text-white">{formatCurrency(recommendations?.lowPrice || 0)}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedTier("safe");
+                        setIsPriceCustomized(false);
+                        setCustomPrice(null);
+                      }}
+                      className={cn(
+                        "p-3 rounded-xl border transition-all text-center",
+                        selectedTier === "safe" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      <p className="text-[8px] font-black text-primary uppercase tracking-widest mb-1">Safe</p>
+                      <p className="text-xs font-black text-white">{formatCurrency(recommendations?.safePrice || 0)}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedTier("premium");
+                        setIsPriceCustomized(false);
+                        setCustomPrice(null);
+                      }}
+                      className={cn(
+                        "p-3 rounded-xl border transition-all text-center",
+                        selectedTier === "premium" && !isPriceCustomized ? "bg-primary/20 border-primary ring-1 ring-primary" : "bg-white/5 border-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      <p className="text-[8px] font-black text-white uppercase tracking-widest mb-1">Premium</p>
+                      <p className="text-xs font-black text-white">{formatCurrency(recommendations?.premiumPrice || 0)}</p>
+                    </button>
+                  </div>
+                  {(() => {
+                    const actualCost = productCosts.reduce((s: number, p: any) => s + (parseFloat(p.totalCost) || 0), 0);
+                    if (actualCost <= 0) return null;
+                    // Market-only tiers don't include product costs — show cost-protected price and flag it
+                    const costProtectedPrice = finalPrice + actualCost;
+                    const netProfit = finalPrice - actualCost;
+                    const netMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
+                    return (
+                      <div className="space-y-2 mt-1">
+                        <div className="flex items-start gap-1.5 px-1">
+                          <AlertCircle className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />
+                          <p className="text-[9px] text-amber-400 font-bold uppercase tracking-widest leading-relaxed">
+                            Market rate does not include your {formatCurrency(actualCost)} in product costs. Run AI Diagnostics for cost-protected pricing.
+                          </p>
+                        </div>
+                        <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-2">
+                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                            <span className="text-white/60">Product Cost</span>
+                            <span className="text-white">{formatCurrency(actualCost)}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                            <span className="text-white">Cost-Protected Price</span>
+                            <span className="text-amber-400">{formatCurrency(costProtectedPrice)}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                            <span className="text-white/60">Net If Using Market Rate</span>
+                            <span className={netProfit >= 0 ? "text-white/60" : "text-red-400"}>{formatCurrency(netProfit)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
               )}
             </div>
 

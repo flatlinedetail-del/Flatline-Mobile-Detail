@@ -31,6 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { useAuth } from "../hooks/useAuth";
 import { PageHeader } from "../components/PageHeader";
 import { ShieldAlert } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Reports() {
   const { profile, loading: authLoading, systemStatus, settings: authSettings, canAccessAdmin } = useAuth();
@@ -117,6 +118,60 @@ export default function Reports() {
     fetchReportsData();
   }, [timeRange, profile, authLoading, systemStatus]);
 
+  const handleExportCSV = () => {
+    try {
+      const escape = (val: any) => {
+        const s = val === null || val === undefined ? "" : String(val);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const rows: string[] = [];
+      rows.push(["Type", "Date", "Description", "Status", "Amount"].join(","));
+      appointments.forEach(a => {
+        const dateRaw: any = (a as any).date || (a as any).startDate;
+        const dateStr = dateRaw?.toDate
+          ? format(dateRaw.toDate(), "yyyy-MM-dd")
+          : dateRaw
+          ? String(dateRaw).slice(0, 10)
+          : "";
+        rows.push([
+          escape("Appointment"),
+          escape(dateStr),
+          escape((a as any).serviceName || (a as any).clientName || ""),
+          escape(a.status || ""),
+          escape((a.totalAmount ?? 0).toFixed(2)),
+        ].join(","));
+      });
+      expenses.forEach(e => {
+        const dateRaw: any = (e as any).date;
+        const dateStr = dateRaw?.toDate
+          ? format(dateRaw.toDate(), "yyyy-MM-dd")
+          : dateRaw
+          ? String(dateRaw).slice(0, 10)
+          : "";
+        rows.push([
+          escape("Expense"),
+          escape(dateStr),
+          escape((e as any).vendor || (e as any).description || (e as any).category || ""),
+          escape((e as any).category || ""),
+          escape((e.amount ?? 0).toFixed(2)),
+        ].join(","));
+      });
+      const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `report-${timeRange}-${format(new Date(), "yyyy-MM-dd")}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success("CSV exported.");
+    } catch (err: any) {
+      console.error("[Reports] CSV export failed:", err);
+      toast.error(`CSV export failed: ${err?.message?.slice(0, 80) || "Unknown error"}`);
+    }
+  };
+
   const totalSales = appointments
     .filter(a => a.status === "completed" || a.status === "paid")
     .reduce((sum, a) => sum + a.totalAmount, 0);
@@ -178,7 +233,12 @@ export default function Reports() {
                 <SelectItem value="last_month" className="focus:bg-white/5 focus:text-white">Last Month</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px]">
+            <Button
+              variant="outline"
+              onClick={handleExportCSV}
+              disabled={appointments.length === 0 && expenses.length === 0}
+              className="border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl h-12 px-6 font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
+            >
               <Download className="w-4 h-4 mr-2 text-primary" /> Export CSV
             </Button>
           </div>
