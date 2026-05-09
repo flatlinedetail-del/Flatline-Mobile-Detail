@@ -783,7 +783,17 @@ export default function Settings() {
       fetchMetaData();
       return () => {};
     }
-  }, [profile, authLoading]);
+  // Use profile?.uid (stable string primitive) instead of the profile object.
+  // useAuth() returns effectiveProfile — a new object spread on every AuthProvider
+  // render. When any Firestore snapshot fires (services, addons, settings,
+  // clientTypes, clientCategories), AuthProvider re-renders and produces a new
+  // effectiveProfile reference, which would re-trigger this effect.
+  // fetchSettings() and fetchMetaData() both have cache-hit branches with NO await,
+  // meaning their setState calls (12 total) run synchronously inside the effect body.
+  // With 5-10 AuthProvider re-renders on startup, that is 60-120 nested synchronous
+  // setState calls — exceeding React's 50-update depth limit and causing the crash.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.uid, authLoading]);
 
   const updateTwilioSetting = (field: string, value: any) => {
     setSettings(prev => {
