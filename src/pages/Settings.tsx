@@ -1686,6 +1686,14 @@ export default function Settings() {
             )}
             {hasAccessToSensitiveSettings && (
               <TabsTrigger
+                value="forms"
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <ShieldCheck className="w-4 h-4" /> Forms & Waivers
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger
                 value="ai-settings"
                 className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
               >

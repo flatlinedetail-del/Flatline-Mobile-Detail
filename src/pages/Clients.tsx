@@ -34,7 +34,7 @@ import { Switch } from "../components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Textarea } from "../components/ui/textarea";
 import { geocodeAddress } from "../services/geocodingService";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import WarrantyManager from "../components/WarrantyManager";
 import { NumberInput } from "../components/NumberInput";
 import { 
@@ -100,6 +100,7 @@ import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog
 import { getClientTypes, getClientCategories, migrateDataToClients, ensureClientTypes, ensureClientNameFields } from "../services/clientService";
 import { ClientAIStrategy } from "../components/ClientAIStrategy";
 import { ClientCommunication } from "../components/ClientCommunication";
+import { ClientCommunicationsTab } from "../components/ClientCommunicationsTab";
 import { generateServiceTimingIntelligence, ServiceTimingOutput } from "../services/serviceTimingEngine";
 import { getEffectiveRisk, getRiskBadgeClass, getRiskBadgeLabel, getRiskBadgeVariant } from "../lib/riskUtils";
 import { VinInput } from "../components/VinInput";
@@ -211,7 +212,29 @@ const CLIENT_TYPE_OPTIONS = [
 export default function Clients() {
   const { profile, loading: authLoading, systemStatus, clientTypes: sharedTypes, clientCategories: sharedCats, services: sharedServices } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [clients, setClients] = useState<Client[]>([]);
+
+  // Deep-link from Action Center / notification bell:
+  // /clients?clientId=<id>[&tab=communications] auto-opens that client's
+  // profile dialog. Tab routing is honored via initialTab below.
+  const deepLinkClientId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("clientId");
+  }, [location.search]);
+  const deepLinkTab = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const t = params.get("tab");
+    if (!t) return null;
+    // Map external slugs to our internal tab values.
+    if (t === "communications") return "comms";
+    return t;
+  }, [location.search]);
+  useEffect(() => {
+    if (!deepLinkClientId || !clients.length) return;
+    const match = clients.find((c) => c.id === deepLinkClientId);
+    if (match) setSelectedClient(match);
+  }, [deepLinkClientId, clients]);
   const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
   const [clientTypes, setClientTypes] = useState<ClientType[]>(CLIENT_TYPE_OPTIONS as any);
   const [categories, setCategories] = useState<ClientCategory[]>([]);
@@ -1813,7 +1836,7 @@ export default function Clients() {
               </div>
             </div>
 
-            <Tabs defaultValue="overview" className="w-full flex-1 flex flex-col overflow-hidden bg-card">
+            <Tabs defaultValue={deepLinkTab || "overview"} className="w-full flex-1 flex flex-col overflow-hidden bg-card">
               <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-14 shrink-0 gap-4 overflow-x-auto no-scrollbar scroll-smooth flex flex-nowrap">
                 <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Overview</TabsTrigger>
                 <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Profile</TabsTrigger>
@@ -3133,8 +3156,22 @@ export default function Clients() {
                   />
                 </TabsContent>
 
-                <TabsContent value="comms" className="mt-0 outline-none">
-                  <ClientCommunication client={selectedClient} />
+                <TabsContent value="comms" className="mt-0 outline-none space-y-8">
+                  {/* AI suggested reply, channel/status filters, retry,
+                      mark handled — wired to the shared Action Center. */}
+                  <ClientCommunicationsTab
+                    clientId={selectedClient.id}
+                    clientName={[selectedClient.firstName, selectedClient.lastName].filter(Boolean).join(" ").trim()}
+                    clientPhone={selectedClient.phone}
+                  />
+                  <div className="border-t border-white/5 pt-6">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-4">
+                      Compose · Notes
+                    </p>
+                    {/* Existing compose form preserved so admins can still
+                        send email / log a note from the client profile. */}
+                    <ClientCommunication client={selectedClient} />
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="service-history" className="mt-0 outline-none space-y-6">
