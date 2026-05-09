@@ -72,6 +72,11 @@ import {
   PricingAnalysis
 } from "../services/gemini";
 import { DocumentPreview } from "../components/DocumentPreview";
+import { PackageScheduleModal } from "../components/PackageScheduleModal";
+import {
+  declineRecommendation as svcDeclineRecommendation,
+  updateRecommendationStatus as svcUpdateRecommendationStatus,
+} from "../services/packageDealService";
 import { paymentService, PaymentProvider } from "../services/paymentService";
 import Logo from "../components/Logo";
 import FormSigner from "../components/FormSigner";
@@ -783,6 +788,189 @@ export default function JobDetail() {
       toast.error("Failed to add recommended service");
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  // ─── Package-deal lifecycle handlers (today/future/decline) ─────────────
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleBundle, setScheduleBundle] = useState<any>(null);
+  const [scheduleKind, setScheduleKind] = useState<"bundle" | "recommendation">("bundle");
+
+  const handlePackageAcceptToday = async (item: any, kind: "bundle" | "recommendation") => {
+    if (!job || !currentInvoice) {
+      toast.error("Open the invoice preview first to add the package to today's bill.");
+      return;
+    }
+    if (kind === "recommendation") {
+      // Recommendations already have a path: re-use existing accept handler.
+      await handleAcceptRecommendation(item);
+      return;
+    }
+    // Bundle path: convert bundle to a single billable line item.
+    setIsUpdating(true);
+    try {
+      const newLine = {
+        id: `pkg-${Date.now()}`,
+        name: item.name,
+        description: `Package: ${(item.services || []).join(", ")}`,
+        price: item.price,
+        qty: 1,
+        total: item.price,
+        source: "package",
+        protocolAccepted: true,
+        vehicleId: activeVehicleId || "",
+      };
+      const newServiceSelections = [...(job.serviceSelections || []), newLine];
+      const newTotalAmount = (job.totalAmount || 0) + item.price;
+      const newBaseAmount = (job.baseAmount || 0) + item.price;
+
+      // Mark bundle accepted on the appointment record (audit trail)
+      const updatedBundles = ((job as any).unacceptedBundles || []).map((b: any) =>
+        String(b?.name || "").toLowerCase().trim() === String(item?.name || "").toLowerCase().trim()
+          ? { ...b, status: "accepted_today", acceptedAt: new Date(), relatedVehicleId: activeVehicleId || null }
+          : b
+      );
+
+      await updateDoc(doc(db, "appointments", job.id), {
+        serviceSelections: newServiceSelections,
+        serviceNames: [...(job.serviceNames || []), item.name],
+        totalAmount: newTotalAmount,
+        baseAmount: newBaseAmount,
+        unacceptedBundles: updatedBundles,
+        internalNotes:
+          (job.internalNotes || "") +
+          `\n\n[USER ACTION] Accepted package ${item.name} ($${item.price.toFixed(2)}) for today.`,
+      });
+
+      // Update the open invoice doc + state
+      const currentLineItems = currentInvoice.lineItems || [];
+      const currentBundles = (currentInvoice as any).unacceptedBundles || [];
+      const updatedInvoiceBundles = currentBundles.map((b: any) =>
+        String(b?.name || "").toLowerCase().trim() === String(item?.name || "").toLowerCase().trim()
+          ? { ...b, status: "accepted_today", acceptedAt: new Date(), relatedVehicleId: activeVehicleId || null }
+          : b
+      );
+      const updatedLineItems = [...currentLineItems, newLine];
+      const newSubtotal = (currentInvoice.subtotal || 0) + item.price;
+      const taxRate = businessSettings?.taxRate || 0;
+      const newTaxAmount = ((newSubtotal - (currentInvoice.discountAmount || 0)) * taxRate) / 100;
+      const invTotal =
+        newSubtotal -
+        (currentInvoice.discountAmount || 0) +
+        ((currentInvoice as any).travelFeeAmount || 0) +
+        ((currentInvoice as any).afterHoursFeeAmount || 0) +
+        newTaxAmount;
+
+      const invoiceUpdate = {
+        lineItems: updatedLineItems,
+        unacceptedBundles: updatedInvoiceBundles,
+        subtotal: newSubtotal,
+        total: invTotal,
+      };
+      await updateDoc(doc(db, "invoices", currentInvoice.id), invoiceUpdate);
+      setCurrentInvoice({ ...currentInvoice, ...invoiceUpdate } as any);
+
+      toast.success(`Package ${item.name} added to today's invoice.`);
+    } catch (err: any) {
+      console.error("[Package] Accept-today failed:", err);
+      toast.error(`Could not add package: ${err?.message?.slice(0, 100) || "Unknown error"}`);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handlePackageScheduleFuture = (item: any, kind: "bundle" | "recommendation") => {
+    if (!job?.clientId && !job?.customerId) {
+      toast.error("Select a client before scheduling this package.");
+      return;
+    }
+    setScheduleBundle({
+      name: item.name || item.serviceName,
+      services: item.services || [item.serviceName].filter(Boolean),
+      price: item.price ?? 0,
+      savings: item.savings ?? 0,
+      reason: item.reason || item.description,
+    });
+    setScheduleKind(kind);
+    setScheduleModalOpen(true);
+  };
+
+  const handlePackageScheduleApplied = async (apptId: string, occurrenceDate: Date) => {
+    if (!currentInvoice && !job) return;
+    const itemName = scheduleBundle?.name;
+    if (!itemName) return;
+    const patch: any = {
+      status: "accepted_next_detail",
+      acceptedAt: new Date(),
+      acceptedForAppointmentId: apptId,
+      selectedRecurringOccurrenceDate: occurrenceDate,
+      scheduledForFutureDetail: true,
+      relatedVehicleId: activeVehicleId || null,
+    };
+    try {
+      // Update on the source document so the audit trail sticks
+      if (currentInvoice?.id) {
+        await svcUpdateRecommendationStatus(
+          { collection: "invoices", id: currentInvoice.id },
+          scheduleKind,
+          itemName,
+          patch
+        );
+        // Reflect immediately in the open preview
+        const fieldKey = scheduleKind === "bundle" ? "unacceptedBundles" : "recommendedItems";
+        const list: any[] = ((currentInvoice as any)[fieldKey] || []).map((x: any) => {
+          const key = scheduleKind === "bundle" ? "name" : "serviceName";
+          return String(x?.[key] || "").toLowerCase().trim() === String(itemName).toLowerCase().trim()
+            ? { ...x, ...patch }
+            : x;
+        });
+        setCurrentInvoice({ ...currentInvoice, [fieldKey]: list } as any);
+      }
+      if (job?.id) {
+        await svcUpdateRecommendationStatus(
+          { collection: "appointments", id: job.id },
+          scheduleKind,
+          itemName,
+          patch
+        );
+      }
+    } catch (err: any) {
+      console.error("[Package] Status update after schedule failed:", err);
+      // Schedule already succeeded — don't block on the audit-trail write
+    }
+  };
+
+  const handlePackageDecline = async (item: any, kind: "bundle" | "recommendation") => {
+    if (!currentInvoice && !job) return;
+    const itemKey = kind === "bundle" ? item.name : item.serviceName;
+    if (!itemKey) return;
+    try {
+      if (currentInvoice?.id) {
+        await svcDeclineRecommendation(
+          { collection: "invoices", id: currentInvoice.id },
+          kind,
+          itemKey
+        );
+        const fieldKey = kind === "bundle" ? "unacceptedBundles" : "recommendedItems";
+        const list: any[] = ((currentInvoice as any)[fieldKey] || []).map((x: any) => {
+          const key = kind === "bundle" ? "name" : "serviceName";
+          return String(x?.[key] || "").toLowerCase().trim() === String(itemKey).toLowerCase().trim()
+            ? { ...x, status: "declined", declinedAt: new Date() }
+            : x;
+        });
+        setCurrentInvoice({ ...currentInvoice, [fieldKey]: list } as any);
+      }
+      if (job?.id) {
+        await svcDeclineRecommendation(
+          { collection: "appointments", id: job.id },
+          kind,
+          itemKey
+        );
+      }
+      toast.success(`${itemKey} marked as declined.`);
+    } catch (err: any) {
+      console.error("[Package] Decline failed:", err);
+      toast.error(`Could not decline: ${err?.message?.slice(0, 100) || "Unknown error"}`);
     }
   };
 
@@ -4742,11 +4930,14 @@ export default function JobDetail() {
           <div className="flex-1 overflow-y-auto" id={`invoice-preview-container-detail-${currentInvoice?.id || 'new'}`}>
             <div id={`invoice-preview-content-detail-${currentInvoice?.id || 'new'}`}>
               {currentInvoice && (
-                <DocumentPreview 
+                <DocumentPreview
                   type="invoice"
                   settings={businessSettings}
                   document={currentInvoice}
                   onAddRecommendation={handleAcceptRecommendation}
+                  onAcceptToday={handlePackageAcceptToday}
+                  onScheduleFuture={handlePackageScheduleFuture}
+                  onDeclineItem={handlePackageDecline}
                 />
               )}
             </div>
@@ -4974,6 +5165,30 @@ export default function JobDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <PackageScheduleModal
+        open={scheduleModalOpen}
+        onOpenChange={setScheduleModalOpen}
+        clientId={(job?.clientId || job?.customerId || "") as string}
+        bundle={scheduleBundle}
+        relatedVehicleId={activeVehicleId || null}
+        relatedVehicleLabel={
+          activeVehicleId
+            ? (job?.vehicleInfo as any) || undefined
+            : undefined
+        }
+        onApplied={handlePackageScheduleApplied}
+        onCreateSeparate={() => {
+          const cid = (job?.clientId || job?.customerId || "") as string;
+          if (!cid) {
+            toast.warning("Open the booking form to schedule this package separately.");
+            navigate("/book");
+            return;
+          }
+          navigate(`/book?clientId=${encodeURIComponent(cid)}`);
+          toast.info("Booking form opened — add the package services manually.");
+        }}
+      />
     </div>
   );
 }

@@ -47,6 +47,11 @@ import { syncService } from "../services/syncService";
 import { format } from "date-fns";
 import { Invoice, Client, Vehicle, Service, AddOn, BusinessSettings, LineItem } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
+import { PackageScheduleModal } from "../components/PackageScheduleModal";
+import {
+  declineRecommendation as svcDeclineRecommendation,
+  updateRecommendationStatus as svcUpdateRecommendationStatus,
+} from "../services/packageDealService";
 import { Checkbox } from "../components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -79,6 +84,133 @@ export default function Invoices() {
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  // ─── Package-deal lifecycle ─────────────────────────────────────────────
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleBundle, setScheduleBundle] = useState<any>(null);
+  const [scheduleKind, setScheduleKind] = useState<"bundle" | "recommendation">("bundle");
+
+  const applyPatchLocally = (
+    inv: Invoice,
+    kind: "bundle" | "recommendation",
+    itemKey: string,
+    patch: any
+  ): Invoice => {
+    const fieldKey = kind === "bundle" ? "unacceptedBundles" : "recommendedItems";
+    const list: any[] = ((inv as any)[fieldKey] || []).map((x: any) => {
+      const k = kind === "bundle" ? "name" : "serviceName";
+      return String(x?.[k] || "").toLowerCase().trim() === String(itemKey).toLowerCase().trim()
+        ? { ...x, ...patch }
+        : x;
+    });
+    return { ...inv, [fieldKey]: list } as any;
+  };
+
+  const handleInvoicePackageAcceptToday = async (item: any, kind: "bundle" | "recommendation") => {
+    if (!selectedInvoice) return;
+    const isBundle = kind === "bundle";
+    const itemKey = isBundle ? item.name : item.serviceName;
+    const itemPrice = Number(item.price) || 0;
+    if (itemPrice <= 0) {
+      toast.error("Cannot accept package without a valid price.");
+      return;
+    }
+    try {
+      const newLine: LineItem = {
+        serviceName: isBundle ? item.name : item.serviceName,
+        description: isBundle ? `Package: ${(item.services || []).join(", ")}` : (item.description || ""),
+        price: itemPrice,
+        quantity: 1,
+        total: itemPrice,
+        source: isBundle ? "package" : "recommendation",
+        protocolAccepted: true,
+      };
+      const newLineItems = [...(selectedInvoice.lineItems || []), newLine];
+      const newSubtotal = (selectedInvoice.subtotal || 0) + itemPrice;
+      const taxRate = settings?.taxRate || 0;
+      const newTaxAmount = ((newSubtotal - (selectedInvoice.discountAmount || 0)) * taxRate) / 100;
+      const newTotal =
+        newSubtotal -
+        (selectedInvoice.discountAmount || 0) +
+        ((selectedInvoice as any).travelFeeAmount || 0) +
+        ((selectedInvoice as any).afterHoursFeeAmount || 0) +
+        newTaxAmount;
+
+      const patch: any = { status: "accepted_today", acceptedAt: new Date() };
+      const updated = applyPatchLocally(selectedInvoice, kind, itemKey, patch);
+
+      await updateDoc(doc(db, "invoices", selectedInvoice.id), {
+        lineItems: newLineItems,
+        subtotal: newSubtotal,
+        total: newTotal,
+        ...((kind === "bundle"
+          ? { unacceptedBundles: (updated as any).unacceptedBundles }
+          : { recommendedItems: (updated as any).recommendedItems }) as any),
+      });
+      setSelectedInvoice({ ...updated, lineItems: newLineItems, subtotal: newSubtotal, total: newTotal } as Invoice);
+      toast.success(`${itemKey} added to today's invoice.`);
+    } catch (err: any) {
+      console.error("[InvoicePackage] Accept-today failed:", err);
+      toast.error(`Could not add: ${err?.message?.slice(0, 100) || "Unknown error"}`);
+    }
+  };
+
+  const handleInvoicePackageScheduleFuture = (item: any, kind: "bundle" | "recommendation") => {
+    if (!selectedInvoice?.clientId) {
+      toast.error("Select a client before scheduling this package.");
+      return;
+    }
+    setScheduleBundle({
+      name: item.name || item.serviceName,
+      services: item.services || [item.serviceName].filter(Boolean),
+      price: item.price ?? 0,
+      savings: item.savings ?? 0,
+      reason: item.reason || item.description,
+    });
+    setScheduleKind(kind);
+    setScheduleModalOpen(true);
+  };
+
+  const handleInvoicePackageScheduleApplied = async (apptId: string, occurrenceDate: Date) => {
+    if (!selectedInvoice || !scheduleBundle?.name) return;
+    const patch: any = {
+      status: "accepted_next_detail",
+      acceptedAt: new Date(),
+      acceptedForAppointmentId: apptId,
+      selectedRecurringOccurrenceDate: occurrenceDate,
+      scheduledForFutureDetail: true,
+    };
+    try {
+      await svcUpdateRecommendationStatus(
+        { collection: "invoices", id: selectedInvoice.id },
+        scheduleKind,
+        scheduleBundle.name,
+        patch
+      );
+      setSelectedInvoice(applyPatchLocally(selectedInvoice, scheduleKind, scheduleBundle.name, patch) as Invoice);
+    } catch (err) {
+      console.error("[InvoicePackage] Schedule status update failed:", err);
+    }
+  };
+
+  const handleInvoicePackageDecline = async (item: any, kind: "bundle" | "recommendation") => {
+    if (!selectedInvoice) return;
+    const itemKey = kind === "bundle" ? item.name : item.serviceName;
+    if (!itemKey) return;
+    try {
+      await svcDeclineRecommendation(
+        { collection: "invoices", id: selectedInvoice.id },
+        kind,
+        itemKey
+      );
+      setSelectedInvoice(
+        applyPatchLocally(selectedInvoice, kind, itemKey, { status: "declined", declinedAt: new Date() }) as Invoice
+      );
+      toast.success(`${itemKey} marked as declined.`);
+    } catch (err: any) {
+      console.error("[InvoicePackage] Decline failed:", err);
+      toast.error(`Could not decline: ${err?.message?.slice(0, 100) || "Unknown error"}`);
+    }
+  };
 
   const fetchInvoicesData = async (showToast = false) => {
     // Performance marker
@@ -618,10 +750,13 @@ export default function Invoices() {
           <DialogContent className="max-w-5xl p-0 overflow-hidden bg-gray-100 border-none rounded-3xl shadow-2xl flex flex-col max-h-[90vh]">
             <div className="flex-1 overflow-y-auto" id="invoice-preview-container-detail">
               <div id="invoice-preview-content-detail">
-                <DocumentPreview 
+                <DocumentPreview
                   type="invoice"
                   settings={settings}
                   document={selectedInvoice}
+                  onAcceptToday={handleInvoicePackageAcceptToday}
+                  onScheduleFuture={handleInvoicePackageScheduleFuture}
+                  onDeclineItem={handleInvoicePackageDecline}
                 />
               </div>
             </div>
@@ -733,6 +868,24 @@ export default function Invoices() {
         </Dialog>
       )}
 
+      <PackageScheduleModal
+        open={scheduleModalOpen}
+        onOpenChange={setScheduleModalOpen}
+        clientId={(selectedInvoice?.clientId || "") as string}
+        bundle={scheduleBundle}
+        relatedVehicleId={null}
+        onApplied={handleInvoicePackageScheduleApplied}
+        onCreateSeparate={() => {
+          const cid = selectedInvoice?.clientId;
+          if (!cid) {
+            toast.warning("No client on this invoice — opening blank booking form.");
+            navigate("/book");
+            return;
+          }
+          navigate(`/book?clientId=${encodeURIComponent(cid)}`);
+          toast.info("Booking form opened — add the package services manually.");
+        }}
+      />
     </div>
   );
 }

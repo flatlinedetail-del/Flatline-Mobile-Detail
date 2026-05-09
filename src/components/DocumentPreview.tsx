@@ -37,9 +37,21 @@ interface DocumentPreviewProps {
   settings: BusinessSettings | null;
   type: "invoice" | "quote";
   onAddRecommendation?: (item: any) => void;
+  // ── Package-deal lifecycle (optional). When provided, action buttons appear ──
+  onAcceptToday?: (item: any, kind: "bundle" | "recommendation") => void;
+  onScheduleFuture?: (item: any, kind: "bundle" | "recommendation") => void;
+  onDeclineItem?: (item: any, kind: "bundle" | "recommendation") => void;
 }
 
-export function DocumentPreview({ document, settings, type, onAddRecommendation }: DocumentPreviewProps) {
+export function DocumentPreview({
+  document,
+  settings,
+  type,
+  onAddRecommendation,
+  onAcceptToday,
+  onScheduleFuture,
+  onDeclineItem,
+}: DocumentPreviewProps) {
   const isInvoice = type === "invoice";
   const docNumber = document.invoiceNumber || (document.id ? document.id.slice(-6).toUpperCase() : "PREVIEW");
   const date = document.createdAt ? (document.createdAt as any).toDate?.() || new Date() : new Date();
@@ -60,8 +72,19 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
 
   // Skipped/declined recommendations and bundle suggestions are now persisted on
   // both Quote and Invoice. They are non-billable — never folded into total.
-  const recommendedItems = ((document as any).recommendedItems as any[]) || [];
-  const unacceptedBundles = ((document as any).unacceptedBundles as any[]) || [];
+  // Items with status="accepted_today" are filtered out — they live in lineItems now.
+  const allRecommendedItems = ((document as any).recommendedItems as any[]) || [];
+  const allUnacceptedBundles = ((document as any).unacceptedBundles as any[]) || [];
+  const recommendedItems = allRecommendedItems.filter((r: any) => r?.status !== "accepted_today");
+  const unacceptedBundles = allUnacceptedBundles.filter((b: any) => b?.status !== "accepted_today");
+  const showActions = !!(onAcceptToday || onScheduleFuture || onDeclineItem);
+  const renderStatusBadge = (status?: string) => {
+    if (status === "declined")
+      return <span className="text-[10px] font-black uppercase tracking-widest text-red-500 border border-red-500/30 px-2 py-0.5 rounded-md bg-red-500/5">Declined</span>;
+    if (status === "accepted_next_detail")
+      return <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 border border-emerald-600/30 px-2 py-0.5 rounded-md bg-emerald-600/5">Scheduled for Next Detail</span>;
+    return null;
+  };
 
   // Match each recommendation to bundles whose included services contain the
   // recommendation's name (case-insensitive). A bundle that matches at least
@@ -304,7 +327,38 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
                                     You Save: {formatCurrency((item.originalPrice - item.bundlePrice) * (item.quantity || 1))}
                                   </span>
                                 )}
-                                {onAddRecommendation && (
+                                {renderStatusBadge(item.status)}
+                                {showActions && item.status !== "declined" && item.status !== "accepted_next_detail" && (
+                                  <div className="flex flex-wrap gap-1.5 justify-end">
+                                    {onAcceptToday && (
+                                      <Button
+                                        onClick={(e) => { e.stopPropagation(); onAcceptToday(item, "recommendation"); }}
+                                        className="h-7 text-[9px] font-black uppercase tracking-widest bg-emerald-600 hover:bg-emerald-700 text-white"
+                                      >
+                                        Add to Today
+                                      </Button>
+                                    )}
+                                    {onScheduleFuture && (
+                                      <Button
+                                        onClick={(e) => { e.stopPropagation(); onScheduleFuture(item, "recommendation"); }}
+                                        variant="outline"
+                                        className="h-7 text-[9px] font-black uppercase tracking-widest border-amber-500/40 text-amber-700 hover:bg-amber-50"
+                                      >
+                                        Schedule for Future
+                                      </Button>
+                                    )}
+                                    {onDeclineItem && (
+                                      <Button
+                                        onClick={(e) => { e.stopPropagation(); onDeclineItem(item, "recommendation"); }}
+                                        variant="outline"
+                                        className="h-7 text-[9px] font-black uppercase tracking-widest border-black/10 text-black/60 hover:bg-black/5"
+                                      >
+                                        Decline
+                                      </Button>
+                                    )}
+                                  </div>
+                                )}
+                                {!showActions && onAddRecommendation && (
                                   <Button
                                     onClick={(e) => { e.stopPropagation(); onAddRecommendation(item); }}
                                     className="h-7 text-[10px] font-black uppercase tracking-widest bg-amber-500 hover:bg-amber-600 text-white"
@@ -330,7 +384,7 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
                                         <p className="text-[10px] text-black/60 italic mt-0.5">Why it fits: {bundle.reason}</p>
                                       )}
                                     </div>
-                                    <div className="text-right shrink-0">
+                                    <div className="text-right shrink-0 flex flex-col items-end gap-1.5">
                                       <span className="text-xs font-bold text-black border border-black/10 px-2 py-0.5 rounded-md bg-black/5 block mb-1">
                                         Package: {formatCurrency(bundle.price)}
                                       </span>
@@ -338,6 +392,20 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
                                         <span className="text-[9px] font-black uppercase tracking-widest text-green-600">
                                           You Save: {formatCurrency(bundle.savings)}
                                         </span>
+                                      )}
+                                      {renderStatusBadge(bundle.status)}
+                                      {showActions && bundle.status !== "declined" && bundle.status !== "accepted_next_detail" && (
+                                        <div className="flex flex-wrap gap-1 justify-end">
+                                          {onAcceptToday && (
+                                            <Button onClick={(e) => { e.stopPropagation(); onAcceptToday(bundle, "bundle"); }} className="h-6 text-[9px] font-black uppercase tracking-widest bg-emerald-600 hover:bg-emerald-700 text-white">Add to Today</Button>
+                                          )}
+                                          {onScheduleFuture && (
+                                            <Button onClick={(e) => { e.stopPropagation(); onScheduleFuture(bundle, "bundle"); }} variant="outline" className="h-6 text-[9px] font-black uppercase tracking-widest border-amber-500/40 text-amber-700 hover:bg-amber-50">Schedule for Future</Button>
+                                          )}
+                                          {onDeclineItem && (
+                                            <Button onClick={(e) => { e.stopPropagation(); onDeclineItem(bundle, "bundle"); }} variant="outline" className="h-6 text-[9px] font-black uppercase tracking-widest border-black/10 text-black/60 hover:bg-black/5">Decline</Button>
+                                          )}
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -366,10 +434,24 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
                               <p className="text-[10px] text-black/60 italic mt-0.5">Why it fits: {bundle.reason}</p>
                             )}
                           </div>
-                          <div className="text-right shrink-0">
+                          <div className="text-right shrink-0 flex flex-col items-end gap-1.5">
                             <span className="text-sm font-bold text-black border border-black/10 px-2 py-0.5 rounded-md bg-black/5 block mb-1">Package Price: {formatCurrency(bundle.price)}</span>
                             {bundle.savings > 0 && (
                               <span className="text-[9px] font-black uppercase tracking-widest text-green-600">You Save: {formatCurrency(bundle.savings)}</span>
+                            )}
+                            {renderStatusBadge(bundle.status)}
+                            {showActions && bundle.status !== "declined" && bundle.status !== "accepted_next_detail" && (
+                              <div className="flex flex-wrap gap-1 justify-end">
+                                {onAcceptToday && (
+                                  <Button onClick={(e) => { e.stopPropagation(); onAcceptToday(bundle, "bundle"); }} className="h-7 text-[9px] font-black uppercase tracking-widest bg-emerald-600 hover:bg-emerald-700 text-white">Add to Today</Button>
+                                )}
+                                {onScheduleFuture && (
+                                  <Button onClick={(e) => { e.stopPropagation(); onScheduleFuture(bundle, "bundle"); }} variant="outline" className="h-7 text-[9px] font-black uppercase tracking-widest border-amber-500/40 text-amber-700 hover:bg-amber-50">Schedule for Future</Button>
+                                )}
+                                {onDeclineItem && (
+                                  <Button onClick={(e) => { e.stopPropagation(); onDeclineItem(bundle, "bundle"); }} variant="outline" className="h-7 text-[9px] font-black uppercase tracking-widest border-black/10 text-black/60 hover:bg-black/5">Decline</Button>
+                                )}
+                              </div>
                             )}
                           </div>
                         </div>

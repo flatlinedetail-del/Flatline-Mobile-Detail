@@ -24,6 +24,11 @@ import { CustomFee } from "../types";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Quote, Client, Vehicle, Service, BusinessSettings, Invoice, Appointment, LineItem, PricingAnalysis, AdminPricingBreakdown, ClientVisibleAddOn, ProductCatalogItem } from "../types";
 import { DocumentPreview } from "../components/DocumentPreview";
+import { PackageScheduleModal } from "../components/PackageScheduleModal";
+import {
+  declineRecommendation as svcDeclineRecommendation,
+  updateRecommendationStatus as svcUpdateRecommendationStatus,
+} from "../services/packageDealService";
 import { Checkbox } from "../components/ui/checkbox";
 import { Slider } from "../components/ui/slider";
 import { Textarea } from "../components/ui/textarea";
@@ -2060,6 +2065,130 @@ export default function Quotes() {
   const [quoteRecommendedItems, setQuoteRecommendedItems] = useState<LineItem[]>([]);
   const [quoteUnacceptedBundles, setQuoteUnacceptedBundles] = useState<any[]>([]);
   const [quoteUnacceptedRecommendations, setQuoteUnacceptedRecommendations] = useState<any[]>([]);
+  // Package-deal lifecycle modal state
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleBundle, setScheduleBundle] = useState<any>(null);
+  const [scheduleKind, setScheduleKind] = useState<"bundle" | "recommendation">("bundle");
+
+  const normKey = (s: any) => String(s || "").toLowerCase().trim();
+
+  const handleQuotePackageAcceptToday = async (item: any, kind: "bundle" | "recommendation") => {
+    const isBundle = kind === "bundle";
+    const itemKey = isBundle ? item.name : item.serviceName;
+    const itemPrice = Number(item.price) || 0;
+    if (itemPrice <= 0) {
+      toast.error("Cannot accept package without a valid price.");
+      return;
+    }
+    const newLine: LineItem = {
+      serviceName: isBundle ? item.name : item.serviceName,
+      description: isBundle ? `Package: ${(item.services || []).join(", ")}` : (item.description || ""),
+      price: itemPrice,
+      quantity: 1,
+      total: itemPrice,
+      source: isBundle ? "package" : "recommendation",
+      protocolAccepted: true,
+    };
+    setLineItems(curr => [...curr, newLine]);
+    const patch = { status: "accepted_today", acceptedAt: new Date() };
+    if (isBundle) {
+      setQuoteUnacceptedBundles(prev =>
+        prev.map(b => normKey(b?.name) === normKey(itemKey) ? { ...b, ...patch } : b)
+      );
+    } else {
+      setQuoteRecommendedItems(prev =>
+        prev.map(r => normKey(r?.serviceName) === normKey(itemKey) ? { ...r, ...patch } : r)
+      );
+    }
+    if (editingQuote?.id) {
+      try {
+        await svcUpdateRecommendationStatus(
+          { collection: "quotes", id: editingQuote.id },
+          kind,
+          itemKey,
+          patch
+        );
+      } catch (err) {
+        console.error("[QuotePackage] Persist accept-today failed:", err);
+      }
+    }
+    toast.success(`${itemKey} added to today's quote.`);
+  };
+
+  const handleQuotePackageScheduleFuture = (item: any, kind: "bundle" | "recommendation") => {
+    if (!selectedClientId) {
+      toast.error("Select a client before scheduling this package.");
+      return;
+    }
+    setScheduleBundle({
+      name: item.name || item.serviceName,
+      services: item.services || [item.serviceName].filter(Boolean),
+      price: item.price ?? 0,
+      savings: item.savings ?? 0,
+      reason: item.reason || item.description,
+    });
+    setScheduleKind(kind);
+    setScheduleModalOpen(true);
+  };
+
+  const handleQuotePackageScheduleApplied = async (apptId: string, occurrenceDate: Date) => {
+    if (!scheduleBundle?.name) return;
+    const patch: any = {
+      status: "accepted_next_detail",
+      acceptedAt: new Date(),
+      acceptedForAppointmentId: apptId,
+      selectedRecurringOccurrenceDate: occurrenceDate,
+      scheduledForFutureDetail: true,
+    };
+    if (scheduleKind === "bundle") {
+      setQuoteUnacceptedBundles(prev =>
+        prev.map(b => normKey(b?.name) === normKey(scheduleBundle.name) ? { ...b, ...patch } : b)
+      );
+    } else {
+      setQuoteRecommendedItems(prev =>
+        prev.map(r => normKey(r?.serviceName) === normKey(scheduleBundle.name) ? { ...r, ...patch } : r)
+      );
+    }
+    if (editingQuote?.id) {
+      try {
+        await svcUpdateRecommendationStatus(
+          { collection: "quotes", id: editingQuote.id },
+          scheduleKind,
+          scheduleBundle.name,
+          patch
+        );
+      } catch (err) {
+        console.error("[QuotePackage] Persist schedule status failed:", err);
+      }
+    }
+  };
+
+  const handleQuotePackageDecline = async (item: any, kind: "bundle" | "recommendation") => {
+    const itemKey = kind === "bundle" ? item.name : item.serviceName;
+    if (!itemKey) return;
+    const patch = { status: "declined", declinedAt: new Date() };
+    if (kind === "bundle") {
+      setQuoteUnacceptedBundles(prev =>
+        prev.map(b => normKey(b?.name) === normKey(itemKey) ? { ...b, ...patch } : b)
+      );
+    } else {
+      setQuoteRecommendedItems(prev =>
+        prev.map(r => normKey(r?.serviceName) === normKey(itemKey) ? { ...r, ...patch } : r)
+      );
+    }
+    if (editingQuote?.id) {
+      try {
+        await svcDeclineRecommendation(
+          { collection: "quotes", id: editingQuote.id },
+          kind,
+          itemKey
+        );
+      } catch (err) {
+        console.error("[QuotePackage] Persist decline failed:", err);
+      }
+    }
+    toast.success(`${itemKey} marked as declined.`);
+  };
 
   const suggestedClients = clients.filter(c => {
     const search = clientSearchTerm.toLowerCase();
@@ -3125,10 +3254,15 @@ export default function Quotes() {
               description: quoteDescription || smartQuoteNotes || "",
               attachedFormIds: attachedFormIds,
               createdAt: editingQuote?.createdAt || undefined,
+              recommendedItems: quoteRecommendedItems,
+              unacceptedBundles: quoteUnacceptedBundles,
             } as any}
             onAddRecommendation={(item) => {
               setLineItems(current => [...current, { ...item, quantity: item.quantity || 1, total: item.price * (item.quantity || 1) }]);
             }}
+            onAcceptToday={handleQuotePackageAcceptToday}
+            onScheduleFuture={handleQuotePackageScheduleFuture}
+            onDeclineItem={handleQuotePackageDecline}
           />
         </div>
         <DialogFooter className="p-4 bg-white border-t shrink-0">
@@ -3438,6 +3572,24 @@ export default function Quotes() {
           </DialogContent>
         </Dialog>
       )}
+
+      <PackageScheduleModal
+        open={scheduleModalOpen}
+        onOpenChange={setScheduleModalOpen}
+        clientId={selectedClientId}
+        bundle={scheduleBundle}
+        relatedVehicleId={null}
+        onApplied={handleQuotePackageScheduleApplied}
+        onCreateSeparate={() => {
+          if (!selectedClientId) {
+            toast.warning("No client selected — opening blank booking form.");
+            navigate("/book");
+            return;
+          }
+          navigate(`/book?clientId=${encodeURIComponent(selectedClientId)}`);
+          toast.info("Booking form opened — add the package services manually.");
+        }}
+      />
     </div>
   );
 }
