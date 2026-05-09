@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { doc, updateDoc, getDoc, setDoc, collection, query, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit, where, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage, handleFirestoreError, OperationType } from "../firebase";
@@ -1681,6 +1681,14 @@ export default function Settings() {
                 className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
               >
                 <Shield className="w-4 h-4" /> Security Layers
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <TabsTrigger
+                value="forms"
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <ShieldCheck className="w-4 h-4" /> Forms & Waivers
               </TabsTrigger>
             )}
             {hasAccessToSensitiveSettings && (

@@ -14,7 +14,6 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Leads = lazy(() => import("./pages/Leads"));
 const Clients = lazy(() => import("./pages/Clients"));
 const ProtectedClients = lazy(() => import("./pages/ProtectedClients"));
-const Communications = lazy(() => import("./pages/Communications"));
 const Waitlist = lazy(() => import("./pages/Waitlist"));
 const Calendar = lazy(() => import("./pages/Calendar"));
 const JobDetail = lazy(() => import("./pages/JobDetail"));
@@ -27,6 +26,7 @@ const Help = lazy(() => import("./pages/Help"));
 const Expenses = lazy(() => import("./pages/Expenses"));
 const Marketing = lazy(() => import("./pages/Marketing"));
 const FormsBuilder = lazy(() => import("./pages/FormsBuilder"));
+const CustomerSigning = lazy(() => import("./pages/CustomerSigning"));
 const BookAppointment = lazy(() => import("./pages/BookAppointment"));
 const AILeadEngine = lazy(() => import("./pages/AILeadEngine"));
 const Login = lazy(() => import("./pages/Login"));
@@ -73,6 +73,7 @@ function AppContent() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/book" element={<PublicBooking />} />
+          <Route path="/sign/:token" element={<CustomerSigning />} />
           <Route
             path="/"
             element={
@@ -86,7 +87,11 @@ function AppContent() {
             <Route path="leads/engine" element={<AILeadEngine />} />
             <Route path="clients" element={<Clients />} />
             <Route path="protected-clients" element={<ProtectedClients />} />
-            <Route path="communications" element={<Communications />} />
+            {/* Communications is no longer a primary tab — keep the route
+                accessible only as a redirect for any old in-app links and
+                outside bookmarks. The actual client-scoped history lives
+                inside Client Profile → Communications. */}
+            <Route path="communications" element={<Navigate to="/clients" replace />} />
             <Route path="waitlist" element={<Waitlist />} />
             <Route path="book-appointment" element={<BookAppointment />} />
             <Route path="calendar" element={<Calendar />} />
@@ -97,7 +102,7 @@ function AppContent() {
             <Route path="help" element={<Help />} />
             <Route path="marketing" element={<Marketing />} />
             <Route path="expenses" element={<Expenses />} />
-            <Route path="forms" element={<FormsBuilder />} />
+            <Route path="forms" element={<Navigate to="/settings?tab=forms" replace />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>

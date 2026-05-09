@@ -51,6 +51,7 @@ import { optimizeRoute, RouteStop } from "@/lib/scheduling";
 import { Appointment, Lead, Expense, Client, Invoice, BusinessSettings, WeatherInfo } from "@/types";
 import { askAssistant, AIResponse } from "../services/gemini";
 import { fetchWeather } from "../services/weatherService";
+import { NeedsAttentionCard, TodaysConfirmationsCard } from "../components/NeedsAttentionCard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -682,15 +683,23 @@ export default function Dashboard() {
         </FocusWrapper>
 
         <FocusWrapper id="ops" title="Active Operations" focusedId={focusedCardId} onFocus={setFocusedCardId}>
-          <StatCard 
-            title="Active Operations" 
-            value={stats.activeJobs.toString()} 
+          <StatCard
+            title="Active Operations"
+            value={stats.activeJobs.toString()}
             subValue={`${formatCurrency(stats.pending)} in pipeline`}
             icon={<Clock className="w-6 h-6" />}
             color="white"
             standalone={focusedCardId === "ops"}
           />
         </FocusWrapper>
+      </div>
+
+      {/* Shared Action Center — same source as the notification bell and PWA badge.
+          Left card lists unresolved comms/forms/payments/job-readiness items;
+          right card shows today's confirmation/readiness events. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto">
+        <NeedsAttentionCard />
+        <TodaysConfirmationsCard />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">

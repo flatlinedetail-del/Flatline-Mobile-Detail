@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, UserPlus, Building2, Calendar, ClipboardList, Settings, LogOut, Menu, X, MessageSquare, MessagesSquare, Bell, BarChart, Receipt, ShieldCheck, ChevronLeft, ChevronRight, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet, HelpCircle, Zap, Plug, PanelLeftClose, PanelLeftOpen, ShieldAlert } from "lucide-react";
+import { LayoutDashboard, Users, UserPlus, Calendar, ClipboardList, LogOut, Menu, MessageSquare, Bell, BarChart, Receipt, ShieldCheck, User, Globe, Palette, DatabaseZap, Ticket, Shield, FileText, Wallet, HelpCircle, Zap, Plug, PanelLeftClose, PanelLeftOpen, ShieldAlert } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -21,8 +21,10 @@ const navigationGroups = [
       { name: "Waitlist", href: "/waitlist", icon: ClipboardList },
       { name: "Clients", href: "/clients", icon: Users },
       { name: "Risk Management", href: "/protected-clients", icon: ShieldAlert, adminOnly: true },
-      { name: "Communications", href: "/communications", icon: MessagesSquare },
-      { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck },
+      // Communications is no longer a global tab — client communication
+      // history lives inside Client Profile → Communications, and provider
+      // configuration lives in Settings → Communications. The notification
+      // bell + Dashboard Action Center surface unresolved comms items.
     ]
   },
   {
@@ -57,6 +59,7 @@ const navigationGroups = [
       { name: "Services & Add-Ons", href: "/settings?tab=services", icon: ClipboardList, adminOnly: true },
       { name: "Coupons", href: "/settings?tab=coupons", icon: Ticket, adminOnly: true },
       { name: "Automations", href: "/settings?tab=automation", icon: Zap, adminOnly: true },
+      { name: "Forms & Waivers", href: "/settings?tab=forms", icon: ShieldCheck, adminOnly: true },
       { name: "Integrations", href: "/settings?tab=integrations", icon: Plug, adminOnly: true },
       { name: "Security", href: "/settings?tab=security", icon: Shield, adminOnly: true },
       { name: "Help", href: "/help", icon: HelpCircle },
@@ -66,17 +69,34 @@ const navigationGroups = [
 
 import { useOperationsFeed } from "../hooks/useOperationsFeed";
 import { useWaitlistCount } from "../hooks/useWaitlistCount";
+import { useActionCenter } from "../hooks/useActionCenter";
 import { OperationsFeed } from "./OperationsFeed";
 
+/**
+ * Notification bell — shows a single dot when there is anything unresolved,
+ * combining (a) classic ops-feed unread notifications and (b) the shared
+ * Action Center unresolved count. Both surfaces share state with the
+ * Dashboard "Needs Attention" card and the PWA app-badge count, so they
+ * always agree.
+ */
 function NotificationBell() {
   const { unreadCount } = useOperationsFeed();
-  
+  const { bellCount } = useActionCenter();
+  const total = unreadCount + bellCount;
+
   return (
     <SheetTrigger render={
       <Button variant="ghost" size="icon" className="text-white hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300 relative">
         <Bell className="w-5 h-5" />
-        {unreadCount > 0 && (
-          <span className="absolute top-2 right-2 w-2 h-2 bg-[#0A4DFF] rounded-full ring-2 ring-sidebar animate-pulse"></span>
+        {total > 0 && (
+          <>
+            <span className="absolute top-2 right-2 w-2 h-2 bg-[#0A4DFF] rounded-full ring-2 ring-sidebar animate-pulse" />
+            {total > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#0A4DFF] text-[10px] font-black text-white flex items-center justify-center ring-2 ring-sidebar">
+                {total > 99 ? "99+" : total}
+              </span>
+            )}
+          </>
         )}
       </Button>
     } />
