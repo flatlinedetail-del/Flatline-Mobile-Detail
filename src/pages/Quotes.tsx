@@ -91,6 +91,10 @@ interface SmartQuoteProps {
     finalQuoteTotal?: number;
     selectedServiceName?: string;
     internalNotes?: string;
+    // ── Non-billable skipped recommendations + bundle suggestions ──
+    recommendedItems?: LineItem[];
+    unacceptedBundles?: any[];
+    unacceptedRecommendations?: any[];
   }) => void;
 }
 
@@ -130,6 +134,8 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const [pricingAnalysis, setPricingAnalysis] = useState<PricingAnalysis | null>(null);
   const [analysisSource, setAnalysisSource] = useState<"ai" | "benchmark" | "none">("none");
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  // Bundle suggestions returned by AI (non-billable; surfaced on the saved quote)
+  const [aiBundleOpportunities, setAiBundleOpportunities] = useState<any[]>([]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
 
   // Product Catalog
@@ -344,6 +350,16 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
         [], // images
         guard.modelTier
       );
+
+      // Capture non-billable bundle suggestions (only if real AI numbers were returned)
+      if (Array.isArray(response.bundlingOpportunities)) {
+        setAiBundleOpportunities(
+          response.bundlingOpportunities
+            .filter((b: any) => b && typeof b.discountedPrice === "number" && b.discountedPrice > 0)
+        );
+      } else {
+        setAiBundleOpportunities([]);
+      }
 
       if (response.pricingAnalysis) {
         setPricingAnalysis(normalizePricingTiers(response.pricingAnalysis));
@@ -981,6 +997,41 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     // ─── 6. Primary selected service metadata ─────────────────────────────
     const primaryService = selectedServices[0];
 
+    // ─── 6a. Skipped recommendations + bundle suggestions (non-billable) ──
+    // Capture upsells the user did NOT add to the billable lineItems so the
+    // saved quote can display them in a "Recommended (Not Billed)" section
+    // and surface matching package deals to the client later.
+    const selectedAddOnIds = new Set(selectedAddOnSelections.map(s => s.addOnId));
+    const selectedServiceIds = new Set(selectedServiceSelections.map(s => s.serviceId));
+    const skippedUpsells = (recommendations.upsells || []).filter((u: any) => {
+      if (!u || !u.id) return false;
+      if (u.type === "addon") return !selectedAddOnIds.has(u.id);
+      if (u.type === "service") return !selectedServiceIds.has(u.id);
+      return true;
+    });
+    const recommendedItemsPayload: LineItem[] = skippedUpsells.map((u: any) => ({
+      serviceName: u.name,
+      description: u.reason || "Recommended add-on not selected today.",
+      quantity: 1,
+      price: u.price ?? 0,
+      total: u.price ?? 0,
+      source: "recommendation",
+      protocolAccepted: false,
+      // extra metadata used by DocumentPreview to render bundle savings if present
+      ...(typeof u.originalPrice === "number" ? { originalPrice: u.originalPrice } : {}),
+      ...(typeof u.bundlePrice === "number" ? { bundlePrice: u.bundlePrice } : {}),
+    } as any));
+    const bundlesPayload = (aiBundleOpportunities || [])
+      .filter((b: any) => b && typeof b.discountedPrice === "number" && b.discountedPrice > 0)
+      .map((b: any) => ({
+        name: b.bundleName,
+        services: Array.isArray(b.items) ? b.items : [],
+        price: b.discountedPrice,
+        savings: typeof b.savings === "number" ? b.savings : 0,
+        reason: b.reason || "",
+        accepted: false,
+      }));
+
     // ─── 7. Fire onApply ──────────────────────────────────────────────────
     onApply({
       clientId: "",
@@ -1015,6 +1066,9 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       finalQuoteTotal:    parseFloat(finalQuoteTotal.toFixed(2)),
       selectedServiceName: primaryService?.name ?? "",
       internalNotes: recommendations.explanation,
+      recommendedItems: recommendedItemsPayload,
+      unacceptedBundles: bundlesPayload,
+      unacceptedRecommendations: skippedUpsells,
     });
   };
 
@@ -2002,6 +2056,10 @@ export default function Quotes() {
   const [clientVisibleAddOns, setClientVisibleAddOns] = useState<ClientVisibleAddOn[]>([]);
   const [aiRecommendedPrice, setAiRecommendedPrice] = useState<number | null>(null);
   const [selectedServiceName, setSelectedServiceName] = useState("");
+  // Non-billable: skipped recommendations + bundle suggestions persisted with the quote
+  const [quoteRecommendedItems, setQuoteRecommendedItems] = useState<LineItem[]>([]);
+  const [quoteUnacceptedBundles, setQuoteUnacceptedBundles] = useState<any[]>([]);
+  const [quoteUnacceptedRecommendations, setQuoteUnacceptedRecommendations] = useState<any[]>([]);
 
   const suggestedClients = clients.filter(c => {
     const search = clientSearchTerm.toLowerCase();
@@ -2311,6 +2369,10 @@ export default function Quotes() {
       finalQuoteTotal: quoteTotal,
       pricingConfidence: adminPricingBreakdown?.pricingConfidence ?? null,
       internalNotes: adminPricingBreakdown?.internalNotes || null,
+      // ── Non-billable skipped recommendations + bundle suggestions ──
+      recommendedItems: quoteRecommendedItems,
+      unacceptedBundles: quoteUnacceptedBundles,
+      unacceptedRecommendations: quoteUnacceptedRecommendations,
       updatedAt: serverTimestamp(),
       leadId: activeLeadId || editingQuote?.leadId || null
     };
@@ -2390,6 +2452,9 @@ export default function Quotes() {
     setClientVisibleAddOns([]);
     setAiRecommendedPrice(null);
     setSelectedServiceName("");
+    setQuoteRecommendedItems([]);
+    setQuoteUnacceptedBundles([]);
+    setQuoteUnacceptedRecommendations([]);
   };
 
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -3110,6 +3175,9 @@ export default function Quotes() {
             setClientVisibleAddOns(data.clientVisibleAddOns ?? []);
             setAiRecommendedPrice(data.aiRecommendedPrice ?? null);
             setSelectedServiceName(data.selectedServiceName ?? "");
+            setQuoteRecommendedItems(data.recommendedItems ?? []);
+            setQuoteUnacceptedBundles(data.unacceptedBundles ?? []);
+            setQuoteUnacceptedRecommendations(data.unacceptedRecommendations ?? []);
             setActiveTab("smart");
             setIsAddDialogOpen(true);
           }}
@@ -3241,6 +3309,9 @@ export default function Quotes() {
                             setClientVisibleAddOns((q as any).clientVisibleAddOns ?? []);
                             setAiRecommendedPrice((q as any).aiRecommendedPrice ?? null);
                             setSelectedServiceName((q as any).selectedServiceName ?? "");
+                            setQuoteRecommendedItems((q as any).recommendedItems ?? []);
+                            setQuoteUnacceptedBundles((q as any).unacceptedBundles ?? []);
+                            setQuoteUnacceptedRecommendations((q as any).unacceptedRecommendations ?? []);
                             setSelectedVehicleIds(q.vehicles.map(v => v.id));
                             setIsAddDialogOpen(true);
                           }}

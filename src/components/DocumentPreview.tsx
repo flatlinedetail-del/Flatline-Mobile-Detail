@@ -58,7 +58,29 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
   // Ensure we NEVER use business address as service address
   const serviceAddress = document.serviceAddress || document.clientAddress || "Service address not recorded";
 
-  const recommendedItems = isInvoice ? (document as Invoice).recommendedItems || [] : [];
+  // Skipped/declined recommendations and bundle suggestions are now persisted on
+  // both Quote and Invoice. They are non-billable — never folded into total.
+  const recommendedItems = ((document as any).recommendedItems as any[]) || [];
+  const unacceptedBundles = ((document as any).unacceptedBundles as any[]) || [];
+
+  // Match each recommendation to bundles whose included services contain the
+  // recommendation's name (case-insensitive). A bundle that matches at least
+  // one recommendation is rendered inline under that recommendation; bundles
+  // that don't match any recommendation fall through to the standalone list.
+  const norm = (s: any) => String(s || "").toLowerCase().trim();
+  const bundleMatchesRec = (bundle: any, rec: any) => {
+    const recName = norm((rec as any)?.serviceName);
+    if (!recName) return false;
+    const services: string[] = Array.isArray(bundle?.services) ? bundle.services : [];
+    return services.some(svc => norm(svc) === recName || norm(svc).includes(recName) || recName.includes(norm(svc)));
+  };
+  const matchedBundleNames = new Set<string>();
+  recommendedItems.forEach((rec: any) => {
+    unacceptedBundles.forEach((b: any) => {
+      if (bundleMatchesRec(b, rec)) matchedBundleNames.add(norm(b?.name));
+    });
+  });
+  const standaloneBundles = unacceptedBundles.filter((b: any) => !matchedBundleNames.has(norm(b?.name)));
 
   return (
     <div className="bg-gray-100 p-4 md:p-8 min-h-full flex justify-center">
@@ -245,64 +267,109 @@ export function DocumentPreview({ document, settings, type, onAddRecommendation 
               </table>
             </div>
 
-            {/* Recommended Services (Not accepted) */}
-            {(recommendedItems.length > 0 || (isInvoice && (document as Invoice).unacceptedBundles?.length > 0)) && (
+            {/* Recommended Services (Not accepted) — non-billable; never affects total */}
+            {(recommendedItems.length > 0 || unacceptedBundles.length > 0) && (
               <div className="mt-8 border border-amber-200/50 bg-amber-50/30 rounded-2xl p-6">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-4 flex items-center gap-2 border-b border-amber-200/50 pb-3">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                  Recommended Services & Bundles (Not Billed)
+                  Recommended Services Not Selected
                 </h4>
 
                 <div className="space-y-6 pt-2">
-                  {isInvoice && (document as Invoice).unacceptedBundles?.map((bundle, idx) => (
-                    <div key={`bundle-${idx}`} className="flex justify-between items-start gap-4 p-4 bg-white/50 border border-amber-200/30 rounded-xl">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-black text-black uppercase tracking-tight">Bundle Opportunity: {bundle.name}</p>
-                        </div>
-                        <p className="text-[10px] text-black font-medium leading-relaxed mt-1">
-                          Includes: {bundle.services?.join(" + ")}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="text-sm font-bold text-black border border-black/10 px-2 py-0.5 rounded-md bg-black/5 block mb-1">Bundle Price: {formatCurrency(bundle.price)}</span>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-green-600">You Save: {formatCurrency(bundle.savings)}</span>
-                      </div>
-                    </div>
-                  ))}
-
                   {recommendedItems.length > 0 && (
-                    <div className="space-y-4">
-                      {recommendedItems.map((item, idx) => (
-                        <div key={`rec-${idx}`} className="flex justify-between items-start gap-4 px-2">
-                          <div>
-                            <p className="text-sm font-bold text-black">{item.serviceName}</p>
-                            <p className="text-[10px] text-black font-medium italic leading-relaxed mt-0.5">
-                              {item.description ? cleanDescription(item.description) : "Recommended based on vehicle condition and maintenance needs"}
-                            </p>
-                          </div>
-                          <div className="flex flex-col items-end shrink-0 gap-2">
-                            <div className="flex items-center gap-2">
-                              {(item as any).bundlePrice && (item as any).originalPrice && ((item as any).originalPrice > (item as any).bundlePrice) && (
-                                <span className="text-xs font-bold text-black/30 line-through mr-1">
-                                  {formatCurrency((item as any).originalPrice)}
-                                </span>
-                              )}
-                              <span className="text-xs font-bold text-black/60">{formatCurrency((item.price || 0) * (item.quantity || 1))}</span>
-                              <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 border border-amber-600/20 px-2 py-0.5 rounded-md bg-amber-600/5">Not Added</span>
+                    <div className="space-y-5">
+                      {recommendedItems.map((item: any, idx: number) => {
+                        const matchedBundles = unacceptedBundles.filter(b => bundleMatchesRec(b, item));
+                        return (
+                          <div key={`rec-${idx}`} className="space-y-2 px-2">
+                            <div className="flex justify-between items-start gap-4">
+                              <div>
+                                <p className="text-sm font-bold text-black">{item.serviceName}</p>
+                                <p className="text-[10px] text-black font-medium italic leading-relaxed mt-0.5">
+                                  {item.description ? cleanDescription(item.description) : "Recommended based on vehicle condition and maintenance needs"}
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end shrink-0 gap-2">
+                                <div className="flex items-center gap-2">
+                                  {item.bundlePrice && item.originalPrice && (item.originalPrice > item.bundlePrice) && (
+                                    <span className="text-xs font-bold text-black/30 line-through mr-1">
+                                      {formatCurrency(item.originalPrice)}
+                                    </span>
+                                  )}
+                                  <span className="text-xs font-bold text-black/60">{formatCurrency((item.price || 0) * (item.quantity || 1))}</span>
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 border border-amber-600/20 px-2 py-0.5 rounded-md bg-amber-600/5">Not Selected</span>
+                                </div>
+                                {item.bundlePrice && item.originalPrice && (item.originalPrice > item.bundlePrice) && (
+                                  <span className="text-[9px] font-black uppercase tracking-widest text-green-600">
+                                    You Save: {formatCurrency((item.originalPrice - item.bundlePrice) * (item.quantity || 1))}
+                                  </span>
+                                )}
+                                {onAddRecommendation && (
+                                  <Button
+                                    onClick={(e) => { e.stopPropagation(); onAddRecommendation(item); }}
+                                    className="h-7 text-[10px] font-black uppercase tracking-widest bg-amber-500 hover:bg-amber-600 text-white"
+                                  >
+                                    Add Recommended Service
+                                  </Button>
+                                )}
+                              </div>
                             </div>
-                            {(item as any).bundlePrice && (item as any).originalPrice && ((item as any).originalPrice > (item as any).bundlePrice) && (
-                               <span className="text-[9px] font-black uppercase tracking-widest text-green-600">
-                                 You Save: {formatCurrency(((item as any).originalPrice - (item as any).bundlePrice) * (item.quantity || 1))}
-                               </span>
+                            {matchedBundles.length > 0 && (
+                              <div className="ml-4 pl-3 border-l-2 border-amber-300/50 space-y-2">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-amber-600/80">Package Deal Available</p>
+                                {matchedBundles.map((bundle: any, bIdx: number) => (
+                                  <div key={`rec-${idx}-bundle-${bIdx}`} className="flex justify-between items-start gap-4 p-3 bg-white/60 border border-amber-200/40 rounded-lg">
+                                    <div>
+                                      <p className="text-xs font-black text-black">{bundle.name}</p>
+                                      {Array.isArray(bundle.services) && bundle.services.length > 0 && (
+                                        <p className="text-[10px] text-black/70 font-medium mt-0.5">
+                                          Includes: {bundle.services.join(", ")}
+                                        </p>
+                                      )}
+                                      {bundle.reason && (
+                                        <p className="text-[10px] text-black/60 italic mt-0.5">Why it fits: {bundle.reason}</p>
+                                      )}
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <span className="text-xs font-bold text-black border border-black/10 px-2 py-0.5 rounded-md bg-black/5 block mb-1">
+                                        Package: {formatCurrency(bundle.price)}
+                                      </span>
+                                      {bundle.savings > 0 && (
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-green-600">
+                                          You Save: {formatCurrency(bundle.savings)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             )}
-                            {onAddRecommendation && (
-                              <Button 
-                                onClick={(e) => { e.stopPropagation(); onAddRecommendation(item); }}
-                                className="h-7 text-[10px] font-black uppercase tracking-widest bg-amber-500 hover:bg-amber-600 text-white"
-                              >
-                                Add Recommended Service
-                              </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {standaloneBundles.length > 0 && (
+                    <div className="space-y-3 pt-2 border-t border-amber-200/40">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-amber-600/80">Suggested Package Savings</p>
+                      {standaloneBundles.map((bundle: any, idx: number) => (
+                        <div key={`bundle-${idx}`} className="flex justify-between items-start gap-4 p-4 bg-white/50 border border-amber-200/30 rounded-xl">
+                          <div>
+                            <p className="text-sm font-black text-black uppercase tracking-tight">{bundle.name}</p>
+                            {Array.isArray(bundle.services) && bundle.services.length > 0 && (
+                              <p className="text-[10px] text-black font-medium leading-relaxed mt-1">
+                                Includes: {bundle.services.join(" + ")}
+                              </p>
+                            )}
+                            {bundle.reason && (
+                              <p className="text-[10px] text-black/60 italic mt-0.5">Why it fits: {bundle.reason}</p>
+                            )}
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-sm font-bold text-black border border-black/10 px-2 py-0.5 rounded-md bg-black/5 block mb-1">Package Price: {formatCurrency(bundle.price)}</span>
+                            {bundle.savings > 0 && (
+                              <span className="text-[9px] font-black uppercase tracking-widest text-green-600">You Save: {formatCurrency(bundle.savings)}</span>
                             )}
                           </div>
                         </div>

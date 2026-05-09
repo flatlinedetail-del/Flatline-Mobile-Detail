@@ -696,6 +696,10 @@ export interface Quote {
   discountAmount?: number;
   travelFeeAmount?: number;
   customFees?: CustomFee[];
+  // ── Skipped/declined upsell tracking (non-billable; for display + later follow-up) ──
+  recommendedItems?: LineItem[];
+  unacceptedBundles?: any[];
+  unacceptedRecommendations?: any[];
 }
 
 export interface MapZone {
