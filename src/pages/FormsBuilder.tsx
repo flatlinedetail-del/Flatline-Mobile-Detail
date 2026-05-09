@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 
-export default function FormsBuilder() {
+export default function FormsBuilder({ embedded = false }: { embedded?: boolean }) {
   const { profile, loading: authLoading, canAccessManager, systemStatus } = useAuth();
   const [templates, setTemplates] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
@@ -46,7 +46,11 @@ export default function FormsBuilder() {
     assignedAddons: [] as string[],
     assignedToRetail: true,
     assignedToVendors: true,
-    enforcement: "before_start"
+    enforcement: "before_start",
+    signatureFrequency: "every_job" as string,
+    riskTriggers: [] as string[],
+    priceThreshold: null as number | null,
+    expiresAfterDays: null as number | null,
   });
 
   const [newAck, setNewAck] = useState("");
@@ -128,7 +132,11 @@ export default function FormsBuilder() {
         assignedAddons: template.assignedAddons || [],
         assignedToRetail: template.assignedToRetail ?? true,
         assignedToVendors: template.assignedToVendors ?? true,
-        enforcement: template.enforcement || "before_start"
+        enforcement: template.enforcement || "before_start",
+        signatureFrequency: template.signatureFrequency || "every_job",
+        riskTriggers: template.riskTriggers || [],
+        priceThreshold: template.priceThreshold ?? null,
+        expiresAfterDays: template.expiresAfterDays ?? null,
       });
     } else {
       setEditingTemplate(null);
@@ -147,7 +155,11 @@ export default function FormsBuilder() {
         assignedAddons: [],
         assignedToRetail: true,
         assignedToVendors: true,
-        enforcement: "before_start"
+        enforcement: "before_start",
+        signatureFrequency: "every_job",
+        riskTriggers: [],
+        priceThreshold: null,
+        expiresAfterDays: null,
       });
     }
     setShowEditDialog(true);
@@ -263,20 +275,37 @@ export default function FormsBuilder() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
-        title="Forms & WAIVERS" 
-        accentWord="WAIVERS" 
-        subtitle="Legal Compliance & Protocol Management"
-        actions={
-          <Button 
-            onClick={() => handleOpenEdit()} 
-            className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105"
+      {!embedded && (
+        <PageHeader
+          title="Forms & WAIVERS"
+          accentWord="WAIVERS"
+          subtitle="Legal Compliance & Protocol Management"
+          actions={
+            <Button
+              onClick={() => handleOpenEdit()}
+              className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Initialize Protocol
+            </Button>
+          }
+        />
+      )}
+      {embedded && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-black text-white uppercase tracking-tight">Forms & Waivers</h3>
+            <p className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-0.5">Legal Compliance & Protocol Management</p>
+          </div>
+          <Button
+            onClick={() => handleOpenEdit()}
+            className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-10 px-6 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-glow-blue transition-all hover:scale-105"
           >
             <Plus className="w-4 h-4 mr-2" />
-            Initialize Protocol
+            New Form
           </Button>
-        }
-      />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {templates.map((template) => (
@@ -304,7 +333,16 @@ export default function FormsBuilder() {
                 {template.assignedAddons?.length > 0 && (
                   <Badge variant="outline" className="text-[10px]">{template.assignedAddons.length} Add-ons</Badge>
                 )}
-                <Badge variant="outline" className="text-[10px] capitalize">{template.enforcement.replace("_", " ")}</Badge>
+                <Badge variant="outline" className="text-[10px] capitalize">{(template.enforcement || "before_start").replace(/_/g, " ")}</Badge>
+                {template.signatureFrequency && template.signatureFrequency !== "every_job" && (
+                  <Badge variant="outline" className="text-[10px] capitalize">{template.signatureFrequency.replace(/_/g, " ")}</Badge>
+                )}
+                {template.priceThreshold != null && (
+                  <Badge variant="outline" className="text-[10px]">${template.priceThreshold}+</Badge>
+                )}
+                {template.riskTriggers?.length > 0 && (
+                  <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-200">{template.riskTriggers.length} Risk Triggers</Badge>
+                )}
               </div>
             </CardContent>
             <div className="p-4 border-t border-gray-50 bg-gray-50/50 flex justify-end gap-2">
@@ -505,6 +543,73 @@ export default function FormsBuilder() {
                       <Label htmlFor="assign-vendor" className="text-sm">Vendors</Label>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label>Signature Frequency</Label>
+                  <Select value={formData.signatureFrequency} onValueChange={v => setFormData(prev => ({ ...prev, signatureFrequency: v }))}>
+                    <SelectTrigger className="bg-white border-gray-200 text-[#111111] focus:bg-white focus:text-[#111111]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border-gray-200 text-[#111111]">
+                      <SelectItem value="every_job">Every Job</SelectItem>
+                      <SelectItem value="once_per_client">Once Per Client</SelectItem>
+                      <SelectItem value="once_per_vehicle">Once Per Vehicle</SelectItem>
+                      <SelectItem value="expires_after">Expires After Period</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {formData.signatureFrequency === "expires_after" && (
+                  <div className="space-y-2">
+                    <Label>Expires After (days)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={formData.expiresAfterDays ?? ""}
+                      onChange={e => setFormData(prev => ({ ...prev, expiresAfterDays: e.target.value ? Number(e.target.value) : null }))}
+                      placeholder="e.g. 365"
+                      className="bg-white border-gray-200 text-[#111111]"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label>Price Threshold ($)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={formData.priceThreshold ?? ""}
+                    onChange={e => setFormData(prev => ({ ...prev, priceThreshold: e.target.value ? Number(e.target.value) : null }))}
+                    placeholder="Leave blank if not price-triggered"
+                    className="bg-white border-gray-200 text-[#111111]"
+                  />
+                  <p className="text-xs text-gray-400">Auto-require this form for jobs over this amount</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Risk Triggers</Label>
+                  <div className="flex flex-wrap gap-2 p-3 border rounded-lg bg-white min-h-[44px]">
+                    {["high", "medium", "flagged", "new_client"].map(risk => (
+                      <label key={risk} className="flex items-center gap-1.5 cursor-pointer">
+                        <Checkbox
+                          checked={formData.riskTriggers.includes(risk)}
+                          onCheckedChange={(checked: boolean) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              riskTriggers: checked
+                                ? [...prev.riskTriggers, risk]
+                                : prev.riskTriggers.filter(r => r !== risk),
+                            }));
+                          }}
+                        />
+                        <span className="text-xs text-[#111111] capitalize">{risk.replace("_", " ")}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-400">Auto-require for clients with matching risk level</p>
                 </div>
               </div>
 

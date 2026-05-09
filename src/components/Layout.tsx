@@ -22,7 +22,6 @@ const navigationGroups = [
       { name: "Clients", href: "/clients", icon: Users },
       { name: "Risk Management", href: "/protected-clients", icon: ShieldAlert, adminOnly: true },
       { name: "Communications", href: "/communications", icon: MessagesSquare },
-      { name: "Forms & Waivers", href: "/forms", icon: ShieldCheck },
     ]
   },
   {
@@ -59,6 +58,7 @@ const navigationGroups = [
       { name: "Automations", href: "/settings?tab=automation", icon: Zap, adminOnly: true },
       { name: "Integrations", href: "/settings?tab=integrations", icon: Plug, adminOnly: true },
       { name: "Security", href: "/settings?tab=security", icon: Shield, adminOnly: true },
+      { name: "Forms & Waivers", href: "/settings?tab=forms", icon: ShieldCheck, adminOnly: true },
       { name: "Help", href: "/help", icon: HelpCircle },
     ]
   }

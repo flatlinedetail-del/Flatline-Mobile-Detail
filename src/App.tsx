@@ -27,6 +27,7 @@ const Help = lazy(() => import("./pages/Help"));
 const Expenses = lazy(() => import("./pages/Expenses"));
 const Marketing = lazy(() => import("./pages/Marketing"));
 const FormsBuilder = lazy(() => import("./pages/FormsBuilder"));
+const CustomerSigning = lazy(() => import("./pages/CustomerSigning"));
 const BookAppointment = lazy(() => import("./pages/BookAppointment"));
 const AILeadEngine = lazy(() => import("./pages/AILeadEngine"));
 const Login = lazy(() => import("./pages/Login"));
@@ -73,6 +74,7 @@ function AppContent() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/book" element={<PublicBooking />} />
+          <Route path="/sign/:token" element={<CustomerSigning />} />
           <Route
             path="/"
             element={
@@ -97,7 +99,7 @@ function AppContent() {
             <Route path="help" element={<Help />} />
             <Route path="marketing" element={<Marketing />} />
             <Route path="expenses" element={<Expenses />} />
-            <Route path="forms" element={<FormsBuilder />} />
+            <Route path="forms" element={<Navigate to="/settings?tab=forms" replace />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>

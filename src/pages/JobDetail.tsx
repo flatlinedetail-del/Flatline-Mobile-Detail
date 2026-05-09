@@ -1636,28 +1636,42 @@ export default function JobDetail() {
   };
 
   const checkRequiredForms = (stage: string) => {
+    const jobTotal = job.totalPrice || job.price || 0;
+    const clientRisk = job.clientRiskLevel || job.riskLevel || null;
+
     const applicableTemplates = formTemplates.filter(t => {
-      // Check if template is assigned to any of the job's services or addons
+      if (t.enforcement !== stage) return false;
+
       const hasService = t.assignedServices?.some((sid: string) => job.serviceIds?.includes(sid));
       const hasAddon = t.assignedAddons?.some((aid: string) => job.addOnIds?.includes(aid));
-      
-      // Check client type assignment
-      const matchesClientType = true; // Simplified for unified clients, or we could check clientTypeId
-
-      // A form is required if it matches the client type AND (it's assigned to a service/addon OR it has no specific service/addon assignments)
       const isAssignedToSpecifics = (t.assignedServices?.length > 0 || t.assignedAddons?.length > 0);
-      const assignmentMatches = isAssignedToSpecifics ? (hasService || hasAddon) : true;
+      const assignmentMatches = isAssignedToSpecifics ? (hasService || hasAddon) : false;
 
-      return matchesClientType && assignmentMatches && t.enforcement === stage;
+      const riskMatch = t.riskTriggers?.length > 0 && clientRisk && t.riskTriggers.includes(clientRisk);
+      const priceMatch = t.priceThreshold != null && jobTotal >= t.priceThreshold;
+
+      return assignmentMatches || riskMatch || priceMatch;
     });
 
-    const unsigned = applicableTemplates.filter(t => 
-      !signedForms.some(sf => sf.formId === t.id && sf.formVersion === t.version)
-    );
+    const unsigned = applicableTemplates.filter(t => {
+      const freq = t.signatureFrequency || "every_job";
+      return !signedForms.some(sf => {
+        if (sf.formId !== t.id) return false;
+        if (freq === "every_job") return sf.formVersion === t.version;
+        if (freq === "once_per_vehicle") return sf.vehicleId === job.vehicleId;
+        if (freq === "expires_after" && t.expiresAfterDays) {
+          const signedDate = sf.signedAt?.toDate ? sf.signedAt.toDate() : new Date(sf.signedAt);
+          const expiry = new Date(signedDate);
+          expiry.setDate(expiry.getDate() + t.expiresAfterDays);
+          return expiry > new Date();
+        }
+        return true;
+      });
+    });
 
     if (unsigned.length > 0) {
       setShowFormSigner(unsigned[0]);
-      toast.error(`Required form: ${unsigned[0].title} must be signed ${stage.replace("_", " ")}`);
+      toast.error(`Required form: ${unsigned[0].title} must be signed ${stage.replace(/_/g, " ")}`);
       return false;
     }
     return true;

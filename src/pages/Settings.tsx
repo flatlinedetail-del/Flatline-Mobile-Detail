@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { doc, updateDoc, getDoc, setDoc, collection, query, addDoc, deleteDoc, orderBy, Timestamp, serverTimestamp, getDocs, limit, where, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage, handleFirestoreError, OperationType } from "../firebase";
@@ -45,7 +45,7 @@ import {
   Smartphone, 
   Send, 
   AlertCircle, 
-  ArrowUp, 
+  ArrowUp,
   ArrowDown,
   Image as ImageIcon,
   DollarSign as DollarIcon,
@@ -53,7 +53,11 @@ import {
   TrendingDown,
   RefreshCw,
   Fuel,
-  Wrench
+  Wrench,
+  BrainCircuit,
+  BarChart3,
+  ToggleLeft,
+  ToggleRight
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -69,8 +73,11 @@ import { StableInput } from "../components/StableInput";
 import { StableTextarea } from "../components/StableTextarea";
 import { NumberInput } from "../components/NumberInput";
 import { BusinessSettings, Service, AddOn, VehicleSize, Category, CategoryType, Coupon } from "../types";
+import { AISettings, DEFAULT_AI_SETTINGS, AIModelTier } from "../types/aiSettings";
+import { getAIUsageSummary } from "../services/aiControlService";
 import { migrateDataToClients } from "../services/clientService";
 import { processFollowUps } from "../services/automationService";
+const FormsBuilder = lazy(() => import("./FormsBuilder"));
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
@@ -139,6 +146,9 @@ export default function Settings() {
 
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [aiSettings, setAiSettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
+  const [isAISaving, setIsAISaving] = useState(false);
+  const [aiUsage, setAiUsage] = useState<{ today: number; thisWeek: number; thisMonth: number } | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [addons, setAddons] = useState<AddOn[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -328,6 +338,7 @@ export default function Settings() {
       if (cached && cacheTime && now - Number(cacheTime) < 10 * 60 * 1000) {
         const parsed = JSON.parse(cached);
         setSettings(parsed);
+        if (parsed?.aiSettings) setAiSettings({ ...DEFAULT_AI_SETTINGS, ...parsed.aiSettings });
         if (parsed) {
           setLogoAdjustments({
             scale: parsed.logoSettings?.scale || 1,
@@ -370,7 +381,8 @@ export default function Settings() {
             data = { ...data, ...intSnap.data() };
           }
           setSettings(data);
-          
+          if (data.aiSettings) setAiSettings({ ...DEFAULT_AI_SETTINGS, ...data.aiSettings });
+
           if (data) {
             setLogoAdjustments({
               scale: data.logoSettings?.scale || 1,
@@ -641,6 +653,21 @@ export default function Settings() {
       toast.error("Failed to update settings");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveAISettings = async (partial: Partial<AISettings>) => {
+    if (!settings) return;
+    setIsAISaving(true);
+    try {
+      const updated = { ...aiSettings, ...partial };
+      setAiSettings(updated);
+      await handleSaveSettings({ aiSettings: updated });
+    } catch (err) {
+      console.error("Error saving AI settings:", err);
+      toast.error("Failed to save AI settings.");
+    } finally {
+      setIsAISaving(false);
     }
   };
 
@@ -1432,6 +1459,14 @@ export default function Settings() {
               </TabsTrigger>
             )}
             {hasAccessToSensitiveSettings && (
+              <TabsTrigger
+                value="forms"
+                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+              >
+                <ShieldCheck className="w-4 h-4" /> Forms & Waivers
+              </TabsTrigger>
+            )}
+            {hasAccessToSensitiveSettings && (
               <>
                 <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">Pricing Intelligence</h3>
                 <TabsTrigger
@@ -1439,6 +1474,17 @@ export default function Settings() {
                   className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
                 >
                   <Truck className="w-4 h-4" /> Travel & Fuel
+                </TabsTrigger>
+              </>
+            )}
+            {hasAccessToSensitiveSettings && (
+              <>
+                <h3 className="px-4 text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mt-6 mb-2">AI Intelligence</h3>
+                <TabsTrigger
+                  value="ai-settings"
+                  className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
+                >
+                  <BrainCircuit className="w-4 h-4" /> AI Command Center
                 </TabsTrigger>
               </>
             )}
@@ -5764,6 +5810,322 @@ export default function Settings() {
             </Button>
           </div>
 
+        </TabsContent>
+
+        {/* ── FORMS & WAIVERS ── */}
+        <TabsContent value="forms" className="mt-0">
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-20">
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-5 h-5 border border-white/10 border-t-white/40 rounded-full animate-spin" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-white/20">Loading Forms...</span>
+              </div>
+            </div>
+          }>
+            <FormsBuilder embedded />
+          </Suspense>
+        </TabsContent>
+
+        {/* ── AI COMMAND CENTER ── */}
+        <TabsContent value="ai-settings" className="mt-0 space-y-6">
+          <Card className="border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading flex items-center gap-3">
+                <BrainCircuit className="w-6 h-6 text-primary" />
+                AI <span className="text-primary italic">Command Center</span>
+              </CardTitle>
+              <CardDescription className="text-[#A0A0A0] font-medium uppercase tracking-widest text-[10px] mt-1">
+                Manual-first, cached, rate-limited AI. Control what runs, when, and at what cost.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-8 space-y-10">
+
+              {/* ── Master Toggle ── */}
+              <div>
+                <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-4">Master Control</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                    <div>
+                      <p className="text-sm font-bold text-white">Enable AI Features</p>
+                      <p className="text-[10px] text-[#A0A0A0] mt-0.5">Master on/off for all AI functionality. Defaults to OFF (cost-safe).</p>
+                    </div>
+                    <Switch
+                      checked={aiSettings.aiEnabled}
+                      onCheckedChange={(v) => handleSaveAISettings({ aiEnabled: v })}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                    <div>
+                      <p className="text-sm font-bold text-white">AI Mode</p>
+                      <p className="text-[10px] text-[#A0A0A0] mt-0.5">
+                        Off = no AI. Manual Only = button/submit triggers only. Smart Scheduled = also allows daily/weekly scheduled scans.
+                      </p>
+                    </div>
+                    <Select
+                      value={aiSettings.aiMode}
+                      onValueChange={(v) => handleSaveAISettings({ aiMode: v as any })}
+                    >
+                      <SelectTrigger className="w-44 bg-white/5 border-white/10 text-white font-bold text-xs rounded-xl h-10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#111] border-white/10 text-white">
+                        <SelectItem value="off">Off</SelectItem>
+                        <SelectItem value="manual_only">Manual Only</SelectItem>
+                        <SelectItem value="smart_scheduled">Smart Scheduled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Model Tier ── */}
+              <div>
+                <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-4">Model Strategy</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                    <div>
+                      <p className="text-sm font-bold text-white">Preferred Model Tier</p>
+                      <p className="text-[10px] text-[#A0A0A0] mt-0.5">
+                        Smart Saver — cost-efficient default for most features.
+                        Balanced Intelligence — stronger reasoning for reports.
+                        Deep Strategy — highest capability, use sparingly.
+                      </p>
+                    </div>
+                    <Select
+                      value={aiSettings.preferredModelTier}
+                      onValueChange={(v) => handleSaveAISettings({ preferredModelTier: v as AIModelTier })}
+                    >
+                      <SelectTrigger className="w-52 bg-white/5 border-white/10 text-white font-bold text-xs rounded-xl h-10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#111] border-white/10 text-white">
+                        <SelectItem value="smart_saver">Smart Saver</SelectItem>
+                        <SelectItem value="balanced_intelligence">Balanced Intelligence</SelectItem>
+                        <SelectItem value="deep_strategy">Deep Strategy</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                    <div>
+                      <p className="text-sm font-bold text-white">Allow Model Escalation</p>
+                      <p className="text-[10px] text-[#A0A0A0] mt-0.5">
+                        When ON, features that need deeper reasoning can auto-upgrade to a stronger tier.
+                        When OFF, all features use your preferred tier only.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={aiSettings.allowModelEscalation}
+                      onCheckedChange={(v) => handleSaveAISettings({ allowModelEscalation: v })}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Call Limits ── */}
+              <div>
+                <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-4">Call Limits</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
+                    <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Daily Limit</Label>
+                    <NumberInput
+                      value={aiSettings.dailyAICallLimit}
+                      onChange={(v) => setAiSettings(s => ({ ...s, dailyAICallLimit: v }))}
+                      onBlur={() => handleSaveAISettings({ dailyAICallLimit: aiSettings.dailyAICallLimit })}
+                      min={1}
+                      max={200}
+                      className="bg-transparent border-white/10 text-white font-bold rounded-xl h-10"
+                    />
+                    {aiUsage && (
+                      <p className="text-[10px] text-[#A0A0A0]">Used today: <span className="text-white font-bold">{aiUsage.today}</span></p>
+                    )}
+                  </div>
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
+                    <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Weekly Limit</Label>
+                    <NumberInput
+                      value={aiSettings.weeklyAICallLimit}
+                      onChange={(v) => setAiSettings(s => ({ ...s, weeklyAICallLimit: v }))}
+                      onBlur={() => handleSaveAISettings({ weeklyAICallLimit: aiSettings.weeklyAICallLimit })}
+                      min={1}
+                      max={500}
+                      className="bg-transparent border-white/10 text-white font-bold rounded-xl h-10"
+                    />
+                    {aiUsage && (
+                      <p className="text-[10px] text-[#A0A0A0]">Used this week: <span className="text-white font-bold">{aiUsage.thisWeek}</span></p>
+                    )}
+                  </div>
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
+                    <Label className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest">Monthly Limit</Label>
+                    <NumberInput
+                      value={aiSettings.monthlyAICallLimit}
+                      onChange={(v) => setAiSettings(s => ({ ...s, monthlyAICallLimit: v }))}
+                      onBlur={() => handleSaveAISettings({ monthlyAICallLimit: aiSettings.monthlyAICallLimit })}
+                      min={1}
+                      max={2000}
+                      className="bg-transparent border-white/10 text-white font-bold rounded-xl h-10"
+                    />
+                    {aiUsage && (
+                      <p className="text-[10px] text-[#A0A0A0]">Used this month: <span className="text-white font-bold">{aiUsage.thisMonth}</span></p>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3 border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl h-9 font-bold uppercase tracking-widest text-[10px]"
+                  onClick={async () => {
+                    try {
+                      const summary = await getAIUsageSummary(profile?.uid);
+                      setAiUsage(summary);
+                    } catch {
+                      toast.error("Could not load AI usage stats.");
+                    }
+                  }}
+                >
+                  <BarChart3 className="w-3.5 h-3.5 mr-2" />
+                  Refresh Usage Stats
+                </Button>
+              </div>
+
+              {/* ── Feature Toggles ── */}
+              <div>
+                <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Manual-Only Features</h3>
+                <p className="text-[10px] text-[#A0A0A0] mb-4">These only run when you click a button, submit, or request. Never auto-fire.</p>
+                <div className="space-y-2">
+                  {([
+                    { key: "enableClientMessageAI", label: "Client Message Drafts", desc: "Generate customer follow-up and outreach message drafts.", tier: "Smart Saver" },
+                    { key: "enableEstimateAI", label: "Estimate & Quote AI", desc: "Generate estimate notes and quote wording on demand.", tier: "Smart Saver" },
+                    { key: "enableJobUpsellAI", label: "Job Upsell Recommendations", desc: "Revenue optimization suggestions on job detail page.", tier: "Smart Saver" },
+                    { key: "enableReceiptAnalysisAI", label: "Receipt Analysis", desc: "Extract expense data from receipt images.", tier: "Smart Saver" },
+                    { key: "enableMarketingCampaignAI", label: "Marketing Campaign AI", desc: "Generate campaign ideas and social media content.", tier: "Smart Saver" },
+                    { key: "enableRiskExplanationAI", label: "Risk Explanation AI", desc: "AI-generated explanation of client risk flags.", tier: "Smart Saver" },
+                  ] as { key: keyof AISettings; label: string; desc: string; tier: string }[]).map(({ key, label, desc, tier }) => (
+                    <div key={key} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                      <div>
+                        <p className="text-xs font-bold text-white">{label}</p>
+                        <p className="text-[10px] text-[#A0A0A0]">{desc} <span className="text-primary/70 font-bold">{tier}</span></p>
+                      </div>
+                      <Switch
+                        checked={!!aiSettings[key]}
+                        onCheckedChange={(v) => handleSaveAISettings({ [key]: v } as Partial<AISettings>)}
+                        className="data-[state=checked]:bg-primary"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">AI Lead Engine</h3>
+                <p className="text-[10px] text-[#A0A0A0] mb-4">Manual trigger first. Optional once-daily scan when Smart Scheduled mode is on.</p>
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div>
+                    <p className="text-xs font-bold text-white">AI Lead Engine</p>
+                    <p className="text-[10px] text-[#A0A0A0]">
+                      Scans inactive clients, unaccepted quotes, and service due dates for lead opportunities.
+                      Dedupes by client — one lead card per client, multiple vehicles inside.{" "}
+                      <span className="text-primary/70 font-bold">Smart Saver</span>
+                    </p>
+                    {aiSettings.lastAILeadEngineRunAt && (
+                      <p className="text-[10px] text-[#A0A0A0] mt-1">
+                        Last run: <span className="text-white font-bold">{new Date(aiSettings.lastAILeadEngineRunAt).toLocaleString()}</span>
+                      </p>
+                    )}
+                  </div>
+                  <Switch
+                    checked={aiSettings.enableAILeadEngine}
+                    onCheckedChange={(v) => handleSaveAISettings({ enableAILeadEngine: v })}
+                    className="data-[state=checked]:bg-primary"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-[10px] font-black text-[#A0A0A0] uppercase tracking-widest mb-1">Smart Scheduled Features</h3>
+                <p className="text-[10px] text-[#A0A0A0] mb-4">
+                  Run automatically only when AI mode is Smart Scheduled and the feature toggle is on.
+                  Each is guarded by a frequency limit — no repeated firing on page refresh.
+                </p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div>
+                      <p className="text-xs font-bold text-white">Daily Business Advisor</p>
+                      <p className="text-[10px] text-[#A0A0A0]">
+                        Runs once per calendar day. Short actionable business recommendations.{" "}
+                        <span className="text-primary/70 font-bold">Smart Saver</span>
+                      </p>
+                      {aiSettings.lastDailyAdvisorRunAt && (
+                        <p className="text-[10px] text-[#A0A0A0] mt-1">
+                          Last run: <span className="text-white font-bold">{new Date(aiSettings.lastDailyAdvisorRunAt).toLocaleString()}</span>
+                        </p>
+                      )}
+                    </div>
+                    <Switch
+                      checked={aiSettings.enableDailyBusinessAdvisor}
+                      onCheckedChange={(v) => handleSaveAISettings({ enableDailyBusinessAdvisor: v })}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div>
+                      <p className="text-xs font-bold text-white">Weekly Business Report</p>
+                      <p className="text-[10px] text-[#A0A0A0]">
+                        Runs once per week. Revenue, services, clients, leads, and missed opportunities analysis.{" "}
+                        <span className="text-yellow-400/80 font-bold">Balanced Intelligence</span>
+                      </p>
+                      {aiSettings.lastWeeklyReportRunAt && (
+                        <p className="text-[10px] text-[#A0A0A0] mt-1">
+                          Last run: <span className="text-white font-bold">{new Date(aiSettings.lastWeeklyReportRunAt).toLocaleString()}</span>
+                        </p>
+                      )}
+                    </div>
+                    <Switch
+                      checked={aiSettings.enableWeeklyBusinessReport}
+                      onCheckedChange={(v) => handleSaveAISettings({ enableWeeklyBusinessReport: v })}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div>
+                      <p className="text-xs font-bold text-white">Revenue Intelligence</p>
+                      <p className="text-[10px] text-[#A0A0A0]">
+                        Only runs when completed jobs or payments have changed since last run (data snapshot check).{" "}
+                        <span className="text-yellow-400/80 font-bold">Balanced Intelligence</span>
+                      </p>
+                      {aiSettings.lastRevenueIntelligenceRunAt && (
+                        <p className="text-[10px] text-[#A0A0A0] mt-1">
+                          Last run: <span className="text-white font-bold">{new Date(aiSettings.lastRevenueIntelligenceRunAt).toLocaleString()}</span>
+                        </p>
+                      )}
+                    </div>
+                    <Switch
+                      checked={aiSettings.enableRevenueIntelligenceAI}
+                      onCheckedChange={(v) => handleSaveAISettings({ enableRevenueIntelligenceAI: v })}
+                      className="data-[state=checked]:bg-primary"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Save Button ── */}
+              <div className="flex justify-end pt-4 border-t border-white/10">
+                <Button
+                  onClick={() => handleSaveAISettings(aiSettings)}
+                  disabled={isAISaving}
+                  className="bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-widest text-[10px] h-12 px-8 rounded-xl"
+                >
+                  {isAISaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  Save AI Settings
+                </Button>
+              </div>
+
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* DEV / ADMIN TOOLS — remove this entire TabsContent before production launch */}
