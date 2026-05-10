@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect, createContext, useContext, useMemo } from "react";
 import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, onSnapshot, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db, handleFirestoreError, OperationType } from "../firebase";
@@ -63,14 +63,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isOwnerEmail = user?.email?.toLowerCase() === "flatlinedetail@gmail.com";
 
-  // Force overrides for the owner email
-  const effectiveProfile = profile ? {
-    ...profile,
-    role: isOwnerEmail ? "owner" : profile.role,
-    isOwner: isOwnerEmail ? true : profile.isOwner,
-    isAdmin: isOwnerEmail ? true : profile.isAdmin,
-    accessLevel: isOwnerEmail ? "admin" : profile.accessLevel
-  } : null;
+  // Force overrides for the owner email — memoized so reference is stable across re-renders
+  const effectiveProfile = useMemo(() => {
+    if (!profile) return null;
+    return {
+      ...profile,
+      role: isOwnerEmail ? "owner" : profile.role,
+      isOwner: isOwnerEmail ? true : profile.isOwner,
+      isAdmin: isOwnerEmail ? true : profile.isAdmin,
+      accessLevel: isOwnerEmail ? "admin" : profile.accessLevel,
+    };
+  }, [profile, isOwnerEmail]);
 
   const isAdmin = effectiveProfile?.role === "admin" || effectiveProfile?.role === "owner";
   const isManager = effectiveProfile?.role === "manager" || isAdmin;
@@ -332,12 +335,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signOut(auth);
   };
 
+  const authContextValue = useMemo(() => ({
+    user, profile: effectiveProfile, settings, services, addons, clientTypes, clientCategories,
+    loading, systemStatus, signIn, signInWithEmail, signUp, logout,
+    isAdmin, isManager, isTechnician, isReadOnly, canAccessAdmin, canAccessManager,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [user, effectiveProfile, settings, services, addons, clientTypes, clientCategories,
+      loading, systemStatus, isAdmin, isManager, isTechnician, isReadOnly, canAccessAdmin, canAccessManager]);
+
   return (
-    <AuthContext.Provider value={{ 
-      user, profile: effectiveProfile, settings, services, addons, clientTypes, clientCategories, 
-      loading, systemStatus, signIn, signInWithEmail, signUp, logout, 
-      isAdmin, isManager, isTechnician, isReadOnly, canAccessAdmin, canAccessManager
-    }}>
+    <AuthContext.Provider value={authContextValue}>
       {children}
     </AuthContext.Provider>
   );

@@ -58,7 +58,8 @@ import {
   TrendingDown,
   RefreshCw,
   Fuel,
-  Wrench
+  Wrench,
+  AlertTriangle
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -1692,14 +1693,6 @@ export default function Settings() {
                 className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
               >
                 <Shield className="w-4 h-4" /> Security Layers
-              </TabsTrigger>
-            )}
-            {hasAccessToSensitiveSettings && (
-              <TabsTrigger
-                value="forms"
-                className="w-full justify-start gap-3 h-12 px-4 rounded-xl font-bold text-sm data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-glow-blue text-[#A0A0A0] hover:text-white hover:bg-white/5 transition-all"
-              >
-                <ShieldCheck className="w-4 h-4" /> Forms & Waivers
               </TabsTrigger>
             )}
             {hasAccessToSensitiveSettings && (
@@ -6062,18 +6055,74 @@ export default function Settings() {
         {/* ── PRODUCT CATALOG ─────────────────────────────────────────────── */}
         <ProductCatalogTab />
 
-        {/* ── FORMS & WAIVERS ── */}
-        <TabsContent value="forms" className="mt-0">
-          <Suspense fallback={
-            <div className="flex items-center justify-center py-20">
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-5 h-5 border border-white/10 border-t-white/40 rounded-full animate-spin" />
-                <span className="text-[9px] font-black uppercase tracking-widest text-white/20">Loading Forms...</span>
-              </div>
+        {/* ── FORMS & WAIVERS ── (live builder temporarily disabled, shell shown while crash is repaired) */}
+        <TabsContent value="forms" className="mt-0 space-y-6">
+          {/* Maintenance notice */}
+          <div className="flex items-start gap-3 rounded-2xl border border-yellow-500/20 bg-yellow-500/5 px-5 py-4">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-yellow-400" />
+            <div>
+              <p className="text-sm font-black uppercase tracking-widest text-yellow-400">Forms Engine Temporarily Disabled</p>
+              <p className="mt-1 text-xs text-white/50">The live Forms &amp; Waivers builder is undergoing repair. Use the standalone Forms Builder page directly while this tab is restored.</p>
             </div>
-          }>
-            <FormsBuilder embedded />
-          </Suspense>
+          </div>
+
+          {/* Header + CTA */}
+          <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 border-b border-white/5 bg-black/40">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-2xl font-black uppercase tracking-tight text-white">Forms &amp; Waivers</CardTitle>
+                  <p className="text-white/40 text-xs mt-1 uppercase tracking-widest font-medium">Liability Protection · Digital Signatures · Compliance Engine</p>
+                </div>
+                <Button
+                  className="bg-primary text-white font-black uppercase tracking-widest rounded-xl px-6"
+                  onClick={() => toast.info("Open the Forms Builder page to create templates.")}
+                >
+                  + Create Form Template
+                </Button>
+              </div>
+            </CardHeader>
+          </Card>
+
+          {/* Assignment Rules */}
+          <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-6 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-sm font-black uppercase tracking-widest text-white/70">Assignment Rules</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 text-white/40 text-xs font-medium uppercase tracking-widest">
+              Form-to-service assignment rules will appear here once the live builder is restored.
+            </CardContent>
+          </Card>
+
+          {/* Automation Rules */}
+          <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-6 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-sm font-black uppercase tracking-widest text-white/70">Automation Rules</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 text-white/40 text-xs font-medium uppercase tracking-widest">
+              Signature-request triggers and enforcement automation will appear here once the live builder is restored.
+            </CardContent>
+          </Card>
+
+          {/* Required Forms Preview */}
+          <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-6 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-sm font-black uppercase tracking-widest text-white/70">Required Forms Preview</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 text-white/40 text-xs font-medium uppercase tracking-widest">
+              Live form assignment previews will appear here once the live builder is restored.
+            </CardContent>
+          </Card>
+
+          {/* Status & Readiness */}
+          <Card className="border-white/10 bg-[#0B0B0B] rounded-3xl overflow-hidden shadow-2xl">
+            <CardHeader className="p-6 border-b border-white/5 bg-black/40">
+              <CardTitle className="text-sm font-black uppercase tracking-widest text-white/70">Status &amp; Readiness</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 text-white/40 text-xs font-medium uppercase tracking-widest">
+              Template compliance status and readiness indicators will appear here once the live builder is restored.
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ── NEURAL INTELLIGENCE — AI Settings ─────────────────────────────── */}
