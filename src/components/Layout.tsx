@@ -62,7 +62,6 @@ const navigationGroups = [
       { name: "Forms & Waivers", href: "/settings?tab=forms", icon: ShieldCheck, adminOnly: true },
       { name: "Integrations", href: "/settings?tab=integrations", icon: Plug, adminOnly: true },
       { name: "Security", href: "/settings?tab=security", icon: Shield, adminOnly: true },
-      { name: "Forms & Waivers", href: "/settings?tab=forms", icon: ShieldCheck, adminOnly: true },
       { name: "Help", href: "/help", icon: HelpCircle },
     ]
   }
