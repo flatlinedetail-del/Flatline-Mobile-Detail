@@ -2511,7 +2511,7 @@ export default function JobDetail() {
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-8 pb-20">
+    <div className="w-full space-y-8 pb-20">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="flex items-center gap-6">
@@ -2553,42 +2553,34 @@ export default function JobDetail() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)_auto_auto] gap-x-6 gap-y-5 items-start">
           <div className="flex flex-col min-w-0">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Client Contact</span>
-            <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
-            <div className="flex items-center gap-2 mt-1">
-              {job.customerPhone && (
-                <a href={`tel:${job.customerPhone}`} className="text-primary hover:text-red-400 transition-colors">
-                  <Phone className="w-3 h-3" />
-                </a>
-              )}
-              {job.customerEmail && (
-                <a href={`mailto:${job.customerEmail}`} className="text-primary hover:text-red-400 transition-colors">
-                  <Mail className="w-3 h-3" />
-                </a>
-              )}
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {job.customerPhone && (
+                  <a href={`tel:${job.customerPhone}`} className="text-primary hover:text-red-400 transition-colors" title={job.customerPhone}>
+                    <Phone className="w-3.5 h-3.5" />
+                  </a>
+                )}
+                {job.customerEmail && (
+                  <a href={`mailto:${job.customerEmail}`} className="text-primary hover:text-red-400 transition-colors" title={job.customerEmail}>
+                    <Mail className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex flex-col min-w-0 lg:border-l lg:border-white/5 lg:pl-6">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Vehicle Information</span>
             <div className="flex flex-col">
-              <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
-                {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
-              </span>
-              <div className="flex items-center gap-3 mt-1">
-                {job.vin && (
-                  <span className="text-[8px] font-mono text-[#A0A0A0] bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
-                    VIN: {job.vin.slice(-8)}
-                  </span>
-                )}
-                {job.roNumber && (
-                  <span className="text-[8px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 uppercase tracking-tighter">
-                    RO: {job.roNumber}
-                  </span>
-                )}
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-white font-black text-sm truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
+                  {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
+                </span>
                 <Dialog>
                   <DialogTrigger render={
-                    <Button variant="ghost" size="icon" className="h-4 w-4 text-white/20 hover:text-primary transition-colors">
-                      <Zap className="w-3 h-3" />
+                    <Button variant="ghost" size="icon" className="h-5 w-5 text-primary hover:bg-primary/10 rounded-md p-0 shrink-0" title="Edit Vehicle / VIN / RO">
+                      <Zap className="w-3.5 h-3.5" />
                     </Button>
                   } />
                   <DialogContent className="max-w-md bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] shadow-2xl p-0 overflow-hidden">
@@ -2665,6 +2657,20 @@ export default function JobDetail() {
                   </DialogContent>
                 </Dialog>
               </div>
+              {(job.vin || job.roNumber) && (
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  {job.vin && (
+                    <span className="text-[8px] font-mono text-[#A0A0A0] bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
+                      VIN: {job.vin.slice(-8)}
+                    </span>
+                  )}
+                  {job.roNumber && (
+                    <span className="text-[8px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 uppercase tracking-tighter">
+                      RO: {job.roNumber}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
