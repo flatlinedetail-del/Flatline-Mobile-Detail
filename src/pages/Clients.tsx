@@ -272,6 +272,74 @@ export default function Clients() {
   // live inside the hook.
   const { unresolved: unresolvedActionItems } = useActionCenter();
 
+  // Optimistic state: ids of alerts currently being cleared. Hides the row
+  // immediately on click; rolls back if the Firestore write fails. Once the
+  // useActionCenter snapshot drops the item, this set entry is harmless
+  // (filter just won't find it in the live list).
+  const [clearingAlertIds, setClearingAlertIds] = useState<Set<string>>(new Set());
+
+  const handleClearAlertItem = async (item: ActionItem) => {
+    const [src, ...rest] = item.id.split(":");
+    const sourceDocId = rest.join(":");
+    if (!sourceDocId) {
+      toast.error("Cannot clear — alert is missing a source reference.");
+      return;
+    }
+    if (clearingAlertIds.has(item.id)) return; // already in flight
+
+    // Optimistic hide
+    setClearingAlertIds(prev => {
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
+    try {
+      if (src === "comm") {
+        await updateDoc(doc(db, "communication_logs", sourceDocId), {
+          handled: true,
+          read: true,
+          actionCenterCleared: true,
+          updatedAt: serverTimestamp(),
+        });
+      } else if (src === "form") {
+        await updateDoc(doc(db, "formInstances", sourceDocId), {
+          actionCenterCleared: true,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        // Unknown source — roll back
+        setClearingAlertIds(prev => {
+          const next = new Set(prev);
+          next.delete(item.id);
+          return next;
+        });
+        toast.error("Cannot clear — unknown alert source.");
+        return;
+      }
+      toast.success("Alert cleared.");
+      // Leave the id in clearingAlertIds; the live snapshot will drop the
+      // item from attentionByClient on the next tick. The set self-cleans
+      // because filter never matches a missing id.
+    } catch (e: any) {
+      console.error("[ActiveAlerts] Clear failed:", e);
+      // Rollback
+      setClearingAlertIds(prev => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+      toast.error(`Could not clear: ${e?.message?.slice(0, 100) || "Unknown error"}`);
+    }
+  };
+
+  const handleOpenAlertItem = (item: ActionItem) => {
+    if (!item.route) {
+      toast.error("No destination configured for this alert.");
+      return;
+    }
+    navigate(item.route);
+  };
+
   // Per-client index: clientId → { count, priorityScore, topType, items }.
   // Recomputes whenever the unresolved list changes, so resolving an item
   // (retry success, mark handled, sign form, pay deposit) automatically
@@ -1267,23 +1335,38 @@ export default function Clients() {
       return matchesSearch && matchesType && matchesCategory;
     });
 
-    // When ?attention=1 is active, sort clients with unresolved Action
-    // Center items to the top — primary key: priorityScore (urgent items
-    // outweigh low-priority noise), secondary: count. Clients with zero
-    // unresolved items keep their natural order beneath them.
-    if (attentionMode) {
-      return [...matched].sort((a, b) => {
-        const aa = attentionByClient.get(a.id);
-        const bb = attentionByClient.get(b.id);
-        const aScore = aa?.priorityScore || 0;
-        const bScore = bb?.priorityScore || 0;
-        if (aScore !== bScore) return bScore - aScore;
-        const aCount = aa?.count || 0;
-        const bCount = bb?.count || 0;
-        return bCount - aCount;
-      });
-    }
-    return matched;
+    // ALWAYS pin clients with unresolved Action Center items to the top
+    // of the visible registry (this runs regardless of ?attention=1 — that
+    // URL flag now only controls the "Needs Attention" banner / empty-state
+    // message above the list, not the sort itself). Within the alert group:
+    //   1) higher priorityScore first  (urgent > high > normal > low)
+    //   2) then higher unresolved count
+    //   3) then most recent alert createdAt
+    // Clients with zero unresolved items preserve the upstream filter order.
+    const toMs = (t: any): number => {
+      if (!t) return 0;
+      if (typeof t.toMillis === "function") return t.toMillis();
+      if (t instanceof Date) return t.getTime();
+      const n = Number(t);
+      return Number.isFinite(n) ? n : 0;
+    };
+    return [...matched].sort((a, b) => {
+      const aa = attentionByClient.get(a.id);
+      const bb = attentionByClient.get(b.id);
+      const aHas = aa ? 1 : 0;
+      const bHas = bb ? 1 : 0;
+      if (aHas !== bHas) return bHas - aHas;       // alert clients first, always
+      if (!aa || !bb) return 0;                    // both unflagged → preserve order
+      const aScore = aa.priorityScore || 0;
+      const bScore = bb.priorityScore || 0;
+      if (aScore !== bScore) return bScore - aScore;
+      const aCount = aa.count || 0;
+      const bCount = bb.count || 0;
+      if (aCount !== bCount) return bCount - aCount;
+      const aLatest = Math.max(0, ...aa.items.map(i => toMs(i.createdAt)));
+      const bLatest = Math.max(0, ...bb.items.map(i => toMs(i.createdAt)));
+      return bLatest - aLatest;
+    });
   }, [clients, searchTerm, typeFilter, categoryFilter, attentionMode, attentionByClient]);
 
   const getSystemStatusLabel = () => {
@@ -2190,52 +2273,169 @@ export default function Clients() {
 
                     {/* Pending Actions & Details */}
                     <div className="space-y-6 min-w-0">
-                      <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/20">
-                            <Zap className="w-5 h-5 text-primary" />
-                          </div>
-                          <p className="text-sm font-black text-white uppercase tracking-widest">Active Alerts</p>
-                        </div>
-                        <div className="space-y-3">
-                          {(() => {
-                            const risk = getEffectiveRisk(selectedClient);
-                            if (!risk || risk === "low") return null;
-                            return (
-                              <div className="flex items-center gap-3 p-3 bg-red-600/40 rounded-xl border border-red-500/50 animate-pulse">
-                                <AlertOctagon className="w-4 h-4 text-white" />
-                                <span className="text-[10px] font-black uppercase text-white tracking-widest">
-                                  {getRiskBadgeLabel(risk)} WARNING
-                                </span>
+                      {(() => {
+                        const attentionBucket = attentionByClient.get(selectedClient.id);
+                        // Visible items = live bucket minus alerts the user just clicked Clear on.
+                        // Drives both the row list AND the count + red glow so the UI updates
+                        // before Firestore confirms.
+                        const visibleAttentionItems = (attentionBucket?.items || []).filter(
+                          it => !clearingAlertIds.has(it.id)
+                        );
+                        const hasAttention = visibleAttentionItems.length > 0;
+                        const TYPE_LABEL: Record<string, string> = {
+                          unread_message: "Unread Message",
+                          needs_reply: "Needs Reply",
+                          failed_send: "Failed Send",
+                          unsigned_form: "Unsigned Form",
+                          unpaid_deposit: "Unpaid Deposit",
+                          overdue_invoice: "Overdue Invoice",
+                          quote_followup_due: "Quote Follow-Up Due",
+                          booking_confirmation_missing: "Booking Confirmation Missing",
+                          customer_approval_pending: "Customer Approval Pending",
+                          job_blocked: "Job Blocked",
+                          risk_review_required: "Risk Review Required",
+                        };
+                        const PRIO_STYLE: Record<string, string> = {
+                          urgent: "bg-red-500/20 text-red-400 border-red-500/40",
+                          high: "bg-orange-500/20 text-orange-400 border-orange-500/40",
+                          normal: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
+                          low: "bg-white/10 text-white/60 border-white/20",
+                        };
+                        const fmtTs = (t: any): string => {
+                          if (!t) return "";
+                          let d: Date | null = null;
+                          if (typeof t.toDate === "function") d = t.toDate();
+                          else if (t instanceof Date) d = t;
+                          else if (typeof t === "number") d = new Date(t);
+                          if (!d || isNaN(d.getTime())) return "";
+                          return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+                        };
+
+                        return (
+                          <div className={cn(
+                            "p-6 rounded-[2rem] space-y-4 border transition-colors duration-200",
+                            hasAttention
+                              ? "bg-red-500/5 border-red-500/40 shadow-[0_0_24px_rgba(239,68,68,0.15)]"
+                              : "bg-white/5 border-white/5"
+                          )}>
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                "w-10 h-10 rounded-2xl flex items-center justify-center border",
+                                hasAttention
+                                  ? "bg-red-500/20 text-red-400 border-red-500/30"
+                                  : "bg-primary/10 text-primary border-primary/20"
+                              )}>
+                                <Zap className="w-5 h-5" />
                               </div>
-                            );
-                          })()}
-                          {clientInvoices.some(i => i.status !== "paid") && (
-                            <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
-                              <AlertTriangle className="w-4 h-4 text-white" />
-                              <span className="text-[10px] font-black uppercase text-white tracking-widest">Unpaid Invoices Present</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-black text-white uppercase tracking-widest">Active Alerts</p>
+                                {hasAttention && (
+                                  <p className="text-[10px] text-red-300/80 font-bold uppercase tracking-widest mt-0.5">
+                                    {visibleAttentionItems.length} unresolved
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                          )}
-                          {clientQuotes.some(q => q.status === "sent") && (
-                            <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
-                              <FileText className="w-4 h-4 text-white" />
-                              <span className="text-[10px] font-black uppercase text-white tracking-widest">Pending Quotes Active</span>
+                            <div className="space-y-3">
+                              {/* Needs-Attention items first — these are the high-signal alerts */}
+                              {hasAttention && visibleAttentionItems.map((item) => {
+                                const isClearing = clearingAlertIds.has(item.id);
+                                return (
+                                <div
+                                  key={item.id}
+                                  className={cn(
+                                    "flex items-start gap-3 p-3 bg-black/30 rounded-xl border border-red-500/20",
+                                    isClearing && "opacity-50 pointer-events-none"
+                                  )}
+                                >
+                                  <div className="flex-1 min-w-0 space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-[10px] font-black text-white uppercase tracking-widest">
+                                        {TYPE_LABEL[item.type] || item.type}
+                                      </span>
+                                      <span className={cn(
+                                        "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border",
+                                        PRIO_STYLE[item.priority] || PRIO_STYLE.normal
+                                      )}>
+                                        {item.priority}
+                                      </span>
+                                      {item.createdAt && (
+                                        <span className="text-[9px] text-white/40 font-medium">
+                                          {fmtTs(item.createdAt)}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {(item.detail || item.label) && (
+                                      <p className="text-[11px] text-white/70 font-medium leading-relaxed line-clamp-2">
+                                        {item.detail || item.label}
+                                      </p>
+                                    )}
+                                    <div className="flex gap-1.5 pt-1">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleOpenAlertItem(item)}
+                                        disabled={isClearing}
+                                        className="h-6 text-[9px] font-black uppercase tracking-widest border-white/10 bg-white/5 text-white hover:bg-white/10 px-2 disabled:opacity-50"
+                                      >
+                                        Open
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleClearAlertItem(item)}
+                                        disabled={isClearing}
+                                        className="h-6 text-[9px] font-black uppercase tracking-widest border-white/10 bg-white/5 text-white/60 hover:bg-white/10 px-2 disabled:opacity-50"
+                                      >
+                                        {isClearing ? "Clearing…" : "Clear"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                                );
+                              })}
+
+                              {/* Existing alerts — risk / unpaid / loyalty / no-history */}
+                              {(() => {
+                                const risk = getEffectiveRisk(selectedClient);
+                                if (!risk || risk === "low") return null;
+                                return (
+                                  <div className="flex items-center gap-3 p-3 bg-red-600/40 rounded-xl border border-red-500/50 animate-pulse">
+                                    <AlertOctagon className="w-4 h-4 text-white" />
+                                    <span className="text-[10px] font-black uppercase text-white tracking-widest">
+                                      {getRiskBadgeLabel(risk)} WARNING
+                                    </span>
+                                  </div>
+                                );
+                              })()}
+                              {clientInvoices.some(i => i.status !== "paid") && (
+                                <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
+                                  <AlertTriangle className="w-4 h-4 text-white" />
+                                  <span className="text-[10px] font-black uppercase text-white tracking-widest">Unpaid Invoices Present</span>
+                                </div>
+                              )}
+                              {clientQuotes.some(q => q.status === "sent") && (
+                                <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
+                                  <FileText className="w-4 h-4 text-white" />
+                                  <span className="text-[10px] font-black uppercase text-white tracking-widest">Pending Quotes Active</span>
+                                </div>
+                              )}
+                              {!selectedClient.loyaltyPoints && (
+                                <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
+                                  <Star className="w-4 h-4 text-white" />
+                                  <span className="text-[10px] font-black uppercase text-white tracking-widest">Register Loyalty Profile</span>
+                                </div>
+                              )}
+                              {clientHistory.length === 0 && (
+                                <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
+                                  <Calendar className="w-4 h-4 text-white" />
+                                  <span className="text-[10px] font-black uppercase text-white tracking-widest">No Service History</span>
+                                </div>
+                              )}
                             </div>
-                          )}
-                          {!selectedClient.loyaltyPoints && (
-                            <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
-                              <Star className="w-4 h-4 text-white" />
-                              <span className="text-[10px] font-black uppercase text-white tracking-widest">Register Loyalty Profile</span>
-                            </div>
-                          )}
-                          {clientHistory.length === 0 && (
-                            <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl border border-white/10">
-                              <Calendar className="w-4 h-4 text-white" />
-                              <span className="text-[10px] font-black uppercase text-white tracking-widest">No Service History</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                          </div>
+                        );
+                      })()}
 
                       <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-6">
                         <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Engagement Analysis</h4>

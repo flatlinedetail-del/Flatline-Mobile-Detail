@@ -334,6 +334,16 @@ export function buildItemFromCommunicationLog(
   log: any,
   clientName?: string
 ): ActionItem | null {
+  // Hard skip: if the source doc was explicitly cleared by the user, do not
+  // surface it again — applies to all comm-log types including failed_send.
+  if (log?.handled === true && log?.status !== "failed") {
+    // Already handled (non-failed) — drop.
+    return null;
+  }
+  if (log?.handled === true && log?.actionCenterCleared === true) {
+    // Failed sends use a separate flag so we don't conflict with delivery state.
+    return null;
+  }
   const status = (log?.status || "").toLowerCase();
   const direction = (log?.direction || "").toLowerCase(); // "inbound" | "outbound"
   const read = !!log?.read;
@@ -389,6 +399,10 @@ export function buildItemFromFormInstance(
   fi: any,
   clientName?: string
 ): ActionItem | null {
+  // Hard skip: if the user explicitly cleared this from the action center,
+  // don't surface again. Use a dedicated flag so we don't disturb the form's
+  // pending/sent/signed lifecycle.
+  if (fi?.actionCenterCleared === true) return null;
   const status = (fi?.status || "").toLowerCase();
   const required = fi?.required !== false;
 
