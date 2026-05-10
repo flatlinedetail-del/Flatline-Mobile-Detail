@@ -18,11 +18,15 @@ export function boolish(val: any): boolean {
  * Normalize any risk value string/alias to a canonical level.
  * Handles: riskLevel, risk_level, riskStatus, clientRiskLevel, riskManagement.level,
  * and ProtectedClient protectionLevel strings ("Low", "Med", "High", "Block Booking").
+ *
+ * Default policy: clients with no explicit risk are treated as Low Risk.
+ * `null` is preserved only when the input is an unrecognised non-empty string
+ * (so callers can detect garbage data); missing / blank values normalise to "low".
  */
 export function normalizeRiskLevel(val: any): "low" | "medium" | "high" | null {
-  if (!val) return null;
+  if (val === null || val === undefined || val === "") return "low";
   const s = String(val).toLowerCase().trim().replace(/[_\s-]+/g, " ");
-  if (s === "low" || s === "normal") return "low";
+  if (s === "" || s === "low" || s === "normal") return "low";
   if (["medium", "med"].includes(s)) return "medium";
   if (["high", "critical", "do not book", "block booking"].includes(s)) return "high";
   return null;
@@ -68,10 +72,15 @@ export type CanonicalRisk =
 /**
  * Normalize any raw value to the full 6-level CanonicalRisk.
  * Handles all known field spellings including ProtectedClient capitalized values.
+ *
+ * Default policy: clients with no explicit risk are Low Risk. Missing / blank
+ * inputs return "low". Unrecognised non-empty strings still return null so
+ * callers that care can detect garbage data.
  */
 export function normalizeRiskFull(val: any): CanonicalRisk {
-  if (!val) return null;
+  if (val === null || val === undefined || val === "") return "low";
   const s = String(val).toLowerCase().trim().replace(/[_\s-]+/g, " ");
+  if (s === "") return "low";
   if (s === "low" || s === "low risk" || s === "normal") return "low";
   if (s === "medium" || s === "med" || s === "medium risk") return "medium";
   if (s === "high" || s === "high risk") return "high";
@@ -88,6 +97,10 @@ export function normalizeRiskFull(val: any): CanonicalRisk {
  * Priority order (most specific first):
  *   protectionLevel → riskManagement.level → protectedClient.protectionLevel
  *   → riskLevel → risk_level → riskStatus → clientRiskLevel
+ *
+ * Clients with NO risk fields default to Low Risk (per spec: every client
+ * starts at Low unless explicitly set otherwise). Returns null only when the
+ * client argument itself is null/undefined.
  */
 export function getEffectiveRisk(client: any): CanonicalRisk {
   if (!client) return null;
@@ -99,6 +112,7 @@ export function getEffectiveRisk(client: any): CanonicalRisk {
     client.risk_level ??
     client.riskStatus ??
     client.clientRiskLevel;
+  // normalizeRiskFull already defaults missing → "low".
   return normalizeRiskFull(raw);
 }
 
@@ -108,7 +122,8 @@ export function getEffectiveRisk(client: any): CanonicalRisk {
 
 /**
  * Human-readable badge label.
- * null → "No Risk Set" so a badge is always rendered on every client card.
+ * null / unrecognised → "Low Risk" — clients without explicit risk display as
+ * Low Risk per business rule (every client starts at Low by default).
  */
 export function getRiskBadgeLabel(level: CanonicalRisk | any): string {
   const canonical = typeof level === "string" ? normalizeRiskFull(level) : level;
@@ -119,7 +134,7 @@ export function getRiskBadgeLabel(level: CanonicalRisk | any): string {
     case "critical":     return "Critical";
     case "do_not_book":  return "Do Not Book";
     case "block_booking":return "Block Booking";
-    default:             return "No Risk Set";
+    default:             return "Low Risk";
   }
 }
 
@@ -129,8 +144,8 @@ export function getRiskBadgeVariant(riskLevel: any): RiskBadgeVariant {
   const level = normalizeRiskLevel(riskLevel);
   if (level === "high") return "high";
   if (level === "medium") return "medium";
-  if (level === "low") return "low";
-  return "none";
+  // null (unrecognised) and "low" both render as the low/safe badge.
+  return "low";
 }
 
 /** Tailwind class string for risk badge backgrounds (supports all 6 canonical levels). */
@@ -149,8 +164,9 @@ export function getRiskBadgeClass(riskLevel: CanonicalRisk | any): string {
     case "low":
       return "bg-emerald-500/15 text-emerald-400 border-emerald-500/20";
     default:
-      // null / no-risk: subtle neutral — always visible but not alarming
-      return "bg-white/5 text-white/40 border-white/10";
+      // Unknown / unrecognised input — fall through to the same safe Low Risk
+      // styling so a client without explicit risk renders consistently.
+      return "bg-emerald-500/15 text-emerald-400 border-emerald-500/20";
   }
 }
 
