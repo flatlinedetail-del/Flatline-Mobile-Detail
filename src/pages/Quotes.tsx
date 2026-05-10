@@ -1981,63 +1981,88 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
               </Dialog>
             </div>
 
-            {/* Note-driven condition analysis — appears live as the user
-                types in the Job Description / Notes box. Surfaces what the
-                deterministic analyzer detected, the price adjustment it
-                applied to the benchmark, and a manual-review warning when
-                multiple severe conditions stack. */}
-            {noteAnalysis.detectedConditions.length > 0 && (
-              <div className={cn(
-                "p-4 rounded-2xl border space-y-3",
-                noteAnalysis.manualReviewRecommended
-                  ? "bg-red-500/5 border-red-500/30"
-                  : "bg-amber-500/5 border-amber-500/30"
-              )}>
-                <div className="flex items-center justify-between gap-2">
-                  <p className={cn(
-                    "text-[10px] font-black uppercase tracking-widest flex items-center gap-2",
-                    noteAnalysis.manualReviewRecommended ? "text-red-300" : "text-amber-300"
-                  )}>
-                    <AlertCircle className="w-3 h-3" />
-                    {noteAnalysis.manualReviewRecommended
-                      ? "Manual Review Recommended"
-                      : "Detected Conditions"}
-                  </p>
-                  <Badge className={cn(
-                    "border-none text-[8px] font-black uppercase",
-                    noteAnalysis.manualReviewRecommended
-                      ? "bg-red-500/20 text-red-300"
-                      : "bg-amber-500/20 text-amber-300"
-                  )}>
-                    +{noteAnalysis.estimatedExtraLaborHours.toFixed(1)} hrs · +${noteAnalysis.localPriceAdjustment}
-                  </Badge>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {noteAnalysis.detectedConditions.map((c) => (
-                    <span
-                      key={c}
-                      className={cn(
-                        "text-[10px] font-bold px-2 py-1 rounded-md border",
-                        noteAnalysis.manualReviewRecommended
-                          ? "bg-red-500/10 text-red-200 border-red-500/30"
-                          : "bg-amber-500/10 text-amber-200 border-amber-500/30"
+            {/* Detected Conditions — always rendered from deterministic local note analysis.
+                Never AI-gated: conditions come from analyzeJobNotes(jobDescription) via useMemo.
+                Shows a neutral fallback when no conditions are present. */}
+            {(() => {
+              const detectedConditions = noteAnalysis?.detectedConditions ?? [];
+              const requiredOperations = noteAnalysis?.requiredOperations ?? [];
+              const hasConditions = detectedConditions.length > 0;
+              return (
+                <div className={cn(
+                  "p-4 rounded-2xl border space-y-3",
+                  noteAnalysis?.manualReviewRecommended
+                    ? "bg-red-500/5 border-red-500/30"
+                    : hasConditions
+                      ? "bg-amber-500/5 border-amber-500/30"
+                      : "bg-white/5 border-white/5"
+                )}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className={cn(
+                      "text-[10px] font-black uppercase tracking-widest flex items-center gap-2",
+                      noteAnalysis?.manualReviewRecommended
+                        ? "text-red-300"
+                        : hasConditions
+                          ? "text-amber-300"
+                          : "text-white/40"
+                    )}>
+                      <AlertCircle className="w-3 h-3" />
+                      {noteAnalysis?.manualReviewRecommended
+                        ? "Manual Review Recommended"
+                        : "Detected Conditions"}
+                    </p>
+                    {hasConditions && (
+                      <Badge className={cn(
+                        "border-none text-[8px] font-black uppercase",
+                        noteAnalysis?.manualReviewRecommended
+                          ? "bg-red-500/20 text-red-300"
+                          : "bg-amber-500/20 text-amber-300"
+                      )}>
+                        +{noteAnalysis.estimatedExtraLaborHours.toFixed(1)} hrs · +${noteAnalysis.localPriceAdjustment}
+                      </Badge>
+                    )}
+                  </div>
+                  {hasConditions ? (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {detectedConditions.map((c) => (
+                          <span
+                            key={c}
+                            className={cn(
+                              "text-[10px] font-bold px-2 py-1 rounded-md border",
+                              noteAnalysis?.manualReviewRecommended
+                                ? "bg-red-500/10 text-red-200 border-red-500/30"
+                                : "bg-amber-500/10 text-amber-200 border-amber-500/30"
+                            )}
+                          >
+                            {c}
+                          </span>
+                        ))}
+                      </div>
+                      {noteAnalysis.explanation && (
+                        <p className="text-[11px] text-white/70 font-medium leading-relaxed">
+                          {noteAnalysis.explanation}
+                        </p>
                       )}
-                    >
-                      {c}
-                    </span>
-                  ))}
+                      {noteAnalysis.suggestedAddOns.length > 0 && (
+                        <p className="text-[10px] text-white/50 font-medium leading-relaxed">
+                          <span className="font-black uppercase tracking-widest text-white/60">Consider:</span>{" "}
+                          {noteAnalysis.suggestedAddOns.join(" · ")}
+                        </p>
+                      )}
+                      {requiredOperations.length > 0 && (
+                        <p className="text-[10px] text-white/50 font-medium leading-relaxed">
+                          <span className="font-black uppercase tracking-widest text-white/60">Required Ops:</span>{" "}
+                          {requiredOperations.join(" · ")}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-white/40 font-medium">No major risk conditions detected from notes.</p>
+                  )}
                 </div>
-                <p className="text-[11px] text-white/70 font-medium leading-relaxed">
-                  {noteAnalysis.explanation}
-                </p>
-                {noteAnalysis.suggestedAddOns.length > 0 && (
-                  <p className="text-[10px] text-white/50 font-medium leading-relaxed">
-                    <span className="font-black uppercase tracking-widest text-white/60">Consider:</span>{" "}
-                    {noteAnalysis.suggestedAddOns.join(" · ")}
-                  </p>
-                )}
-              </div>
-            )}
+              );
+            })()}
 
             {recommendations && (
               <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-3">
@@ -2783,7 +2808,7 @@ export default function Quotes() {
                 Generate Quote
               </Button>
             } />
-          <DialogContent className="sm:max-w-[920px] max-h-[90vh] overflow-y-auto bg-[#0B0B0B] border border-white/10 rounded-3xl shadow-2xl shadow-black p-0">
+          <DialogContent className="w-[98vw] max-w-[1600px] max-h-[94vh] overflow-hidden bg-[#0B0B0B] border border-white/10 rounded-3xl shadow-2xl shadow-black p-0">
             <DialogHeader className="p-8 border-b border-white/5 bg-black/40">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -2795,8 +2820,9 @@ export default function Quotes() {
                 </div>
               </div>
             </DialogHeader>
-            <form onSubmit={handleCreateQuote} className="p-8 space-y-8">
-              <div className="space-y-6">
+            <form onSubmit={handleCreateQuote} className="overflow-y-auto max-h-[calc(94vh-90px)] p-8 space-y-8">
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(420px,0.85fr)] gap-6 items-start">
+                <div className="space-y-6">
                 <div className="space-y-4 p-6 bg-white/5 rounded-2xl border border-white/10">
                   <div className="space-y-3">
                     <Label className="font-black uppercase tracking-widest text-[10px] text-white">Target Entity (Client)</Label>
@@ -3087,7 +3113,8 @@ export default function Quotes() {
                     )}
                   </div>
                 )}
-
+                </div>
+                <div className="space-y-6">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <Label className="font-black uppercase tracking-widest text-[10px] text-white">Services (Line Items)</Label>
@@ -3146,6 +3173,7 @@ export default function Quotes() {
                       theme="dark"
                     />
                   </div>
+                </div>
                 </div>
               </div>
 
