@@ -1782,6 +1782,16 @@ export default function Clients() {
                       onClick={() => {
                         setSelectedClient(client);
                         setIsDetailOpen(true);
+                        // Force the dialog onto Overview regardless of any
+                        // prior ?tab=communications left in the URL (e.g. from
+                        // a bell-driven deep link). Active Alerts now lives on
+                        // Overview, so that's the right default for a row click.
+                        // Per-alert Open buttons still route to their specific
+                        // tabs via routeForItem — this only affects row clicks.
+                        const params = new URLSearchParams(location.search);
+                        params.set("clientId", client.id);
+                        params.set("tab", "overview");
+                        navigate(`/clients?${params.toString()}`, { replace: true });
                       }}
                     >
                       <TableCell className="px-8 py-6">
