@@ -21,6 +21,43 @@ const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 let activeRequestCount = 0;
 const MAX_CONCURRENT_REQUESTS = 1; // Strictly enforce one at a time for quota safety
 
+// Bounded wait for an in-flight slot — never let callers queue indefinitely.
+// If we can't get a slot in this window, throw a clear "AI busy" error and
+// let the caller render its fallback instead of spinning.
+const SLOT_WAIT_MS = 2000;
+
+// Default per-call timeout. Field workflows must not hang. Each AI function
+// passes its own value; this is the floor used when none is provided.
+const DEFAULT_TIMEOUT_MS = 8000;
+
+/**
+ * AITimeoutError — thrown when an individual AI request exceeds its
+ * per-feature timeout. Marked with `isTimeout` so callers (and the retry
+ * layer) can distinguish it from quota / transient-503 errors.
+ */
+export class AITimeoutError extends Error {
+  readonly isTimeout = true;
+  constructor(public fnName: string, public timeoutMs: number) {
+    super(
+      `AI request timed out after ${(timeoutMs / 1000).toFixed(0)}s (${fnName}). Using fallback — you can retry.`
+    );
+    this.name = "AITimeoutError";
+  }
+}
+
+/**
+ * Race a promise against a hard deadline. The underlying SDK request will
+ * keep running until the network resolves it (the SDK has no abort hook),
+ * but the caller is unblocked at the deadline so the UI can show fallback.
+ */
+function withTimeout<T>(p: Promise<T>, timeoutMs: number, fnName: string): Promise<T> {
+  let timer: any;
+  const cancel = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new AITimeoutError(fnName, timeoutMs)), timeoutMs);
+  });
+  return Promise.race([p, cancel]).finally(() => clearTimeout(timer));
+}
+
 function getCacheKey(fnName: string, args: any[]): string {
   return `${fnName}:${JSON.stringify(args)}`;
 }
@@ -100,22 +137,40 @@ export interface UpsellRecommendation {
   recommendedPrice: number;
 }
 
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, attempt = 1, fnName = "unknown", args: any[] = [], modelId = DEFAULT_MODEL): Promise<T> {
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries = 2,
+  delay = 3000,
+  attempt = 1,
+  fnName = "unknown",
+  args: any[] = [],
+  modelId = DEFAULT_MODEL,
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<T> {
   const cacheKey = getCacheKey(fnName, args);
   const cachedResult = getFromCache(cacheKey);
   if (cachedResult) return cachedResult;
 
+  // Bounded wait for an in-flight slot. If another AI call is hung we don't
+  // want this one to block the user as well — give up after SLOT_WAIT_MS and
+  // surface a clear error so the caller renders its fallback.
+  let slotWaited = 0;
+  while (activeRequestCount >= MAX_CONCURRENT_REQUESTS && slotWaited < SLOT_WAIT_MS) {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    slotWaited += 200;
+  }
   if (activeRequestCount >= MAX_CONCURRENT_REQUESTS) {
-    console.warn(`[AI Guard] Request blocked: ${fnName} (${activeRequestCount} active). Retrying in 1s...`);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    return withRetry(fn, retries, delay, attempt, fnName, args);
+    console.warn(`[AI Guard] Slot wait exceeded for ${fnName} after ${SLOT_WAIT_MS}ms. Releasing caller.`);
+    throw new Error(`AI busy: another request is in flight. Please retry in a moment.`);
   }
 
   activeRequestCount++;
-  console.log(`[AI Request] ${fnName} | Attempt ${attempt} | Model: ${modelId}`);
+  console.log(`[AI Request] ${fnName} | Attempt ${attempt} | Model: ${modelId} | Timeout: ${timeoutMs}ms`);
 
   try {
-    const result = await fn();
+    // Hard timeout — caller is unblocked at the deadline even if the SDK
+    // request continues in the background. The AI call NEVER hangs the UI.
+    const result = await withTimeout(fn(), timeoutMs, fnName);
     setToCache(cacheKey, result);
     return result;
   } catch (error: any) {
@@ -126,8 +181,15 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, att
     const status = String(errObj.status || "").toUpperCase();
     const name = String(error.name || "").toLowerCase();
 
-    const isUnavailable = status === "UNAVAILABLE" || 
-                          code === 503 || 
+    // Timeout: do NOT retry. Retrying makes the user wait even longer; field
+    // UX expects fast fallback. Caller will show "Retry AI" if they want.
+    if (error?.isTimeout || error instanceof AITimeoutError || name === "aitimeouterror") {
+      console.warn(`[AI Timeout] ${fnName} exceeded ${timeoutMs}ms — surfacing fallback.`);
+      throw error;
+    }
+
+    const isUnavailable = status === "UNAVAILABLE" ||
+                          code === 503 ||
                           code === 500 ||
                           error.status === 503 ||
                           error.status === 500 ||
@@ -136,9 +198,9 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, att
                           message.includes("internal server error") ||
                           message.includes("unavailable") ||
                           message.includes("deadline exceeded");
-    
-    const isQuotaExceeded = status === "RESOURCE_EXHAUSTED" || 
-                            code === 429 || 
+
+    const isQuotaExceeded = status === "RESOURCE_EXHAUSTED" ||
+                            code === 429 ||
                             message.includes("spending cap") ||
                             message.includes("quota exceeded");
 
@@ -146,12 +208,14 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, att
       console.error(`[AI Quota] Resource Exhausted on ${fnName}`);
       throw new Error("QUOTA_EXCEEDED: Your Gemini API spending cap has been reached. Please visit https://ai.studio/spend to manage your project limits.");
     }
-    
+
     if (retries > 0 && isUnavailable) {
-      const nextDelay = delay + Math.random() * 2000; 
+      const nextDelay = delay + Math.random() * 2000;
       console.warn(`[AI Retry] Busy (${code || status || name}), retrying in ${Math.round(nextDelay)}ms... (${retries} left)`);
       await new Promise(resolve => setTimeout(resolve, nextDelay));
-      return withRetry(fn, retries - 1, delay * 2, attempt + 1, fnName, args, modelId);
+      // NOTE: forward modelId AND timeoutMs so the retry inherits the same
+      // per-feature deadline instead of resetting to the wrapper default.
+      return withRetry(fn, retries - 1, delay * 2, attempt + 1, fnName, args, modelId, timeoutMs);
     }
 
     // Only log as error on the final failure
@@ -161,6 +225,22 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 3000, att
     activeRequestCount--;
   }
 }
+
+/**
+ * Per-feature timeout policy (milliseconds). Centralised so every AI feature
+ * has an explicit, field-tested deadline rather than relying on SDK defaults.
+ *
+ * Tunable knobs — adjust if a specific feature needs more/less time.
+ */
+const TIMEOUTS = {
+  qualifyLeadAI: 8000,           // Lead qualification — single targeted prompt
+  askAssistant_quick: 5000,      // Suggested replies / quick chat
+  askAssistant_deep: 25000,      // Marketing strategy / business advisor
+  analyzeReceipt: 12000,         // Image OCR — slower than text
+  getRevenueOptimization: 12000, // Smart Quote primary path (may include images)
+  getQuotePricingFast: 6000,     // Smart Quote fast-path: pricing tiers only, target 3–6s
+  analyzeDeployment: 12000,      // Diagnostics
+} as const;
 
 /**
  * Qualifies a lead and generates outreach content
@@ -278,7 +358,7 @@ export async function qualifyLeadAI(lead: any, modelTier?: ModelTier): Promise<{
     });
 
     return JSON.parse(response.text);
-  }, 2, 3000, 1, "qualifyLeadAI", [(lead.id || lead.name)]);
+  }, 2, 3000, 1, "qualifyLeadAI", [(lead.id || lead.name)], _modelId, TIMEOUTS.qualifyLeadAI);
 }
 
 /**
@@ -408,7 +488,8 @@ export async function askAssistant(input: string, context?: any, modelTier?: Mod
     });
 
     return JSON.parse(response.text);
-  }, 2, 3000, 1, "askAssistant", [input, context]);
+  }, 2, 3000, 1, "askAssistant", [input, context], _modelId,
+     modelTier === "deep_strategy" ? TIMEOUTS.askAssistant_deep : TIMEOUTS.askAssistant_quick);
 }
 
 /**
@@ -456,7 +537,7 @@ export async function analyzeReceipt(base64Data: string, modelTier?: ModelTier):
     });
 
     return JSON.parse(response.text);
-  }, 2, 3000, 1, "analyzeReceipt", [base64.slice(0, 50)]);
+  }, 2, 3000, 1, "analyzeReceipt", [base64.slice(0, 50)], _modelId, TIMEOUTS.analyzeReceipt);
 }
 
 export interface UpsellRecommendation {
@@ -528,7 +609,9 @@ export async function getRevenueOptimization(
   modelTier?: ModelTier
 ): Promise<RevenueOptimizationResponse> {
   const _modelId = resolveModel(modelTier ?? "balanced_intelligence");
-  console.log("[AI Protocol] Request Payload:", JSON.stringify({ jobData, productCosts }, null, 2));
+  if ((import.meta as any).env?.DEV) {
+    console.log(`[AI Protocol] request: ${jobData.services.length} services, ${jobData.addOns.length} add-ons, ${productCosts.length} product cost lines, ${images.length} images`);
+  }
 
   return withRetry(async () => {
     const totalProductCost = productCosts.reduce((sum, p) => sum + (p.totalCost || 0), 0);
@@ -675,9 +758,112 @@ export async function getRevenueOptimization(
          return u;
        });
     }
-    console.log("[AI Protocol] Response Received:", JSON.stringify(result, null, 2));
+    if ((import.meta as any).env?.DEV) {
+      console.log(`[AI Protocol] response: ${result.recommendedUpsells?.length ?? 0} upsells, ${result.bundlingOpportunities?.length ?? 0} bundles, pricingAnalysis=${result.pricingAnalysis ? "yes" : "no"}`);
+    }
     return result;
-  }, 2, 3000, 1, "getRevenueOptimization", [assessment, jobData.totalPrice]);
+  }, 2, 3000, 1, "getRevenueOptimization", [assessment, jobData.totalPrice], _modelId, TIMEOUTS.getRevenueOptimization);
+}
+
+/**
+ * Smart Quote FAST path — returns ONLY profit-protected pricing tiers
+ * (and optional bundling opportunities). Skips the heavy upsell /
+ * pricing-adjustment / customer-suggestion sections that Quotes.tsx
+ * doesn't render anyway. The smaller response schema is the dominant
+ * speed win — Gemini in JSON-schema mode must complete the full output
+ * before returning, so cutting ~2/3 of the schema cuts wait time roughly
+ * in half. Target latency: 3–6 seconds.
+ *
+ * Existing `getRevenueOptimization` is unchanged for callers that DO
+ * consume the heavy fields (e.g. JobDetail revenue optimization).
+ */
+export async function getQuotePricingFast(
+  assessment: string,
+  jobData: {
+    services: string[];
+    addOns: string[];
+    totalPrice: number;
+    vehicle: { year?: string; make?: string; model?: string; size?: string };
+    customerType: string;
+    travelFee?: number;
+  },
+  productCosts: any[] = [],
+  settings: any = {},
+  modelTier?: ModelTier
+): Promise<Pick<RevenueOptimizationResponse, "pricingAnalysis">> {
+  const _modelId = resolveModel(modelTier ?? "balanced_intelligence");
+  const t0 = (import.meta as any).env?.DEV ? performance.now() : 0;
+
+  return withRetry(async () => {
+    const totalProductCost = productCosts.reduce((sum, p) => sum + (p.totalCost || 0), 0);
+    const travelFee = jobData.travelFee || 0;
+    const marginTargets = settings.marginTargets || { floor: 20, recommended: 35, premium: 50 };
+
+    if ((import.meta as any).env?.DEV) {
+      console.log(`[SmartQuote AI] payload built in ${(performance.now() - t0).toFixed(0)}ms — sending request`);
+    }
+    const tSend = (import.meta as any).env?.DEV ? performance.now() : 0;
+
+    const response = await ai.models.generateContent({
+      model: _modelId,
+      contents: [{
+        role: "user",
+        parts: [{ text: `Profit-protected pricing for a mobile detailing job.
+
+Assessed condition: "${assessment}"
+Job specs: ${JSON.stringify(jobData)}
+Total product cost: $${totalProductCost}
+Travel fee: $${travelFee}
+Margin targets: floor ${marginTargets.floor}%, recommended ${marginTargets.recommended}%, premium ${marginTargets.premium}%
+
+Compute three pricing tiers (floor, recommended, premium) for the ENTIRE job using:
+  Price = (Labor + Overhead + Travel + Product Cost) / (1 - Target Margin %)
+Assume Labor + Overhead is roughly 45% of the current service base price if not specified.
+Return ONLY the JSON matching the schema. No prose.` }]
+      }],
+      config: {
+        systemInstruction: `You are a Pricing Engine. Output the JSON object only. No commentary. Account for product cost, travel, and margin targets. Premium = highest quality/protection.`,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            pricingAnalysis: {
+              type: Type.OBJECT,
+              properties: {
+                laborTarget: { type: Type.NUMBER },
+                overhead: { type: Type.NUMBER },
+                travelFee: { type: Type.NUMBER },
+                totalProductCost: { type: Type.NUMBER },
+                floorPrice: { type: Type.NUMBER },
+                recommendedPrice: { type: Type.NUMBER },
+                premiumPrice: { type: Type.NUMBER },
+                estimatedMarginDollars: { type: Type.NUMBER },
+                estimatedMarginPercent: { type: Type.NUMBER },
+                netAfterProductCost: { type: Type.NUMBER }
+              },
+              required: ["floorPrice", "recommendedPrice", "premiumPrice", "totalProductCost"]
+            }
+          },
+          required: ["pricingAnalysis"]
+        }
+      }
+    });
+
+    if ((import.meta as any).env?.DEV) {
+      const tRecv = performance.now();
+      console.log(`[SmartQuote AI] response received in ${(tRecv - tSend).toFixed(0)}ms (model=${_modelId})`);
+    }
+
+    const result = JSON.parse(response.text);
+
+    if ((import.meta as any).env?.DEV) {
+      console.log(`[SmartQuote AI] total roundtrip ${(performance.now() - t0).toFixed(0)}ms`);
+    }
+    return result;
+  }, 2, 3000, 1, "getQuotePricingFast",
+     // Cache key: include shape + total so different quotes don't collide
+     [assessment, jobData.services.join(","), jobData.addOns.join(","), jobData.totalPrice, jobData.vehicle?.size || "", jobData.customerType],
+     _modelId, TIMEOUTS.getQuotePricingFast);
 }
 
 export interface DeploymentInsight {
@@ -740,5 +926,5 @@ export async function analyzeDeployment(jobData: any, modelTier?: ModelTier): Pr
     });
 
     return JSON.parse(response.text);
-  }, 2, 3000, 1, "analyzeDeployment", [jobData.id]);
+  }, 2, 3000, 1, "analyzeDeployment", [jobData.id], _modelId, TIMEOUTS.analyzeDeployment);
 }

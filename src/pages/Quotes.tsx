@@ -49,7 +49,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import {
-  getRevenueOptimization,
+  getQuotePricingFast,
   RevenueOptimizationResponse,
 } from "../services/gemini";
 import {
@@ -269,13 +269,9 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   };
 
   const generateAIEstimate = async () => {
-    console.log("[SmartQuote] Run Profit-Protected AI Diagnostics clicked", {
-      vehicles: manualVehicles,
-      services: selectedServiceSelections.map(s => s.serviceId),
-      addOns: selectedAddOnSelections.map(a => a.addOnId),
-      productCosts: productCosts.map(p => ({ name: p.name, cost: p.totalCost })),
-      isGeneratingAI,
-    });
+    if ((import.meta as any).env?.DEV) {
+      console.log(`[SmartQuote] click: ${manualVehicles.length} vehicle(s), ${selectedServiceSelections.length} service(s), ${selectedAddOnSelections.length} add-on(s), ${productCosts.length} product cost line(s), busy=${isGeneratingAI}`);
+    }
 
     if (manualVehicles.length === 0 || isGeneratingAI) return;
 
@@ -287,9 +283,24 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     }
 
     setIsGeneratingAI(true);
+    // Clear any stale bundle suggestions from a previous quote — fast AI call
+    // no longer returns bundles. They will be loaded later (separate, optional).
+    setAiBundleOpportunities([]);
+    const __t0 = (import.meta as any).env?.DEV ? performance.now() : 0;
+    if ((import.meta as any).env?.DEV) console.log("[SmartQuote] click → start");
 
     // Compute benchmark early — used as fallback regardless of AI outcome
     const benchmarkPricing = computeBenchmarkPricing(selectedServices, selectedAddOns, productCosts, settings);
+
+    // Show benchmark INSTANTLY so the user has usable prices while AI runs.
+    // Only set if user hasn't manually overridden (manual must always win).
+    if (!isPriceCustomized) {
+      setPricingAnalysis(normalizePricingTiers(benchmarkPricing));
+      setAnalysisSource("benchmark");
+    }
+    if ((import.meta as any).env?.DEV) {
+      console.log(`[SmartQuote] benchmark shown in ${(performance.now() - __t0).toFixed(0)}ms`);
+    }
 
     // Build a data snapshot hash so the guard can detect unchanged data
     const dataHash = hashSnapshot({
@@ -347,34 +358,47 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
         customerType: quoteType,
       };
 
-      const response = await getRevenueOptimization(
+      // Snapshot the request hash so a late response from a stale request
+      // cannot stomp the current displayed state.
+      const __requestHash = dataHash;
+      const response = await getQuotePricingFast(
         jobDescription || "Standard detailing request",
         structuredPayload,
         productCosts,
         settings,
-        [], // images
         guard.modelTier
       );
 
-      // Capture non-billable bundle suggestions (only if real AI numbers were returned)
-      if (Array.isArray(response.bundlingOpportunities)) {
-        setAiBundleOpportunities(
-          response.bundlingOpportunities
-            .filter((b: any) => b && typeof b.discountedPrice === "number" && b.discountedPrice > 0)
-        );
+      // Recompute current hash; if inputs changed mid-flight, ignore this response.
+      const __currentHash = hashSnapshot({
+        services: selectedServices.map(s => s.id || s.name),
+        addOns: selectedAddOns.map(a => a.id || a.name),
+        productCosts: productCosts.map(p => ({ id: p.id, cost: p.totalCost })),
+        vehicle: manualVehicles[0],
+        quoteType, intensity, complexity, jobDescription,
+      });
+      if (__currentHash !== __requestHash) {
+        if ((import.meta as any).env?.DEV) {
+          console.log("[SmartQuote] inputs changed during AI request — discarding stale result");
+        }
       } else {
-        setAiBundleOpportunities([]);
+        // Fast path returns ONLY pricingAnalysis. Bundles are intentionally
+        // excluded from the first call to keep latency low; they will be
+        // populated later by a separate, non-blocking call (not yet wired).
+        if (response.pricingAnalysis) {
+          // Manual override always wins — only replace pricing state if user hasn't customized.
+          if (!isPriceCustomized) {
+            setPricingAnalysis(normalizePricingTiers(response.pricingAnalysis));
+            setAnalysisSource("ai");
+            toast.success("AI Pricing Protection Active!");
+          }
+        } else if (!isPriceCustomized) {
+          // Response came back but pricingAnalysis field was empty — keep benchmark already showing
+          toast.warning("AI pricing response incomplete. Using market benchmarks.");
+        }
       }
-
-      if (response.pricingAnalysis) {
-        setPricingAnalysis(normalizePricingTiers(response.pricingAnalysis));
-        setAnalysisSource("ai");
-        toast.success("AI Pricing Protection Active!");
-      } else {
-        // Response came back but pricingAnalysis field was empty — use benchmark
-        setPricingAnalysis(normalizePricingTiers(benchmarkPricing));
-        setAnalysisSource("benchmark");
-        toast.warning("AI pricing response incomplete. Using market benchmarks.");
+      if ((import.meta as any).env?.DEV) {
+        console.log(`[SmartQuote] total click→render ${(performance.now() - __t0).toFixed(0)}ms`);
       }
 
       await logAIUsage({
@@ -389,13 +413,20 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       });
     } catch (err: any) {
       console.error("[SmartQuote] AI pricing error:", err);
-      // Always set the benchmark so the user sees usable prices
-      setPricingAnalysis(normalizePricingTiers(benchmarkPricing));
-      setAnalysisSource("benchmark");
+      // Benchmark is already on screen (set instantly above) — only update if not manual.
+      if (!isPriceCustomized) {
+        setPricingAnalysis(normalizePricingTiers(benchmarkPricing));
+        setAnalysisSource("benchmark");
+      }
 
       const hasProtocolsForToast = selectedServiceSelections.length > 0 || selectedAddOnSelections.length > 0;
       if (!hasProtocolsForToast) {
         toast.error("Select a service protocol to generate market benchmark pricing.");
+      } else if (err?.isTimeout || err?.name === "AITimeoutError") {
+        toast.warning("AI is taking too long — using market benchmark for now.", {
+          duration: 8000,
+          action: { label: "Retry AI", onClick: () => generateAIEstimate() },
+        });
       } else if (err.message?.includes("QUOTA_EXCEEDED")) {
         toast.warning("AI pricing unavailable: spending cap reached. Using market benchmarks.", {
           duration: 8000,
@@ -410,6 +441,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
         console.error("[SmartQuote] AI pricing — unhandled error:", rawMsg, "\nFull:", err);
         toast.warning(`AI unavailable — market benchmark used. (${rawMsg.slice(0, 120)})`, {
           duration: 8000,
+          action: { label: "Retry AI", onClick: () => generateAIEstimate() },
         });
       }
     } finally {
