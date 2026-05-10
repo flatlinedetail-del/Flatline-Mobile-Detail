@@ -777,6 +777,22 @@ export async function getRevenueOptimization(
  * Existing `getRevenueOptimization` is unchanged for callers that DO
  * consume the heavy fields (e.g. JobDetail revenue optimization).
  */
+/**
+ * Optional structured note analysis from src/lib/noteAnalysis.ts.
+ * Passed as a hint to the AI so Gemini cannot ignore obvious conditions
+ * like water damage, mold, seat removal, multi-year coatings, etc.
+ *
+ * We accept `any` here to avoid a circular import between lib/ and services/.
+ * The shape we use is documented in NoteAnalysis (lib/noteAnalysis.ts).
+ */
+export interface QuoteNoteAnalysisHint {
+  detectedConditions?: string[];
+  requiredOperations?: string[];
+  estimatedExtraLaborHours?: number;
+  localPriceAdjustment?: number;
+  manualReviewRecommended?: boolean;
+}
+
 export async function getQuotePricingFast(
   assessment: string,
   jobData: {
@@ -789,7 +805,8 @@ export async function getQuotePricingFast(
   },
   productCosts: any[] = [],
   settings: any = {},
-  modelTier?: ModelTier
+  modelTier?: ModelTier,
+  noteAnalysis?: QuoteNoteAnalysisHint
 ): Promise<Pick<RevenueOptimizationResponse, "pricingAnalysis">> {
   const _modelId = resolveModel(modelTier ?? "balanced_intelligence");
   const t0 = (import.meta as any).env?.DEV ? performance.now() : 0;
@@ -804,6 +821,14 @@ export async function getQuotePricingFast(
     }
     const tSend = (import.meta as any).env?.DEV ? performance.now() : 0;
 
+    // Structured note-analysis hint — tells Gemini exactly which job
+    // conditions were detected locally so it cannot underprice by ignoring
+    // them. Only included when the analyzer found something.
+    const conditions = noteAnalysis?.detectedConditions ?? [];
+    const noteHint = conditions.length > 0
+      ? `\n\nDETECTED JOB CONDITIONS (from local note analysis — do NOT price as a simple base service):\n${conditions.map(c => `- ${c}`).join("\n")}\nEstimated extra labor: ${noteAnalysis?.estimatedExtraLaborHours ?? 0} hrs.\nLocal benchmark already includes a $${noteAnalysis?.localPriceAdjustment ?? 0} adjustment for these conditions; your tiers MUST be at least this high.${noteAnalysis?.manualReviewRecommended ? "\n⚠ Multiple severe conditions present — recommend pricing toward the premium tier." : ""}`
+      : "";
+
     const response = await ai.models.generateContent({
       model: _modelId,
       contents: [{
@@ -814,7 +839,7 @@ Assessed condition: "${assessment}"
 Job specs: ${JSON.stringify(jobData)}
 Total product cost: $${totalProductCost}
 Travel fee: $${travelFee}
-Margin targets: floor ${marginTargets.floor}%, recommended ${marginTargets.recommended}%, premium ${marginTargets.premium}%
+Margin targets: floor ${marginTargets.floor}%, recommended ${marginTargets.recommended}%, premium ${marginTargets.premium}%${noteHint}
 
 Compute three pricing tiers (floor, recommended, premium) for the ENTIRE job using:
   Price = (Labor + Overhead + Travel + Product Cost) / (1 - Target Margin %)
@@ -861,8 +886,18 @@ Return ONLY the JSON matching the schema. No prose.` }]
     }
     return result;
   }, 2, 3000, 1, "getQuotePricingFast",
-     // Cache key: include shape + total so different quotes don't collide
-     [assessment, jobData.services.join(","), jobData.addOns.join(","), jobData.totalPrice, jobData.vehicle?.size || "", jobData.customerType],
+     // Cache key: include shape + total + detected conditions so a quote
+     // re-priced after notes change (and thus different conditions) does
+     // not falsely hit a previous cache entry.
+     [
+       assessment,
+       jobData.services.join(","),
+       jobData.addOns.join(","),
+       jobData.totalPrice,
+       jobData.vehicle?.size || "",
+       jobData.customerType,
+       (noteAnalysis?.detectedConditions ?? []).join("|"),
+     ],
      _modelId, TIMEOUTS.getQuotePricingFast);
 }
 

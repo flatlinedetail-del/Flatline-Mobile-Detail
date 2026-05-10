@@ -61,6 +61,7 @@ import {
 } from "../services/aiControlService";
 import { resolveModel } from "../services/aiModelMap";
 import { generateRecommendationExplanation } from "../lib/recommendationSystem";
+import { analyzeJobNotes, type NoteAnalysis } from "../lib/noteAnalysis";
 import { VinInput } from "../components/VinInput";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { ChevronDown, X as XIcon } from "lucide-react";
@@ -239,12 +240,32 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     };
   };
 
-  // Compute a deterministic benchmark PricingAnalysis when AI is unavailable
-  const computeBenchmarkPricing = (svcs: any[], addons: any[], costs: any[], cfg: any): PricingAnalysis => {
+  // Live deterministic note analysis. Detects job conditions from
+  // jobDescription (water damage, mold, seat removal, multi-year coating,
+  // etc.) and produces structured fields used by:
+  //   - the benchmark fallback below (so timeout still reflects complexity)
+  //   - the AI prompt in getQuotePricingFast (so Gemini cannot ignore it)
+  //   - the Market Analysis panel UI (so the user sees why price moved)
+  const noteAnalysis: NoteAnalysis = useMemo(
+    () => analyzeJobNotes(jobDescription),
+    [jobDescription]
+  );
+
+  // Compute a deterministic benchmark PricingAnalysis when AI is unavailable.
+  // `notesAdjustment` (default 0) lets callers fold the local note-analysis
+  // dollar amount into the labor base BEFORE margin math so all three tiers
+  // and the margin %% reflect the extra work.
+  const computeBenchmarkPricing = (
+    svcs: any[],
+    addons: any[],
+    costs: any[],
+    cfg: any,
+    notesAdjustment: number = 0
+  ): PricingAnalysis => {
     const svcTotal = svcs.reduce((s: number, svc: any) => s + (svc.basePrice || svc.price || 150), 0);
     const addonTotal = addons.reduce((s: number, a: any) => s + (a.price || 50) * (a.qty || 1), 0);
     const totalProductCost = costs.reduce((s: number, p: any) => s + (p.totalCost || 0), 0);
-    const base = svcTotal + addonTotal;
+    const base = svcTotal + addonTotal + notesAdjustment;
     const floorPct = cfg?.marginTargets?.floor ?? 20;
     const recPct = cfg?.marginTargets?.recommended ?? 35;
     const premPct = cfg?.marginTargets?.premium ?? 50;
@@ -289,8 +310,16 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     const __t0 = (import.meta as any).env?.DEV ? performance.now() : 0;
     if ((import.meta as any).env?.DEV) console.log("[SmartQuote] click → start");
 
-    // Compute benchmark early — used as fallback regardless of AI outcome
-    const benchmarkPricing = computeBenchmarkPricing(selectedServices, selectedAddOns, productCosts, settings);
+    // Compute benchmark early — used as fallback regardless of AI outcome.
+    // Fold the deterministic note-analysis adjustment into base labor so the
+    // benchmark already reflects job complexity even if AI never returns.
+    const benchmarkPricing = computeBenchmarkPricing(
+      selectedServices,
+      selectedAddOns,
+      productCosts,
+      settings,
+      noteAnalysis.localPriceAdjustment
+    );
 
     // Show benchmark INSTANTLY so the user has usable prices while AI runs.
     // Only set if user hasn't manually overridden (manual must always win).
@@ -366,7 +395,16 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
         structuredPayload,
         productCosts,
         settings,
-        guard.modelTier
+        guard.modelTier,
+        // Pass the structured note analysis so Gemini cannot ignore obvious
+        // conditions (water damage, mold, seat removal, etc).
+        {
+          detectedConditions: noteAnalysis.detectedConditions,
+          requiredOperations: noteAnalysis.requiredOperations,
+          estimatedExtraLaborHours: noteAnalysis.estimatedExtraLaborHours,
+          localPriceAdjustment: noteAnalysis.localPriceAdjustment,
+          manualReviewRecommended: noteAnalysis.manualReviewRecommended,
+        }
       );
 
       // Recompute current hash; if inputs changed mid-flight, ignore this response.
@@ -413,7 +451,8 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       });
     } catch (err: any) {
       console.error("[SmartQuote] AI pricing error:", err);
-      // Benchmark is already on screen (set instantly above) — only update if not manual.
+      // Benchmark is already on screen (set instantly above, with note
+      // analysis already folded in) — only update if not manual override.
       if (!isPriceCustomized) {
         setPricingAnalysis(normalizePricingTiers(benchmarkPricing));
         setAnalysisSource("benchmark");
@@ -1941,6 +1980,64 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                 </DialogContent>
               </Dialog>
             </div>
+
+            {/* Note-driven condition analysis — appears live as the user
+                types in the Job Description / Notes box. Surfaces what the
+                deterministic analyzer detected, the price adjustment it
+                applied to the benchmark, and a manual-review warning when
+                multiple severe conditions stack. */}
+            {noteAnalysis.detectedConditions.length > 0 && (
+              <div className={cn(
+                "p-4 rounded-2xl border space-y-3",
+                noteAnalysis.manualReviewRecommended
+                  ? "bg-red-500/5 border-red-500/30"
+                  : "bg-amber-500/5 border-amber-500/30"
+              )}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className={cn(
+                    "text-[10px] font-black uppercase tracking-widest flex items-center gap-2",
+                    noteAnalysis.manualReviewRecommended ? "text-red-300" : "text-amber-300"
+                  )}>
+                    <AlertCircle className="w-3 h-3" />
+                    {noteAnalysis.manualReviewRecommended
+                      ? "Manual Review Recommended"
+                      : "Detected Conditions"}
+                  </p>
+                  <Badge className={cn(
+                    "border-none text-[8px] font-black uppercase",
+                    noteAnalysis.manualReviewRecommended
+                      ? "bg-red-500/20 text-red-300"
+                      : "bg-amber-500/20 text-amber-300"
+                  )}>
+                    +{noteAnalysis.estimatedExtraLaborHours.toFixed(1)} hrs · +${noteAnalysis.localPriceAdjustment}
+                  </Badge>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {noteAnalysis.detectedConditions.map((c) => (
+                    <span
+                      key={c}
+                      className={cn(
+                        "text-[10px] font-bold px-2 py-1 rounded-md border",
+                        noteAnalysis.manualReviewRecommended
+                          ? "bg-red-500/10 text-red-200 border-red-500/30"
+                          : "bg-amber-500/10 text-amber-200 border-amber-500/30"
+                      )}
+                    >
+                      {c}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[11px] text-white/70 font-medium leading-relaxed">
+                  {noteAnalysis.explanation}
+                </p>
+                {noteAnalysis.suggestedAddOns.length > 0 && (
+                  <p className="text-[10px] text-white/50 font-medium leading-relaxed">
+                    <span className="font-black uppercase tracking-widest text-white/60">Consider:</span>{" "}
+                    {noteAnalysis.suggestedAddOns.join(" · ")}
+                  </p>
+                )}
+              </div>
+            )}
 
             {recommendations && (
               <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-3">
