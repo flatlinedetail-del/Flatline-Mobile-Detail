@@ -2546,9 +2546,12 @@ export default function JobDetail() {
       </div>
 
       {/* Live Job Command Summary */}
-      <div className="sticky top-4 z-40 bg-black/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 shadow-2xl shadow-black flex flex-wrap lg:flex-nowrap items-center gap-5 justify-between animate-in slide-in-from-top-4 duration-500 overflow-hidden">
-        <div className="flex flex-wrap items-center gap-6 flex-1 min-w-0">
-          <div className="flex flex-col min-w-[160px] max-w-[240px] border-r border-white/5 pr-4 shrink-0">
+      <div className="sticky top-4 z-40 bg-black/90 backdrop-blur-xl border border-white/10 rounded-3xl p-5 shadow-2xl shadow-black animate-in slide-in-from-top-4 duration-500 overflow-hidden">
+        {/* Primary row — five aligned columns on desktop; stacks neatly below.
+            Each column shares the same internal rhythm: label / value / optional icons.
+            All dividers come from a left-border on columns 2..5 so they line up. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)_auto_auto] gap-x-6 gap-y-5 items-start">
+          <div className="flex flex-col min-w-0">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Client Contact</span>
             <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
             <div className="flex items-center gap-2 mt-1">
@@ -2565,7 +2568,7 @@ export default function JobDetail() {
             </div>
           </div>
 
-          <div className="flex flex-col min-w-[180px] max-w-[280px] border-r border-white/5 pr-4 shrink-0">
+          <div className="flex flex-col min-w-0 lg:border-l lg:border-white/5 lg:pl-6">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Vehicle Information</span>
             <div className="flex flex-col">
               <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
@@ -2665,16 +2668,16 @@ export default function JobDetail() {
             </div>
           </div>
 
-          <div className="flex flex-col min-w-[180px] max-w-[300px] hidden md:flex border-r border-white/5 pr-4 shrink-0">
+          <div className="flex flex-col min-w-0 lg:border-l lg:border-white/5 lg:pl-6">
             <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1">Job Location</span>
             <div className="flex items-center gap-2">
               <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={cleanAddress(job.address)}>
                 {cleanAddress(job.address)}
               </span>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-6 w-6 text-primary hover:bg-primary/10 rounded-lg p-0"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-primary hover:bg-primary/10 rounded-lg p-0 shrink-0"
                 onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}`, '_blank')}
                 title="Plan Route"
               >
@@ -2683,23 +2686,14 @@ export default function JobDetail() {
             </div>
           </div>
 
-          <div className="flex flex-col flex-1 min-w-[200px] hidden xl:flex">
-            <span className="text-[9px] text-primary font-black uppercase tracking-[0.2em] mb-1">Active Protocols</span>
-            <span className="text-primary font-black text-sm truncate uppercase tracking-tight" title={[...(job.serviceNames || []), ...(job.addOnNames || [])].join(", ") || "No protocols initiated"}>
-              {[...(job.serviceNames || []), ...(job.addOnNames || [])].join(", ") || "No protocols initiated"}
-            </span>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-6 shrink-0">
-          <div className="flex flex-col min-w-[120px]">
+          <div className="flex flex-col min-w-0 lg:border-l lg:border-white/5 lg:pl-6">
             <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1">Status</span>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center flex-wrap gap-2 mt-0.5">
               <Badge className={cn("text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded border-none w-fit shadow-md shrink-0", statusColors[job.status] || "bg-gray-500 text-white")}>
                 {job.status?.replace("_", " ")}
               </Badge>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {job.status === "scheduled" && (
                   <Button onClick={() => handleStatusChangeRequest("confirmed")} disabled={isUpdating} className="bg-white text-black hover:bg-gray-100 font-black uppercase tracking-widest text-[9px] h-9 px-4 rounded-xl shadow-lg shadow-black/20 whitespace-nowrap">
                     Confirm
@@ -2790,28 +2784,40 @@ export default function JobDetail() {
               </div>
             </div>
           </div>
-          <div className="flex flex-col min-w-[120px] items-end border-l border-white/10 pl-6 shrink-0 relative">
+          <div className="flex flex-col items-start sm:items-end min-w-0 lg:border-l lg:border-white/10 lg:pl-6">
             <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1">Running Total</span>
             <span className="text-2xl text-primary font-black leading-none">{formatCurrency(job.totalAmount || 0)}</span>
-            
-            {/* Real-time Payment Status from Invoice or Job */}
+            {/* Real-time Payment Status — inline (no longer absolute-positioned overlap) */}
             {(currentInvoice?.paymentStatus || job?.paymentStatus) && (
-               <div className="absolute -bottom-6 right-0">
-                 <Badge 
-                  className={cn(
-                    "text-[8px] font-black uppercase tracking-widest px-2 py-0.5",
-                    (currentInvoice?.paymentStatus || job?.paymentStatus) === "paid" ? "bg-emerald-600" :
-                    (currentInvoice?.paymentStatus || job?.paymentStatus) === "voided" ? "bg-amber-600" :
-                    (currentInvoice?.paymentStatus || job?.paymentStatus) === "refunded" ? "bg-purple-600" :
-                    "bg-gray-600"
-                  )}
-                 >
-                   {(currentInvoice?.paymentStatus || job?.paymentStatus)}
-                 </Badge>
-               </div>
+              <Badge
+                className={cn(
+                  "mt-2 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 w-fit",
+                  (currentInvoice?.paymentStatus || job?.paymentStatus) === "paid" ? "bg-emerald-600" :
+                  (currentInvoice?.paymentStatus || job?.paymentStatus) === "voided" ? "bg-amber-600" :
+                  (currentInvoice?.paymentStatus || job?.paymentStatus) === "refunded" ? "bg-purple-600" :
+                  "bg-gray-600"
+                )}
+              >
+                {(currentInvoice?.paymentStatus || job?.paymentStatus)}
+              </Badge>
             )}
           </div>
         </div>
+
+        {/* Secondary row — Active Protocols spans full width below the columns,
+            so it always renders cleanly under the left-side info regardless of
+            viewport width. Hidden when there is nothing to show. */}
+        {([...(job.serviceNames || []), ...(job.addOnNames || [])].length > 0) && (
+          <div className="mt-5 pt-4 border-t border-white/5 flex flex-col min-w-0">
+            <span className="text-[9px] text-primary font-black uppercase tracking-[0.2em] mb-1">Active Protocols</span>
+            <span
+              className="text-primary font-black text-sm truncate uppercase tracking-tight"
+              title={[...(job.serviceNames || []), ...(job.addOnNames || [])].join(", ")}
+            >
+              {[...(job.serviceNames || []), ...(job.addOnNames || [])].join(", ")}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Active Asset Selector: Clean ID-based Implementation moved to separate row */}
