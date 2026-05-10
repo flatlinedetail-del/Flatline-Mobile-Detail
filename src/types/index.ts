@@ -519,6 +519,12 @@ export interface PricingAnalysis {
   estimatedMarginDollars: number;
   estimatedMarginPercent: number;
   netAfterProductCost: number;
+  // Condition-detection fields (populated by conditionParser when notes contain special conditions)
+  detectedConditions?: string[];
+  pricingExplanation?: string;
+  manualReviewRecommended?: boolean;
+  suggestedServices?: string[];
+  conditionSurcharge?: number;
 }
 
 export interface AdminPricingBreakdown {

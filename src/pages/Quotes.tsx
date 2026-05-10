@@ -63,6 +63,7 @@ import { resolveModel } from "../services/aiModelMap";
 import { generateRecommendationExplanation } from "../lib/recommendationSystem";
 import { analyzeJobNotes, type NoteAnalysis } from "../lib/noteAnalysis";
 import { VinInput } from "../components/VinInput";
+import { parseJobConditions, type ConditionAnalysis } from "../lib/conditionParser";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { ChevronDown, X as XIcon } from "lucide-react";
 
@@ -140,6 +141,7 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const [pricingAnalysis, setPricingAnalysis] = useState<PricingAnalysis | null>(null);
   const [analysisSource, setAnalysisSource] = useState<"ai" | "benchmark" | "none">("none");
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [conditionAnalysis, setConditionAnalysis] = useState<ConditionAnalysis | null>(null);
   // Bundle suggestions returned by AI (non-billable; surfaced on the saved quote)
   const [aiBundleOpportunities, setAiBundleOpportunities] = useState<any[]>([]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
@@ -240,32 +242,14 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     };
   };
 
-  // Live deterministic note analysis. Detects job conditions from
-  // jobDescription (water damage, mold, seat removal, multi-year coating,
-  // etc.) and produces structured fields used by:
-  //   - the benchmark fallback below (so timeout still reflects complexity)
-  //   - the AI prompt in getQuotePricingFast (so Gemini cannot ignore it)
-  //   - the Market Analysis panel UI (so the user sees why price moved)
-  const noteAnalysis: NoteAnalysis = useMemo(
-    () => analyzeJobNotes(jobDescription),
-    [jobDescription]
-  );
-
   // Compute a deterministic benchmark PricingAnalysis when AI is unavailable.
-  // `notesAdjustment` (default 0) lets callers fold the local note-analysis
-  // dollar amount into the labor base BEFORE margin math so all three tiers
-  // and the margin %% reflect the extra work.
-  const computeBenchmarkPricing = (
-    svcs: any[],
-    addons: any[],
-    costs: any[],
-    cfg: any,
-    notesAdjustment: number = 0
-  ): PricingAnalysis => {
+  // ca (optional) adds detected-condition surcharges to the service base before applying margin.
+  const computeBenchmarkPricing = (svcs: any[], addons: any[], costs: any[], cfg: any, ca?: ConditionAnalysis): PricingAnalysis => {
     const svcTotal = svcs.reduce((s: number, svc: any) => s + (svc.basePrice || svc.price || 150), 0);
     const addonTotal = addons.reduce((s: number, a: any) => s + (a.price || 50) * (a.qty || 1), 0);
     const totalProductCost = costs.reduce((s: number, p: any) => s + (p.totalCost || 0), 0);
-    const base = svcTotal + addonTotal + notesAdjustment;
+    const conditionSurcharge = ca?.totalSurcharge ?? 0;
+    const base = svcTotal + addonTotal + conditionSurcharge;
     const floorPct = cfg?.marginTargets?.floor ?? 20;
     const recPct = cfg?.marginTargets?.recommended ?? 35;
     const premPct = cfg?.marginTargets?.premium ?? 50;
@@ -286,6 +270,13 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       estimatedMarginDollars,
       estimatedMarginPercent,
       netAfterProductCost,
+      ...(ca && ca.flags.length > 0 ? {
+        detectedConditions: ca.flags.map(f => f.label),
+        pricingExplanation: ca.pricingExplanation,
+        manualReviewRecommended: ca.manualReviewRecommended,
+        suggestedServices: ca.suggestedServices,
+        conditionSurcharge,
+      } : {}),
     };
   };
 
@@ -310,16 +301,12 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     const __t0 = (import.meta as any).env?.DEV ? performance.now() : 0;
     if ((import.meta as any).env?.DEV) console.log("[SmartQuote] click → start");
 
-    // Compute benchmark early — used as fallback regardless of AI outcome.
-    // Fold the deterministic note-analysis adjustment into base labor so the
-    // benchmark already reflects job complexity even if AI never returns.
-    const benchmarkPricing = computeBenchmarkPricing(
-      selectedServices,
-      selectedAddOns,
-      productCosts,
-      settings,
-      noteAnalysis.localPriceAdjustment
-    );
+    // Deterministic condition parse — runs before benchmark so surcharges are baked in immediately.
+    const ca = parseJobConditions(jobDescription, selectedServices.map((s: any) => s.name || ""));
+    setConditionAnalysis(ca);
+
+    // Compute benchmark early — used as fallback regardless of AI outcome
+    const benchmarkPricing = computeBenchmarkPricing(selectedServices, selectedAddOns, productCosts, settings, ca);
 
     // Show benchmark INSTANTLY so the user has usable prices while AI runs.
     // Only set if user hasn't manually overridden (manual must always win).
@@ -382,9 +369,16 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
       const structuredPayload = {
         services: selectedServices.map(s => s.name),
         addOns: selectedAddOns.map(a => a.name),
-        totalPrice: svcTotal + addonTotal,
+        // Condition surcharge included in totalPrice so AI prices from the adjusted base
+        totalPrice: svcTotal + addonTotal + ca.totalSurcharge,
         vehicle: manualVehicles[0],
         customerType: quoteType,
+        ...(ca.totalSurcharge > 0 ? {
+          conditionFlags: ca.flags.map(f => f.label),
+          conditionSurcharge: ca.totalSurcharge,
+          requiredOperations: ca.requiredOperations,
+          manualReviewRecommended: ca.manualReviewRecommended,
+        } : {}),
       };
 
       // Snapshot the request hash so a late response from a stale request
@@ -426,7 +420,18 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
         if (response.pricingAnalysis) {
           // Manual override always wins — only replace pricing state if user hasn't customized.
           if (!isPriceCustomized) {
-            setPricingAnalysis(normalizePricingTiers(response.pricingAnalysis));
+            // Attach condition metadata so the Market Analysis panel can display flags
+            const pa: PricingAnalysis = {
+              ...response.pricingAnalysis,
+              ...(ca.flags.length > 0 ? {
+                detectedConditions: ca.flags.map(f => f.label),
+                pricingExplanation: ca.pricingExplanation,
+                manualReviewRecommended: ca.manualReviewRecommended,
+                suggestedServices: ca.suggestedServices,
+                conditionSurcharge: ca.totalSurcharge,
+              } : {}),
+            };
+            setPricingAnalysis(normalizePricingTiers(pa));
             setAnalysisSource("ai");
             toast.success("AI Pricing Protection Active!");
           }
@@ -1026,13 +1031,16 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     // Collect condition flags that fired
     const conditionAdjMap: Record<string, number> = {};
     const desc = jobDescription.toLowerCase();
-    if (desc.includes("mold") || desc.includes("mildew"))        conditionAdjMap.mold_mildew = 0.45;
-    if (desc.includes("smoke") || desc.includes("nicotine"))     conditionAdjMap.smoke_nicotine = 0.35;
-    if (desc.includes("biohazard") || desc.includes("vomit"))    conditionAdjMap.biohazard = 0.6;
-    if (desc.includes("pet hair") || desc.includes("dog hair"))  conditionAdjMap.pet_hair = 0.2;
-    if (desc.includes("stain") || desc.includes("spill"))        conditionAdjMap.stains = 0.15;
-    if (desc.includes("heavy") || desc.includes("extreme"))      conditionAdjMap.heavy_soiling = 0.25;
-    if (desc.includes("scratch") || desc.includes("swirl"))      conditionAdjMap.paint_correction = 0.3;
+    if (desc.includes("mold") || desc.includes("mildew"))                        conditionAdjMap.mold_mildew = 0.45;
+    if (desc.includes("smoke") || desc.includes("nicotine"))                     conditionAdjMap.smoke_nicotine = 0.35;
+    if (desc.includes("biohazard") || desc.includes("vomit"))                    conditionAdjMap.biohazard = 0.6;
+    if (desc.includes("pet hair") || desc.includes("dog hair"))                  conditionAdjMap.pet_hair = 0.2;
+    if (desc.includes("stain") || desc.includes("spill"))                        conditionAdjMap.stains = 0.15;
+    if (desc.includes("heavy") || desc.includes("extreme"))                      conditionAdjMap.heavy_soiling = 0.25;
+    if (desc.includes("scratch") || desc.includes("swirl"))                      conditionAdjMap.paint_correction = 0.3;
+    if (desc.includes("water damage") || desc.includes("flooded"))               conditionAdjMap.water_damage = 0.3;
+    if (desc.includes("seat removal") || desc.includes("seats need to be removed")) conditionAdjMap.seat_removal = 0.2;
+    if (desc.includes("decon") || desc.includes("fallout") || desc.includes("clay bar")) conditionAdjMap.paint_decon = 0.1;
 
     const avgVehicleSizeMult = manualVehicles.reduce((s, v) => {
       const m: Record<string, number> = { small: 0.85, medium: 1.0, large: 1.25, extra_large: 1.6 };
@@ -1765,6 +1773,40 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
                       {analysisSource === "ai" ? "AI-Powered Market Estimate" : "Market Benchmark Estimate"}
                     </span>
                   </div>
+
+                  {conditionAnalysis && conditionAnalysis.flags.length > 0 && (
+                    <div className="space-y-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                      <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest">Detected Conditions</p>
+                      <div className="flex flex-wrap gap-1">
+                        {conditionAnalysis.flags.map(f => (
+                          <Badge key={f.key} className={cn(
+                            "text-[8px] font-black border-none",
+                            f.riskLevel === "critical" ? "bg-red-500/20 text-red-400" :
+                            f.riskLevel === "high" ? "bg-orange-500/20 text-orange-400" :
+                            "bg-amber-500/20 text-amber-400"
+                          )}>
+                            {f.label} +${f.laborSurcharge}
+                          </Badge>
+                        ))}
+                      </div>
+                      {conditionAnalysis.manualReviewRecommended && (
+                        <div className="flex items-center gap-1.5">
+                          <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />
+                          <p className="text-[9px] text-red-400 font-black uppercase tracking-widest">Manual review recommended before finalizing</p>
+                        </div>
+                      )}
+                      {conditionAnalysis.suggestedServices.length > 0 && (
+                        <div className="flex items-start gap-1.5">
+                          <Sparkles className="w-3 h-3 text-blue-400 shrink-0 mt-0.5" />
+                          <p className="text-[9px] text-blue-400 font-bold">Suggested: {conditionAnalysis.suggestedServices.join(", ")}</p>
+                        </div>
+                      )}
+                      <p className="text-[9px] text-amber-400/80 font-bold">
+                        Surcharge applied to base: +{formatCurrency(conditionAnalysis.totalSurcharge)}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"

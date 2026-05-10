@@ -565,6 +565,11 @@ export interface PricingAnalysis {
   estimatedMarginDollars: number;
   estimatedMarginPercent: number;
   netAfterProductCost: number;
+  detectedConditions?: string[];
+  pricingExplanation?: string;
+  manualReviewRecommended?: boolean;
+  suggestedServices?: string[];
+  conditionSurcharge?: number;
 }
 
 export interface RevenueOptimizationResponse {
@@ -802,6 +807,10 @@ export async function getQuotePricingFast(
     vehicle: { year?: string; make?: string; model?: string; size?: string };
     customerType: string;
     travelFee?: number;
+    conditionFlags?: string[];
+    conditionSurcharge?: number;
+    requiredOperations?: string[];
+    manualReviewRecommended?: boolean;
   },
   productCosts: any[] = [],
   settings: any = {},
@@ -821,13 +830,13 @@ export async function getQuotePricingFast(
     }
     const tSend = (import.meta as any).env?.DEV ? performance.now() : 0;
 
-    // Structured note-analysis hint — tells Gemini exactly which job
-    // conditions were detected locally so it cannot underprice by ignoring
-    // them. Only included when the analyzer found something.
-    const conditions = noteAnalysis?.detectedConditions ?? [];
-    const noteHint = conditions.length > 0
-      ? `\n\nDETECTED JOB CONDITIONS (from local note analysis — do NOT price as a simple base service):\n${conditions.map(c => `- ${c}`).join("\n")}\nEstimated extra labor: ${noteAnalysis?.estimatedExtraLaborHours ?? 0} hrs.\nLocal benchmark already includes a $${noteAnalysis?.localPriceAdjustment ?? 0} adjustment for these conditions; your tiers MUST be at least this high.${noteAnalysis?.manualReviewRecommended ? "\n⚠ Multiple severe conditions present — recommend pricing toward the premium tier." : ""}`
-      : "";
+    const conditionBlock =
+      jobData.conditionFlags && jobData.conditionFlags.length > 0
+        ? `\nDetected special conditions: ${jobData.conditionFlags.join(", ")}
+Condition surcharge already included in totalPrice: $${jobData.conditionSurcharge ?? 0}
+Required operations: ${(jobData.requiredOperations ?? []).join("; ")}
+${jobData.manualReviewRecommended ? "⚠ CRITICAL: One or more conditions require manual review — ensure pricing is not underquoted." : ""}`
+        : "";
 
     const response = await ai.models.generateContent({
       model: _modelId,
@@ -836,14 +845,15 @@ export async function getQuotePricingFast(
         parts: [{ text: `Profit-protected pricing for a mobile detailing job.
 
 Assessed condition: "${assessment}"
-Job specs: ${JSON.stringify(jobData)}
+Job specs: ${JSON.stringify({ services: jobData.services, addOns: jobData.addOns, totalPrice: jobData.totalPrice, vehicle: jobData.vehicle, customerType: jobData.customerType, travelFee: jobData.travelFee })}
 Total product cost: $${totalProductCost}
 Travel fee: $${travelFee}
-Margin targets: floor ${marginTargets.floor}%, recommended ${marginTargets.recommended}%, premium ${marginTargets.premium}%${noteHint}
+Margin targets: floor ${marginTargets.floor}%, recommended ${marginTargets.recommended}%, premium ${marginTargets.premium}%${conditionBlock}
 
 Compute three pricing tiers (floor, recommended, premium) for the ENTIRE job using:
   Price = (Labor + Overhead + Travel + Product Cost) / (1 - Target Margin %)
 Assume Labor + Overhead is roughly 45% of the current service base price if not specified.
+The totalPrice already includes condition surcharges — price from that base, do not double-count.
 Return ONLY the JSON matching the schema. No prose.` }]
       }],
       config: {
