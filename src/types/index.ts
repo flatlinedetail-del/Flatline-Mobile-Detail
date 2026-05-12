@@ -477,6 +477,17 @@ export interface Appointment extends SyncMetadata {
     canceledSent?: boolean;
     noShowFeeSent?: boolean;
   };
+  // ── FormsStudio Smart Protection assessment (Phase 1, Slice 1) ───────────
+  // Persisted assessment of this appointment's form-protection state so the
+  // recommendation surface can show consistent state across renders and
+  // respect owner "skip for now" dismissals. All optional and additive.
+  formProtectionStatus?: {
+    level: "low" | "medium" | "high";
+    recommendedTemplateIds: string[];
+    dismissedAt?: Timestamp;
+    dismissedByUid?: string;
+    lastAssessedAt: Timestamp;
+  };
 }
 
 /** Catalog entry stored in Firestore `productCatalog` collection */

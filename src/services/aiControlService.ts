@@ -30,6 +30,11 @@ import type { ModelTier } from "./aiModelMap";
 export type AIMode = "off" | "manual_only" | "smart_scheduled";
 export type TriggerType = "manual" | "scheduled";
 
+// TODO: there is a second AISettings declared in src/types/aiSettings.ts.
+// The two shapes diverged before this slice (different field sets, different
+// timestamp types). Consolidating into a single shared type would touch
+// multiple consumers; deferred. For now the FormsStudio fields below are
+// duplicated to keep both type declarations in sync.
 export interface AISettings {
   aiEnabled: boolean;
   aiMode: AIMode;
@@ -48,6 +53,17 @@ export interface AISettings {
   lastDailyAdvisorRunAt?: Timestamp | null;
   lastWeeklyReportRunAt?: Timestamp | null;
   lastAILeadEngineRunAt?: Timestamp | null;
+
+  // ── FormsStudio Smart Protection automation (Phase 1, Slice 1) ─────────
+  // All optional and additive. Launch default for formsAutomationMode is
+  // "suggestions_only" when unset (see services/formsAutomationGate.ts).
+  enableAIDocumentGeneration?: boolean;
+  enableFormRecommendations?: boolean;
+  enableOnlineBookingAutoAttach?: boolean;
+  formsAutomationMode?: "off" | "suggestions_only" | "owner_review_required" | "online_booking_auto_attach";
+  formsAITermsAcceptedVersion?: string;
+  formsAITermsAcceptedAt?: Timestamp | null;
+  formsAITermsAcceptedByUid?: string;
 }
 
 export const DEFAULT_AI_SETTINGS: AISettings = {

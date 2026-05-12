@@ -42,6 +42,20 @@ export interface AISettings {
   lastWeeklyReportRunAt?: string;
   lastAILeadEngineRunAt?: string;
   lastRevenueIntelligenceRunAt?: string;
+
+  // ── FormsStudio Smart Protection automation (Phase 1, Slice 1) ─────────
+  // All optional and additive. Launch default for formsAutomationMode is
+  // "suggestions_only" when unset (see services/formsAutomationGate.ts).
+  enableAIDocumentGeneration?: boolean;
+  enableFormRecommendations?: boolean;
+  enableOnlineBookingAutoAttach?: boolean;
+  formsAutomationMode?: "off" | "suggestions_only" | "owner_review_required" | "online_booking_auto_attach";
+  formsAITermsAcceptedVersion?: string;
+  // Timestamps stored loosely here to match this file's runtime-tolerant
+  // style for existing run-timestamp fields. The service-side AISettings
+  // uses Firestore Timestamp directly.
+  formsAITermsAcceptedAt?: any;
+  formsAITermsAcceptedByUid?: string;
 }
 
 export interface AIRunGuardResult {
