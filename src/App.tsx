@@ -25,7 +25,10 @@ const Reports = lazy(() => import("./pages/Reports"));
 const Help = lazy(() => import("./pages/Help"));
 const Expenses = lazy(() => import("./pages/Expenses"));
 const Marketing = lazy(() => import("./pages/Marketing"));
-const FormsBuilder = lazy(() => import("./pages/FormsBuilder"));
+// FormsBuilder (basic builder) was retired in favor of the premium
+// Forms & Waivers Studio. Lazy import kept here for symmetry with the
+// other admin pages; the active mount point is Settings → Forms tab.
+const FormsStudio = lazy(() => import("./pages/FormsStudio"));
 const CustomerSigning = lazy(() => import("./pages/CustomerSigning"));
 const BookAppointment = lazy(() => import("./pages/BookAppointment"));
 const AILeadEngine = lazy(() => import("./pages/AILeadEngine"));
