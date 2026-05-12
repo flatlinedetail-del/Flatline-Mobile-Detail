@@ -99,9 +99,10 @@ export function AIDraftModal({ onClose, onApply }: Props) {
   const [serviceType, setServiceType] = useState("");
   const [tone, setTone] = useState<Tone>("balanced");
   const [riskLevel, setRiskLevel] = useState<WaiverRiskLevel>("medium");
-  const [selectedProtections, setSelectedProtections] = useState<string[]>([
-    "preExistingDamage", "paymentTerms", "photoAuth",
-  ]);
+  // No pre-checked protections — the engine seeds type-specific clauses by
+  // default. Owners explicitly tick the optional-protections panel only when
+  // they want to add cross-cutting clauses to the type-specific baseline.
+  const [selectedProtections, setSelectedProtections] = useState<string[]>([]);
   const [customProtections, setCustomProtections] = useState<CustomProtection[]>([]);
   const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(false);
   const [showAdvancedProtections, setShowAdvancedProtections] = useState(false);

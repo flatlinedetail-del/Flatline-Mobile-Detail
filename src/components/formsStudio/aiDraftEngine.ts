@@ -342,12 +342,54 @@ const STANDARD_CLAUSES: Record<string, StandardClause> = {
     text:
       "Payment is due upon completion of services unless other written terms have been agreed. Accepted payment methods are as listed at booking.",
   },
+  paymentDue: {
+    id: "payment_due",
+    title: "Payment Due",
+    category: "policy",
+    text:
+      "Payment is due upon completion of services unless other written terms have been agreed in advance. The customer agrees to provide a valid payment method and to settle the balance no later than the time stated on the invoice.",
+  },
+  acceptedMethods: {
+    id: "accepted_methods",
+    title: "Accepted Payment Methods",
+    category: "policy",
+    text:
+      "Accepted payment methods are as listed at booking. The business may, at its discretion, decline any payment method that cannot be verified, and may require an alternative method before service is completed.",
+  },
+  deposits: {
+    id: "deposits_booking_fees",
+    title: "Deposits & Booking Fees",
+    category: "policy",
+    text:
+      "A deposit or booking fee may be required to reserve the appointment, as disclosed at booking. Deposits are applied toward the final invoice. If the appointment is cancelled or rescheduled outside the agreed window, the deposit may be forfeited as described in the cancellation policy.",
+  },
   lateFees: {
     id: "late_fees",
     title: "Late Fee Policy",
     category: "policy",
     text:
       "Past-due invoices accrue a late fee as defined in the business late-fee policy. Continued non-payment may result in collection action.",
+  },
+  additionalCharges: {
+    id: "additional_charges",
+    title: "Additional Charges & Change Orders",
+    category: "policy",
+    text:
+      "If conditions found at the time of service require work outside the agreed scope, the business will disclose the additional charge and obtain customer approval (verbal, written, or by signed change order) before performing the additional work.",
+  },
+  chargebacks: {
+    id: "chargebacks_disputes",
+    title: "Chargebacks & Payment Disputes",
+    category: "policy",
+    text:
+      "If the customer disputes a charge, the customer agrees to contact the business first to attempt resolution before initiating a chargeback. Improper chargebacks may incur a processing fee and the customer remains responsible for the original balance.",
+  },
+  collections: {
+    id: "collections_nonpayment",
+    title: "Collections & Nonpayment",
+    category: "policy",
+    text:
+      "Balances that remain unpaid after the late-fee window may be referred to a collection agency or pursued through legal remedies available to the business. The customer is responsible for reasonable collection costs.",
   },
   photoAuth: {
     id: "photo_release",
@@ -440,6 +482,49 @@ export function isInformationalType(type: string): boolean {
   return INFORMATIONAL_TYPES.has(type);
 }
 
+// Per–document-type clause seed. Keys reference STANDARD_CLAUSES. When a type
+// has an entry here, those clauses are used as the deterministic baseline so
+// the generated body contains meaningful terms specific to the chosen doc —
+// not the generic preExistingDamage/photoAuth defaults the modal used to seed.
+const TYPE_SPECIFIC_DEFAULT_CLAUSES: Record<string, string[]> = {
+  payment: [
+    "paymentDue",
+    "acceptedMethods",
+    "deposits",
+    "lateFees",
+    "additionalCharges",
+    "chargebacks",
+    "collections",
+  ],
+  cancellation:        ["cancellation"],
+  photo:               ["photoAuth"],
+  mobile:              ["mobileAccess"],
+  ceramic:             ["ceramicCoating", "preExistingDamage"],
+  paint:               ["paintCorrection", "preExistingDamage"],
+  interior:            ["interiorStain", "preExistingDamage"],
+  liability:           ["preExistingDamage", "paintCorrection", "interiorStain"],
+  service_agreement:   ["preExistingDamage", "paymentTerms"],
+  acknowledgment_form: ["preExistingDamage"],
+  general:             ["preExistingDamage"],
+};
+
+// Shell-shaped output that should never reach the customer-facing document body.
+// The preview shell already owns title/customer/date/signature/etc., so any
+// clause that just repeats the document title or is a generic intro/SERVICE-
+// metadata line gets filtered before assembly.
+export function isShellOnlyClause(
+  clause: { title: string; text?: string; category?: string },
+  documentTitle: string,
+): boolean {
+  const t = clause.title.trim().toLowerCase();
+  const docT = documentTitle.trim().toLowerCase();
+  if (t === docT) return true;
+  if (t === "introduction") return true;
+  // SERVICE: metadata line is shell metadata.
+  if ((clause.text ?? "").trim().match(/^SERVICE:\s/i)) return true;
+  return false;
+}
+
 // ─── ID helper (cross-runtime safe) ────────────────────────────────────────
 
 let _cid = 0;
@@ -496,23 +581,17 @@ export function buildProposedClauses(input: DraftInput): ProposedClause[] {
     requireBeforeTechBegins: ans.blockUntilSigned?.includes("job_start") ?? true,
   });
 
-  // 1) Intro / agreement framing
-  out.push({
-    id: makeClauseId(),
-    title: "Introduction",
-    text: TONE_INTRO[input.tone] + (input.serviceType.trim() ? `\n\nSERVICE: ${input.serviceType.trim()}` : ""),
-    category: "intro",
-    customerVisible: true,
-    requireAcceptance: false,
-    requireInitials: false,
-    requireSignature: false,
-    optionalConsent: false,
-    activation: defaults(),
-    source: "prompt",
-  });
+  // 1) Seed clauses: type-specific defaults first, then any owner-selected
+  // protections from the optional-protections checklist. The legacy generic
+  // Introduction / SERVICE-metadata clause has been removed — that content
+  // belongs in the preview shell (title) and the template's usage rules, not
+  // in the customer-facing document body.
+  const seedKeys = [
+    ...(TYPE_SPECIFIC_DEFAULT_CLAUSES[input.waiverType] ?? []),
+    ...input.selectedProtections,
+  ];
 
-  // 2) Standard clauses from checkboxes
-  for (const key of input.selectedProtections) {
+  for (const key of seedKeys) {
     const c = STANDARD_CLAUSES[key];
     if (!c || seen.has(c.id)) continue;
     seen.add(c.id);
@@ -700,9 +779,13 @@ export function buildDraftFromClauses(
   const blocks: WaiverBlock[] = [];
   let order = 0;
 
-  blocks.push({ id: makeClauseId(), type: "header", title: typeMeta.title, order: order++ });
+  // No header block — the preview shell already renders the title at the top.
+  // Emitting it again here would duplicate the heading. Strip any shell-shaped
+  // clauses (duplicate title, generic "Introduction", SERVICE: metadata line)
+  // so the body contains meaningful terms only.
+  const bodyClauses = clauses.filter(c => !isShellOnlyClause(c, typeMeta.title));
 
-  for (const c of clauses) {
+  for (const c of bodyClauses) {
     // Block representation — every clause becomes a block (incl. internal-only).
     const block: WaiverBlock = {
       id: c.id,
@@ -784,7 +867,7 @@ export function buildDraftFromClauses(
     blocks.push({ id: makeClauseId(), type: "signature", title: "Signature", required: true, order: order++ });
   }
 
-  const anyInitials = clauses.some(c => c.customerVisible && c.requireInitials);
+  const anyInitials = bodyClauses.some(c => c.customerVisible && c.requireInitials);
 
   return {
     title: typeMeta.title,
