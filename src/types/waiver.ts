@@ -78,6 +78,10 @@ export interface StudioFormTemplate {
   riskLevel?: WaiverRiskLevel;
   requiredByDefault?: boolean;
   blocks?: WaiverBlock[];
+  // "legal" = waiver / service agreement / acknowledgment (signature & initials default-on).
+  // "informational" = aftercare, brochure, prep, maintenance, warranty, follow-up email, etc.
+  // Optional — older records default to legal behaviour via fallback in onApply.
+  documentClass?: "legal" | "informational";
   linkedRiskFlags?: string[];
   linkedVehicleConditionFlags?: string[];
   appliesToOnlineBooking?: boolean;
@@ -178,12 +182,18 @@ export const WAIVER_BLOCK_LIBRARY: {
   { type: "photoUploadRequest", label: "Photo Upload", description: "Ask the customer to upload a photo", defaultTitle: "Upload a Photo" },
 ];
 
+// `label` is the plain-English protection level shown to detailers (badges,
+// editor summaries, gallery filters). Stored values (low/medium/high/critical)
+// are unchanged — this is display-only wording.
 export const RISK_LEVEL_META: Record<WaiverRiskLevel, { label: string; color: string; bg: string; ring: string }> = {
-  low:      { label: "Low Risk",     color: "text-emerald-300", bg: "bg-emerald-500/10", ring: "ring-emerald-500/30" },
-  medium:   { label: "Moderate",     color: "text-amber-300",   bg: "bg-amber-500/10",   ring: "ring-amber-500/30"   },
-  high:     { label: "High Risk",    color: "text-orange-300",  bg: "bg-orange-500/10",  ring: "ring-orange-500/30"  },
-  critical: { label: "Critical",     color: "text-red-300",     bg: "bg-red-500/10",     ring: "ring-red-500/30"     },
+  low:      { label: "Basic Protection",    color: "text-emerald-300", bg: "bg-emerald-500/10", ring: "ring-emerald-500/30" },
+  medium:   { label: "Standard Protection", color: "text-amber-300",   bg: "bg-amber-500/10",   ring: "ring-amber-500/30"   },
+  high:     { label: "Strong Protection",   color: "text-orange-300",  bg: "bg-orange-500/10",  ring: "ring-orange-500/30"  },
+  critical: { label: "Critical Protection", color: "text-red-300",     bg: "bg-red-500/10",     ring: "ring-red-500/30"     },
 };
+
+export const RISK_LEVEL_TOOLTIP =
+  "This shows the level of protection this form is designed to provide.";
 
 export const CATEGORY_META: Record<FormCategory, { label: string; emoji: string }> = {
   liability:                 { label: "Liability",              emoji: "🛡" },

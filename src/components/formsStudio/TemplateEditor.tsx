@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import {
-  WAIVER_BLOCK_LIBRARY, RISK_LEVEL_META, CATEGORY_META,
+  WAIVER_BLOCK_LIBRARY, RISK_LEVEL_META, RISK_LEVEL_TOOLTIP, CATEGORY_META,
 } from "../../types/waiver";
 import type { StudioFormTemplate, WaiverBlock, WaiverBlockType } from "../../types/waiver";
 import type { FormCategory } from "../../types/forms";
@@ -681,8 +681,8 @@ function SettingsPanel({
           </SelectContent>
         </Select>
 
-        <FieldLabel info="Low = informational. Moderate = standard service waivers. High = paint correction, ceramic, heavy interior work. Critical = the customer must clearly understand risk before signing.">
-          Risk Level
+        <FieldLabel info={RISK_LEVEL_TOOLTIP}>
+          Protection Level
         </FieldLabel>
         <div className="grid grid-cols-2 gap-2">
           {(Object.entries(RISK_LEVEL_META) as [any, any][]).map(([k, v]) => (

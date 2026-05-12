@@ -22,6 +22,7 @@ import {
   INTERVIEW_STEPS,
   buildProposedClauses,
   buildDraftFromClauses,
+  isInformationalType,
   type CustomProtection,
   type DraftOutput,
   type InterviewAnswers,
@@ -55,17 +56,38 @@ const TONE_OPTIONS = [
   { value: "strict",   label: "Strict" },
 ];
 
-const WAIVER_TYPES = [
-  { value: "general",      label: "General Authorization" },
-  { value: "liability",    label: "Liability Release" },
-  { value: "ceramic",      label: "Ceramic Coating Agreement" },
-  { value: "paint",        label: "Paint Correction Acknowledgment" },
-  { value: "interior",     label: "Interior Condition" },
-  { value: "cancellation", label: "Cancellation Policy" },
-  { value: "payment",      label: "Payment Terms" },
-  { value: "photo",        label: "Photo / Media Release" },
-  { value: "mobile",       label: "Mobile Access Permission" },
+type DocumentClass = "legal" | "informational";
+interface DocumentTypeOption {
+  value: string;
+  label: string;
+  documentClass: DocumentClass;
+}
+
+const DOCUMENT_TYPES: DocumentTypeOption[] = [
+  // Legal
+  { value: "liability",           label: "Waiver / Liability Form",       documentClass: "legal" },
+  { value: "service_agreement",   label: "Service Agreement",             documentClass: "legal" },
+  { value: "acknowledgment_form", label: "Acknowledgment Form",           documentClass: "legal" },
+  { value: "ceramic",             label: "Ceramic Coating Agreement",     documentClass: "legal" },
+  { value: "paint",               label: "Paint Correction Acknowledgment", documentClass: "legal" },
+  { value: "cancellation",        label: "Cancellation Policy",           documentClass: "legal" },
+  { value: "payment",             label: "Payment Terms",                 documentClass: "legal" },
+  { value: "photo",               label: "Photo / Media Release",         documentClass: "legal" },
+  { value: "mobile",              label: "Mobile Access Permission",      documentClass: "legal" },
+  { value: "general",             label: "General Authorization",         documentClass: "legal" },
+  // Informational
+  { value: "aftercare",           label: "Aftercare Instructions",        documentClass: "informational" },
+  { value: "prep_instructions",   label: "Customer Prep Instructions",    documentClass: "informational" },
+  { value: "brochure",            label: "Service Brochure",              documentClass: "informational" },
+  { value: "maintenance_guide",   label: "Maintenance Guide",             documentClass: "informational" },
+  { value: "warranty_care",       label: "Warranty / Care Guide",         documentClass: "informational" },
+  { value: "follow_up_email",     label: "Follow-up Email",               documentClass: "informational" },
+  { value: "custom_document",     label: "Custom Document",               documentClass: "informational" },
 ];
+
+function getDocumentClass(value: string): DocumentClass {
+  return DOCUMENT_TYPES.find(t => t.value === value)?.documentClass ?? "legal";
+}
 
 export function AIDraftModal({ onClose, onApply }: Props) {
   // ─── Wizard state ────────────────────────────────────────────────────
@@ -81,6 +103,11 @@ export function AIDraftModal({ onClose, onApply }: Props) {
     "preExistingDamage", "paymentTerms", "photoAuth",
   ]);
   const [customProtections, setCustomProtections] = useState<CustomProtection[]>([]);
+  const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(false);
+  const [showAdvancedProtections, setShowAdvancedProtections] = useState(false);
+
+  const documentClass = getDocumentClass(waiverType);
+  const isInformational = documentClass === "informational";
 
   // Interview state
   const [interviewIndex, setInterviewIndex] = useState(0);
@@ -93,6 +120,11 @@ export function AIDraftModal({ onClose, onApply }: Props) {
   const [proposedClauses, setProposedClauses] = useState<ProposedClause[]>([]);
 
   const [generating, setGenerating] = useState(false);
+
+  // Tracks whether the owner used the interview path, so the step indicator
+  // doesn't falsely highlight "Interview" when they went configure → review
+  // directly via "Generate Full Draft".
+  const [usedInterview, setUsedInterview] = useState(false);
 
   // ─── Configure helpers ──────────────────────────────────────────────
   const toggleProtection = (key: string) => {
@@ -111,6 +143,8 @@ export function AIDraftModal({ onClose, onApply }: Props) {
     prompt, waiverType, serviceType, tone, riskLevel,
     selectedProtections, customProtections,
     interviewAnswers, interviewCompleted: step === "review",
+    documentClass,
+    requiresAcknowledgment: isInformational ? requiresAcknowledgment : true,
   });
 
   const validateConfigure = (): boolean => {
@@ -123,12 +157,14 @@ export function AIDraftModal({ onClose, onApply }: Props) {
 
   const handleStartInterview = () => {
     if (!validateConfigure()) return;
+    setUsedInterview(true);
     setInterviewIndex(0);
     setStep("interview");
   };
 
   const handleGenerateNow = () => {
     if (!validateConfigure()) return;
+    setUsedInterview(false);
     setGenerating(true);
     setTimeout(() => {
       const clauses = buildProposedClauses(buildDraftInput());
@@ -209,7 +245,7 @@ export function AIDraftModal({ onClose, onApply }: Props) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl">
         <DialogHeader>
           <div className="flex items-center justify-between gap-3 w-full">
             <div className="flex items-center gap-3 min-w-0">
@@ -217,13 +253,13 @@ export function AIDraftModal({ onClose, onApply }: Props) {
                 <Wand2 className="w-5 h-5 text-purple-300" />
               </div>
               <div className="min-w-0">
-                <DialogTitle>Generate Waiver With AI</DialogTitle>
+                <DialogTitle>Generate Document with AI</DialogTitle>
                 <p className="text-[10px] uppercase tracking-widest font-black text-white/40 mt-1">
                   Drafting Assistant · Review Before Use
                 </p>
               </div>
             </div>
-            <StepIndicator step={step} />
+            <StepIndicator step={step} usedInterview={usedInterview} />
           </div>
         </DialogHeader>
 
@@ -238,6 +274,11 @@ export function AIDraftModal({ onClose, onApply }: Props) {
               selectedProtections={selectedProtections} toggleProtection={toggleProtection}
               customProtections={customProtections}
               addCustom={addCustom} updateCustom={updateCustom} removeCustom={removeCustom}
+              isInformational={isInformational}
+              requiresAcknowledgment={requiresAcknowledgment}
+              setRequiresAcknowledgment={setRequiresAcknowledgment}
+              showAdvancedProtections={showAdvancedProtections}
+              setShowAdvancedProtections={setShowAdvancedProtections}
             />
           )}
 
@@ -246,6 +287,7 @@ export function AIDraftModal({ onClose, onApply }: Props) {
               index={interviewIndex}
               answers={interviewAnswers}
               onUpdate={updateAnswer}
+              isInformational={isInformational}
             />
           )}
 
@@ -259,7 +301,7 @@ export function AIDraftModal({ onClose, onApply }: Props) {
             />
           )}
 
-          <LegalNotice />
+          <LegalNotice isInformational={isInformational && !requiresAcknowledgment} />
         </DialogBody>
 
         <DialogFooter>
@@ -269,21 +311,20 @@ export function AIDraftModal({ onClose, onApply }: Props) {
                 Cancel
               </Button>
               <Button
-                onClick={handleGenerateNow}
+                variant="ghost"
+                onClick={handleStartInterview}
                 disabled={generating}
-                variant="outline"
-                className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-black uppercase tracking-widest rounded-xl text-xs h-10"
+                className="text-white/50 hover:text-white text-xs font-medium normal-case tracking-normal underline-offset-4 hover:underline"
               >
-                <Sparkles className={cn("w-4 h-4 mr-2", generating && "animate-spin")} />
-                Generate Draft Now
+                Walk me through it instead
               </Button>
               <Button
-                onClick={handleStartInterview}
+                onClick={handleGenerateNow}
                 disabled={generating}
                 className="bg-purple-500 hover:bg-purple-500/90 text-white font-black uppercase tracking-widest rounded-xl shadow-glow-blue h-10"
               >
-                <MessageSquare className="w-4 h-4 mr-2" />
-                Start AI Questions
+                <Sparkles className={cn("w-4 h-4 mr-2", generating && "animate-spin")} />
+                Generate Full Draft
               </Button>
             </>
           )}
@@ -340,15 +381,16 @@ export function AIDraftModal({ onClose, onApply }: Props) {
 
 // ─── Step Indicator ────────────────────────────────────────────────────────
 
-function StepIndicator({ step }: { step: ModalStep }) {
+function StepIndicator({ step, usedInterview }: { step: ModalStep; usedInterview: boolean }) {
+  // Two-step layout when the owner took the direct "Generate Full Draft" path.
+  // Three-step layout (with Interview) when they used "Walk me through it instead".
+  const steps = usedInterview
+    ? [{ n: 1 }, { n: 2 }, { n: 3 }]
+    : [{ n: 1 }, { n: 3 }];
   const stepNum = step === "configure" ? 1 : step === "interview" ? 2 : 3;
   return (
     <div className="hidden sm:flex items-center gap-1 shrink-0 mr-2">
-      {[
-        { n: 1, label: "Setup" },
-        { n: 2, label: "Interview" },
-        { n: 3, label: "Review" },
-      ].map((s, i) => (
+      {steps.map((s, i) => (
         <div key={s.n} className="flex items-center gap-1">
           <div
             className={cn(
@@ -360,7 +402,9 @@ function StepIndicator({ step }: { step: ModalStep }) {
           >
             {s.n}
           </div>
-          {i < 2 && <div className={cn("w-3 h-px", stepNum > s.n ? "bg-purple-500/60" : "bg-white/10")} />}
+          {i < steps.length - 1 && (
+            <div className={cn("w-3 h-px", stepNum > s.n ? "bg-purple-500/60" : "bg-white/10")} />
+          )}
         </div>
       ))}
     </div>
@@ -369,13 +413,23 @@ function StepIndicator({ step }: { step: ModalStep }) {
 
 // ─── Legal Notice ──────────────────────────────────────────────────────────
 
-function LegalNotice() {
+function LegalNotice({ isInformational = false }: { isInformational?: boolean }) {
+  // Less prominent for informational document types (aftercare, brochure,
+  // follow-up email, etc.) — they're not legal instruments, so a single line
+  // suffices. Legal types still get the full amber alert.
+  if (isInformational) {
+    return (
+      <p className="text-[11px] text-white/40 px-1">
+        AI-generated drafts are starter documents. Review carefully before customer use.
+      </p>
+    );
+  }
   return (
     <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20">
       <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
       <p className="text-xs text-amber-200/70 leading-relaxed">
         <span className="font-black uppercase tracking-widest text-amber-300">Not Legal Advice.</span>
-        {" "}AI-generated waiver drafts are starter documents only and must be reviewed and adapted by a qualified attorney before customer use. Nothing is sent to customers until you activate the document.
+        {" "}AI-generated drafts are starter documents only and must be reviewed and adapted by a qualified attorney before customer use. Nothing is sent to customers until you activate the document.
       </p>
     </div>
   );
@@ -400,13 +454,18 @@ interface ConfigureProps {
   addCustom: () => void;
   updateCustom: (id: string, patch: Partial<CustomProtection>) => void;
   removeCustom: (id: string) => void;
+  isInformational: boolean;
+  requiresAcknowledgment: boolean;
+  setRequiresAcknowledgment: (v: boolean) => void;
+  showAdvancedProtections: boolean;
+  setShowAdvancedProtections: (v: boolean) => void;
 }
 
 function ConfigureStep(p: ConfigureProps) {
   return (
     <>
       <HelpHint>
-        Describe the waiver you need in plain English, pick the protections that apply, and choose whether you want an AI-guided interview or a quick draft. Nothing is sent to customers until you activate it.
+        Describe the document you need in plain English. The AI will generate a full draft — you'll review and edit it before anything is saved or sent to customers.
       </HelpHint>
 
       {/* ── MAIN PROMPT ─────────────────────────────────────────────── */}
@@ -416,10 +475,10 @@ function ConfigureStep(p: ConfigureProps) {
             <MessageSquare className="w-3.5 h-3.5 text-purple-200" />
           </div>
           <Label className="text-xs font-black uppercase tracking-widest text-purple-200">
-            Tell AI what kind of waiver you need
+            Tell AI what document you need
           </Label>
           <InfoTip title="Plain-English prompt" size={12}>
-            Describe the document you want in your own words — what it covers, who it applies to, the risks and clauses you want included. The AI uses this as the starting point for both the interview questions and the proposed clause list.
+            Describe the document in your own words — what it covers, who it applies to, what you want it to say. Works for waivers, agreements, aftercare instructions, brochures, follow-up emails, and more.
           </InfoTip>
         </div>
 
@@ -427,23 +486,29 @@ function ConfigureStep(p: ConfigureProps) {
           value={p.prompt}
           onChange={e => p.setPrompt(e.target.value)}
           rows={5}
-          placeholder="Describe the waiver or agreement you want to create. Example: I need a liability waiver for mobile ceramic coating jobs that protects us from pre-existing paint damage, explains coating cure time, requires the customer to maintain the coating properly, includes payment terms, and requires initials beside the high-risk clauses."
+          placeholder="Example: Create an aftercare guide for ceramic coating clients that explains cure time, washing instructions, what to avoid for the first 7 days, maintenance tips, and warranty conditions. Make it professional and easy to understand."
           className="bg-white/5 border-white/10 text-white rounded-2xl text-sm leading-relaxed resize-y min-h-[120px]"
         />
       </div>
 
       {/* ── CONFIGURATION ───────────────────────────────────────────── */}
       <div>
-        <SectionLabel>Configuration</SectionLabel>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">Waiver Type</Label>
+            <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">Document Type</Label>
             <Select value={p.waiverType} onValueChange={p.setWaiverType}>
               <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl mt-1">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {WAIVER_TYPES.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                <div className="px-2 py-1 text-[9px] font-black uppercase tracking-widest text-white/40">Legal documents</div>
+                {DOCUMENT_TYPES.filter(t => t.documentClass === "legal").map(o => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+                <div className="px-2 py-1 mt-1 text-[9px] font-black uppercase tracking-widest text-white/40">Customer documents</div>
+                {DOCUMENT_TYPES.filter(t => t.documentClass === "informational").map(o => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -472,22 +537,58 @@ function ConfigureStep(p: ConfigureProps) {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">Risk Level</Label>
-            <Select value={p.riskLevel} onValueChange={(v: any) => p.setRiskLevel(v)}>
-              <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="low">Low Risk</SelectItem>
-                <SelectItem value="medium">Moderate</SelectItem>
-                <SelectItem value="high">High Risk</SelectItem>
-                <SelectItem value="critical">Critical</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
       </div>
+
+      {/* ── INFORMATIONAL-DOC ACKNOWLEDGMENT TOGGLE ─────────────────── */}
+      {p.isInformational && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-black text-white">Requires customer acknowledgment</p>
+            <p className="text-xs text-white/50 mt-1">
+              Turn this on if the customer needs to check a box, sign, or initial this document. Off by default for aftercare guides, brochures, and emails.
+            </p>
+          </div>
+          <Switch
+            checked={p.requiresAcknowledgment}
+            onCheckedChange={p.setRequiresAcknowledgment}
+          />
+        </div>
+      )}
+
+      {/* ── ADVANCED PROTECTIONS (collapsed) ────────────────────────── */}
+      {(!p.isInformational || p.requiresAcknowledgment) && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+          <button
+            type="button"
+            onClick={() => p.setShowAdvancedProtections(!p.showAdvancedProtections)}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+          >
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-white/70">Optional protections (advanced)</p>
+              <p className="text-[10px] text-white/40 mt-0.5">
+                Protection level, risk-protection checklist, and custom clauses. Defaults work for most documents.
+              </p>
+            </div>
+            {p.showAdvancedProtections ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}
+          </button>
+
+          {p.showAdvancedProtections && (
+            <div className="border-t border-white/5 p-4 space-y-5">
+              <div>
+                <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">Protection Level</Label>
+                <Select value={p.riskLevel} onValueChange={(v: any) => p.setRiskLevel(v)}>
+                  <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl mt-1 sm:max-w-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Basic Protection</SelectItem>
+                    <SelectItem value="medium">Standard Protection</SelectItem>
+                    <SelectItem value="high">Strong Protection</SelectItem>
+                    <SelectItem value="critical">Critical Protection</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
       {/* ── RISK PROTECTIONS ────────────────────────────────────────── */}
       <div>
@@ -596,6 +697,10 @@ function ConfigureStep(p: ConfigureProps) {
           </div>
         )}
       </div>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -606,9 +711,10 @@ interface InterviewProps {
   index: number;
   answers: InterviewAnswers;
   onUpdate: <K extends keyof InterviewAnswers>(key: K, value: InterviewAnswers[K]) => void;
+  isInformational?: boolean;
 }
 
-function InterviewStepView({ index, answers, onUpdate }: InterviewProps) {
+function InterviewStepView({ index, answers, onUpdate, isInformational }: InterviewProps) {
   const step = INTERVIEW_STEPS[index];
   return (
     <div className="space-y-5">
@@ -617,11 +723,20 @@ function InterviewStepView({ index, answers, onUpdate }: InterviewProps) {
           <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-200 text-[10px] font-black">
             {index + 1}/{INTERVIEW_STEPS.length}
           </div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-purple-200">AI Waiver Interview</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-purple-200">
+            {isInformational ? "AI Document Interview" : "AI Waiver Interview"}
+          </p>
         </div>
         <h3 className="text-xl font-black text-white tracking-tight">{step.title}</h3>
         {step.intro && <p className="text-xs text-white/60 mt-1">{step.intro}</p>}
       </div>
+
+      {isInformational && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs text-white/55">
+          These questions are tuned for waivers and agreements. Most fields are optional for aftercare guides,
+          brochures, and customer emails — answer only what's relevant and skip the rest.
+        </div>
+      )}
 
       {step.questions.map(q => (
         <Question key={q.id as string} q={q} answers={answers} onUpdate={onUpdate} />

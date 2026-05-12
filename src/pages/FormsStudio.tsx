@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, deleteDoc } from "firebase/firestore";
+import { collection, query, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, deleteDoc, setDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, Plus, Sparkles, Eye, Workflow, FileSignature, LayoutDashboard, FileText, ArrowLeft } from "lucide-react";
+import { Loader2, ShieldCheck, Plus, Sparkles, Eye, Workflow, FileSignature, LayoutDashboard, FileText, ArrowLeft, Wand2 } from "lucide-react";
 import type { StudioFormTemplate, WaiverRule } from "../types/waiver";
+import type { FormsSetupAnswers } from "../types";
 import { loadWaiverRules } from "../services/waiverRulesService";
 import { StudioDashboard } from "../components/formsStudio/StudioDashboard";
 import { TemplateGallery } from "../components/formsStudio/TemplateGallery";
@@ -15,6 +16,7 @@ import { SignedDocumentsPanel } from "../components/formsStudio/SignedDocumentsP
 import { AIDraftModal } from "../components/formsStudio/AIDraftModal";
 import { CustomerPreviewModal } from "../components/formsStudio/CustomerPreviewModal";
 import { BuilderDirections } from "../components/formsStudio/HelpUI";
+import FormsSetupWizard from "../components/FormsSetupWizard";
 import { cn } from "../lib/utils";
 
 type StudioView = "dashboard" | "templates" | "editor" | "rules" | "signed";
@@ -36,6 +38,10 @@ export default function FormsStudio({ embedded = false }: Props) {
   const [editingTemplate, setEditingTemplate] = useState<StudioFormTemplate | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<StudioFormTemplate | null>(null);
   const [showAIDraft, setShowAIDraft] = useState(false);
+
+  const [formsSetupCompleted, setFormsSetupCompleted] = useState<boolean | null>(null);
+  const [formsSetupAnswers, setFormsSetupAnswers] = useState<FormsSetupAnswers | undefined>(undefined);
+  const [forceShowWizard, setForceShowWizard] = useState(false);
 
   // Live data subscriptions
   useEffect(() => {
@@ -75,6 +81,52 @@ export default function FormsStudio({ embedded = false }: Props) {
 
     return () => { subs.forEach(s => s()); };
   }, [authLoading, profile, canAccessManager]);
+
+  // Setup-wizard gate — keyed on profile?.uid (stable primitive) to avoid the
+  // re-subscribe loop that previously bit FormsBuilder when depending on the
+  // whole profile object.
+  useEffect(() => {
+    if (authLoading || !profile || !canAccessManager) return;
+    const unsub = onSnapshot(
+      doc(db, "settings", "business"),
+      (snap) => {
+        const data = snap.data() as { formsSetupCompleted?: boolean; formsSetupAnswers?: FormsSetupAnswers } | undefined;
+        setFormsSetupCompleted(data?.formsSetupCompleted === true);
+        setFormsSetupAnswers(data?.formsSetupAnswers);
+      },
+      (err) => {
+        console.warn("[FormsStudio] settings/business", err);
+        setFormsSetupCompleted(false);
+      },
+    );
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.uid, authLoading, canAccessManager]);
+
+  const isSetupComplete = useMemo(() => {
+    if (formsSetupCompleted === null) return null;
+    if (formsSetupCompleted === true) return true;
+    if (templates.length > 0) return true;
+    return false;
+  }, [formsSetupCompleted, templates.length]);
+
+  const shouldShowWizard = forceShowWizard || isSetupComplete === false;
+  const shouldShowMainUI = isSetupComplete !== null && !shouldShowWizard;
+
+  const handleSkipSetup = useCallback(async () => {
+    try {
+      await setDoc(
+        doc(db, "settings", "business"),
+        { formsSetupCompleted: true },
+        { merge: true },
+      );
+      sessionStorage.removeItem("business_settings_cache");
+      sessionStorage.removeItem("business_settings_cache_time");
+    } catch (e) {
+      console.error("[FormsStudio] skip setup failed", e);
+    }
+    setForceShowWizard(false);
+  }, []);
 
   const refreshRules = useCallback(async () => {
     try {
@@ -196,7 +248,7 @@ export default function FormsStudio({ embedded = false }: Props) {
     );
   }
 
-  if (loading) {
+  if (loading || isSetupComplete === null) {
     return (
       <div className="flex items-center justify-center py-32">
         <Loader2 className="w-6 h-6 text-primary animate-spin" />
@@ -224,8 +276,16 @@ export default function FormsStudio({ embedded = false }: Props) {
             </div>
           </div>
 
-          {view !== "editor" && (
+          {view !== "editor" && shouldShowMainUI && (
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setForceShowWizard(true)}
+                className="text-white/60 hover:text-white font-black uppercase tracking-widest rounded-xl text-xs h-10"
+              >
+                <Wand2 className="w-4 h-4 mr-2" />
+                Setup
+              </Button>
               <Button
                 onClick={() => setShowAIDraft(true)}
                 className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 font-black uppercase tracking-widest rounded-xl text-xs h-10"
@@ -256,7 +316,7 @@ export default function FormsStudio({ embedded = false }: Props) {
         </div>
 
         {/* Sub-navigation */}
-        {view !== "editor" && (
+        {view !== "editor" && shouldShowMainUI && (
           <div className="relative mt-6 flex items-center gap-1 overflow-x-auto custom-scrollbar -mx-1 px-1">
             {[
               { key: "dashboard", label: "Overview", icon: LayoutDashboard },
@@ -282,13 +342,22 @@ export default function FormsStudio({ embedded = false }: Props) {
         )}
       </div>
 
+      {/* ─── Setup Wizard ────────────────────────────────────────────────── */}
+      {shouldShowWizard && isSetupComplete !== null && (
+        <FormsSetupWizard
+          initialAnswers={formsSetupAnswers}
+          onComplete={() => setForceShowWizard(false)}
+          onSkip={handleSkipSetup}
+        />
+      )}
+
       {/* ─── Body ─────────────────────────────────────────────────────── */}
       {/* Studio-level quick guide — shown on dashboard + templates views, dismissible. */}
-      {(view === "dashboard" || view === "templates") && (
+      {shouldShowMainUI && (view === "dashboard" || view === "templates") && (
         <BuilderDirections variant="studio" storageKey="formsStudio.studioDirections" />
       )}
 
-      {view === "dashboard" && (
+      {shouldShowMainUI && view === "dashboard" && (
         <StudioDashboard
           templates={templates}
           rules={rules}
@@ -306,7 +375,7 @@ export default function FormsStudio({ embedded = false }: Props) {
         />
       )}
 
-      {view === "templates" && (
+      {shouldShowMainUI && view === "templates" && (
         <TemplateGallery
           templates={templates}
           services={services}
@@ -322,7 +391,7 @@ export default function FormsStudio({ embedded = false }: Props) {
         />
       )}
 
-      {view === "editor" && editingTemplate && (
+      {shouldShowMainUI && view === "editor" && editingTemplate && (
         <TemplateEditor
           template={editingTemplate}
           services={services}
@@ -334,7 +403,7 @@ export default function FormsStudio({ embedded = false }: Props) {
         />
       )}
 
-      {view === "rules" && (
+      {shouldShowMainUI && view === "rules" && (
         <SmartRulesPanel
           rules={rules}
           templates={templates}
@@ -344,7 +413,7 @@ export default function FormsStudio({ embedded = false }: Props) {
         />
       )}
 
-      {view === "signed" && (
+      {shouldShowMainUI && view === "signed" && (
         <SignedDocumentsPanel
           signedForms={signedForms}
           templates={templates}
@@ -363,16 +432,20 @@ export default function FormsStudio({ embedded = false }: Props) {
         <AIDraftModal
           onClose={() => setShowAIDraft(false)}
           onApply={(draft) => {
+            // Informational documents (aftercare / brochure / follow-up email / etc.)
+            // default to no signature / initials / printed-name unless the owner
+            // explicitly toggled "Requires customer acknowledgment" in the modal.
+            const isInfoNoAck = draft.documentClass === "informational" && !draft.requiresAcknowledgment;
             setEditingTemplate({
               id: "__new__",
               title: draft.title,
               category: draft.category,
               content: draft.content,
               acknowledgments: draft.acknowledgments ?? [],
-              requiresSignature: true,
-              requiresPrintedName: true,
-              requiresDate: true,
-              requiresInitials: draft.requiresInitials ?? false,
+              requiresSignature: !isInfoNoAck,
+              requiresPrintedName: !isInfoNoAck,
+              requiresDate: !isInfoNoAck,
+              requiresInitials: !isInfoNoAck && (draft.requiresInitials ?? false),
               requiresPhoto: false,
               isActive: false,
               version: 1,
@@ -384,10 +457,11 @@ export default function FormsStudio({ embedded = false }: Props) {
               signatureFrequency: "every_job",
               status: "draft",
               riskLevel: draft.riskLevel ?? "medium",
-              requiredByDefault: true,
+              requiredByDefault: !isInfoNoAck,
               blocks: draft.blocks ?? [],
               customerTitle: draft.customerTitle,
               internalDescription: draft.internalDescription,
+              documentClass: draft.documentClass,
             });
             setShowAIDraft(false);
             setView("editor");

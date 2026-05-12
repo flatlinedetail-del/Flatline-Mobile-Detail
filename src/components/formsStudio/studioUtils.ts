@@ -48,7 +48,7 @@ export function normalizeCategory(value: string | undefined | null): FormCategor
 
 const FALLBACK_CATEGORY_META = { label: "General", emoji: "📄" } as const;
 const FALLBACK_RISK_META = {
-  label: "Low Risk",
+  label: "Basic Protection",
   color: "text-emerald-300",
   bg: "bg-emerald-500/10",
   ring: "ring-emerald-500/30",

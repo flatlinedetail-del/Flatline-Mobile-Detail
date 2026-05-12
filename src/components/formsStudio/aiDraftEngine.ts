@@ -98,6 +98,17 @@ export interface DraftInput {
   interviewAnswers: InterviewAnswers;
   /** Whether the owner went through the guided interview. */
   interviewCompleted: boolean;
+  /**
+   * "legal" = waiver / service agreement / acknowledgment.
+   * "informational" = aftercare, brochure, prep, maintenance, warranty, follow-up email.
+   * Defaults to "legal" when omitted (back-compat).
+   */
+  documentClass?: "legal" | "informational";
+  /**
+   * For informational documents only — when true, the document still requires
+   * customer acknowledgment / signature blocks. Ignored for legal types.
+   */
+  requiresAcknowledgment?: boolean;
 }
 
 export interface DraftOutput {
@@ -110,6 +121,9 @@ export interface DraftOutput {
   acknowledgments: string[];
   requiresInitials: boolean;
   blocks: WaiverBlock[];
+  documentClass?: "legal" | "informational";
+  /** Echoed back so the persistence layer can decide signature/initials defaults. */
+  requiresAcknowledgment?: boolean;
 }
 
 // ─── Question schema for the guided AI Interview ───────────────────────────
@@ -156,15 +170,15 @@ export const INTERVIEW_STEPS: InterviewStep[] = [
   {
     id: "scope",
     title: "Scope",
-    intro: "Where should this waiver apply?",
+    intro: "Where should this document apply?",
     questions: [
       {
         kind: "radio",
         id: "scopeChoice",
-        label: "Which jobs should this waiver apply to?",
+        label: "Which jobs should this document apply to?",
         options: [
-          { value: "this_job",            label: "Just this one job",          desc: "A one-off waiver for a single appointment." },
-          { value: "all_jobs",            label: "All future jobs",            desc: "Becomes a baseline waiver every customer signs." },
+          { value: "this_job",            label: "Just this one job",          desc: "A one-off document for a single appointment." },
+          { value: "all_jobs",            label: "All future jobs",            desc: "Becomes a baseline document every customer receives." },
           { value: "selected_services",   label: "Selected services",          desc: "Only when specific services are on the job." },
           { value: "selected_packages",   label: "Selected packages",          desc: "Only when specific packages are booked." },
           { value: "selected_risk_flags", label: "Selected risk flags",        desc: "Only when the client has certain risk flags." },
@@ -391,6 +405,7 @@ const TONE_INTRO: Record<Tone, string> = {
 };
 
 const TYPE_META: Record<string, { title: string; description: string; category: FormCategory }> = {
+  // ─── Legal document types ───────────────────────────────────────────────
   general:      { title: "General Service Authorization",      description: "Authorizes the business to perform requested services on the customer's vehicle.", category: "authorization" },
   liability:    { title: "Liability Release & Acknowledgment", description: "Releases the business from defined liabilities incurred during service.",            category: "liability" },
   ceramic:      { title: "Ceramic Coating Service Agreement",  description: "Defines cure-time, maintenance, and warranty terms for ceramic coating services.", category: "service_agreement" },
@@ -400,7 +415,30 @@ const TYPE_META: Record<string, { title: string; description: string; category: 
   payment:      { title: "Payment Terms Agreement",            description: "Customer agreement to defined payment timing and methods.",                          category: "deposit_policy" },
   photo:        { title: "Photo & Media Release",              description: "Customer authorizes business use of before/after and progress photos.",            category: "disclosure" },
   mobile:       { title: "Mobile Service Access Permission",   description: "Customer grants access to vehicle at the agreed location for mobile service.",     category: "authorization" },
+  service_agreement:    { title: "Service Agreement",          description: "Defines the scope, expectations, and terms of the service to be performed.",       category: "service_agreement" },
+  acknowledgment_form:  { title: "Acknowledgment Form",        description: "Customer acknowledges specific conditions, limitations, or risks.",                  category: "condition_acknowledgment" },
+
+  // ─── Informational document types ───────────────────────────────────────
+  // The deterministic engine produces a minimal title + prompt-derived body
+  // for these. Real per-type generation is a Phase-A.5 / Phase-B task that
+  // will replace the body with a Gemini-generated draft.
+  aftercare:        { title: "Aftercare Instructions",       description: "Post-service care instructions for the customer.",                                   category: "custom" },
+  prep_instructions:{ title: "Customer Prep Instructions",   description: "Pre-appointment preparation instructions for the customer.",                         category: "custom" },
+  brochure:         { title: "Service Brochure",             description: "Customer-facing brochure describing a service and what it includes.",                category: "custom" },
+  maintenance_guide:{ title: "Maintenance Guide",            description: "Ongoing maintenance instructions for the customer.",                                 category: "custom" },
+  warranty_care:    { title: "Warranty / Care Guide",        description: "Warranty terms and recommended care to preserve coverage.",                          category: "custom" },
+  follow_up_email:  { title: "Follow-up Email",              description: "Post-service follow-up email content.",                                              category: "custom" },
+  custom_document:  { title: "Custom Document",              description: "A custom customer-facing document.",                                                 category: "custom" },
 };
+
+export const INFORMATIONAL_TYPES = new Set<string>([
+  "aftercare", "prep_instructions", "brochure", "maintenance_guide",
+  "warranty_care", "follow_up_email", "custom_document",
+]);
+
+export function isInformationalType(type: string): boolean {
+  return INFORMATIONAL_TYPES.has(type);
+}
 
 // ─── ID helper (cross-runtime safe) ────────────────────────────────────────
 
@@ -428,6 +466,22 @@ function hintMatchesClause(hint: string | undefined, clauseTitle: string): boole
 // ─── Build proposed clauses from all inputs ────────────────────────────────
 
 export function buildProposedClauses(input: DraftInput): ProposedClause[] {
+  // TODO(Phase A.5): replace this deterministic clause-stitcher with a real
+  // Gemini call (see src/services/gemini.ts) that takes prompt + documentClass
+  // + waiverType + serviceType + tone and returns a structured draft. For
+  // informational types in particular, the templated output below is a
+  // placeholder — the proper result should be an LLM-written body.
+  // Skip the placeholder generator when the owner walked through the interview —
+  // their answers should be honoured and converted into real clauses, even for
+  // informational doc types.
+  if (
+    isInformationalType(input.waiverType)
+    && !input.requiresAcknowledgment
+    && !input.interviewCompleted
+  ) {
+    return buildInformationalDraft(input);
+  }
+
   const out: ProposedClause[] = [];
   const seen = new Set<string>();
   const ans = input.interviewAnswers;
@@ -633,11 +687,14 @@ export function buildDraftFromClauses(
   // Customer-facing text content (legacy `content` field used by CustomerSigning
   // and PDF rendering). Internal-only clauses are excluded.
   const lines: string[] = [];
-  const acknowledgments: string[] = [
-    "I have read and understand the terms above.",
-    "I am the owner of the vehicle or am authorized to make decisions about it.",
-    "I voluntarily agree to the terms and conditions of this document.",
-  ];
+  const acknowledgments: string[] =
+    input.documentClass === "informational" && !input.requiresAcknowledgment && !input.interviewCompleted
+      ? []
+      : [
+          "I have read and understand the terms above.",
+          "I am the owner of the vehicle or am authorized to make decisions about it.",
+          "I voluntarily agree to the terms and conditions of this document.",
+        ];
 
   // ── Blocks ──
   const blocks: WaiverBlock[] = [];
@@ -718,10 +775,14 @@ export function buildDraftFromClauses(
     }
   }
 
-  // Closer: standard customer info + date + final signature
-  blocks.push({ id: makeClauseId(), type: "customerInfo", title: "Customer Information", required: true, order: order++ });
-  blocks.push({ id: makeClauseId(), type: "date", title: "Date", required: true, order: order++ });
-  blocks.push({ id: makeClauseId(), type: "signature", title: "Signature", required: true, order: order++ });
+  // Closer: standard customer info + date + final signature.
+  // Skipped for informational documents that don't require acknowledgment.
+  const isInfoNoAck = input.documentClass === "informational" && !input.requiresAcknowledgment && !input.interviewCompleted;
+  if (!isInfoNoAck) {
+    blocks.push({ id: makeClauseId(), type: "customerInfo", title: "Customer Information", required: true, order: order++ });
+    blocks.push({ id: makeClauseId(), type: "date", title: "Date", required: true, order: order++ });
+    blocks.push({ id: makeClauseId(), type: "signature", title: "Signature", required: true, order: order++ });
+  }
 
   const anyInitials = clauses.some(c => c.customerVisible && c.requireInitials);
 
@@ -737,5 +798,114 @@ export function buildDraftFromClauses(
     acknowledgments,
     requiresInitials: anyInitials || input.riskLevel === "high" || input.riskLevel === "critical",
     blocks,
+    documentClass: input.documentClass,
+    requiresAcknowledgment: input.requiresAcknowledgment,
   };
 }
+
+// ─── Informational document placeholder generator ──────────────────────────
+// Produces a small structured starter document (intro + a few section headings
+// matched to the document type) rather than a single blob. The owner's prompt
+// becomes the body of an "Overview" section; the remaining sections are empty
+// scaffolding the owner fills in.
+//
+// This is still deterministic — real per-type body generation requires Gemini
+// (see TODO above buildProposedClauses).
+function buildInformationalDraft(input: DraftInput): ProposedClause[] {
+  const meta = TYPE_META[input.waiverType] ?? TYPE_META.custom_document;
+  const promptText = input.prompt.trim();
+  const focus = input.serviceType.trim();
+
+  const sections = INFORMATIONAL_SECTIONS[input.waiverType] ?? INFORMATIONAL_SECTIONS.custom_document;
+
+  const baseActivation: ProposedClause["activation"] = {
+    appliesToSelectedServices: false,
+    appliesToSelectedRiskFlags: false,
+    showBeforeBooking: false,
+    showBeforeJobStart: false,
+    attachToInvoice: false,
+    requireBeforePayment: false,
+    requireBeforeTechBegins: false,
+  };
+
+  const overviewBody = promptText
+    || `${meta.description}${focus ? ` Service focus: ${focus}.` : ""}`;
+
+  const clauses: ProposedClause[] = [
+    {
+      id: makeClauseId(),
+      title: "Overview",
+      text: overviewBody,
+      category: "custom",
+      customerVisible: true,
+      requireAcceptance: false,
+      requireInitials: false,
+      requireSignature: false,
+      optionalConsent: false,
+      activation: baseActivation,
+      source: "prompt",
+    },
+  ];
+
+  for (const section of sections) {
+    clauses.push({
+      id: makeClauseId(),
+      title: section.title,
+      text: section.placeholder,
+      category: "custom",
+      customerVisible: true,
+      requireAcceptance: false,
+      requireInitials: false,
+      requireSignature: false,
+      optionalConsent: false,
+      activation: baseActivation,
+      source: "prompt",
+    });
+  }
+
+  return clauses;
+}
+
+interface InformationalSection { title: string; placeholder: string }
+
+// Section scaffolding per informational doc type. Each `placeholder` is a
+// short starter sentence the owner edits before activating.
+const INFORMATIONAL_SECTIONS: Record<string, InformationalSection[]> = {
+  aftercare: [
+    { title: "Care Instructions",   placeholder: "Recommended washing, drying, and product guidance for the days and weeks following the service." },
+    { title: "What to Avoid",       placeholder: "Activities, products, or conditions the customer should avoid while the service settles in." },
+    { title: "Maintenance Tips",    placeholder: "Ongoing habits that protect the result over time." },
+    { title: "When to Contact Us",  placeholder: "Signs that warrant a follow-up — and how to reach the business." },
+  ],
+  prep_instructions: [
+    { title: "Before Your Appointment", placeholder: "What the customer should do to prepare the vehicle and the service area." },
+    { title: "What to Have Ready",      placeholder: "Items, access, or information the technician will need on arrival." },
+    { title: "Day-of Reminders",        placeholder: "Last-minute checks and timing notes." },
+  ],
+  brochure: [
+    { title: "What's Included",      placeholder: "A clear description of what the service covers and the typical duration." },
+    { title: "Why Choose This Service", placeholder: "Key benefits, materials used, and what makes this service worth the investment." },
+    { title: "Aftercare Summary",    placeholder: "A short note on how the customer protects the result after service." },
+    { title: "What's Not Covered",   placeholder: "Conditions, defects, or repairs outside the scope of this service." },
+  ],
+  maintenance_guide: [
+    { title: "Routine Care",       placeholder: "Daily and weekly habits that maintain the finish or interior." },
+    { title: "Periodic Maintenance", placeholder: "Recommended monthly or seasonal upkeep." },
+    { title: "What to Avoid",      placeholder: "Products, tools, or environments that shorten the result." },
+  ],
+  warranty_care: [
+    { title: "What's Covered",        placeholder: "The conditions and defects the warranty applies to, including the coverage period." },
+    { title: "What's Not Covered",    placeholder: "Exclusions, voiding behaviors, and limitations." },
+    { title: "Maintenance Required",  placeholder: "Care steps required to keep the warranty in effect." },
+    { title: "How to File a Claim",   placeholder: "Steps for the customer if they believe they have a covered issue." },
+  ],
+  follow_up_email: [
+    { title: "Thank You",         placeholder: "A short, warm thank-you that names the service performed." },
+    { title: "Aftercare Reminder", placeholder: "A friendly reminder of the most important care step from the aftercare guide." },
+    { title: "Next Steps",        placeholder: "Recommendations for the next service, upgrade, or maintenance window." },
+    { title: "Review Request",    placeholder: "A polite ask for a review or referral, with a link if available." },
+  ],
+  custom_document: [
+    { title: "Details", placeholder: "Add the body of your document here." },
+  ],
+};

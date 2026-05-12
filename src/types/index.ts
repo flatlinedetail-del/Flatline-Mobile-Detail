@@ -881,6 +881,16 @@ export interface BusinessSettings {
     lastWeeklyReportRunAt?: any;
     lastAILeadEngineRunAt?: any;
   };
+  formsSetupCompleted?: boolean;
+  formsSetupAnswers?: FormsSetupAnswers;
+}
+
+export interface FormsSetupAnswers {
+  services: string[];
+  protections: string[];
+  style: "simple" | "balanced" | "stronger";
+  timing: "before_booking" | "before_start" | "before_payment" | "high_risk_only";
+  completedAt?: any;
 }
 
 export interface Payment {

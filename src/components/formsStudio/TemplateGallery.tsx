@@ -174,11 +174,11 @@ export function TemplateGallery({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Risk Levels</SelectItem>
-                <SelectItem value="low">Low Risk</SelectItem>
-                <SelectItem value="medium">Moderate</SelectItem>
-                <SelectItem value="high">High Risk</SelectItem>
-                <SelectItem value="critical">Critical</SelectItem>
+                <SelectItem value="all">All Protection Levels</SelectItem>
+                <SelectItem value="low">{RISK_LEVEL_META.low.label}</SelectItem>
+                <SelectItem value="medium">{RISK_LEVEL_META.medium.label}</SelectItem>
+                <SelectItem value="high">{RISK_LEVEL_META.high.label}</SelectItem>
+                <SelectItem value="critical">{RISK_LEVEL_META.critical.label}</SelectItem>
               </SelectContent>
             </Select>
           </div>
