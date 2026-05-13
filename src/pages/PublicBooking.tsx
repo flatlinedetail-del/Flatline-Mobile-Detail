@@ -150,7 +150,7 @@ export default function PublicBooking() {
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
   const [scheduledAt, setScheduledAt] = useState("");
-  const [bookingStatus, setBookingStatus] = useState<"idle" | "success">("idle");
+  const [bookingStatus, setBookingStatus] = useState<"idle" | "success" | "deposit_pending">("idle");
   const [isAfterHours, setIsAfterHours] = useState(false);
   const [afterHoursFee, setAfterHoursFee] = useState(0);
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -498,7 +498,7 @@ export default function PublicBooking() {
         couponTitle: appliedCoupon?.title || null,
         discountType: appliedCoupon?.discountType || null,
         discountPercent: appliedCoupon?.discountType === "percentage" ? appliedCoupon.discountValue : null,
-        totalAmount: finalTotal + (isAfterHours && afterHoursFee ? afterHoursFee : 0),
+        totalAmount: grandTotal,
         estimatedDuration: totalDuration,
         afterHoursRecord: isAfterHours ? {
           isAfterHours: true,
@@ -506,15 +506,22 @@ export default function PublicBooking() {
           afterHoursReason: "Time selected falls outside standard operating hours.",
           businessHoursSnapshot: settings?.businessHours || null
         } : null,
-        depositAmount: depositInfo.amount,
         depositRequired: depositInfo.isRequired,
+        depositAmount: depositInfo.amount,
         depositSource: depositInfo.source,
+        depositType: matchedRiskRule?.requiredDepositType || null,
+        depositPaid: false,
+        depositPaidAt: null,
+        balanceDue: depositInfo.isRequired ? balanceDue : grandTotal,
+        clientRiskLevelAtBooking: matchedRiskRule?.protectionLevel || null,
+        paymentMethod: null,
+        paymentProviderRef: null,
         riskProfile: matchedRiskRule ? {
           protectionLevel: matchedRiskRule.protectionLevel,
           riskReason: matchedRiskRule.riskReason,
           ruleId: matchedRiskRule.id
         } : null,
-        paymentStatus: "unpaid",
+        paymentStatus: depositInfo.isRequired ? "deposit_pending" : "unpaid",
         technicianId: "",
         technicianName: "TBD",
         waiverAccepted: true,
@@ -542,9 +549,9 @@ export default function PublicBooking() {
           createNotification({
             userId: admin.id,
             title: isWaitlisted ? "Waitlist Request" : "New Booking Request",
-            message: isWaitlisted 
-              ? `${clientInfo.name} requested a booked time and selected a backup time.\nReq: ${format(new Date(scheduledAt), "MMM d, h:mm a")}\nBak: ${backupScheduledAt ? format(new Date(backupScheduledAt), "MMM d, h:mm a") : 'None'}` 
-              : `New booking request from ${clientInfo.name}\n${format(new Date(scheduledAt), "h:mm a")} - ${services.filter(s => selectedServices.includes(s.id)).map(s => s.name).join(", ")}`,
+            message: isWaitlisted
+              ? `${clientInfo.name} requested a booked time and selected a backup time.\nReq: ${format(new Date(scheduledAt), "MMM d, h:mm a")}\nBak: ${backupScheduledAt ? format(new Date(backupScheduledAt), "MMM d, h:mm a") : 'None'}${depositInfo.isRequired ? `\n⚠️ DEPOSIT REQUIRED: ${formatCurrency(depositInfo.amount)}` : ""}`
+              : `New booking request from ${clientInfo.name}${depositInfo.isRequired ? ` — ⚠️ DEPOSIT ${formatCurrency(depositInfo.amount)} required` : ""}\n${format(new Date(scheduledAt), "h:mm a")} - ${services.filter(s => selectedServices.includes(s.id)).map(s => s.name).join(", ")}`,
             type: isWaitlisted ? "waitlist_request" : "new_booking_request",
             category: "Booking Requests",
             relatedId: docRef.id,
@@ -561,8 +568,13 @@ export default function PublicBooking() {
         console.error("Failed to notify admins of new booking:", notifyError);
       }
 
-      setBookingStatus("success");
-      toast.success("Booking request submitted!");
+      if (depositInfo.isRequired) {
+        setBookingStatus("deposit_pending");
+        toast.success("Booking request submitted — deposit required to confirm.");
+      } else {
+        setBookingStatus("success");
+        toast.success("Booking request submitted!");
+      }
     } catch (error: any) {
       console.error("Booking error details:", {
         code: error.code,
@@ -699,6 +711,13 @@ export default function PublicBooking() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchedRiskRule, selectedServices, services, finalTotal]);
 
+  // Grand total = post-discount services + after-hours fee (if any)
+  const grandTotal = finalTotal + (isAfterHours ? afterHoursFee : 0);
+  // Balance due after deposit is collected
+  const balanceDue = depositInfo.isRequired
+    ? Math.max(0, grandTotal - depositInfo.amount)
+    : grandTotal;
+
 
   if (loading) {
     return (
@@ -708,19 +727,45 @@ export default function PublicBooking() {
     );
   }
 
-  if (bookingStatus === "success") {
+  if (bookingStatus === "success" || bookingStatus === "deposit_pending") {
+    const isDepositPending = bookingStatus === "deposit_pending";
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="max-w-md w-full border-none shadow-2xl rounded-3xl overflow-hidden">
-          <div className="bg-primary p-8 flex justify-center">
-            <CheckCircle2 className="w-20 h-20 text-white" />
+          <div className={cn("p-8 flex justify-center", isDepositPending ? "bg-amber-500" : "bg-primary")}>
+            {isDepositPending
+              ? <Clock className="w-20 h-20 text-white" />
+              : <CheckCircle2 className="w-20 h-20 text-white" />
+            }
           </div>
           <CardContent className="p-8 text-center space-y-4">
-            <h2 className="text-2xl font-black text-gray-900 tracking-tighter uppercase">Request Received!</h2>
-            <p className="text-gray-500 font-medium">
-              Thank you, {clientInfo.name.split(" ")[0] || "there"}! Your booking request has been submitted. 
-              We will review it and contact you shortly to confirm.
-            </p>
+            <h2 className="text-2xl font-black text-gray-900 tracking-tighter uppercase">
+              {isDepositPending ? "Booking Pending" : "Request Received!"}
+            </h2>
+            {isDepositPending ? (
+              <>
+                <p className="text-gray-500 font-medium">
+                  Thank you, <strong className="text-gray-800">{clientInfo.name.split(" ")[0] || "there"}</strong>! Your booking request has been submitted.
+                </p>
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-left space-y-2">
+                  <p className="text-xs font-black uppercase tracking-widest text-amber-700">Deposit Required to Confirm</p>
+                  <p className="text-2xl font-black text-amber-700">{formatCurrency(depositInfo.amount)}</p>
+                  <p className="text-sm font-medium text-amber-800">
+                    This booking is not confirmed until your deposit is received. Our team will contact you shortly with payment instructions.
+                  </p>
+                </div>
+                {settings?.businessPhone && (
+                  <p className="text-sm text-gray-400 font-medium">
+                    Questions? Call us at <span className="text-primary font-black">{settings.businessPhone}</span>
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-gray-500 font-medium">
+                Thank you, <strong className="text-gray-800">{clientInfo.name.split(" ")[0] || "there"}</strong>! Your booking request has been submitted.
+                We will review it and contact you shortly to confirm.
+              </p>
+            )}
             <Button onClick={() => window.location.reload()} className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl shadow-glow-blue transition-all hover:scale-105">
               Book Another Appointment
             </Button>
@@ -1342,14 +1387,14 @@ export default function PublicBooking() {
                            <Receipt className="w-5 h-5 text-gray-500" />
                            <h3 className="font-black text-gray-900 uppercase tracking-tight">Booking Summary</h3>
                          </div>
-                         <div className="space-y-3">
+                         <div className="space-y-2">
                            {selectedServices.map(id => {
                               const s = services.find(x => x.id === id);
                               if (!s) return null;
                               return (
                                 <div key={id} className="flex justify-between items-start">
                                   <span className="font-bold text-gray-900">{s.name}</span>
-                                  <span className="font-black text-gray-900">${s.basePrice}</span>
+                                  <span className="font-black text-gray-900">{formatCurrency(s.basePrice)}</span>
                                 </div>
                               )
                            })}
@@ -1359,7 +1404,7 @@ export default function PublicBooking() {
                               return (
                                 <div key={id} className="flex justify-between items-start text-sm">
                                   <span className="font-bold text-gray-600">+ {a.name}</span>
-                                  <span className="font-black text-gray-600">${a.price}</span>
+                                  <span className="font-black text-gray-600">{formatCurrency(a.price)}</span>
                                 </div>
                               )
                            })}
@@ -1372,32 +1417,46 @@ export default function PublicBooking() {
                                <span className="font-black text-gray-700">{formatCurrency(travelFee)}</span>
                              </div>
                            )}
+                           {discountAmount > 0 && (
+                             <div className="flex justify-between items-center text-sm pt-1 border-t border-gray-100">
+                               <span className="font-bold text-primary flex items-center gap-1"><Tag className="w-3 h-3" /> Discount</span>
+                               <span className="font-black text-primary">− {formatCurrency(discountAmount)}</span>
+                             </div>
+                           )}
+                           {isAfterHours && afterHoursFee > 0 && (
+                             <div className="flex justify-between items-center text-sm">
+                               <span className="font-bold text-amber-700 flex items-center gap-1"><Clock className="w-3 h-3" /> After-Hours</span>
+                               <span className="font-black text-amber-700">+ {formatCurrency(afterHoursFee)}</span>
+                             </div>
+                           )}
                         </div>
-                        <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
-                           <div>
-                             <p className="text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1">Estimated Total</p>
-                             <p className="text-sm font-bold text-gray-600 flex items-center gap-1">
-                               <Clock className="w-3 h-3" /> {totalDuration} mins
-                             </p>
+                        <div className="pt-4 border-t border-gray-200 space-y-2">
+                           <div className="flex justify-between items-center">
+                             <div>
+                               <p className="text-[10px] uppercase font-black tracking-widest text-gray-500">Total</p>
+                               <p className="text-xs font-bold text-gray-500 flex items-center gap-1 mt-0.5">
+                                 <Clock className="w-3 h-3" /> {totalDuration} mins
+                               </p>
+                             </div>
+                             <div className="text-right">
+                               {discountAmount > 0 && (
+                                 <p className="text-[10px] text-gray-400 line-through">{formatCurrency(totalPrice)}</p>
+                               )}
+                               <span className="text-3xl font-black text-primary">{formatCurrency(grandTotal)}</span>
+                             </div>
                            </div>
-                            <div className="text-right">
-                              {discountAmount > 0 && (
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-0.5 line-through">
-                                  {formatCurrency(totalPrice)}
-                                </p>
-                              )}
-                              {discountAmount > 0 && (
-                                <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
-                                  − {formatCurrency(discountAmount)} saved
-                                </p>
-                              )}
-                              {depositInfo.isRequired && (
-                                <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
-                                  Deposit Required: {formatCurrency(depositInfo.amount)}
-                                </p>
-                              )}
-                              <span className="text-3xl font-black text-primary">{formatCurrency(finalTotal)}</span>
-                            </div>
+                           {depositInfo.isRequired && (
+                             <div className="pt-2 border-t border-primary/20 space-y-1.5">
+                               <div className="flex justify-between items-center">
+                                 <span className="text-[10px] font-black uppercase tracking-widest text-primary">Deposit Due Now</span>
+                                 <span className="font-black text-primary">{formatCurrency(depositInfo.amount)}</span>
+                               </div>
+                               <div className="flex justify-between items-center">
+                                 <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Balance Due Later</span>
+                                 <span className="font-black text-gray-600">{formatCurrency(balanceDue)}</span>
+                               </div>
+                             </div>
+                           )}
                         </div>
                       </div>
 
@@ -1499,7 +1558,7 @@ export default function PublicBooking() {
                           disabled={isSubmitting || matchedRiskRule?.protectionLevel === "Block Booking"}
                         >
                           {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
-                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Account Restricted" : "Submit Booking Requirement"}
+                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Account Restricted" : depositInfo.isRequired ? "Submit Request — Deposit Required" : "Submit Booking Request"}
                         </Button>
                       </div>
                     </CardContent>
@@ -1639,7 +1698,7 @@ export default function PublicBooking() {
                               return (
                                 <div key={id} className="flex justify-between items-start">
                                   <span className="font-bold text-gray-900">{s.name}</span>
-                                  <span className="font-black text-gray-900">${s.basePrice}</span>
+                                  <span className="font-black text-gray-900">{formatCurrency(s.basePrice)}</span>
                                 </div>
                               )
                            })}
@@ -1649,7 +1708,7 @@ export default function PublicBooking() {
                               return (
                                 <div key={id} className="flex justify-between items-start text-sm">
                                   <span className="font-bold text-gray-600">+ {a.name}</span>
-                                  <span className="font-black text-gray-600">${a.price}</span>
+                                  <span className="font-black text-gray-600">{formatCurrency(a.price)}</span>
                                 </div>
                               )
                            })}
@@ -1663,32 +1722,53 @@ export default function PublicBooking() {
                              </div>
                            )}
                         </div>
-                        {discountAmount > 0 && (
-                          <div className="flex justify-between items-center text-sm pt-1 border-t border-gray-100">
-                            <span className="font-bold text-primary flex items-center gap-1">
-                              <Tag className="w-3 h-3" /> Coupon discount
-                            </span>
-                            <span className="font-black text-primary">− {formatCurrency(discountAmount)}</span>
+                        {(discountAmount > 0 || (isAfterHours && afterHoursFee > 0)) && (
+                          <div className="space-y-1 pt-2 border-t border-gray-100">
+                            {discountAmount > 0 && (
+                              <div className="flex justify-between items-center text-sm">
+                                <span className="font-bold text-primary flex items-center gap-1">
+                                  <Tag className="w-3 h-3" /> Coupon discount
+                                </span>
+                                <span className="font-black text-primary">− {formatCurrency(discountAmount)}</span>
+                              </div>
+                            )}
+                            {isAfterHours && afterHoursFee > 0 && (
+                              <div className="flex justify-between items-center text-sm">
+                                <span className="font-bold text-amber-700 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" /> After-Hours
+                                </span>
+                                <span className="font-black text-amber-700">+ {formatCurrency(afterHoursFee)}</span>
+                              </div>
+                            )}
                           </div>
                         )}
-                        <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
-                           <div>
-                             <p className="text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1">Estimated Total</p>
-                             <p className="text-sm font-bold text-gray-600 flex items-center gap-1">
-                               <Clock className="w-3 h-3" /> {totalDuration} mins
-                             </p>
-                           </div>
-                           <div className="text-right">
-                             {discountAmount > 0 && (
-                               <p className="text-[10px] text-gray-400 line-through mb-0.5">{formatCurrency(totalPrice)}</p>
-                             )}
-                             {depositInfo.isRequired && (
-                               <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
-                                 Deposit Required: {formatCurrency(depositInfo.amount)}
+                        <div className="pt-3 border-t border-gray-200 space-y-2">
+                           <div className="flex justify-between items-end">
+                             <div>
+                               <p className="text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1">Total</p>
+                               <p className="text-sm font-bold text-gray-600 flex items-center gap-1">
+                                 <Clock className="w-3 h-3" /> {totalDuration} mins
                                </p>
-                             )}
-                             <span className="text-3xl font-black text-primary">{formatCurrency(finalTotal)}</span>
+                             </div>
+                             <div className="text-right">
+                               {discountAmount > 0 && (
+                                 <p className="text-[10px] text-gray-400 line-through mb-0.5">{formatCurrency(totalPrice)}</p>
+                               )}
+                               <span className="text-3xl font-black text-primary">{formatCurrency(grandTotal)}</span>
+                             </div>
                            </div>
+                           {depositInfo.isRequired && (
+                             <div className="pt-2 border-t border-primary/20 space-y-1.5">
+                               <div className="flex justify-between items-center">
+                                 <span className="text-[10px] font-black uppercase tracking-widest text-primary">Deposit Due Now</span>
+                                 <span className="text-sm font-black text-primary">{formatCurrency(depositInfo.amount)}</span>
+                               </div>
+                               <div className="flex justify-between items-center">
+                                 <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Balance Due Later</span>
+                                 <span className="text-sm font-black text-gray-600">{formatCurrency(balanceDue)}</span>
+                               </div>
+                             </div>
+                           )}
                         </div>
                      </>
                    )}
