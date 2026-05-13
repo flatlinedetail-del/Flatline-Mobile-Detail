@@ -4,6 +4,8 @@ import { GoogleMapsProvider } from "./components/GoogleMapsProvider";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import React, { Suspense, lazy, useEffect } from "react";
 import Layout from "./components/Layout";
+import FieldModeLayout from "./components/fieldMode/FieldModeLayout";
+import { useIsPhone } from "./hooks/useBreakpoint";
 import { Toaster } from "@/components/ui/sonner";
 
 // Performance logging for startup
@@ -33,6 +35,29 @@ const CustomerSigning = lazy(() => import("./pages/CustomerSigning"));
 const BookAppointment = lazy(() => import("./pages/BookAppointment"));
 const AILeadEngine = lazy(() => import("./pages/AILeadEngine"));
 const Login = lazy(() => import("./pages/Login"));
+const FieldHome = lazy(() => import("./pages/fieldMode/FieldHome"));
+const ActiveJob = lazy(() => import("./pages/fieldMode/ActiveJob"));
+
+/**
+ * Track A shell switch: phones get the simplified Field Mode shell,
+ * tablets and desktop keep the full DetailFlow Layout untouched.
+ * Routing is identical in both shells — only the chrome (sidebar,
+ * header, bottom nav) differs.
+ */
+function ShellSwitch() {
+  const isPhone = useIsPhone();
+  return isPhone ? <FieldModeLayout /> : <Layout />;
+}
+
+/**
+ * Track A index switch: on phones the "/" route renders FieldHome
+ * (field-first dashboard) instead of the full Dashboard. Tablet and
+ * desktop continue to see Dashboard at "/", unchanged.
+ */
+function IndexSwitch() {
+  const isPhone = useIsPhone();
+  return isPhone ? <FieldHome /> : <Dashboard />;
+}
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
@@ -81,11 +106,11 @@ function AppContent() {
             path="/"
             element={
               <ProtectedRoute>
-                <Layout />
+                <ShellSwitch />
               </ProtectedRoute>
             }
           >
-            <Route index element={<Dashboard />} />
+            <Route index element={<IndexSwitch />} />
             <Route path="leads" element={<Leads />} />
             <Route path="leads/engine" element={<AILeadEngine />} />
             <Route path="clients" element={<Clients />} />
@@ -107,6 +132,11 @@ function AppContent() {
             <Route path="expenses" element={<Expenses />} />
             <Route path="forms" element={<Navigate to="/settings?tab=forms" replace />} />
             <Route path="settings" element={<Settings />} />
+            {/* Phone Field Mode active-job screen. The route is registered
+                globally so deep links work everywhere, but the UI is sized
+                for phones — tablet/desktop users will normally hit the full
+                JobDetail page at /calendar/:id instead. */}
+            <Route path="field/job/:id" element={<ActiveJob />} />
           </Route>
         </Routes>
       </Suspense>
