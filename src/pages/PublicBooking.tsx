@@ -19,6 +19,12 @@ import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtil
 import Logo from "../components/Logo";
 import { calculateDistance, calculateTravelFee } from "../services/travelService";
 import { geocodeAddress } from "../services/geocodingService";
+import {
+  runOnlineBookingGate,
+  normalizeEmail as gateNormalizeEmail,
+  normalizePhone as gateNormalizePhone,
+} from "../services/onlineBookingGate";
+import type { BookingGateResult } from "../services/onlineBookingGate";
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
 
@@ -150,7 +156,7 @@ export default function PublicBooking() {
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
   const [scheduledAt, setScheduledAt] = useState("");
-  const [bookingStatus, setBookingStatus] = useState<"idle" | "success" | "deposit_pending">("idle");
+  const [bookingStatus, setBookingStatus] = useState<"idle" | "success" | "deposit_pending" | "pending_review">("idle");
   const [isAfterHours, setIsAfterHours] = useState(false);
   const [afterHoursFee, setAfterHoursFee] = useState(0);
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -171,54 +177,83 @@ export default function PublicBooking() {
 
   const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
 
+  // protected_clients loaded at page init — used for the live deposit preview
+  // in the review step. The gate re-fetches fresh data at submission time.
   const [protectedClients, setProtectedClients] = useState<any[]>([]);
-  const [allClients, setAllClients] = useState<any[]>([]);
+  // Single client record looked up by email (lazy, debounced) — drives the
+  // inherent-risk fallback in the preview matching below.
+  const [matchedClientRecord, setMatchedClientRecord] = useState<any | null>(null);
+  // Derived from protectedClients + matchedClientRecord — drives the review UI
+  // deposit preview only. Gate result is authoritative for the actual write.
   const [matchedRiskRule, setMatchedRiskRule] = useState<any | null>(null);
+  // Set at submission time from runOnlineBookingGate — used for success screen
+  const [gateResult, setGateResult] = useState<BookingGateResult | null>(null);
 
+  // ── Lazy client record lookup by email (for inherent-risk preview) ─────────
+  useEffect(() => {
+    const email = gateNormalizeEmail(clientInfo.email);
+    if (email.length < 5) {
+      setMatchedClientRecord(null);
+      return;
+    }
+    // Debounce to avoid a Firestore read on every keystroke
+    const timer = setTimeout(() => {
+      getDocs(query(collection(db, "clients"), where("email", "==", email)))
+        .then(snap => {
+          setMatchedClientRecord(
+            snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }
+          );
+        })
+        .catch(() => { /* non-critical — fail silently */ });
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [clientInfo.email]);
+
+  // ── Live risk preview — runs when email/phone/protectedClients change ──────
   useEffect(() => {
     if (!clientInfo.email && !clientInfo.phone) {
       setMatchedRiskRule(null);
       return;
     }
 
-    const email = clientInfo.email.toLowerCase().trim();
-    const phone = clientInfo.phone.replace(/\D/g, "");
+    const normEmail = gateNormalizeEmail(clientInfo.email);
+    // Use gate normalization: strips formatting AND leading country code "1"
+    const normPhone = gateNormalizePhone(clientInfo.phone);
 
-    const match = protectedClients.find(pc => 
-      pc.isActive && (
-        (email && pc.email?.toLowerCase().trim() === email) ||
-        (phone && pc.phone?.replace(/\D/g, "") === phone)
-      )
-    );
+    const match = protectedClients.find(pc => {
+      if (!pc.isActive) return false;
+      const pcEmail = gateNormalizeEmail(pc.email || "");
+      const pcPhone = gateNormalizePhone(pc.phone || "");
+      return (
+        (normEmail.length > 3 && pcEmail.length > 3 && pcEmail === normEmail) ||
+        (normPhone.length >= 10 && pcPhone.length >= 10 && pcPhone === normPhone)
+      );
+    });
 
-    const registeredClient = allClients.find(c => 
-      (email && c.email?.toLowerCase().trim() === email) ||
-      (phone && c.phone?.replace(/\D/g, "") === phone)
-    );
-
-    const inherentRisk = registeredClient ? (
-      registeredClient.riskLevel || 
-      registeredClient.risk_level || 
-      registeredClient.riskStatus || 
-      registeredClient.clientRiskLevel || 
-      registeredClient.riskManagement?.level
-    ) : null;
+    const inherentRisk = matchedClientRecord
+      ? (matchedClientRecord.riskLevel ??
+         matchedClientRecord.risk_level ??
+         matchedClientRecord.riskStatus ??
+         matchedClientRecord.clientRiskLevel ??
+         matchedClientRecord.riskManagement?.level ??
+         null)
+      : null;
 
     if (match) {
       setMatchedRiskRule(match);
     } else if (inherentRisk) {
       setMatchedRiskRule({
-        id: 'client-risk-' + registeredClient.id,
+        id: "client-risk-" + matchedClientRecord.id,
         isActive: true,
         protectionLevel: inherentRisk,
         riskReason: "Risk level detected on client profile.",
         requiredDepositValue: 25,
-        requiredDepositType: "percentage"
+        requiredDepositType: "percentage",
       });
     } else {
       setMatchedRiskRule(null);
     }
-  }, [clientInfo.email, clientInfo.phone, protectedClients, allClients]);
+  }, [clientInfo.email, clientInfo.phone, protectedClients, matchedClientRecord]);
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -336,6 +371,12 @@ export default function PublicBooking() {
 
         const blockedSnap = await getDocs(query(collection(db, "blocked_dates"), where("start", ">=", new Date())));
         setBlockedDates(blockedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        // Load protected clients for the live risk/deposit preview in the review
+        // step. The gate also fetches fresh data at submission, but loading here
+        // means the customer sees deposit info before they click Submit.
+        const pcSnap = await getDocs(collection(db, "protected_clients"));
+        setProtectedClients(pcSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (error) {
         console.error("Error fetching data for booking:", error);
         toast.error("Failed to load booking information.");
@@ -454,15 +495,29 @@ export default function PublicBooking() {
 
     setIsSubmitting(true);
     try {
+      // ── OnlineBookingGate ─────────────────────────────────────────────────
+      // Authoritative risk + deposit check. Fetches fresh data from Firestore
+      // so the result is never stale from page-load caches.
+      const resolvedServices = services.filter(s => selectedServices.includes(s.id));
+      const gate = await runOnlineBookingGate({
+        email: clientInfo.email,
+        phone: clientInfo.phone,
+        licensePlate: clientInfo.vehiclePlate || undefined,
+        selectedServices: resolvedServices,
+        grandTotal,
+      });
+      setGateResult(gate);
+      // ─────────────────────────────────────────────────────────────────────
+
       const fullVehicleInfo = `${clientInfo.vehicleInfo} (${clientInfo.vehicleSize}) ${clientInfo.vehicleColor} ${clientInfo.vehiclePlate}`.trim();
-      
+
       const waitlistInfo = isTimeAvailable === false ? {
         backupScheduledAt: backupScheduledAt ? new Date(backupScheduledAt) : null,
         flexibleSameDay,
         clientNote
       } : null;
 
-       const appointmentData: any = {
+      const appointmentData: any = {
         customerName: clientInfo.name,
         customerEmail: clientInfo.email,
         customerPhone: clientInfo.phone,
@@ -472,16 +527,15 @@ export default function PublicBooking() {
         vehicleInfo: fullVehicleInfo,
         vehicleSize: clientInfo.vehicleSize,
         serviceIds: selectedServices,
-        serviceNames: services.filter(s => selectedServices.includes(s.id)).map(s => s.name),
+        serviceNames: resolvedServices.map(s => s.name),
         addOnIds: selectedAddons,
         addOnNames: addons.filter(a => selectedAddons.includes(a.id)).map(a => a.name),
         scheduledAt: new Date(scheduledAt),
-        // Risk clients always route to pending_approval regardless of time availability.
-        // Waitlisted + risk: pending_approval wins; waitlistInfo still saved for context.
-        status: matchedRiskRule
+        // Risk clients route to pending_approval regardless of slot availability.
+        // Waitlisted + risk: pending_approval wins; waitlistInfo preserved for context.
+        status: gate.pendingOwnerReview
           ? "pending_approval"
           : isTimeAvailable === false ? "waitlisted" : "requested",
-        pendingOwnerReview: !!matchedRiskRule,
         waitlistInfo,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -511,22 +565,28 @@ export default function PublicBooking() {
           afterHoursReason: "Time selected falls outside standard operating hours.",
           businessHoursSnapshot: settings?.businessHours || null
         } : null,
-        depositRequired: depositInfo.isRequired,
-        depositAmount: depositInfo.amount,
-        depositSource: depositInfo.source,
-        depositType: matchedRiskRule?.requiredDepositType || null,
+
+        // ── Gate-derived fields (authoritative) ───────────────────────────
+        bookingMode: gate.bookingMode,
+        pendingOwnerReview: gate.pendingOwnerReview,
+        matchedProtectedClientId: gate.matchedProtectedClientId,
+        matchedClientId: gate.matchedClientId,
+        protectedClientMatch: gate.protectedClientMatch,
+        clientRiskLevelAtBooking: gate.clientRiskLevelAtBooking,
+        protectionLevel: gate.protectionLevel,
+        riskReason: gate.riskReason,
+        depositRequired: gate.depositRequired,
+        depositAmount: gate.depositAmount,
+        depositType: gate.depositType,
+        depositSource: gate.depositSource,
         depositPaid: false,
         depositPaidAt: null,
-        balanceDue: depositInfo.isRequired ? balanceDue : grandTotal,
-        clientRiskLevelAtBooking: matchedRiskRule?.protectionLevel || null,
+        paymentStatus: gate.paymentStatus,
+        balanceDue: gate.balanceDue,
         paymentMethod: null,
         paymentProviderRef: null,
-        riskProfile: matchedRiskRule ? {
-          protectionLevel: matchedRiskRule.protectionLevel,
-          riskReason: matchedRiskRule.riskReason,
-          ruleId: matchedRiskRule.id
-        } : null,
-        paymentStatus: depositInfo.isRequired ? "deposit_pending" : "unpaid",
+        // ─────────────────────────────────────────────────────────────────
+
         technicianId: "",
         technicianName: "TBD",
         waiverAccepted: true,
@@ -543,20 +603,24 @@ export default function PublicBooking() {
       };
 
       const docRef = await addDoc(collection(db, "appointments"), appointmentData);
-      
+
       try {
         const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
         const adminsSnap = await getDocs(adminsQuery);
-        
+
         const isWaitlisted = isTimeAvailable === false;
-        
-        const isBlockBooking = matchedRiskRule?.protectionLevel === "Block Booking";
-        const hasRisk = !!matchedRiskRule;
+        const isBlockBooking = gate.bookingMode === "blocked_review";
+        const hasRisk = gate.pendingOwnerReview;
+
+        // Internal-only risk note appended to admin notification message.
+        // Never shown to the customer.
         const internalRiskNote = isBlockBooking
-          ? ` — 🚫 FLAGGED (Block Booking${depositInfo.isRequired ? `, deposit ${formatCurrency(depositInfo.amount)}` : ""})`
+          ? ` — 🚫 FLAGGED (Block Booking${gate.depositRequired ? `, deposit ${formatCurrency(gate.depositAmount)}` : ""})`
           : hasRisk
-            ? ` — ⚠️ ${matchedRiskRule.protectionLevel} risk${depositInfo.isRequired ? `, deposit ${formatCurrency(depositInfo.amount)} required` : ""} — pending owner review`
-            : depositInfo.isRequired ? ` — ⚠️ DEPOSIT ${formatCurrency(depositInfo.amount)} required` : "";
+            ? ` — ⚠️ ${gate.protectionLevel || gate.clientRiskLevelAtBooking} risk${gate.depositRequired ? `, deposit ${formatCurrency(gate.depositAmount)} required` : ""} — pending owner review`
+            : gate.depositRequired
+              ? ` — ⚠️ DEPOSIT ${formatCurrency(gate.depositAmount)} required`
+              : "";
 
         const notifyPromises = adminsSnap.docs.map(admin =>
           createNotification({
@@ -564,11 +628,11 @@ export default function PublicBooking() {
             title: isBlockBooking
               ? "🚫 Flagged Account Booking — Review Required"
               : hasRisk
-                ? `⚠️ Risk Client Booking — Owner Review Required`
+                ? "⚠️ Risk Client Booking — Owner Review Required"
                 : isWaitlisted ? "Waitlist Request" : "New Booking Request",
             message: isWaitlisted
-              ? `${clientInfo.name} requested a booked time and selected a backup time.\nReq: ${format(new Date(scheduledAt), "MMM d, h:mm a")}\nBak: ${backupScheduledAt ? format(new Date(backupScheduledAt), "MMM d, h:mm a") : 'None'}${internalRiskNote}`
-              : `New booking request from ${clientInfo.name}${internalRiskNote}\n${format(new Date(scheduledAt), "h:mm a")} - ${services.filter(s => selectedServices.includes(s.id)).map(s => s.name).join(", ")}`,
+              ? `${clientInfo.name} requested a booked time and selected a backup time.\nReq: ${format(new Date(scheduledAt), "MMM d, h:mm a")}\nBak: ${backupScheduledAt ? format(new Date(backupScheduledAt), "MMM d, h:mm a") : "None"}${internalRiskNote}`
+              : `New booking request from ${clientInfo.name}${internalRiskNote}\n${format(new Date(scheduledAt), "h:mm a")} - ${resolvedServices.map(s => s.name).join(", ")}`,
             type: isWaitlisted ? "waitlist_request" : "new_booking_request",
             category: "Booking Requests",
             relatedId: docRef.id,
@@ -585,9 +649,15 @@ export default function PublicBooking() {
         console.error("Failed to notify admins of new booking:", notifyError);
       }
 
-      if (depositInfo.isRequired) {
+      // Set customer-facing screen based on gate decision.
+      // pending_review and blocked_review both show the generic green screen —
+      // the customer never learns their risk status.
+      if (gate.customerMessageType === "deposit_pending") {
         setBookingStatus("deposit_pending");
         toast.success("Booking request submitted — deposit required to confirm.");
+      } else if (gate.customerMessageType === "pending_review") {
+        setBookingStatus("pending_review");
+        toast.success("Booking request submitted!");
       } else {
         setBookingStatus("success");
         toast.success("Booking request submitted!");
@@ -744,8 +814,15 @@ export default function PublicBooking() {
     );
   }
 
-  if (bookingStatus === "success" || bookingStatus === "deposit_pending") {
+  if (bookingStatus !== "idle") {
     const isDepositPending = bookingStatus === "deposit_pending";
+    // pending_review covers both pending_owner_review and blocked_review — the
+    // customer sees a generic success message with no risk wording.
+    const isPendingReview = bookingStatus === "pending_review";
+    // Gate result is authoritative for the deposit amount on the success screen.
+    // Fall back to the preview value in the (unlikely) case gate hasn't resolved.
+    const confirmedDepositAmount = gateResult?.depositAmount ?? depositInfo.amount;
+
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="max-w-md w-full border-none shadow-2xl rounded-3xl overflow-hidden">
@@ -766,7 +843,7 @@ export default function PublicBooking() {
                 </p>
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-left space-y-2">
                   <p className="text-xs font-black uppercase tracking-widest text-amber-700">Deposit Required to Confirm</p>
-                  <p className="text-2xl font-black text-amber-700">{formatCurrency(depositInfo.amount)}</p>
+                  <p className="text-2xl font-black text-amber-700">{formatCurrency(confirmedDepositAmount)}</p>
                   <p className="text-sm font-medium text-amber-800">
                     This booking is not confirmed until your deposit is received. Our team will contact you shortly with payment instructions.
                   </p>
@@ -780,7 +857,9 @@ export default function PublicBooking() {
             ) : (
               <p className="text-gray-500 font-medium">
                 Thank you, <strong className="text-gray-800">{clientInfo.name.split(" ")[0] || "there"}</strong>! Your booking request has been submitted.
-                We will review it and contact you shortly to confirm.
+                {isPendingReview
+                  ? " Our team will review your request and follow up shortly."
+                  : " We will review it and contact you shortly to confirm."}
               </p>
             )}
             <Button onClick={() => window.location.reload()} className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl shadow-glow-blue transition-all hover:scale-105">
