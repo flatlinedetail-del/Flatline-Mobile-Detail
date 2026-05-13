@@ -91,11 +91,9 @@ function NotificationBell() {
         {total > 0 && (
           <>
             <span className="absolute top-2 right-2 w-2 h-2 bg-[#0A4DFF] rounded-full ring-2 ring-sidebar animate-pulse" />
-            {total > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#0A4DFF] text-[10px] font-black text-white flex items-center justify-center ring-2 ring-sidebar">
-                {total > 99 ? "99+" : total}
-              </span>
-            )}
+            <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#0A4DFF] text-[10px] font-black text-white flex items-center justify-center leading-none ring-2 ring-sidebar">
+              {total > 99 ? "99+" : total}
+            </span>
           </>
         )}
       </Button>
@@ -284,6 +282,19 @@ export default function Layout() {
               )}
             </Button>
           </div>
+
+          {/* Sidebar collapse toggle — lives on the aside so it straddles the
+              sidebar/content boundary without being clipped by the content
+              area's overflow-hidden. The aside is position:sticky, making it
+              the containing block for this absolute child. */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSidebar}
+            className="hidden md:flex absolute right-0 top-10 z-30 translate-x-1/2 -translate-y-1/2 text-white hover:text-white bg-sidebar hover:bg-white/10 border border-sidebar-border shadow-xl rounded-xl transition-all duration-300"
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+          </Button>
         </aside>
 
         {/* Main Content Area */}
@@ -294,14 +305,6 @@ export default function Layout() {
             systemStatus !== 'normal' ? "top-[36px]" : "top-0"
           )}>
           <div className="flex items-center gap-6 flex-1">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={toggleSidebar}
-              className="hidden md:flex absolute left-0 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 text-white hover:text-white bg-sidebar hover:bg-white/10 border border-sidebar-border shadow-xl rounded-xl transition-all duration-300"
-            >
-              {isSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
-            </Button>
             <div className="md:hidden flex items-center gap-3">
               <Link to="/">
                 <Logo variant="icon" className="w-10 h-10" />
