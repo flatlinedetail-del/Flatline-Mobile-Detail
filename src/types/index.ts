@@ -777,6 +777,13 @@ export interface BusinessSettings {
   baseAddress: string;
   baseLatitude: number;
   baseLongitude: number;
+  // Optional private travel origin — when set, used as the start point for
+  // travel-fee distance calculation in customer-facing flows (PublicBooking)
+  // INSTEAD of baseAddress, and is never displayed to customers. Falls back
+  // to baseAddress/baseLatitude/baseLongitude when not set.
+  travelStartAddress?: string;
+  travelStartLatitude?: number;
+  travelStartLongitude?: number;
   // Separate address for invoices and customer documents
   invoiceAddress?: string;
   travelPricing: {
