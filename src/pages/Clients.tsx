@@ -254,7 +254,15 @@ export default function Clients() {
   useEffect(() => {
     if (!deepLinkClientId || !clients.length) return;
     const match = clients.find((c) => c.id === deepLinkClientId);
-    if (match) setSelectedClient(match);
+    if (match) {
+      setSelectedClient(match);
+      // Also flip the detail-dialog flag — previously the deep-link only
+      // selected the client without surfacing the profile dialog, which
+      // looked like a no-op tap on phone (the FieldClients list routes
+      // here via `/clients?clientId=...`). With both flags set the existing
+      // Dialog mounts and exposes every action.
+      setIsDetailOpen(true);
+    }
   }, [deepLinkClientId, clients]);
 
   // "Needs Attention" filter mode — set when the Dashboard "View All"

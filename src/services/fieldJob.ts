@@ -33,12 +33,11 @@ export interface FieldJob {
   email?: string;
   address?: string;
   // Pre-computed deep links — undefined when the source field is missing.
+  // Maps-provider URLs were intentionally removed pending a backend-driven
+  // default navigation provider. Do NOT re-add per-provider URLs here.
   telUrl?: string;
   smsUrl?: string;
   mailtoUrl?: string;
-  googleMapsUrl?: string;
-  appleMapsUrl?: string;
-  wazeUrl?: string;
 }
 
 /**
@@ -67,8 +66,6 @@ export function toFieldJob(raw: Appointment | (Partial<Appointment> & Record<str
     else if (typeof ts.toDate === "function") scheduledAt = ts.toDate();
   }
 
-  const enc = (v: string) => encodeURIComponent(v);
-
   return {
     id: String(r.id ?? ""),
     clientName: String(r.customerName ?? "Unknown client"),
@@ -85,9 +82,6 @@ export function toFieldJob(raw: Appointment | (Partial<Appointment> & Record<str
     telUrl: phone ? `tel:${phone}` : undefined,
     smsUrl: phone ? `sms:${phone}` : undefined,
     mailtoUrl: email ? `mailto:${email}` : undefined,
-    googleMapsUrl: address ? `https://www.google.com/maps/dir/?api=1&destination=${enc(address)}` : undefined,
-    appleMapsUrl: address ? `https://maps.apple.com/?daddr=${enc(address)}` : undefined,
-    wazeUrl: address ? `https://waze.com/ul?q=${enc(address)}&navigate=yes` : undefined,
   };
 }
 
@@ -115,6 +109,8 @@ export function statusLabel(s: FieldJobStatus): string {
     case "completed": return "Completed";
     case "paid": return "Paid";
     case "canceled": return "Canceled";
+    case "no_show": return "No Show";
+    case "missed": return "Missed";
     case "suggested": return "Suggested";
     case "requested": return "Requested";
     case "pending_approval": return "Pending Approval";

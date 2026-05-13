@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
+import CancellationReasonDialog, { type CancellationKind, type CancellationReasonResult } from "../components/CancellationReasonDialog";
 import { 
   ChevronLeft, 
   Clock, 
@@ -163,6 +164,14 @@ export default function JobDetail() {
   const [pendingStatusChange, setPendingStatusChange] = useState<{ newStatus: string, oldStatus: string, actionText: string } | null>(null);
   const [cancellationFee, setCancellationFee] = useState(0);
   const [isAfterCutoff, setIsAfterCutoff] = useState(false);
+  // Track A: reason captured in the cancel AlertDialog before "Confirm
+  // Cancellation" fires. Cleared automatically when the dialog closes.
+  const [cancelReasonText, setCancelReasonText] = useState("");
+  const [cancelReasonCategory, setCancelReasonCategory] = useState<CancellationReasonResult["category"]>("client_request");
+  // Track A: separate shared dialog for no-show / missed flows. Routes
+  // through CancellationReasonDialog before calling handleMarkAsMissed.
+  const [missedReasonKind, setMissedReasonKind] = useState<"no_show" | "missed" | null>(null);
+  const [missedReasonSubmitting, setMissedReasonSubmitting] = useState(false);
   const [activeVehicleId, setActiveVehicleId] = useState<string | null>(null);
   
   // Bring-to-front focus for small cards
@@ -1595,14 +1604,24 @@ export default function JobDetail() {
   };
 
   const handleCancelJob = async () => {
+    // Track A: reason is required before the status change completes.
+    if (cancelReasonText.trim().length < 2) {
+      toast.error("Please add a cancellation reason before confirming.");
+      return;
+    }
     setIsUpdating(true);
     try {
       const docRef = doc(db, "appointments", id!);
-      await updateDoc(docRef, { 
+      await updateDoc(docRef, {
         status: "canceled",
         cancellationStatus: cancellationFee > 0 ? "applied" : "none",
         cancellationFeeApplied: cancellationFee,
         cancellationTimestamp: serverTimestamp(),
+        // Track A: capture reason + analytics category, and disable per-job
+        // booking intelligence for cancelled jobs (item 8).
+        cancellationReason: cancelReasonText.trim(),
+        cancellationReasonCategory: cancelReasonCategory,
+        bookingIntelligenceActive: false,
         updatedAt: serverTimestamp()
       });
 
@@ -1710,7 +1729,10 @@ export default function JobDetail() {
     }
   };
 
-  const handleMarkAsMissed = async (status: "missed" | "no_show" | "client_missed") => {
+  const handleMarkAsMissed = async (
+    status: "missed" | "no_show" | "client_missed",
+    reasonResult?: CancellationReasonResult,
+  ) => {
     setIsUpdating(true);
     try {
       calculateCancellationFee(); // Ensure it's latest calculation
@@ -1747,12 +1769,23 @@ export default function JobDetail() {
       }
 
       // Update status
+      // Track A: include reason fields if a reason was captured upstream
+      // via the shared CancellationReasonDialog, and disable per-job
+      // booking intelligence (item 8) on this terminal state.
+      const reasonFields: Record<string, unknown> = {};
+      if (reasonResult) {
+        reasonFields.cancellationReasonCategory = reasonResult.category;
+        if (status === "missed") reasonFields.missedReason = reasonResult.reason;
+        else if (status === "no_show") reasonFields.noShowReason = reasonResult.reason;
+      }
       await updateDoc(docRef, {
         status: status,
         updatedAt: serverTimestamp(),
         cancellationFeeApplied: feeToCharge,
         cancellationTimestamp: serverTimestamp(),
-        cancellationStatus: feeToCharge > 0 ? "applied" : "none"
+        cancellationStatus: feeToCharge > 0 ? "applied" : "none",
+        bookingIntelligenceActive: false,
+        ...reasonFields,
       });
 
       if (feeToCharge > 0) {
@@ -2680,15 +2713,8 @@ export default function JobDetail() {
               <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={cleanAddress(job.address)}>
                 {cleanAddress(job.address)}
               </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-primary hover:bg-primary/10 rounded-lg p-0 shrink-0"
-                onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}`, '_blank')}
-                title="Plan Route"
-              >
-                <Navigation className="w-3.5 h-3.5" />
-              </Button>
+              {/* "Plan Route" maps button removed pending backend-driven default
+                  navigation provider. Address text is preserved. */}
             </div>
           </div>
 
@@ -2756,8 +2782,8 @@ export default function JobDetail() {
                       Protocol: Cancel
                     </DropdownMenuItem>
 
-                    <DropdownMenuItem 
-                      onSelect={() => handleMarkAsMissed("missed")} 
+                    <DropdownMenuItem
+                      onSelect={() => setMissedReasonKind("missed")}
                       className="text-amber-500 font-bold focus:bg-amber-500/10 focus:text-amber-400 rounded-xl cursor-pointer"
                       disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid" || job.status === "missed"}
                     >
@@ -2765,8 +2791,8 @@ export default function JobDetail() {
                       Mark Missed Job
                     </DropdownMenuItem>
 
-                    <DropdownMenuItem 
-                      onSelect={() => handleMarkAsMissed("no_show")} 
+                    <DropdownMenuItem
+                      onSelect={() => setMissedReasonKind("no_show")}
                       className="text-amber-600 font-bold focus:bg-amber-600/10 focus:text-amber-500 rounded-xl cursor-pointer"
                       disabled={job.status === "canceled" || job.status === "completed" || job.status === "paid" || job.status === "no_show"}
                     >
@@ -4704,13 +4730,68 @@ export default function JobDetail() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+      <AlertDialog
+        open={showCancelDialog}
+        onOpenChange={(open) => {
+          setShowCancelDialog(open);
+          if (!open) {
+            // Reset reason inputs when the dialog closes so a future attempt
+            // starts clean.
+            setCancelReasonText("");
+            setCancelReasonCategory("client_request");
+          }
+        }}
+      >
         <AlertDialogContent className="bg-white rounded-2xl border-none shadow-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="font-black text-xl">Cancel Appointment?</AlertDialogTitle>
             <AlertDialogDescription className="space-y-4 pt-2">
-              <p>Are you sure you want to cancel this appointment? This action cannot be undone.</p>
-              
+              <p>Reason is required before the cancellation completes. It is saved with the job and feeds business analytics.</p>
+
+              {/* Track A: reason category selector */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Category</span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {([
+                    { v: "client_request", l: "Client requested" },
+                    { v: "weather", l: "Weather" },
+                    { v: "vehicle_unavailable", l: "Vehicle unavailable" },
+                    { v: "scheduling_conflict", l: "Scheduling conflict" },
+                    { v: "duplicate", l: "Duplicate booking" },
+                    { v: "other", l: "Other" },
+                  ] as { v: CancellationReasonResult["category"]; l: string }[]).map((c) => {
+                    const active = cancelReasonCategory === c.v;
+                    return (
+                      <button
+                        key={c.v}
+                        type="button"
+                        onClick={() => setCancelReasonCategory(c.v)}
+                        className={cn(
+                          "rounded-lg border px-2.5 py-2 text-left text-[11px] font-bold transition-colors min-h-[40px]",
+                          active
+                            ? "border-red-300 bg-red-50 text-red-700"
+                            : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100",
+                        )}
+                      >
+                        {c.l}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Track A: free-text reason */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">What happened?</span>
+                <textarea
+                  value={cancelReasonText}
+                  onChange={(e) => setCancelReasonText(e.target.value)}
+                  rows={3}
+                  placeholder="Required — saved with the job"
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-200 resize-none"
+                />
+              </div>
+
               {job.cancellationFeeEnabled && (
                 <div className={cn(
                   "p-4 rounded-xl border",
@@ -4740,15 +4821,41 @@ export default function JobDetail() {
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
             <AlertDialogCancel className="font-bold rounded-xl">Keep Appointment</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={handleCancelJob}
-              className="bg-red-600 hover:bg-red-700 text-white font-black rounded-xl shadow-glow-red"
+              disabled={cancelReasonText.trim().length < 2 || isUpdating}
+              className={cn(
+                "bg-red-600 hover:bg-red-700 text-white font-black rounded-xl shadow-glow-red",
+                (cancelReasonText.trim().length < 2 || isUpdating) && "opacity-60 cursor-not-allowed",
+              )}
             >
               Confirm Cancellation
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Track A: shared reason dialog for "Mark Missed" / "Mark No-Show".
+          Cancel goes through its own dialog above so it can show the
+          cancellation-fee policy preview. */}
+      <CancellationReasonDialog
+        open={missedReasonKind !== null}
+        kind={(missedReasonKind ?? "missed") as CancellationKind}
+        busy={missedReasonSubmitting}
+        onOpenChange={(next) => {
+          if (!next && !missedReasonSubmitting) setMissedReasonKind(null);
+        }}
+        onSubmit={async (result) => {
+          if (!missedReasonKind) return;
+          setMissedReasonSubmitting(true);
+          try {
+            await handleMarkAsMissed(missedReasonKind, result);
+            setMissedReasonKind(null);
+          } finally {
+            setMissedReasonSubmitting(false);
+          }
+        }}
+      />
 
       {/* Manual Service Addition Dialog */}
       <Dialog open={showAddServiceDialog} onOpenChange={setShowAddServiceDialog}>

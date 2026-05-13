@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
   AlertCircle,
@@ -29,37 +30,47 @@ import type { FieldClient } from "../../services/fieldClient";
  * App.tsx.
  */
 
-function ClientCard({ c }: { c: FieldClient }) {
+function ClientCard({ c, onOpen }: { c: FieldClient; onOpen: (id: string) => void }) {
   return (
     <div
       className={cn(
         "w-full rounded-xl border border-white/5 bg-sidebar/60",
-        "px-2.5 py-2 min-h-[56px] flex items-center gap-2.5",
+        "min-h-[56px] flex items-stretch",
       )}
     >
-      <div className="shrink-0 w-9 h-9 rounded-md bg-[#0A4DFF]/15 ring-1 ring-[#0A4DFF]/30 flex items-center justify-center text-[10px] font-black text-[#0A4DFF] uppercase">
-        {c.name
-          .split(" ")
-          .map((n) => n[0])
-          .filter(Boolean)
-          .slice(0, 2)
-          .join("")}
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <p className="text-[12px] font-bold text-white truncate leading-tight">{c.name}</p>
-          {c.isVIP && <Star className="w-3 h-3 text-amber-400 shrink-0 fill-amber-400/70" />}
+      {/* Card body is now a tap target that opens the full client profile
+          via /clients?clientId=<id>. ClientsSwitch detects the param and
+          falls through to the full Clients page, which auto-opens the
+          detail dialog (no reduced phone-only profile). */}
+      <button
+        type="button"
+        onClick={() => onOpen(c.id)}
+        className="flex-1 min-w-0 text-left px-2.5 py-2 flex items-center gap-2.5 hover:bg-sidebar/80 active:bg-sidebar transition-colors rounded-l-xl"
+      >
+        <div className="shrink-0 w-9 h-9 rounded-md bg-[#0A4DFF]/15 ring-1 ring-[#0A4DFF]/30 flex items-center justify-center text-[10px] font-black text-[#0A4DFF] uppercase">
+          {c.name
+            .split(" ")
+            .map((n) => n[0])
+            .filter(Boolean)
+            .slice(0, 2)
+            .join("")}
         </div>
-        {c.businessName && c.businessName !== c.name && (
-          <p className="text-[10px] text-white/45 font-medium truncate leading-tight">{c.businessName}</p>
-        )}
-        <p className="text-[10px] text-white/45 font-medium truncate leading-tight">
-          {c.phone || c.email || "No contact on file"}
-        </p>
-      </div>
 
-      <div className="shrink-0 flex items-center gap-1">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <p className="text-[12px] font-bold text-white truncate leading-tight">{c.name}</p>
+            {c.isVIP && <Star className="w-3 h-3 text-amber-400 shrink-0 fill-amber-400/70" />}
+          </div>
+          {c.businessName && c.businessName !== c.name && (
+            <p className="text-[10px] text-white/45 font-medium truncate leading-tight">{c.businessName}</p>
+          )}
+          <p className="text-[10px] text-white/45 font-medium truncate leading-tight">
+            {c.phone || c.email || "No contact on file"}
+          </p>
+        </div>
+      </button>
+
+      <div className="shrink-0 flex items-center gap-1 pr-1.5">
         {c.telUrl ? (
           <a
             href={c.telUrl}
@@ -109,6 +120,13 @@ function Disabled({ icon: Icon }: { icon: typeof Phone }) {
 export default function FieldClients() {
   const { clients, loading, error } = useClientsLive(50);
   const [q, setQ] = useState("");
+  const navigate = useNavigate();
+  const openProfile = useCallback(
+    (id: string) => {
+      navigate(`/clients?clientId=${encodeURIComponent(id)}&tab=overview`);
+    },
+    [navigate],
+  );
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -182,7 +200,7 @@ export default function FieldClients() {
 
       <div className="space-y-1.5">
         {filtered.map((c) => (
-          <ClientCard key={c.id} c={c} />
+          <ClientCard key={c.id} c={c} onOpen={openProfile} />
         ))}
       </div>
     </div>

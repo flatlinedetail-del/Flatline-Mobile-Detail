@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Outlet } from "react-router-dom";
-import { LogOut, Settings as SettingsIcon, HelpCircle, BarChart, MessageSquare, Wallet, ShieldCheck, ShieldAlert } from "lucide-react";
+import { LogOut, Settings as SettingsIcon, HelpCircle, BarChart, MessageSquare, Wallet, ShieldCheck, ShieldAlert, PlusCircle, UserPlus, FileText } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -61,6 +61,9 @@ export default function FieldModeLayout() {
   };
 
   const moreLinks: { name: string; href: string; icon: typeof SettingsIcon; adminOnly?: boolean }[] = [
+    { name: "Book Job", href: "/book-appointment", icon: PlusCircle },
+    { name: "Leads", href: "/leads", icon: UserPlus },
+    { name: "Smart Quotes", href: "/quotes", icon: FileText },
     { name: "Marketing", href: "/marketing", icon: MessageSquare },
     { name: "Expenses", href: "/expenses", icon: Wallet },
     { name: "Reports", href: "/reports", icon: BarChart, adminOnly: true },
