@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { collection, query, getDocs, doc, addDoc, updateDoc, serverTimestamp, orderBy, limit, where, onSnapshot } from "firebase/firestore";
+import { collection, query, getDocs, doc, addDoc, updateDoc, serverTimestamp, orderBy, limit, where, onSnapshot, getDoc, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
 import { boolish, normalizeRiskLevel, computeDepositRequirement } from "../lib/riskUtils";
@@ -57,6 +57,11 @@ import { geocodeAddress } from "../services/geocodingService";
 import { calculateDistance, calculateTravelFee } from "../services/travelService";
 import { BundleOffer, fetchClientBundles, saveBundleOffer, updateBundleStatus } from "../services/bundleService";
 import { createNotification } from "../services/notificationService";
+import { ProtectionRecommendationCard } from "../components/forms/ProtectionRecommendationCard";
+import { assessFormProtection, type RiskAssessment } from "../services/formRiskAssessment";
+import { getFormsAutomationGate, type AppConfig } from "../services/formsAutomationGate";
+import { DEFAULT_AI_SETTINGS, type AISettings } from "../services/aiControlService";
+import type { StudioFormTemplate } from "../types/waiver";
 
 // -------------------------
 
@@ -75,6 +80,12 @@ export default function BookAppointment() {
   const [addons, setAddons] = useState<any[]>([]);
   const [availableVehicles, setAvailableVehicles] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>(null);
+
+  // ── Smart Protection recommendation state (Phase 1, Slice 2) ──────────────
+  const [aiSettings, setAISettings] = useState<AISettings | null>(null);
+  const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
+  const [formTemplates, setFormTemplates] = useState<StudioFormTemplate[]>([]);
+  const [protectionDecision, setProtectionDecision] = useState<"pending" | "attach" | "skip">("pending");
 
   const [selectedCustomerId, setSelectedCustomerId] = useState(prefillClientId || "");
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
@@ -506,6 +517,32 @@ export default function BookAppointment() {
     }
     fetchData();
   }, [prefillLeadId]);
+
+  // Smart Protection: subscribe to AI settings (nested on settings/business),
+  // app_config/global (optional global kill switch), and active form templates.
+  // All optional — gate + assessment defaults are safe when any of these are
+  // unavailable.
+  useEffect(() => {
+    const unsubBusiness = onSnapshot(doc(db, "settings", "business"), (snap) => {
+      const data = snap.data() as { aiSettings?: Partial<AISettings> } | undefined;
+      setAISettings({ ...DEFAULT_AI_SETTINGS, ...(data?.aiSettings ?? {}) });
+    }, () => setAISettings({ ...DEFAULT_AI_SETTINGS }));
+
+    // app_config/global is intentionally read-once. The global kill switch
+    // is rare and admin-managed; live-subscribing isn't worth the listener.
+    getDoc(doc(db, "app_config", "global"))
+      .then((s) => setAppConfig((s.data() as AppConfig | undefined) ?? {}))
+      .catch(() => setAppConfig({}));
+
+    const unsubTemplates = onSnapshot(collection(db, "form_templates"), (snap) => {
+      setFormTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() } as StudioFormTemplate)));
+    }, (err) => {
+      console.warn("[BookAppointment] form_templates", err);
+      setFormTemplates([]);
+    });
+
+    return () => { unsubBusiness(); unsubTemplates(); };
+  }, []);
 
   useEffect(() => {
     if (selectedCustomerId) {
@@ -1215,6 +1252,18 @@ export default function BookAppointment() {
           client?.riskLevel ?? client?.risk_level ?? client?.riskStatus ??
           client?.clientRiskLevel ?? client?.riskManagement?.level
         ) ?? null,
+        // Smart Protection audit — persisted only when we ran an assessment.
+        ...(protectionAssessment ? {
+          formProtectionStatus: {
+            level: protectionAssessment.level,
+            recommendedTemplateIds: protectionAssessment.recommendedTemplateIds,
+            lastAssessedAt: Timestamp.now(),
+            ...(protectionDecision === "skip" ? {
+              dismissedAt: Timestamp.now(),
+              dismissedByUid: profile?.uid ?? "",
+            } : {}),
+          },
+        } : {}),
       };
 
       try {
@@ -1264,6 +1313,9 @@ export default function BookAppointment() {
           await updateDoc(docRef, { "reminders.confirmation": "skipped" });
         }
 
+        // Required-form auto-attach always runs — Smart Protection's
+        // Skip for Now dismisses only the optional recommendation card,
+        // never the rule-based requirements from resolveRequiredForms().
         try {
           const { loadActiveFormTemplates, resolveRequiredForms, createFormInstances } = await import("../services/formService");
           const templates = await loadActiveFormTemplates();
@@ -1274,6 +1326,20 @@ export default function BookAppointment() {
             client?.riskLevel || null,
             finalAmount,
           );
+          // Smart Protection axis-matched extras: only when the owner
+          // explicitly clicked Attach Recommended. Skip and no-interaction
+          // both suppress these — they're optional, not rule-matched.
+          if (protectionDecision === "attach" && protectionAssessment) {
+            const have = new Set(requirements.map(r => r.template.id));
+            for (const id of protectionAssessment.recommendedTemplateIds) {
+              if (have.has(id)) continue;
+              const t = templates.find(tpl => tpl.id === id);
+              if (t) {
+                requirements.push({ template: t, reason: "Recommended by Smart Protection", required: true });
+                have.add(id);
+              }
+            }
+          }
           if (requirements.length > 0) {
             await createFormInstances(docRef.id, client?.id || "walk-in", requirements, appointmentData.vehicleId);
           }
@@ -1301,6 +1367,63 @@ export default function BookAppointment() {
       setSaving(false);
     }
   };
+
+  // ── Smart Protection: derived gate + assessment ────────────────────────────
+  const protectionGate = useMemo(
+    () => getFormsAutomationGate(appConfig, aiSettings),
+    [appConfig, aiSettings],
+  );
+
+  const protectionClient = clients.find(c => c.id === selectedCustomerId);
+  const protectionTotal = useMemo(() => {
+    const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
+    return Math.max(0, baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal - discountAmount);
+  }, [baseAmount, travelFee, afterHoursFeeDisplay, customFees, discountAmount]);
+
+  const protectionAssessment: RiskAssessment | null = useMemo(() => {
+    if (!protectionGate.canShowRecommendations) return null;
+    if (selectedServices.length === 0 && selectedAddons.length === 0) return null;
+    // The assessor expects an Appointment-shaped object; build a draft from
+    // the current form state — we don't have an Appointment ID yet, that's
+    // fine, the function is pure and only reads fields.
+    const draftAppointment: any = {
+      serviceIds: selectedServices.map(s => s.id),
+      serviceNames: selectedServices.map(s => services.find(srv => srv.id === s.id)?.name).filter(Boolean),
+      addOnIds: selectedAddons.map(a => a.id),
+      addOnNames: selectedAddons.map(a => addons.find(ad => ad.id === a.id)?.name).filter(Boolean),
+      totalAmount: protectionTotal,
+      depositAmount: 0,
+      depositRequired: protectionClient?.requiresDeposit ?? false,
+      depositPaid: false,
+      customerNotes: notes ?? "",
+      internalNotes: "",
+      photos: { before: [], after: [], damage: [] },
+      clientRiskLevelAtBooking: protectionClient?.riskLevel ?? null,
+    };
+    return assessFormProtection({
+      appointment: draftAppointment,
+      client: protectionClient,
+      services,
+      addons,
+      templates: formTemplates,
+    });
+  }, [
+    protectionGate.canShowRecommendations,
+    selectedServices, selectedAddons,
+    services, addons,
+    formTemplates,
+    protectionTotal,
+    protectionClient,
+    notes,
+  ]);
+
+  const recommendedTemplateList = useMemo(() => {
+    if (!protectionAssessment) return [];
+    return protectionAssessment.recommendedTemplateIds
+      .map(id => formTemplates.find(t => t.id === id))
+      .filter((t): t is StudioFormTemplate => !!t)
+      .map(t => ({ id: t.id, title: t.title }));
+  }, [protectionAssessment, formTemplates]);
 
   if (loading) {
     return (
@@ -2452,6 +2575,18 @@ export default function BookAppointment() {
               </div>
             </div>
           </div>
+
+          {/* SMART PROTECTION RECOMMENDATION */}
+          {protectionAssessment && protectionAssessment.level !== "low" && (
+            <ProtectionRecommendationCard
+              assessment={protectionAssessment}
+              recommended={recommendedTemplateList}
+              decision={protectionDecision}
+              onAttach={() => setProtectionDecision("attach")}
+              onSkip={() => setProtectionDecision("skip")}
+              disabled={saving}
+            />
+          )}
 
           {/* 7. ACTIONS */}
           <div className="flex justify-end gap-4 pb-12">

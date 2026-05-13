@@ -17,6 +17,7 @@ import { AIDraftModal } from "../components/formsStudio/AIDraftModal";
 import { CustomerPreviewModal } from "../components/formsStudio/CustomerPreviewModal";
 import { BuilderDirections } from "../components/formsStudio/HelpUI";
 import FormsSetupWizard from "../components/FormsSetupWizard";
+import { SmartProtectionSettings } from "../components/forms/SmartProtectionSettings";
 import { cn } from "../lib/utils";
 
 type StudioView = "dashboard" | "templates" | "editor" | "rules" | "signed";
@@ -373,6 +374,10 @@ export default function FormsStudio({ embedded = false }: Props) {
           onViewSigned={() => setView("signed")}
           onOpenTemplates={() => setView("templates")}
         />
+      )}
+
+      {shouldShowMainUI && view === "dashboard" && (
+        <SmartProtectionSettings />
       )}
 
       {shouldShowMainUI && view === "templates" && (

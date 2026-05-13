@@ -15,7 +15,17 @@
  * Terms acceptance gates only AI document generation (Phase 2 work).
  */
 
-import type { AISettings } from "../types/aiSettings";
+// Structurally narrow shape: only the FormsStudio-relevant fields the gate
+// reads. Both AISettings declarations (src/types/aiSettings.ts and
+// src/services/aiControlService.ts) satisfy this via their Phase 1 Slice 1
+// additions. Avoids forcing the gate's parameter to one specific interface.
+export interface FormsAISettingsLike {
+  enableAIDocumentGeneration?: boolean;
+  enableFormRecommendations?: boolean;
+  enableOnlineBookingAutoAttach?: boolean;
+  formsAutomationMode?: "off" | "suggestions_only" | "owner_review_required" | "online_booking_auto_attach";
+  formsAITermsAcceptedVersion?: string;
+}
 
 export type FormsAutomationMode =
   | "off"
@@ -41,7 +51,7 @@ const DEFAULT_MODE: FormsAutomationMode = "suggestions_only";
 
 export function getFormsAutomationGate(
   appConfig: AppConfig | null | undefined,
-  aiSettings: AISettings | null | undefined,
+  aiSettings: FormsAISettingsLike | null | undefined,
 ): FormsAutomationGate {
   // 1. Global kill switch — defaults to true (enabled) when the app_config
   //    document is absent, so an unseeded environment doesn't silently
