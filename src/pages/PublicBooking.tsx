@@ -545,18 +545,25 @@ export default function PublicBooking() {
         
         const isWaitlisted = isTimeAvailable === false;
         
-        const notifyPromises = adminsSnap.docs.map(admin => 
+        const isBlockBooking = matchedRiskRule?.protectionLevel === "Block Booking";
+        const internalRiskNote = isBlockBooking
+          ? ` — 🚫 FLAGGED ACCOUNT (Block Booking${depositInfo.isRequired ? `, deposit ${formatCurrency(depositInfo.amount)}` : ""})`
+          : depositInfo.isRequired ? ` — ⚠️ DEPOSIT ${formatCurrency(depositInfo.amount)} required` : "";
+
+        const notifyPromises = adminsSnap.docs.map(admin =>
           createNotification({
             userId: admin.id,
-            title: isWaitlisted ? "Waitlist Request" : "New Booking Request",
+            title: isBlockBooking
+              ? "🚫 Flagged Account Booking — Review Required"
+              : isWaitlisted ? "Waitlist Request" : "New Booking Request",
             message: isWaitlisted
-              ? `${clientInfo.name} requested a booked time and selected a backup time.\nReq: ${format(new Date(scheduledAt), "MMM d, h:mm a")}\nBak: ${backupScheduledAt ? format(new Date(backupScheduledAt), "MMM d, h:mm a") : 'None'}${depositInfo.isRequired ? `\n⚠️ DEPOSIT REQUIRED: ${formatCurrency(depositInfo.amount)}` : ""}`
-              : `New booking request from ${clientInfo.name}${depositInfo.isRequired ? ` — ⚠️ DEPOSIT ${formatCurrency(depositInfo.amount)} required` : ""}\n${format(new Date(scheduledAt), "h:mm a")} - ${services.filter(s => selectedServices.includes(s.id)).map(s => s.name).join(", ")}`,
+              ? `${clientInfo.name} requested a booked time and selected a backup time.\nReq: ${format(new Date(scheduledAt), "MMM d, h:mm a")}\nBak: ${backupScheduledAt ? format(new Date(backupScheduledAt), "MMM d, h:mm a") : 'None'}${internalRiskNote}`
+              : `New booking request from ${clientInfo.name}${internalRiskNote}\n${format(new Date(scheduledAt), "h:mm a")} - ${services.filter(s => selectedServices.includes(s.id)).map(s => s.name).join(", ")}`,
             type: isWaitlisted ? "waitlist_request" : "new_booking_request",
             category: "Booking Requests",
             relatedId: docRef.id,
             relatedType: "appointment",
-            priority: "medium",
+            priority: isBlockBooking ? "high" : "medium",
             clientName: clientInfo.name,
             requestedDateTime: new Date(scheduledAt),
             backupDateTime: backupScheduledAt ? new Date(backupScheduledAt) : null,
@@ -1515,33 +1522,6 @@ export default function PublicBooking() {
                         )}
                       </div>
 
-                      {matchedRiskRule && (
-                        <div className={cn(
-                          "p-5 rounded-2xl border flex items-start gap-4 animate-in fade-in zoom-in",
-                          matchedRiskRule.protectionLevel === "High" ? "bg-red-50 border-red-200" : 
-                          matchedRiskRule.protectionLevel === "Block Booking" ? "bg-black border-red-900" : "bg-orange-50 border-orange-200"
-                        )}>
-                          <AlertCircle className={cn("w-6 h-6 shrink-0 mt-0.5", 
-                            matchedRiskRule.protectionLevel === "High" ? "text-red-600" : 
-                            matchedRiskRule.protectionLevel === "Block Booking" ? "text-red-500" : "text-orange-600"
-                          )} />
-                          <div>
-                            <p className={cn("text-xs font-black uppercase tracking-widest", 
-                              matchedRiskRule.protectionLevel === "High" ? "text-red-800" : 
-                              matchedRiskRule.protectionLevel === "Block Booking" ? "text-red-400" : "text-orange-800"
-                            )}>
-                              {matchedRiskRule.protectionLevel === "Block Booking" ? "RESTRICTED ACCOUNT" : `${matchedRiskRule.protectionLevel} Risk Detected`}
-                            </p>
-                            <p className={cn("text-sm font-bold mt-1", matchedRiskRule.protectionLevel === "Block Booking" ? "text-white" : "text-gray-800")}>
-                              {matchedRiskRule.protectionLevel === "Block Booking" 
-                                ? "This account has been restricted. We are not accepting new automated bookings for this client at this time. Please contact us directly."
-                                : <>Based on our risk management protocols, a deposit of <span className="text-primary font-black">{formatCurrency(depositInfo.amount)}</span> is required to secure this booking.</>
-                              }
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
                       <div className="flex items-start gap-3 p-5 bg-gray-50 rounded-2xl border border-gray-200 group transition-all">
                         <Checkbox id="agreement" className="mt-1 border-gray-400 data-[state=checked]:bg-primary data-[state=checked]:border-primary" required />
                         <Label htmlFor="agreement" className="text-sm leading-relaxed text-gray-800 font-bold cursor-pointer">
@@ -1555,10 +1535,10 @@ export default function PublicBooking() {
                           type="submit" 
                           form="booking-form"
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
-                          disabled={isSubmitting || matchedRiskRule?.protectionLevel === "Block Booking"}
+                          disabled={isSubmitting}
                         >
                           {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
-                          {matchedRiskRule?.protectionLevel === "Block Booking" ? "Account Restricted" : depositInfo.isRequired ? "Submit Request — Deposit Required" : "Submit Booking Request"}
+                          {depositInfo.isRequired ? "Submit Request — Deposit Required" : "Submit Booking Request"}
                         </Button>
                       </div>
                     </CardContent>
