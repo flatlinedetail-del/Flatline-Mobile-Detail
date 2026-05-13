@@ -1374,18 +1374,18 @@ export default function BookAppointment() {
           // explicitly clicked Attach Recommended. Skip and no-interaction
           // both suppress these — they're optional, not rule-matched.
           if (protectionDecision === "attach" && protectionAssessment) {
-            const have = new Set(requirements.map(r => r.template.id));
+            const have = new Set(allRequirements.map(r => r.template.id));
             for (const id of protectionAssessment.recommendedTemplateIds) {
               if (have.has(id)) continue;
               const t = templates.find(tpl => tpl.id === id);
               if (t) {
-                requirements.push({ template: t, reason: "Recommended by Smart Protection", required: true });
+                allRequirements.push({ template: t, reason: "Recommended by Smart Protection", required: true });
                 have.add(id);
               }
             }
           }
-          if (requirements.length > 0) {
-            await createFormInstances(docRef.id, client?.id || "walk-in", requirements, appointmentData.vehicleId);
+          if (allRequirements.length > 0) {
+            await createFormInstances(docRef.id, client?.id || "walk-in", allRequirements, appointmentData.vehicleId);
           }
 
           // Persist audit data when the user explicitly dismissed Smart Protection.
