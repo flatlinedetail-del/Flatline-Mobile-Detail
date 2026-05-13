@@ -2718,9 +2718,9 @@ export default function JobDetail() {
             </div>
           </div>
 
-          <div className="flex flex-col min-w-0 lg:border-l lg:border-white/5 lg:pl-6">
-            <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1">Status</span>
-            <div className="flex items-center flex-wrap gap-2 mt-0.5">
+          <div className="flex flex-col min-w-0 items-center lg:border-l lg:border-white/5 lg:pl-6">
+            <span className="text-[9px] text-white font-black uppercase tracking-[0.2em] mb-1 w-full text-center">Status</span>
+            <div className="flex items-center flex-wrap justify-center gap-2 mt-0.5">
               <Badge className={cn("text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded border-none w-fit shadow-md shrink-0", statusColors[job.status] || "bg-gray-500 text-white")}>
                 {job.status?.replace("_", " ")}
               </Badge>
@@ -2914,9 +2914,9 @@ export default function JobDetail() {
           </TabsList>
         </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 gap-y-12 items-start mt-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,_7fr)_minmax(360px,_3fr)] gap-8 gap-y-12 items-start mt-6">
         {/* Center Column: Operations & Intelligence - Now Primary Wide Area */}
-        <div className="lg:col-span-9 order-last lg:order-none min-w-0 pt-0">
+        <div className="order-last lg:order-none min-w-0 pt-0">
           <TabsContent value="ai_upsell" className="mt-0 space-y-12">
               <Card className="border-none shadow-xl bg-card rounded-3xl">
                 <CardHeader className="p-8 border-b border-white/5 bg-black/40">
@@ -3086,12 +3086,24 @@ export default function JobDetail() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <Button 
+                      <Button
+                        type="button"
                         onClick={async () => {
+                          console.log("[Revenue Optimization] Run clicked", {
+                            hasAssessment: technicianAssessment.trim() !== "",
+                            tagCount: assessmentTags.length,
+                            imageCount: assessmentImages.length,
+                            isGeneratingUpsells
+                          });
+
                           const hasAssessmentData = technicianAssessment.trim() !== "" || assessmentTags.length > 0 || assessmentImages.length > 0;
-                          if (!hasAssessmentData || isGeneratingUpsells) return;
-                          
-                          // Add debounce check
+                          if (!hasAssessmentData) {
+                            toast.error("Revenue Optimization needs assessment data — add technician notes, condition tags, or photos first.");
+                            return;
+                          }
+                          if (isGeneratingUpsells) return;
+
+                          // Debounce to prevent double-submit
                           const now = Date.now();
                           const lastAIAction = Number(localStorage.getItem('last_upsell_ai_action') || 0);
                           if (now - lastAIAction < 3000) {
@@ -3102,7 +3114,6 @@ export default function JobDetail() {
 
                           setIsGeneratingUpsells(true);
                           try {
-                            // STRUCTURED PAYLOAD EXTRACTION
                             const structuredPayload = {
                               services: job.serviceNames || [],
                               addOns: job.addOnNames || [],
@@ -3117,7 +3128,6 @@ export default function JobDetail() {
                               customerType: job.clientType || "Retail"
                             };
 
-                            console.log("[Revenue Protocol] Initializing High-Impact Analysis...");
                             const fullAssessmentContext = `${assessmentTags.length > 0 ? 'Tags: ' + assessmentTags.join(', ') + '. ' : ''}${technicianAssessment}`;
                             const response = await getRevenueOptimization(fullAssessmentContext, structuredPayload, productCosts, businessSettings, assessmentImages);
                             setRevenueProtocol(response);
@@ -3130,10 +3140,9 @@ export default function JobDetail() {
                               });
                             }
 
-                            // Cache the generated bundles to memory!
                             if (response.bundlingOpportunities && response.bundlingOpportunities.length > 0) {
                               const bundlesRef = collection(db, "bundle_offers");
-                              await Promise.all(response.bundlingOpportunities.map(b => 
+                              await Promise.all(response.bundlingOpportunities.map(b =>
                                 addDoc(bundlesRef, {
                                   clientId: job.clientId,
                                   vehicleId: activeVehicleId,
@@ -3151,31 +3160,39 @@ export default function JobDetail() {
                             }
 
                             toast.success("Revenue generation protocol synthesized!");
-                          } catch (err) {
-                            console.error("Revenue Protocol Error:", err);
-                            toast.error("Failed to generate strategic recommendations");
+                          } catch (err: any) {
+                            const reason = err?.message || String(err);
+                            console.error("[Revenue Optimization] Failed:", reason, err);
+                            toast.error(`Revenue Optimization failed: ${reason}`);
                           } finally {
                             setIsGeneratingUpsells(false);
                           }
                         }}
-                        disabled={isGeneratingUpsells || (technicianAssessment.trim() === "" && assessmentTags.length === 0 && assessmentImages.length === 0)}
+                        disabled={isGeneratingUpsells}
                         className="w-full h-14 bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-xl uppercase tracking-[0.2em] text-[10px]"
                       >
                         {isGeneratingUpsells ? <Loader2 className="w-5 h-5 animate-spin" /> : "Initiate Revenue Optimization"}
                       </Button>
 
-                      <Button 
+                      <Button
+                        type="button"
                         onClick={async () => {
+                          console.log("[Booking Intelligence] Run clicked", {
+                            jobId: job.id,
+                            isAnalyzingDeployment
+                          });
+
                           if (isAnalyzingDeployment) return;
-                          
+
                           setIsAnalyzingDeployment(true);
                           try {
                             const response = await analyzeDeployment(job);
                             setDeploymentInsights(response.insights);
                             toast.success("Booking Intelligence Generated!");
-                          } catch (err) {
-                            console.error("Booking Error:", err);
-                            toast.error("Failed to generate booking intelligence");
+                          } catch (err: any) {
+                            const reason = err?.message || String(err);
+                            console.error("[Booking Intelligence] Failed:", reason, err);
+                            toast.error(`Booking Intelligence failed: ${reason}`);
                           } finally {
                             setIsAnalyzingDeployment(false);
                           }
@@ -4282,7 +4299,7 @@ export default function JobDetail() {
         </div>
 
         {/* Right Column: Financials & Actions */}
-        <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-32 h-fit">
+        <div className="min-w-0 space-y-6 lg:sticky lg:top-32 h-fit">
 
           {job.status === "waitlisted" && (
             <Card className="border-none shadow-xl bg-orange-500/10 border border-orange-500/20 rounded-3xl overflow-hidden">
@@ -4328,9 +4345,9 @@ export default function JobDetail() {
           {/* Client Communication */}
           {job.status !== "requested" && job.status !== "canceled" && (
             <Card className="border-none shadow-xl bg-card rounded-3xl overflow-hidden">
-              <CardHeader className="bg-black/20 border-b border-white/5 p-6 flex flex-row items-center justify-between">
-                <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Client Communication</CardTitle>
-                <div className="flex items-center gap-4">
+              <CardHeader className="bg-black/20 border-b border-white/5 p-6 flex flex-row flex-wrap items-center justify-between gap-y-3">
+                <CardTitle className="text-[10px] font-black uppercase tracking-[0.2em] text-primary shrink-0">Client Communication</CardTitle>
+                <div className="flex flex-wrap items-center gap-3 min-w-0">
                   <Dialog open={showManualSmsDialog} onOpenChange={setShowManualSmsDialog}>
                     <DialogTrigger render={
                       <Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase tracking-widest border-primary/30 text-primary bg-primary/5 hover:bg-primary hover:text-white transition-all">
@@ -4389,8 +4406,8 @@ export default function JobDetail() {
                       </div>
                     </DialogContent>
                   </Dialog>
-                  <div className="flex items-center gap-2 border-l border-white/10 pl-4">
-                    <span className="text-[9px] font-black text-white uppercase tracking-[0.2em] hidden sm:inline">Automated Client Communication</span>
+                  <div className="flex items-center gap-2 border-l border-white/10 pl-4 shrink-0">
+                    <span className="text-[9px] font-black text-white uppercase tracking-[0.2em]">Automated Client Communication</span>
                     <Switch 
                       checked={!job.smsAutomationPaused || false}
                       onCheckedChange={toggleSmsAutomation}
