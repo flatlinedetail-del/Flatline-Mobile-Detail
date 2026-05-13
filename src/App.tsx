@@ -37,6 +37,8 @@ const AILeadEngine = lazy(() => import("./pages/AILeadEngine"));
 const Login = lazy(() => import("./pages/Login"));
 const FieldHome = lazy(() => import("./pages/fieldMode/FieldHome"));
 const ActiveJob = lazy(() => import("./pages/fieldMode/ActiveJob"));
+const FieldSchedule = lazy(() => import("./pages/fieldMode/FieldSchedule"));
+const FieldClients = lazy(() => import("./pages/fieldMode/FieldClients"));
 
 /**
  * Track A shell switch: phones get the simplified Field Mode shell,
@@ -57,6 +59,26 @@ function ShellSwitch() {
 function IndexSwitch() {
   const isPhone = useIsPhone();
   return isPhone ? <FieldHome /> : <Dashboard />;
+}
+
+/**
+ * Track A /calendar switch: phones get the compact FieldSchedule
+ * stacked-card view. Tablet and desktop keep the full Calendar grid.
+ * No routes removed — the underlying URL is identical for both.
+ */
+function CalendarSwitch() {
+  const isPhone = useIsPhone();
+  return isPhone ? <FieldSchedule /> : <Calendar />;
+}
+
+/**
+ * Track A /clients switch: phones get the compact FieldClients
+ * cards list. Tablet and desktop keep the full Clients management
+ * page. Same URL, different chrome.
+ */
+function ClientsSwitch() {
+  const isPhone = useIsPhone();
+  return isPhone ? <FieldClients /> : <Clients />;
 }
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -113,7 +135,7 @@ function AppContent() {
             <Route index element={<IndexSwitch />} />
             <Route path="leads" element={<Leads />} />
             <Route path="leads/engine" element={<AILeadEngine />} />
-            <Route path="clients" element={<Clients />} />
+            <Route path="clients" element={<ClientsSwitch />} />
             <Route path="protected-clients" element={<ProtectedClients />} />
             {/* Communications is no longer a primary tab — keep the route
                 accessible only as a redirect for any old in-app links and
@@ -122,7 +144,7 @@ function AppContent() {
             <Route path="communications" element={<Navigate to="/clients" replace />} />
             <Route path="waitlist" element={<Waitlist />} />
             <Route path="book-appointment" element={<BookAppointment />} />
-            <Route path="calendar" element={<Calendar />} />
+            <Route path="calendar" element={<CalendarSwitch />} />
             <Route path="calendar/:id" element={<JobDetail />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="quotes" element={<Quotes />} />
