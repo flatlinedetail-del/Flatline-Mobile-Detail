@@ -17,6 +17,8 @@ import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtils";
 import Logo from "../components/Logo";
+import { calculateDistance, calculateTravelFee } from "../services/travelService";
+import { geocodeAddress } from "../services/geocodingService";
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
 
@@ -479,7 +481,15 @@ export default function PublicBooking() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         customerType: "retail",
-        baseAmount: totalPrice,
+        baseAmount: serviceSubtotal,
+        travelFee,
+        estimatedTravelDistance: travelCalc.miles,
+        travelFeeBreakdown: travelFee > 0 ? {
+          miles: travelCalc.miles,
+          rate: settings?.travelPricing?.pricePerMile ?? 0,
+          adjustment: 0,
+          isRoundTrip: !!settings?.travelPricing?.roundTripToggle,
+        } : null,
         totalBeforeDiscount: totalPrice,
         discountAmount: discountAmount,
         totalAfterDiscount: finalTotal,
@@ -586,7 +596,7 @@ export default function PublicBooking() {
     return dur;
   }, [selectedServices, services]);
 
-   const totalPrice = useMemo(() => {
+   const serviceSubtotal = useMemo(() => {
      let price = 0;
      selectedServices.forEach(id => {
         const s = services.find(x => x.id === id);
@@ -599,7 +609,43 @@ export default function PublicBooking() {
      return price;
   }, [selectedServices, selectedAddons, services, addons]);
 
-  // Compute discount from applied coupon
+  // Travel fee — computed from the customer's service address to the
+  // business's private travel origin (travelStart*) when set, otherwise
+  // baseLatitude/baseLongitude. The origin address itself is never shown
+  // to the customer; only the fee and distance appear in the summary.
+  const travelCalc = useMemo(() => {
+    if (!settings?.travelPricing?.enabled) return { fee: 0, miles: 0, zoneName: "" };
+    const originLat = settings.travelStartLatitude ?? settings.baseLatitude;
+    const originLng = settings.travelStartLongitude ?? settings.baseLongitude;
+    if (!originLat || !originLng) return { fee: 0, miles: 0, zoneName: "" };
+    if (!clientInfo.lat || !clientInfo.lng) return { fee: 0, miles: 0, zoneName: "" };
+    const distance = calculateDistance(originLat, originLng, clientInfo.lat, clientInfo.lng);
+    const result = calculateTravelFee(distance, settings.travelPricing, { lat: clientInfo.lat, lng: clientInfo.lng });
+    return { fee: result.fee, miles: result.miles, zoneName: result.zoneName };
+  }, [settings, clientInfo.lat, clientInfo.lng]);
+  const travelFee = travelCalc.fee;
+
+  // Geocoding fallback — if the customer typed an address without selecting
+  // a Google suggestion, lat/lng come in as 0. Debounce-geocode once the
+  // address stops changing so the travel fee can still be shown in review.
+  useEffect(() => {
+    if (!clientInfo.address) return;
+    if (clientInfo.lat && clientInfo.lng) return;
+    const handle = setTimeout(() => {
+      geocodeAddress(clientInfo.address)
+        .then(({ lat, lng }) => {
+          if (lat && lng) {
+            setClientInfo(prev => (prev.lat || prev.lng ? prev : { ...prev, lat, lng }));
+          }
+        })
+        .catch(() => { /* geocoding is best-effort */ });
+    }, 700);
+    return () => clearTimeout(handle);
+  }, [clientInfo.address, clientInfo.lat, clientInfo.lng]);
+
+  const totalPrice = serviceSubtotal + travelFee;
+
+  // Compute discount from applied coupon (applied to subtotal + travel)
   const discountAmount = useMemo(() => {
     if (!appliedCoupon) return 0;
     if (appliedCoupon.discountType === "percentage") {
@@ -837,7 +883,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(1)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" onClick={() => setStep(1)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-neutral-900 font-bold h-12 px-8 text-lg text-white"
@@ -949,7 +995,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(2)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" onClick={() => setStep(2)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
@@ -1029,7 +1075,7 @@ export default function PublicBooking() {
                       )}
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(3)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" onClick={() => setStep(3)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
@@ -1184,7 +1230,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(4)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" onClick={() => setStep(4)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105 disabled:opacity-50"
@@ -1253,7 +1299,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(5)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" onClick={() => setStep(5)}>Back</Button>
                         <Button 
                           type="button" 
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
@@ -1317,6 +1363,15 @@ export default function PublicBooking() {
                                 </div>
                               )
                            })}
+                           {travelFee > 0 && (
+                             <div className="flex justify-between items-start text-sm pt-2 border-t border-gray-100">
+                               <span className="font-bold text-gray-700 flex items-center gap-1.5">
+                                 <Truck className="w-3.5 h-3.5 text-gray-500" />
+                                 Travel Fee{travelCalc.miles ? ` (~${travelCalc.miles.toFixed(1)} mi)` : ""}
+                               </span>
+                               <span className="font-black text-gray-700">{formatCurrency(travelFee)}</span>
+                             </div>
+                           )}
                         </div>
                         <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
                            <div>
@@ -1436,7 +1491,7 @@ export default function PublicBooking() {
                       </div>
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
-                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border-gray-300 text-gray-700" onClick={() => setStep(6)}>Back</Button>
+                        <Button type="button" variant="outline" className="font-bold h-12 px-8 border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" onClick={() => setStep(6)}>Back</Button>
                         <Button 
                           type="submit" 
                           form="booking-form"
@@ -1598,6 +1653,15 @@ export default function PublicBooking() {
                                 </div>
                               )
                            })}
+                           {travelFee > 0 && (
+                             <div className="flex justify-between items-start text-sm pt-2 border-t border-gray-100">
+                               <span className="font-bold text-gray-700 flex items-center gap-1.5">
+                                 <Truck className="w-3.5 h-3.5 text-gray-500" />
+                                 Travel Fee{travelCalc.miles ? ` (~${travelCalc.miles.toFixed(1)} mi)` : ""}
+                               </span>
+                               <span className="font-black text-gray-700">{formatCurrency(travelFee)}</span>
+                             </div>
+                           )}
                         </div>
                         {discountAmount > 0 && (
                           <div className="flex justify-between items-center text-sm pt-1 border-t border-gray-100">
