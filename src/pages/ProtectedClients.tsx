@@ -272,6 +272,39 @@ export default function ProtectedClients() {
         setProtectedClients(prev => [{ id: ref.id, ...data } as any, ...prev]);
         toast.success("Risk profile created");
       }
+
+      // ── Sync linked client riskLevel (upgrade-only) ────────────────────────
+      // When this PC rule is tied to a client record, ensure that record's
+      // riskLevel is at least as high as the protection level so internal booking
+      // flows enforce deposits correctly. Only upgrade — never downgrade.
+      if (data.linkedClientId) {
+        const _pcLevelMap: Record<string, "low" | "medium" | "high"> = {
+          Low: "low",
+          Med: "medium",
+          Medium: "medium",
+          High: "high",
+          "Block Booking": "high",
+        };
+        const _syncLevel = _pcLevelMap[data.protectionLevel as string] ?? null;
+        if (_syncLevel) {
+          const _riskRank: Record<string, number> = { low: 1, medium: 2, high: 3 };
+          try {
+            const _clientSnap = await getDoc(doc(db, "clients", data.linkedClientId));
+            const _current = (_clientSnap.data()?.riskLevel as string) || "";
+            if ((_riskRank[_syncLevel] ?? 0) > (_riskRank[_current] ?? 0)) {
+              await updateDoc(doc(db, "clients", data.linkedClientId), {
+                riskLevel: _syncLevel,
+                updatedAt: serverTimestamp(),
+              });
+            }
+          } catch (syncErr) {
+            console.warn("[ProtectedClients] Failed to sync client riskLevel:", syncErr);
+            toast.warning("Risk profile saved. Client record sync failed — update the client risk level manually.");
+          }
+        }
+      }
+      // ──────────────────────────────────────────────────────────────────────
+
       setIsDialogOpen(false);
       setEditingClient(null);
     } catch (error) {
