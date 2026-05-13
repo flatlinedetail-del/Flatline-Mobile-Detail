@@ -1173,26 +1173,40 @@ export default function JobDetail() {
 
   const handleIntegratedPayment = async (invoice: any) => {
     if (!invoice) return;
-    
-    // Check if integratons are loaded
+
+    // Check if integrations are loaded
     if (!integrationSettings) {
       toast.error("Loading payment configuration...");
       return;
     }
 
     const integrations = integrationSettings?.paymentIntegrations || {};
-    const providers: PaymentProvider[] = ["clover", "stripe", "square", "paypal"];
-    const activeProvider = providers.find(p => integrations[p]?.enabled);
-    
-    if (!activeProvider) {
-      toast.error("Digital payment provider not configured in settings.");
+
+    // Card payments are routed to Stripe. Clover is removed from the active flow.
+    // Stripe takes priority; Square / PayPal kept as future options.
+    const providers: PaymentProvider[] = ["stripe", "square", "paypal"];
+    const activeProvider = providers.find(p => integrations[p]?.enabled) || "stripe";
+    const activeConfig = integrations[activeProvider];
+
+    if ((import.meta as any).env?.DEV) {
+      console.log("[Stripe Payment Start]", {
+        jobId: id,
+        invoiceId: invoice.id,
+        amount: invoice.total,
+        method: "card",
+        provider: activeProvider,
+      });
+    }
+
+    if (!activeConfig?.enabled) {
+      toast.error("Stripe is not configured. Add Stripe credentials before processing card payments.");
       return;
     }
-    
+
     try {
       toast.loading(`Initializing ${activeProvider}...`, { id: "payment" });
-      const result = await paymentService.processPayment(invoice, activeProvider, integrations[activeProvider]);
-      
+      const result = await paymentService.processPayment(invoice, activeProvider, activeConfig);
+
       if (result.success) {
         const invoiceRef = doc(db, "invoices", invoice.id);
         const paymentHistoryEntry = {
@@ -1210,8 +1224,8 @@ export default function JobDetail() {
           paymentHistory: arrayUnion(paymentHistoryEntry)
         };
         await updateDoc(invoiceRef, updateData);
-        setCurrentInvoice((prev: any) => prev ? { 
-          ...prev, 
+        setCurrentInvoice((prev: any) => prev ? {
+          ...prev,
           ...updateData,
           paymentHistory: [...(prev.paymentHistory || []), { ...paymentHistoryEntry, timestamp: new Date() }]
         } : null);
@@ -1224,11 +1238,12 @@ export default function JobDetail() {
           updateStatus("paid");
         }
       } else {
-        toast.error(result.error || "Payment failed", { id: "payment" });
+        const devSuffix = (import.meta as any).env?.DEV && result.error ? `: ${result.error}` : "";
+        toast.error(((import.meta as any).env?.DEV ? `Stripe payment failed${devSuffix}` : (result.error || "Unable to start Stripe payment. Please try again.")), { id: "payment" });
       }
     } catch (error) {
-      console.error("Payment error:", error);
-      toast.error("Unexpected error during integrated payment.", { id: "payment" });
+      console.error("[Stripe Payment Error]", error);
+      toast.error("Unable to start Stripe payment. Please try again.", { id: "payment" });
     }
   };
 
@@ -2544,7 +2559,7 @@ export default function JobDetail() {
   };
 
   return (
-    <div className="w-full space-y-8 pb-20">
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-20">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="flex items-center gap-6">
@@ -2586,34 +2601,42 @@ export default function JobDetail() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)_auto_auto] gap-x-6 gap-y-5 items-start">
           <div className="flex flex-col min-w-0">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Client Contact</span>
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {job.customerPhone && (
-                  <a href={`tel:${job.customerPhone}`} className="text-primary hover:text-red-400 transition-colors" title={job.customerPhone}>
-                    <Phone className="w-3.5 h-3.5" />
-                  </a>
-                )}
-                {job.customerEmail && (
-                  <a href={`mailto:${job.customerEmail}`} className="text-primary hover:text-red-400 transition-colors" title={job.customerEmail}>
-                    <Mail className="w-3.5 h-3.5" />
-                  </a>
-                )}
-              </div>
+            <span className="text-white font-black text-sm truncate uppercase tracking-tight">{getClientDisplayName(job)}</span>
+            <div className="flex items-center gap-2 mt-1">
+              {job.customerPhone && (
+                <a href={`tel:${job.customerPhone}`} className="text-primary hover:text-red-400 transition-colors">
+                  <Phone className="w-3 h-3" />
+                </a>
+              )}
+              {job.customerEmail && (
+                <a href={`mailto:${job.customerEmail}`} className="text-primary hover:text-red-400 transition-colors">
+                  <Mail className="w-3 h-3" />
+                </a>
+              )}
             </div>
           </div>
 
           <div className="flex flex-col min-w-0 lg:border-l lg:border-white/5 lg:pl-6">
             <span className="text-[9px] text-[#A0A0A0] font-black uppercase tracking-[0.2em] mb-1">Vehicle Information</span>
             <div className="flex flex-col">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-white font-black text-sm truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
-                  {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
-                </span>
+              <span className="text-white font-black text-xs truncate uppercase tracking-tight" title={job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}>
+                {job.vehicleInfo || (job.vehicleNames?.join(", ")) || "Asset"}
+              </span>
+              <div className="flex items-center gap-3 mt-1">
+                {job.vin && (
+                  <span className="text-[8px] font-mono text-[#A0A0A0] bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
+                    VIN: {job.vin.slice(-8)}
+                  </span>
+                )}
+                {job.roNumber && (
+                  <span className="text-[8px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 uppercase tracking-tighter">
+                    RO: {job.roNumber}
+                  </span>
+                )}
                 <Dialog>
                   <DialogTrigger render={
-                    <Button variant="ghost" size="icon" className="h-5 w-5 text-primary hover:bg-primary/10 rounded-md p-0 shrink-0" title="Edit Vehicle / VIN / RO">
-                      <Zap className="w-3.5 h-3.5" />
+                    <Button variant="ghost" size="icon" className="h-4 w-4 text-white/20 hover:text-primary transition-colors">
+                      <Zap className="w-3 h-3" />
                     </Button>
                   } />
                   <DialogContent className="max-w-md bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] shadow-2xl p-0 overflow-hidden">
@@ -2690,20 +2713,6 @@ export default function JobDetail() {
                   </DialogContent>
                 </Dialog>
               </div>
-              {(job.vin || job.roNumber) && (
-                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                  {job.vin && (
-                    <span className="text-[8px] font-mono text-[#A0A0A0] bg-white/5 px-1.5 py-0.5 rounded border border-white/5 uppercase tracking-tighter" title={`VIN: ${job.vin}`}>
-                      VIN: {job.vin.slice(-8)}
-                    </span>
-                  )}
-                  {job.roNumber && (
-                    <span className="text-[8px] font-mono text-primary/60 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 uppercase tracking-tighter">
-                      RO: {job.roNumber}
-                    </span>
-                  )}
-                </div>
-              )}
             </div>
           </div>
 
@@ -5253,7 +5262,7 @@ export default function JobDetail() {
                 </div>
                 <div className="text-left">
                   <span className="block font-black uppercase tracking-tight text-sm">Credit / Debit Card</span>
-                  <span className="block text-[9px] text-black font-bold uppercase tracking-widest">Process via Terminal</span>
+                  <span className="block text-[9px] text-black font-bold uppercase tracking-widest">Process securely with Stripe</span>
                 </div>
               </div>
               <ChevronLeft className="w-4 h-4 rotate-180" />
