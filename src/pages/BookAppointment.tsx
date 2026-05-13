@@ -230,6 +230,43 @@ export default function BookAppointment() {
     setActiveDepositAmount(depositReq.required ? depositReq.amount : 0);
   }, [clients, selectedCustomerId, baseAmount, travelFee, afterHoursFeeDisplay, customFees, selectedServices, services, settings, discountAmount]);
 
+  // Pre-load optional (Smart Protection) form templates so the recommendation card
+  // can be displayed before the user clicks "Confirm Booking".
+  // Required-form resolution happens again inside handleSave for accuracy at save time.
+  useEffect(() => {
+    if (selectedServices.length === 0) {
+      setOptionalFormTemplates([]);
+      setProtectionChoice("pending");
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        const { loadActiveFormTemplates, resolveRequiredForms } = await import("../services/formService");
+        const allTpls = await loadActiveFormTemplates();
+        const clientForForms = clients.find(c => c.id === selectedCustomerId) ?? null;
+        const reqs = resolveRequiredForms(
+          allTpls,
+          selectedServices.map(s => s.id),
+          selectedAddons.map(a => a.id),
+          clientForForms?.riskLevel || null,
+          baseAmount,
+        );
+        const optional = reqs.filter(r => !r.required).map(r => r.template);
+        if (active) {
+          setOptionalFormTemplates(optional);
+          // Reset choice whenever the optional-form set changes so the card
+          // re-appears if the user adjusts their service selection.
+          setProtectionChoice("pending");
+        }
+      } catch {
+        /* non-blocking — form recommendation is advisory only */
+      }
+    })();
+    return () => { active = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedServices, selectedAddons, selectedCustomerId]);
+
   const [timingRecommendations, setTimingRecommendations] = useState<ServiceTimingOutput[]>([]);
   const [fetchingTiming, setFetchingTiming] = useState(false);
 
@@ -237,6 +274,13 @@ export default function BookAppointment() {
   const [savedBundles, setSavedBundles] = useState<BundleOffer[]>([]);
   const [generatedBundles, setGeneratedBundles] = useState<BundleOffer[]>([]);
   const [fetchingBundles, setFetchingBundles] = useState(false);
+
+  // Smart Protection optional-form recommendation state.
+  // "pending" = card visible (user has not yet decided)
+  // "attach"  = user chose Attach Recommended
+  // "skip"    = user chose Skip for Now (audit saved on booking)
+  const [protectionChoice, setProtectionChoice] = useState<"pending" | "attach" | "skip">("pending");
+  const [optionalFormTemplates, setOptionalFormTemplates] = useState<any[]>([]);
 
   // Smart Booking 2.0 State
   const [smartRecommendations, setSmartRecommendations] = useState<SmartRecommendation[]>([]);
@@ -1319,7 +1363,7 @@ export default function BookAppointment() {
         try {
           const { loadActiveFormTemplates, resolveRequiredForms, createFormInstances } = await import("../services/formService");
           const templates = await loadActiveFormTemplates();
-          const requirements = resolveRequiredForms(
+          const allRequirements = resolveRequiredForms(
             templates,
             appointmentData.serviceIds || [],
             appointmentData.addOnIds || [],
@@ -1342,6 +1386,16 @@ export default function BookAppointment() {
           }
           if (requirements.length > 0) {
             await createFormInstances(docRef.id, client?.id || "walk-in", requirements, appointmentData.vehicleId);
+          }
+
+          // Persist audit data when the user explicitly dismissed Smart Protection.
+          if (protectionDecision === "skip") {
+            await updateDoc(docRef, {
+              formProtectionStatus: {
+                dismissedAt: serverTimestamp(),
+                dismissedByUid: profile?.uid || null,
+              },
+            });
           }
         } catch (e) {
           console.error("Form instance creation failed (non-blocking):", e);
