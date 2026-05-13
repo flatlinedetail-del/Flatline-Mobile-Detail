@@ -476,7 +476,12 @@ export default function PublicBooking() {
         addOnIds: selectedAddons,
         addOnNames: addons.filter(a => selectedAddons.includes(a.id)).map(a => a.name),
         scheduledAt: new Date(scheduledAt),
-        status: isTimeAvailable === false ? "waitlisted" : "requested",
+        // Risk clients always route to pending_approval regardless of time availability.
+        // Waitlisted + risk: pending_approval wins; waitlistInfo still saved for context.
+        status: matchedRiskRule
+          ? "pending_approval"
+          : isTimeAvailable === false ? "waitlisted" : "requested",
+        pendingOwnerReview: !!matchedRiskRule,
         waitlistInfo,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -546,16 +551,21 @@ export default function PublicBooking() {
         const isWaitlisted = isTimeAvailable === false;
         
         const isBlockBooking = matchedRiskRule?.protectionLevel === "Block Booking";
+        const hasRisk = !!matchedRiskRule;
         const internalRiskNote = isBlockBooking
-          ? ` — 🚫 FLAGGED ACCOUNT (Block Booking${depositInfo.isRequired ? `, deposit ${formatCurrency(depositInfo.amount)}` : ""})`
-          : depositInfo.isRequired ? ` — ⚠️ DEPOSIT ${formatCurrency(depositInfo.amount)} required` : "";
+          ? ` — 🚫 FLAGGED (Block Booking${depositInfo.isRequired ? `, deposit ${formatCurrency(depositInfo.amount)}` : ""})`
+          : hasRisk
+            ? ` — ⚠️ ${matchedRiskRule.protectionLevel} risk${depositInfo.isRequired ? `, deposit ${formatCurrency(depositInfo.amount)} required` : ""} — pending owner review`
+            : depositInfo.isRequired ? ` — ⚠️ DEPOSIT ${formatCurrency(depositInfo.amount)} required` : "";
 
         const notifyPromises = adminsSnap.docs.map(admin =>
           createNotification({
             userId: admin.id,
             title: isBlockBooking
               ? "🚫 Flagged Account Booking — Review Required"
-              : isWaitlisted ? "Waitlist Request" : "New Booking Request",
+              : hasRisk
+                ? `⚠️ Risk Client Booking — Owner Review Required`
+                : isWaitlisted ? "Waitlist Request" : "New Booking Request",
             message: isWaitlisted
               ? `${clientInfo.name} requested a booked time and selected a backup time.\nReq: ${format(new Date(scheduledAt), "MMM d, h:mm a")}\nBak: ${backupScheduledAt ? format(new Date(backupScheduledAt), "MMM d, h:mm a") : 'None'}${internalRiskNote}`
               : `New booking request from ${clientInfo.name}${internalRiskNote}\n${format(new Date(scheduledAt), "h:mm a")} - ${services.filter(s => selectedServices.includes(s.id)).map(s => s.name).join(", ")}`,
@@ -563,7 +573,7 @@ export default function PublicBooking() {
             category: "Booking Requests",
             relatedId: docRef.id,
             relatedType: "appointment",
-            priority: isBlockBooking ? "high" : "medium",
+            priority: hasRisk ? "high" : "medium",
             clientName: clientInfo.name,
             requestedDateTime: new Date(scheduledAt),
             backupDateTime: backupScheduledAt ? new Date(backupScheduledAt) : null,
