@@ -2834,6 +2834,7 @@ export default function JobDetail() {
                 className={cn(
                   "mt-2 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 w-fit",
                   (currentInvoice?.paymentStatus || job?.paymentStatus) === "paid" ? "bg-emerald-600" :
+                  (currentInvoice?.paymentStatus || job?.paymentStatus) === "deposit_pending" ? "bg-amber-500" :
                   (currentInvoice?.paymentStatus || job?.paymentStatus) === "voided" ? "bg-amber-600" :
                   (currentInvoice?.paymentStatus || job?.paymentStatus) === "refunded" ? "bg-purple-600" :
                   "bg-gray-600"

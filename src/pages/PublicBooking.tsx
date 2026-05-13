@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { collection, query, addDoc, serverTimestamp, doc, getDoc, getDocs, where, Timestamp } from "firebase/firestore";
+import { collection, query, addDoc, updateDoc, serverTimestamp, doc, getDoc, getDocs, where, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -507,7 +507,40 @@ export default function PublicBooking() {
         grandTotal,
       });
       setGateResult(gate);
-      // ─────────────────────────────────────────────────────────────────────
+
+      // ── Sync matched client riskLevel (upgrade-only, fire-and-forget) ────────
+      // When the gate matched a protected-client record, ensure the corresponding
+      // clients/ document reflects at least that risk level so internal booking
+      // flows (Calendar, manual jobs) enforce deposits correctly.
+      // Rule: only upgrade, never downgrade. Failure must not block the booking.
+      if (gate.matchedClientId && gate.protectionLevel) {
+        const _pcLevelMap: Record<string, "low" | "medium" | "high"> = {
+          Low: "low",
+          Med: "medium",
+          Medium: "medium",
+          High: "high",
+          "Block Booking": "high",
+        };
+        const _syncLevel = _pcLevelMap[gate.protectionLevel] ?? null;
+        if (_syncLevel) {
+          const _riskRank: Record<string, number> = { low: 1, medium: 2, high: 3 };
+          (async () => {
+            try {
+              const _clientSnap = await getDoc(doc(db, "clients", gate.matchedClientId!));
+              const _current = (_clientSnap.data()?.riskLevel as string) || "";
+              if ((_riskRank[_syncLevel] ?? 0) > (_riskRank[_current] ?? 0)) {
+                await updateDoc(doc(db, "clients", gate.matchedClientId!), {
+                  riskLevel: _syncLevel,
+                  updatedAt: serverTimestamp(),
+                });
+              }
+            } catch (syncErr) {
+              console.error("[BookingGate] Failed to sync client riskLevel:", syncErr);
+            }
+          })();
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
 
       const fullVehicleInfo = `${clientInfo.vehicleInfo} (${clientInfo.vehicleSize}) ${clientInfo.vehicleColor} ${clientInfo.vehiclePlate}`.trim();
 

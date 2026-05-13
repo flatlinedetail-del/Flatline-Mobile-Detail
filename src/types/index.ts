@@ -394,11 +394,20 @@ export interface Appointment extends SyncMetadata {
   depositPaymentProvider?: string;
   depositRequired?: boolean;
   depositReasons?: string[];
-  depositSource?: "risk" | "service" | "settings" | "mixed" | "none";
+  depositSource?: "risk" | "risk_rule" | "service" | "settings" | "mixed" | "none";
   clientRiskLevelAtBooking?: "low" | "medium" | "high" | null;
-  paymentStatus: "unpaid" | "partial" | "paid";
+  paymentStatus: "unpaid" | "partial" | "paid" | "deposit_pending" | "voided" | "refunded";
   paymentMethod?: "cash" | "card" | "venmo" | "check" | "invoice";
   commissionAmount?: number;
+  // ── Online booking gate fields ──────────────────────────────────────────────
+  bookingMode?: "instant_confirm" | "pending_owner_review" | "blocked_review" | "deposit_required";
+  pendingOwnerReview?: boolean;
+  matchedProtectedClientId?: string | null;
+  matchedClientId?: string | null;
+  protectedClientMatch?: boolean;
+  protectionLevel?: string | null;
+  riskReason?: string | null;
+  balanceDue?: number;
   completedTasks: Record<string, string[]>; // serviceName -> taskList
   internalNotes?: string;
   customerNotes?: string;
