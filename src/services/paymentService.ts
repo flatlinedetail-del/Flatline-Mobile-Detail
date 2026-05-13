@@ -15,7 +15,9 @@ export interface PaymentProviderConfig {
 
 /**
  * Modular Payment Service Layer
- * Supports Stripe, Square, PayPal, and Clover
+ * Active card provider: Stripe. Square and PayPal are stubs.
+ * Clover is deprecated — kept in the union only for legacy Firestore record compatibility
+ * and never routed to from the active payment flow.
  */
 class PaymentService {
   private static instance: PaymentService;
@@ -101,7 +103,21 @@ class PaymentService {
   }
 
   private async processStripe(invoice: Invoice, config: any): Promise<PaymentResult> {
-    return { success: false, error: "Payment system not configured" };
+    const publishableKey = config?.publishableKey?.trim();
+    const secretKey = config?.secretKey?.trim();
+    if (!publishableKey || !secretKey) {
+      return {
+        success: false,
+        error: "Stripe is not configured. Add Stripe credentials before processing card payments.",
+      };
+    }
+
+    // Stripe Checkout / PaymentIntent integration not yet wired to a backend.
+    // Do not fake a successful card payment.
+    return {
+      success: false,
+      error: "Unable to start Stripe payment. Please try again.",
+    };
   }
 
   private async processSquare(invoice: Invoice, config: any): Promise<PaymentResult> {
@@ -112,24 +128,13 @@ class PaymentService {
     return { success: false, error: "Payment system not configured" };
   }
 
-  private async processClover(invoice: Invoice, config: any): Promise<PaymentResult> {
-    try {
-      const response = await fetch("/api/payments/clover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: invoice.total, invoiceId: invoice.id })
-      });
-
-      if (!response.ok) {
-        throw new Error("Clover payment failed.");
-      }
-
-      const data = await response.json();
-      return { success: true, transactionId: data.transactionId };
-    } catch (error) {
-      console.error("Clover payment error:", error);
-      return { success: false, error: "Clover payment failed." };
-    }
+  // Clover is deprecated. The active card flow uses Stripe.
+  // This method intentionally never calls the legacy /api/payments/clover endpoint.
+  private async processClover(_invoice: Invoice, _config: any): Promise<PaymentResult> {
+    return {
+      success: false,
+      error: "Clover has been removed. Use Stripe for card payments.",
+    };
   }
 }
 

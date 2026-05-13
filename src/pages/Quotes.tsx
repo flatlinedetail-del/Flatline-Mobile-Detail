@@ -152,6 +152,13 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   // Which line's dropdown is open (by product cost id)
   const [openCatalogFor, setOpenCatalogFor] = useState<string | null>(null);
 
+  // Deterministic note analysis — feeds Detected Conditions UI and AI prompt context.
+  // Never AI-gated; runs locally on every jobDescription change.
+  const noteAnalysis: NoteAnalysis = useMemo(
+    () => analyzeJobNotes(jobDescription || ""),
+    [jobDescription]
+  );
+
   useEffect(() => {
     const fetchSettings = async () => {
       try {
