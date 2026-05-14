@@ -8,7 +8,7 @@ import {
   query,
 } from "firebase/firestore";
 import { db } from "../../firebase";
-import { cn } from "@/lib/utils";
+import { cn, toJsDateOrNull } from "@/lib/utils";
 import {
   AlertCircle,
   ChevronRight,
@@ -40,7 +40,11 @@ interface FieldInvoiceRow {
 }
 
 function toRow(id: string, data: Record<string, unknown>): FieldInvoiceRow {
-  const created = data.createdAt as { toMillis?: () => number } | undefined;
+  // Some legacy invoice docs store `createdAt` as an ISO string or numeric
+  // millis instead of a Firestore Timestamp. Use the shared safe-date helper
+  // so the mobile list never crashes the way Invoices.tsx did with
+  // `inv.createdAt.toDate is not a function`.
+  const d = toJsDateOrNull(data.createdAt);
   return {
     id,
     invoiceNumber: (data.invoiceNumber as string | undefined) || undefined,
@@ -48,7 +52,7 @@ function toRow(id: string, data: Record<string, unknown>): FieldInvoiceRow {
     total: typeof data.total === "number" ? (data.total as number) : 0,
     status: String(data.status ?? "draft"),
     paymentStatus: String(data.paymentStatus ?? "unpaid"),
-    createdAtMs: typeof created?.toMillis === "function" ? created.toMillis() : 0,
+    createdAtMs: d ? d.getTime() : 0,
   };
 }
 
