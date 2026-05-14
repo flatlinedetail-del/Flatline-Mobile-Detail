@@ -130,6 +130,15 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const [complexity, setComplexity] = useState(3);
   const [jobDescription, setJobDescription] = useState("");
 
+  // Deterministic note analysis — runs before every AI call so Gemini receives
+  // structured condition signals and the UI can show detected conditions even
+  // when the AI step is skipped. analyzeJobNotes returns a stable EMPTY object
+  // when notes are blank, so this never crashes or returns undefined.
+  const noteAnalysis = useMemo(
+    () => analyzeJobNotes(jobDescription),
+    [jobDescription],
+  );
+
   // Pricing State
   const [customPrice, setCustomPrice] = useState<number | null>(null);
   const [isPriceCustomized, setIsPriceCustomized] = useState(false);
