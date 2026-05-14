@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { GoogleMapsProvider } from "./components/GoogleMapsProvider";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -39,6 +39,9 @@ const FieldHome = lazy(() => import("./pages/fieldMode/FieldHome"));
 const ActiveJob = lazy(() => import("./pages/fieldMode/ActiveJob"));
 const FieldSchedule = lazy(() => import("./pages/fieldMode/FieldSchedule"));
 const FieldClients = lazy(() => import("./pages/fieldMode/FieldClients"));
+const FieldInvoices = lazy(() => import("./pages/fieldMode/FieldInvoices"));
+const FieldLeads = lazy(() => import("./pages/fieldMode/FieldLeads"));
+const FieldQuotes = lazy(() => import("./pages/fieldMode/FieldQuotes"));
 
 /**
  * Track A shell switch: phones get the simplified Field Mode shell,
@@ -72,13 +75,61 @@ function CalendarSwitch() {
 }
 
 /**
- * Track A /clients switch: phones get the compact FieldClients
- * cards list. Tablet and desktop keep the full Clients management
- * page. Same URL, different chrome.
+ * Track A /clients switch: phones get the compact FieldClients cards
+ * list, EXCEPT when a `clientId` URL param is present — in that case
+ * we fall through to the full `Clients` page (which natively reads
+ * the URL param via its deepLinkClientId effect and opens the detail
+ * dialog). This fixes "tapping a client doesn't open the profile" on
+ * phone while giving phone users every desktop feature inside the
+ * profile (not a reduced view).
+ *
+ * Tablet and desktop always get the full Clients page.
  */
 function ClientsSwitch() {
   const isPhone = useIsPhone();
-  return isPhone ? <FieldClients /> : <Clients />;
+  const { search } = useLocation();
+  const hasClientId = new URLSearchParams(search).get("clientId");
+  if (isPhone && !hasClientId) return <FieldClients />;
+  return <Clients />;
+}
+
+/**
+ * Track A /invoices switch: phones get the compact FieldInvoices list
+ * unless a `invoiceId` URL param is present, in which case the full
+ * Invoices page renders so the user can use every existing action
+ * (send, mark paid, PDF, refund). Tablet/desktop always full page.
+ */
+function InvoicesSwitch() {
+  const isPhone = useIsPhone();
+  const { search } = useLocation();
+  const hasInvoiceId = new URLSearchParams(search).get("invoiceId");
+  if (isPhone && !hasInvoiceId) return <FieldInvoices />;
+  return <Invoices />;
+}
+
+/**
+ * Track A /leads switch: same pattern — compact phone list, full
+ * desktop Leads page when a `leadId` URL param is set or on tablet/desktop.
+ */
+function LeadsSwitch() {
+  const isPhone = useIsPhone();
+  const { search } = useLocation();
+  const hasLeadId = new URLSearchParams(search).get("leadId");
+  if (isPhone && !hasLeadId) return <FieldLeads />;
+  return <Leads />;
+}
+
+/**
+ * Track A /quotes switch: same pattern — compact phone list, full
+ * Smart Quote page when a `quoteId` URL param is set or on tablet/desktop.
+ */
+function QuotesSwitch() {
+  const isPhone = useIsPhone();
+  const { search } = useLocation();
+  const hasQuoteId = new URLSearchParams(search).get("quoteId");
+  const hasNew = new URLSearchParams(search).get("new");
+  if (isPhone && !hasQuoteId && !hasNew) return <FieldQuotes />;
+  return <Quotes />;
 }
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -133,7 +184,7 @@ function AppContent() {
             }
           >
             <Route index element={<IndexSwitch />} />
-            <Route path="leads" element={<Leads />} />
+            <Route path="leads" element={<LeadsSwitch />} />
             <Route path="leads/engine" element={<AILeadEngine />} />
             <Route path="clients" element={<ClientsSwitch />} />
             <Route path="protected-clients" element={<ProtectedClients />} />
@@ -146,8 +197,8 @@ function AppContent() {
             <Route path="book-appointment" element={<BookAppointment />} />
             <Route path="calendar" element={<CalendarSwitch />} />
             <Route path="calendar/:id" element={<JobDetail />} />
-            <Route path="invoices" element={<Invoices />} />
-            <Route path="quotes" element={<Quotes />} />
+            <Route path="invoices" element={<InvoicesSwitch />} />
+            <Route path="quotes" element={<QuotesSwitch />} />
             <Route path="reports" element={<Reports />} />
             <Route path="help" element={<Help />} />
             <Route path="marketing" element={<Marketing />} />

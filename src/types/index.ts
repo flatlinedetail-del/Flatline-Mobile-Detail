@@ -366,7 +366,7 @@ export interface Appointment extends SyncMetadata {
   latitude?: number;
   longitude?: number;
   scheduledAt: Timestamp;
-  status: "scheduled" | "confirmed" | "en_route" | "in_progress" | "completed" | "paid" | "canceled" | "suggested" | "requested" | "pending_approval" | "approved" | "declined" | "reschedule_suggested";
+  status: "scheduled" | "confirmed" | "en_route" | "in_progress" | "completed" | "paid" | "canceled" | "no_show" | "missed" | "suggested" | "requested" | "pending_approval" | "approved" | "declined" | "reschedule_suggested";
   technicianId: string;
   technicianName: string;
   serviceIds: string[];
@@ -458,6 +458,19 @@ export interface Appointment extends SyncMetadata {
   cancellationFeeApplied?: number; // New
   cancellationTimestamp?: Timestamp; // New
   cancellationFeeProcessed?: boolean; // New: Prevents double charging
+  // Reason captured when a job is cancelled, marked no-show, or marked
+  // missed. Required UX-side before the status change completes. These
+  // feed business analytics (canceled / no_show / missed reason buckets).
+  cancellationReason?: string;
+  cancellationReasonCategory?: "client_request" | "weather" | "vehicle_unavailable" | "scheduling_conflict" | "duplicate" | "other";
+  noShowReason?: string;
+  missedReason?: string;
+  // Disabled when a job is cancelled / no-show / missed. Any UI surface
+  // that displays booking intelligence (smart scheduling rank, upsell
+  // recommendations, AI suggestions for THIS job) checks this flag and
+  // hides itself. Defaults to true on existing docs. Set explicitly to
+  // false when the appointment moves to cancelled / no_show / missed.
+  bookingIntelligenceActive?: boolean;
   weatherInfo?: {
     temp?: number;
     condition?: string;

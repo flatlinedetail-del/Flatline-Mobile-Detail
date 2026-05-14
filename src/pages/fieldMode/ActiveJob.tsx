@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   doc,
@@ -15,6 +15,9 @@ import {
   type FieldJob,
   type FieldJobStatus,
 } from "../../services/fieldJob";
+import { handleWaitlistRouting } from "../../services/waitlistRouting";
+import { isCancellationStatus } from "../../services/jobStatusFlow";
+import CancellationReasonDialog, { type CancellationKind, type CancellationReasonResult } from "../../components/CancellationReasonDialog";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -30,6 +33,8 @@ import {
   Receipt,
   MapPin,
   Sparkles,
+  UserX,
+  CalendarX,
 } from "lucide-react";
 
 /**
@@ -68,11 +73,18 @@ export default function ActiveJob() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [job, setJob] = useState<FieldJob | null>(null);
+  // Keep the raw Appointment alongside the FieldJob view-model so the
+  // cancellation-fee preview can read existing fields (cancellationFeeEnabled,
+  // cancellationCutoffHours, etc.) without re-fetching.
+  const [raw, setRaw] = useState<Appointment | null>(null);
   const [rawStatus, setRawStatus] = useState<FieldJobStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<FieldJobStatus | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  // Cancellation/no-show/missed reason dialog state.
+  const [reasonKind, setReasonKind] = useState<CancellationKind | null>(null);
+  const [reasonSubmitting, setReasonSubmitting] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -87,12 +99,14 @@ export default function ActiveJob() {
         if (!snap.exists()) {
           setError("Job not found");
           setJob(null);
+          setRaw(null);
           setRawStatus(null);
           setLoading(false);
           return;
         }
         const data = { id: snap.id, ...(snap.data() as object) } as Appointment;
         const mapped = toFieldJob(data);
+        setRaw(data);
         setJob(mapped);
         setRawStatus(mapped.status);
         setLoading(false);
@@ -106,6 +120,27 @@ export default function ActiveJob() {
     );
     return () => unsub();
   }, [id]);
+
+  // Cancellation-fee preview, mirroring the desktop JobDetail.tsx logic
+  // (this is a READ-ONLY display preview — the actual fee is computed
+  // and applied by the existing desktop code path on cancel; on phone
+  // we surface the same math so the technician knows before submitting).
+  const feePreview = useMemo(() => {
+    if (!raw || !raw.scheduledAt) return { willApply: false, amount: 0 };
+    const scheduledMs = (raw.scheduledAt as unknown as { toMillis?: () => number })?.toMillis?.() ?? 0;
+    if (!scheduledMs) return { willApply: false, amount: 0 };
+    const hoursUntilJob = (scheduledMs - Date.now()) / (1000 * 60 * 60);
+    const cutoff = typeof raw.cancellationCutoffHours === "number" ? raw.cancellationCutoffHours : 24;
+    const afterCutoff = hoursUntilJob < cutoff;
+    if (!raw.cancellationFeeEnabled || !afterCutoff) return { willApply: false, amount: 0 };
+    let fee = 0;
+    if (raw.cancellationFeeType === "percentage") {
+      fee = ((raw.totalAmount || 0) * (raw.cancellationFeeAmount || 0)) / 100;
+    } else {
+      fee = raw.cancellationFeeAmount || 0;
+    }
+    return { willApply: fee > 0, amount: fee };
+  }, [raw]);
 
   const onChangeStatus = useCallback(
     async (next: FieldJobStatus) => {
@@ -126,6 +161,71 @@ export default function ActiveJob() {
       }
     },
     [id, job],
+  );
+
+  /**
+   * Cancellation / no-show / missed flow. The status change is GATED on
+   * a reason being submitted via the shared CancellationReasonDialog.
+   *
+   * On submit we:
+   *   1. Write the reason field appropriate to the kind.
+   *   2. Set the status to the matching value.
+   *   3. Set `bookingIntelligenceActive: false` (item 8: once a job is
+   *      cancelled/no_show/missed, all per-job booking intelligence is
+   *      disabled across surfaces).
+   *   4. For cancellations: record cancellationTimestamp + cancellationStatus
+   *      reflecting whether a fee applies (we mirror the existing JobDetail
+   *      math so analytics agree; the desktop page's own fee handler still
+   *      runs for cancellations originating there).
+   *   5. After a successful cancellation, fire `handleWaitlistRouting`
+   *      so admins are notified if a waitlist candidate can fill the slot.
+   */
+  const onSubmitReason = useCallback(
+    async (result: CancellationReasonResult) => {
+      if (!id || !raw || !reasonKind) return;
+      setReasonSubmitting(true);
+      setUpdateError(null);
+      try {
+        const update: Record<string, unknown> = {
+          status: reasonKind,
+          updatedAt: serverTimestamp(),
+          bookingIntelligenceActive: false,
+        };
+        if (reasonKind === "canceled") {
+          update.cancellationReason = result.reason;
+          update.cancellationReasonCategory = result.category;
+          update.cancellationTimestamp = serverTimestamp();
+          update.cancellationStatus = feePreview.willApply ? "applied" : "none";
+          update.cancellationFeeApplied = feePreview.willApply ? feePreview.amount : 0;
+        } else if (reasonKind === "no_show") {
+          update.noShowReason = result.reason;
+          update.cancellationReasonCategory = result.category;
+        } else if (reasonKind === "missed") {
+          update.missedReason = result.reason;
+          update.cancellationReasonCategory = result.category;
+        }
+        await updateDoc(doc(db, "appointments", id), update);
+
+        if (reasonKind === "canceled") {
+          // Fire-and-forget waitlist notification; surface any error to the
+          // user without blocking the status change that already succeeded.
+          try {
+            await handleWaitlistRouting({ ...raw, id, status: "canceled" });
+          } catch (e) {
+            console.warn("[ActiveJob] waitlist routing failed (non-fatal)", e);
+          }
+        }
+
+        setReasonKind(null);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Update failed";
+        console.warn("[ActiveJob] reason submit failed", e);
+        setUpdateError(msg);
+      } finally {
+        setReasonSubmitting(false);
+      }
+    },
+    [id, raw, reasonKind, feePreview],
   );
 
   if (loading) {
@@ -233,23 +333,8 @@ export default function ActiveJob() {
         </section>
       )}
 
-      {/* Navigation */}
-      {job.address && (
-        <section aria-label="Navigation" className="space-y-1.5">
-          <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">Navigation</h2>
-          <div className="grid grid-cols-3 gap-1.5">
-            {job.appleMapsUrl && (
-              <ActionTile href={job.appleMapsUrl} icon={Navigation} label="Apple" tone="text-white" external />
-            )}
-            {job.googleMapsUrl && (
-              <ActionTile href={job.googleMapsUrl} icon={Navigation} label="Google" tone="text-emerald-400" external />
-            )}
-            {job.wazeUrl && (
-              <ActionTile href={job.wazeUrl} icon={Navigation} label="Waze" tone="text-sky-400" external />
-            )}
-          </div>
-        </section>
-      )}
+      {/* Navigation widgets removed pending the backend-driven default provider.
+          Address still renders in the summary card above. */}
 
       {/* Status controls */}
       <section aria-label="Status" className="space-y-1.5">
@@ -286,20 +371,43 @@ export default function ActiveJob() {
             );
           })}
         </div>
-        <button
-          type="button"
-          disabled={updating === "canceled" || rawStatus === "canceled"}
-          onClick={() => onChangeStatus("canceled")}
-          className={cn(
-            "w-full rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15",
-            "transition-colors px-2.5 py-2 min-h-[40px] flex items-center justify-center gap-1.5",
-            "text-[10px] font-black uppercase tracking-widest text-rose-300",
-            (updating === "canceled" || rawStatus === "canceled") && "opacity-60",
-          )}
-        >
-          <XCircle className="w-3.5 h-3.5" />
-          {rawStatus === "canceled" ? "Canceled" : "Cancel Job"}
-        </button>
+        {/* Cancellation / no-show / missed — three triggers, each opens
+            the shared reason dialog. The status change is GATED on a
+            reason being submitted. Disabled when the job is already in a
+            terminal cancellation-class state. */}
+        {!isCancellationStatus(rawStatus ?? "scheduled") && (
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setReasonKind("canceled")}
+              className="rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15 transition-colors px-2 py-2 min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-rose-300"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Cancel</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setReasonKind("no_show")}
+              className="rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15 transition-colors px-2 py-2 min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-rose-300"
+            >
+              <UserX className="w-3.5 h-3.5" />
+              <span className="text-[9px] font-black uppercase tracking-widest leading-none">No-show</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setReasonKind("missed")}
+              className="rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15 transition-colors px-2 py-2 min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-rose-300"
+            >
+              <CalendarX className="w-3.5 h-3.5" />
+              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Missed</span>
+            </button>
+          </div>
+        )}
+        {isCancellationStatus(rawStatus ?? "scheduled") && (
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 px-2.5 py-2 text-[10px] font-black uppercase tracking-widest text-rose-300 text-center">
+            {statusLabel(rawStatus!)} — booking intelligence disabled
+          </div>
+        )}
         {updateError && (
           <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-2 py-1.5 flex items-start gap-1.5">
             <AlertCircle className="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
@@ -309,28 +417,29 @@ export default function ActiveJob() {
       </section>
 
       {/* Upsell Intelligence — link to the existing feature.
-          The full Revenue Optimization / Upsell Intelligence panel lives
-          inside the desktop JobDetail page at /calendar/:id (powered by
-          getRevenueOptimization() in services/gemini.ts). It's not yet
-          re-implemented for the phone shell, so we surface a compact
-          card that taps through to the full feature where it works. */}
-      <section aria-label="Upsell Intelligence" className="space-y-1.5">
-        <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">Upsell Intelligence</h2>
-        <Link
-          to={`/calendar/${job.id}`}
-          className="flex items-center gap-2.5 w-full rounded-xl border border-violet-500/20 bg-violet-500/[0.06] hover:bg-violet-500/10 active:bg-violet-500/15 transition-colors px-2.5 py-2 min-h-[48px]"
-        >
-          <div className="shrink-0 w-8 h-8 rounded-md bg-violet-500/15 ring-1 ring-violet-500/30 flex items-center justify-center">
-            <Sparkles className="w-3.5 h-3.5 text-violet-300" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-bold text-white truncate leading-tight">Run Revenue Optimization</p>
-            <p className="text-[10px] text-white/55 leading-tight mt-0.5 break-words">
-              Opens the full Upsell Intelligence panel in job detail
-            </p>
-          </div>
-        </Link>
-      </section>
+          Hidden once the job is cancelled / no-show / missed, OR when
+          the booking-intelligence flag has been explicitly set to false
+          (item 8: no booking intelligence on a cancelled job). */}
+      {!isCancellationStatus(rawStatus ?? "scheduled") &&
+        raw?.bookingIntelligenceActive !== false && (
+          <section aria-label="Upsell Intelligence" className="space-y-1.5">
+            <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">Upsell Intelligence</h2>
+            <Link
+              to={`/calendar/${job.id}`}
+              className="flex items-center gap-2.5 w-full rounded-xl border border-violet-500/20 bg-violet-500/[0.06] hover:bg-violet-500/10 active:bg-violet-500/15 transition-colors px-2.5 py-2 min-h-[48px]"
+            >
+              <div className="shrink-0 w-8 h-8 rounded-md bg-violet-500/15 ring-1 ring-violet-500/30 flex items-center justify-center">
+                <Sparkles className="w-3.5 h-3.5 text-violet-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-bold text-white truncate leading-tight">Run Revenue Optimization</p>
+                <p className="text-[10px] text-white/55 leading-tight mt-0.5 break-words">
+                  Opens the full Upsell Intelligence panel in job detail
+                </p>
+              </div>
+            </Link>
+          </section>
+        )}
 
       {/* Open full job */}
       <section aria-label="Invoice" className="space-y-1.5">
@@ -348,6 +457,17 @@ export default function ActiveJob() {
           </div>
         </Link>
       </section>
+
+      <CancellationReasonDialog
+        open={reasonKind !== null}
+        kind={reasonKind ?? "canceled"}
+        feePreview={reasonKind === "canceled" ? feePreview : undefined}
+        busy={reasonSubmitting}
+        onOpenChange={(next) => {
+          if (!next && !reasonSubmitting) setReasonKind(null);
+        }}
+        onSubmit={onSubmitReason}
+      />
     </div>
   );
 }

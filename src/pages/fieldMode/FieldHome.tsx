@@ -5,7 +5,6 @@ import {
   Calendar as CalendarIcon,
   PlayCircle,
   Phone,
-  Navigation,
   CheckSquare,
   Car,
   Camera,
@@ -13,6 +12,9 @@ import {
   Sparkles,
   ChevronRight,
   AlertCircle,
+  Plus,
+  UserPlus,
+  FileText,
 } from "lucide-react";
 import { useTodayAppointments } from "../../hooks/useTodayAppointments";
 import { formatJobTime, statusLabel, type FieldJob, type FieldJobStatus } from "../../services/fieldJob";
@@ -251,30 +253,19 @@ export default function FieldHome() {
         </section>
       )}
 
-      {/* Quick actions — only render when there's an active job and the action is wired */}
-      {activeJob && (activeJob.telUrl || activeJob.googleMapsUrl) && (
+      {/* Quick actions — only render when there's an active job with a phone. The
+          maps-provider tile was removed pending the backend default-provider decision. */}
+      {activeJob?.telUrl && (
         <section aria-label="Quick Actions" className="space-y-1.5">
           <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">Quick Actions</h2>
-          <div className="grid grid-cols-2 gap-1.5">
-            {activeJob.telUrl && (
-              <Tile
-                title="Call"
-                subtitle={activeJob.phone}
-                icon={Phone}
-                tone="emerald"
-                href={activeJob.telUrl}
-              />
-            )}
-            {activeJob.googleMapsUrl && (
-              <Tile
-                title="Navigate"
-                subtitle={activeJob.address}
-                icon={Navigation}
-                tone="sky"
-                href={activeJob.googleMapsUrl}
-                external
-              />
-            )}
+          <div className="grid grid-cols-1 gap-1.5">
+            <Tile
+              title="Call"
+              subtitle={activeJob.phone}
+              icon={Phone}
+              tone="emerald"
+              href={activeJob.telUrl}
+            />
           </div>
         </section>
       )}
@@ -283,8 +274,11 @@ export default function FieldHome() {
       <section aria-label="Tools" className="space-y-1.5">
         <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">Tools</h2>
         <div className="grid grid-cols-2 gap-1.5">
+          <Tile title="Book Job" icon={Plus} tone="primary" to="/book-appointment" />
           <Tile title="Invoices" icon={Receipt} tone="emerald" to="/invoices" />
           <Tile title="Schedule" icon={CalendarIcon} tone="primary" to="/calendar" />
+          <Tile title="Leads" icon={UserPlus} tone="amber" to="/leads" />
+          <Tile title="Quotes" icon={FileText} tone="sky" to="/quotes" />
           <Tile title="Vehicle Info" icon={Car} tone="primary" comingSoon />
           <Tile title="Checklist" icon={CheckSquare} tone="emerald" comingSoon />
           <Tile title="Photos" icon={Camera} tone="rose" comingSoon />

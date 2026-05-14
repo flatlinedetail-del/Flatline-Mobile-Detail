@@ -1859,18 +1859,8 @@ export default function Calendar() {
 
   const [selectedDetailedApp, setSelectedDetailedApp] = useState<any>(null);
   const [selectedDayEvents, setSelectedDayEvents] = useState<{ day: Date, events: any[] } | null>(null);
-  const [navDialogApp, setNavDialogApp] = useState<any>(null);
   const [detailedAppVehicles, setDetailedAppVehicles] = useState<any[]>([]);
-
-  // Lock scroll when navigation modal is open
-  useEffect(() => {
-    if (navDialogApp) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [navDialogApp]);
+  // navDialogApp / setNavDialogApp removed alongside the maps provider-choice dialog.
 
   useEffect(() => {
     if (selectedDetailedApp?.vehicleIds?.length > 0) {
@@ -3992,86 +3982,8 @@ export default function Calendar() {
         </DialogContent>
       </Dialog>
 
-      {/* Navigation App Selection Modal */}
-      <AnimatePresence>
-        {navDialogApp && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setNavDialogApp(null)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="relative w-full max-w-xs bg-card border border-white/10 p-6 rounded-[2.5rem] shadow-2xl shadow-black z-[101]"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-black text-white tracking-tight">Navigate To</h3>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => setNavDialogApp(null)}
-                  className="h-8 w-8 rounded-full bg-white/5 text-white/50 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-
-              <div className="space-y-3">
-                <Button
-                  className="w-full h-14 bg-[#4285F4]/10 text-[#4285F4] hover:bg-[#4285F4]/20 border border-[#4285F4]/20 rounded-2xl font-bold uppercase tracking-widest text-[11px] justify-start px-5"
-                  onClick={() => {
-                    const encoded = encodeURIComponent(navDialogApp?.address || "");
-                    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`, '_blank');
-                    setNavDialogApp(null);
-                  }}
-                >
-                  <Map className="w-4 h-4 mr-3" />
-                  Google Maps
-                </Button>
-                <Button
-                  className="w-full h-14 bg-[#33CCFF]/10 text-[#33CCFF] hover:bg-[#33CCFF]/20 border border-[#33CCFF]/20 rounded-2xl font-bold uppercase tracking-widest text-[11px] justify-start px-5"
-                  onClick={() => {
-                    const encoded = encodeURIComponent(navDialogApp?.address || "");
-                    window.open(`https://waze.com/ul?q=${encoded}&navigate=yes`, '_blank');
-                    setNavDialogApp(null);
-                  }}
-                >
-                  <MapPin className="w-4 h-4 mr-3" />
-                  Waze
-                </Button>
-                <Button
-                  className="w-full h-14 bg-white/10 text-white hover:bg-white/20 border border-white/20 rounded-2xl font-bold uppercase tracking-widest text-[11px] justify-start px-5"
-                  onClick={() => {
-                    const encoded = encodeURIComponent(navDialogApp?.address || "");
-                    window.open(`https://maps.apple.com/?daddr=${encoded}`, '_blank');
-                    setNavDialogApp(null);
-                  }}
-                >
-                  <Navigation2 className="w-4 h-4 mr-3" />
-                  Apple Maps
-                </Button>
-                
-                <div className="pt-4 mt-2">
-                  <Button
-                    variant="ghost"
-                    className="w-full h-12 text-white/40 hover:text-white uppercase tracking-[0.2em] font-black text-[9px] rounded-xl"
-                    onClick={() => setNavDialogApp(null)}
-                  >
-                    Close Portal
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Navigation App Selection Modal removed — pending backend-driven
+          default-navigation-provider decision. */}
 
       {/* Detailed App / Dashboard View */}
       <Dialog open={!!selectedDetailedApp} onOpenChange={(val) => !val && setSelectedDetailedApp(null)}>
@@ -4253,15 +4165,9 @@ export default function Calendar() {
                     >
                       <Navigation2 className="w-3 h-3 mr-1.5" /> En Route
                     </Button>
-                    <Button 
-                      className="h-12 rounded-xl font-black uppercase tracking-widest text-[9px] shadow-lg transition-all bg-white/5 text-white hover:bg-white/20 border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
-                      onClick={() => setNavDialogApp(app)}
-                      disabled={!app.address}
-                      title={!app.address ? "No address available" : "Open in Maps"}
-                    >
-                      <Map className="w-3 h-3 mr-1.5" /> Navigate
-                    </Button>
-                    <Button 
+                    {/* "Navigate" provider-choice button removed pending backend
+                        default-navigation-provider decision. */}
+                    <Button
                       className={`h-12 rounded-xl font-black uppercase tracking-widest text-[9px] shadow-lg transition-all ${app.status === 'arrived' ? 'bg-orange-500 text-white ring-2 ring-orange-500 ring-offset-2 ring-offset-card' : 'bg-white/5 text-white hover:bg-orange-500/20 hover:text-orange-500 border border-white/10'}`}
                       onClick={() => handleJobStatusUpdate('arrived')}
                     >

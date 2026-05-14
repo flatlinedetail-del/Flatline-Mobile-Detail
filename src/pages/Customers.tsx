@@ -458,17 +458,7 @@ export default function Customers() {
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
                           <Label>Default Address</Label>
-                          {selectedCustomer.address && (
-                            <a 
-                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedCustomer.address)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] font-black text-primary flex items-center gap-1 hover:underline uppercase tracking-widest"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                              Open in Maps
-                            </a>
-                          )}
+                          {/* "Open in Maps" link removed pending backend-driven default navigation provider. */}
                         </div>
                         <CustomerAddressInput 
                           defaultValue={selectedCustomer.address}

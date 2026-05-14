@@ -610,17 +610,7 @@ export default function Vendors() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <Label className="text-xs font-black uppercase tracking-widest text-gray-400">Business Address</Label>
-                        {selectedVendor.address && (
-                          <a 
-                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedVendor.address)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] font-black text-primary flex items-center gap-1 hover:underline uppercase tracking-widest"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            Open in Maps
-                          </a>
-                        )}
+                        {/* "Open in Maps" link removed pending backend-driven default navigation provider. */}
                       </div>
                       <AddressInput 
                         defaultValue={selectedVendor.address}
