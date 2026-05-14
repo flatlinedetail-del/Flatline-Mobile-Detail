@@ -10,6 +10,7 @@ import {
 import { db } from "../firebase";
 import { createNotification } from "./notificationService";
 import { Appointment, Invoice } from "../types";
+import { toJsDateOrNull } from "@/lib/utils";
 
 export const checkAndGenerateNotifications = async (userId: string) => {
   try {
@@ -35,7 +36,8 @@ export const checkAndGenerateNotifications = async (userId: string) => {
     const invoicesSnapshot = await getDocs(invoicesQ);
     for (const doc of invoicesSnapshot.docs) {
       const invoice = { id: doc.id, ...doc.data() } as Invoice;
-      if (invoice.dueDate && (invoice.dueDate as Timestamp).toDate() < now) {
+      const dueDateJs = toJsDateOrNull(invoice.dueDate);
+      if (dueDateJs && dueDateJs < now) {
         await createIfNew(userId, {
           title: "Overdue Invoice",
           message: `Invoice #${invoice.invoiceNumber || invoice.id} for ${invoice.clientName} is overdue.`,
@@ -61,9 +63,13 @@ export const checkAndGenerateNotifications = async (userId: string) => {
     const apptsSnapshot = await getDocs(apptsQ);
     for (const doc of apptsSnapshot.docs) {
       const appt = { id: doc.id, ...doc.data() } as Appointment;
+      const scheduledJs = toJsDateOrNull(appt.scheduledAt);
+      const timeStr = scheduledJs
+        ? scheduledJs.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "TBD";
       await createIfNew(userId, {
         title: "Upcoming Appointment",
-        message: `${appt.customerName} scheduled for ${appt.scheduledAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
+        message: `${appt.customerName} scheduled for ${timeStr}`,
         type: "booking",
         relatedId: appt.id,
         relatedType: "appointment"
