@@ -317,6 +317,45 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Product catalog — read by technicians for Smart Quotes, managed by admins
+    match /productCatalog/{productId} {
+      allow read: if isTechnician();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Per-appointment form instances (signed forms linked to specific jobs)
+    match /form_instances/{instanceId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
+    // Legacy alias used by some older code paths — same rules as form_instances
+    match /formInstances/{instanceId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
+    // AI usage log — written by AI services, read by admins for auditing
+    match /ai_usage_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isTechnician();
+      allow update, delete: if isAdmin();
+    }
+
+    // Per-client service history — read/written by technicians for CRM context
+    match /client_service_history/{historyId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician();
+      allow update: if isTechnician();
+      allow delete: if isAdmin();
+    }
+
     match /warranties/{warrantyId} {
       allow read: if isTechnician();
       allow create: if isTechnician();
