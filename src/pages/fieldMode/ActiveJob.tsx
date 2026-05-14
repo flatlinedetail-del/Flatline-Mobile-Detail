@@ -16,7 +16,7 @@ import {
   type FieldJobStatus,
 } from "../../services/fieldJob";
 import { handleWaitlistRouting } from "../../services/waitlistRouting";
-import { isCancellationStatus } from "../../services/jobStatusFlow";
+import { isCancellationStatus, nextStatus } from "../../services/jobStatusFlow";
 import CancellationReasonDialog, { type CancellationKind, type CancellationReasonResult } from "../../components/CancellationReasonDialog";
 import { cn } from "@/lib/utils";
 import {
@@ -35,6 +35,8 @@ import {
   Sparkles,
   UserX,
   CalendarX,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 /**
@@ -44,14 +46,84 @@ import {
  * `appointments/{id}` doc the desktop JobDetail reads; status changes
  * use the same `updateDoc({ status, updatedAt })` pattern). This pass
  * tightens spacing/typography so the screen fits a phone properly.
+ *
+ * Status flow uses `nextStatus()` from jobStatusFlow so only a single
+ * primary action is shown at a time. Cancel / No-Show / Missed are
+ * collapsed behind a "More actions" toggle.
  */
 
-const STATUS_FLOW: { value: FieldJobStatus; label: string; icon: typeof PlayCircle; tone: string }[] = [
-  { value: "confirmed",   label: "Confirm",  icon: CheckCircle2, tone: "bg-sky-500/15 text-sky-300 ring-sky-500/30" },
-  { value: "en_route",    label: "En Route", icon: Navigation,   tone: "bg-amber-500/15 text-amber-300 ring-amber-500/30" },
-  { value: "in_progress", label: "Start",    icon: PlayCircle,   tone: "bg-amber-500/15 text-amber-300 ring-amber-500/30" },
-  { value: "completed",   label: "Complete", icon: CheckCircle2, tone: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30" },
-];
+type NextJobAction = {
+  targetStatus: FieldJobStatus;
+  label: string;
+  subLabel: string;
+  icon: typeof PlayCircle;
+  iconTone: string;
+  buttonTone: string;
+};
+
+/**
+ * Returns the single next forward action for a given job status, or null
+ * when the job is already in a terminal state (completed/paid) or a
+ * cancellation state. Normalises pre-flow statuses (requested, approved,
+ * etc.) so anything unconfirmed shows "Confirm Job" as the first step.
+ *
+ * NOTE: "paid" is intentionally excluded — payment is handled via the
+ * Invoice section, not a status button here.
+ */
+function getNextJobStatusAction(status: FieldJobStatus): NextJobAction | null {
+  // Map pre-flow booking statuses to "scheduled" so the confirm step shows.
+  const onFlow: FieldJobStatus = (
+    ["pending", "requested", "approved", "pending_approval",
+     "suggested", "declined", "reschedule_suggested"] as string[]
+  ).includes(status)
+    ? "scheduled"
+    : status;
+
+  const target = nextStatus(onFlow);
+  // Treat "paid" as terminal — don't surface a "Mark Paid" button here.
+  if (!target || target === "paid") return null;
+
+  switch (target) {
+    case "confirmed":
+      return {
+        targetStatus: "confirmed",
+        label: "Confirm Job",
+        subLabel: "Lock in the appointment",
+        icon: CheckCircle2,
+        iconTone: "bg-sky-500/20 ring-1 ring-sky-400/30 text-sky-300",
+        buttonTone: "bg-sky-500/10 border border-sky-500/25 hover:bg-sky-500/15 active:bg-sky-500/20 text-sky-100",
+      };
+    case "en_route":
+      return {
+        targetStatus: "en_route",
+        label: "En Route",
+        subLabel: "You're heading to the client",
+        icon: Navigation,
+        iconTone: "bg-amber-500/20 ring-1 ring-amber-400/30 text-amber-300",
+        buttonTone: "bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/15 active:bg-amber-500/20 text-amber-100",
+      };
+    case "in_progress":
+      return {
+        targetStatus: "in_progress",
+        label: "Start Job",
+        subLabel: "You've arrived — work begins now",
+        icon: PlayCircle,
+        iconTone: "bg-violet-500/20 ring-1 ring-violet-400/30 text-violet-300",
+        buttonTone: "bg-violet-500/10 border border-violet-500/25 hover:bg-violet-500/15 active:bg-violet-500/20 text-violet-100",
+      };
+    case "completed":
+      return {
+        targetStatus: "completed",
+        label: "Complete Job",
+        subLabel: "Mark the job as finished",
+        icon: CheckCircle2,
+        iconTone: "bg-emerald-500/20 ring-1 ring-emerald-400/30 text-emerald-300",
+        buttonTone: "bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/15 active:bg-emerald-500/20 text-emerald-100",
+      };
+    default:
+      return null;
+  }
+}
 
 function paymentTone(p: FieldJob["paymentStatus"]): string {
   switch (p) {
@@ -85,6 +157,8 @@ export default function ActiveJob() {
   // Cancellation/no-show/missed reason dialog state.
   const [reasonKind, setReasonKind] = useState<CancellationKind | null>(null);
   const [reasonSubmitting, setReasonSubmitting] = useState(false);
+  // Collapsed "More actions" toggle for Cancel / No-Show / Missed.
+  const [showDangerActions, setShowDangerActions] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -228,6 +302,11 @@ export default function ActiveJob() {
     [id, raw, reasonKind, feePreview],
   );
 
+  // Compute once per render — pure, fast switch fn, no useMemo needed.
+  // Placed BEFORE the early returns so the value is always initialised even
+  // though the status section only renders when !loading && !error && !!job.
+  const nextAction = getNextJobStatusAction(rawStatus ?? "scheduled");
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-10 gap-2">
@@ -336,78 +415,117 @@ export default function ActiveJob() {
       {/* Navigation widgets removed pending the backend-driven default provider.
           Address still renders in the summary card above. */}
 
-      {/* Status controls */}
-      <section aria-label="Status" className="space-y-1.5">
+      {/* Status controls — single next-action button + collapsed danger actions */}
+      <section aria-label="Status" className="space-y-2">
         <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">Job Status</h2>
-        <div className="grid grid-cols-2 gap-1.5">
-          {STATUS_FLOW.map((s) => {
-            const active = rawStatus === s.value;
-            const isUpdating = updating === s.value;
-            return (
-              <button
-                key={s.value}
-                type="button"
-                disabled={isUpdating || active}
-                onClick={() => onChangeStatus(s.value)}
-                className={cn(
-                  "rounded-xl border border-white/5 bg-sidebar/60 hover:bg-sidebar/80 active:bg-sidebar transition-colors px-2.5 py-2 min-h-[52px]",
-                  "flex items-center gap-2 text-left",
-                  active && "ring-1 ring-[#0A4DFF]/50 bg-[#0A4DFF]/10",
-                  isUpdating && "opacity-60",
-                )}
-              >
-                <span className={cn("shrink-0 w-7 h-7 rounded-md ring-1 flex items-center justify-center", s.tone)}>
-                  <s.icon className="w-3.5 h-3.5" />
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[10px] font-black uppercase tracking-widest text-white leading-none">
-                    {s.label}
-                  </span>
-                  <span className="block text-[8px] font-medium text-white/40 truncate leading-tight mt-0.5">
-                    {active ? "Current" : `→ ${statusLabel(s.value)}`}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {/* Cancellation / no-show / missed — three triggers, each opens
-            the shared reason dialog. The status change is GATED on a
-            reason being submitted. Disabled when the job is already in a
-            terminal cancellation-class state. */}
+
+        {/* ── Terminal cancellation state ───────────────────────────── */}
+        {isCancellationStatus(rawStatus ?? "scheduled") ? (
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-3 flex items-center gap-2.5">
+            <div className="shrink-0 w-9 h-9 rounded-xl bg-rose-500/15 ring-1 ring-rose-500/30 flex items-center justify-center">
+              <XCircle className="w-4.5 h-4.5 text-rose-400" />
+            </div>
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest text-rose-300 leading-none">
+                {statusLabel(rawStatus!)}
+              </p>
+              <p className="text-[10px] text-rose-300/60 mt-0.5 leading-tight">Booking intelligence disabled</p>
+            </div>
+          </div>
+
+        ) : !nextAction ? (
+          /* ── Completed / paid — no forward action remaining ──────── */
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-3 flex items-center gap-2.5">
+            <div className="shrink-0 w-9 h-9 rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/30 flex items-center justify-center">
+              <CheckCircle2 className="w-4.5 h-4.5 text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest text-emerald-300 leading-none">
+                {statusLabel(rawStatus ?? "completed")}
+              </p>
+              <p className="text-[10px] text-emerald-300/60 mt-0.5 leading-tight">No further actions required</p>
+            </div>
+          </div>
+        ) : (
+          /* ── Primary single-action button ─────────────────────────── */
+          <button
+            type="button"
+            disabled={updating !== null}
+            onClick={() => onChangeStatus(nextAction.targetStatus)}
+            className={cn(
+              "w-full rounded-2xl px-3.5 py-4 min-h-[76px]",
+              "flex items-center gap-3.5 text-left transition-all",
+              "active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20",
+              nextAction.buttonTone,
+              updating !== null && "opacity-60 pointer-events-none",
+            )}
+          >
+            {/* Icon */}
+            <div className={cn("shrink-0 w-11 h-11 rounded-xl flex items-center justify-center", nextAction.iconTone)}>
+              {updating === nextAction.targetStatus
+                ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                : <nextAction.icon className="w-5 h-5" />
+              }
+            </div>
+            {/* Text */}
+            <div className="flex-1 min-w-0">
+              <p className="text-[15px] font-black uppercase tracking-wide leading-none">
+                {updating === nextAction.targetStatus ? "Updating…" : nextAction.label}
+              </p>
+              <p className="text-[10px] font-medium opacity-55 leading-tight mt-1">
+                {nextAction.subLabel}
+              </p>
+            </div>
+          </button>
+        )}
+
+        {/* ── More actions: Cancel / No-Show / Missed ──────────────────
+            Collapsed by default so the primary flow stays clean.
+            Gate: hidden once the job is already in a cancellation state. */}
         {!isCancellationStatus(rawStatus ?? "scheduled") && (
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="space-y-1.5">
             <button
               type="button"
-              onClick={() => setReasonKind("canceled")}
-              className="rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15 transition-colors px-2 py-2 min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-rose-300"
+              onClick={() => setShowDangerActions((v) => !v)}
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-white/30 hover:text-white/50 transition-colors"
             >
-              <XCircle className="w-3.5 h-3.5" />
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Cancel</span>
+              <span className="text-[9px] font-black uppercase tracking-widest">More actions</span>
+              {showDangerActions
+                ? <ChevronUp className="w-3 h-3" />
+                : <ChevronDown className="w-3 h-3" />
+              }
             </button>
-            <button
-              type="button"
-              onClick={() => setReasonKind("no_show")}
-              className="rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15 transition-colors px-2 py-2 min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-rose-300"
-            >
-              <UserX className="w-3.5 h-3.5" />
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">No-show</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setReasonKind("missed")}
-              className="rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15 transition-colors px-2 py-2 min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-rose-300"
-            >
-              <CalendarX className="w-3.5 h-3.5" />
-              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Missed</span>
-            </button>
+            {showDangerActions && (
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setReasonKind("canceled")}
+                  className="rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15 transition-colors px-2 py-2.5 min-h-[48px] flex flex-col items-center justify-center gap-1 text-rose-300"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span className="text-[9px] font-black uppercase tracking-widest leading-none">Cancel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReasonKind("no_show")}
+                  className="rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15 transition-colors px-2 py-2.5 min-h-[48px] flex flex-col items-center justify-center gap-1 text-rose-300"
+                >
+                  <UserX className="w-3.5 h-3.5" />
+                  <span className="text-[9px] font-black uppercase tracking-widest leading-none">No-Show</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReasonKind("missed")}
+                  className="rounded-xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 active:bg-rose-500/15 transition-colors px-2 py-2.5 min-h-[48px] flex flex-col items-center justify-center gap-1 text-rose-300"
+                >
+                  <CalendarX className="w-3.5 h-3.5" />
+                  <span className="text-[9px] font-black uppercase tracking-widest leading-none">Missed</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
-        {isCancellationStatus(rawStatus ?? "scheduled") && (
-          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 px-2.5 py-2 text-[10px] font-black uppercase tracking-widest text-rose-300 text-center">
-            {statusLabel(rawStatus!)} — booking intelligence disabled
-          </div>
-        )}
+
         {updateError && (
           <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-2 py-1.5 flex items-start gap-1.5">
             <AlertCircle className="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
