@@ -159,6 +159,18 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
     [jobDescription]
   );
 
+  // Pre-computed note-analysis values lifted out of JSX so closures inside
+  // IIFEs and callbacks always see stable, named references (avoids Safari
+  // JavaScriptCore "Can't find variable" on lazy-loaded chunks).
+  const noteDetectedConditions: string[] = noteAnalysis?.detectedConditions ?? [];
+  const noteRequiredOperations: string[] = noteAnalysis?.requiredOperations ?? [];
+  const noteHasConditions: boolean       = noteDetectedConditions.length > 0;
+  const noteManualReview: boolean        = noteAnalysis?.manualReviewRecommended ?? false;
+  const noteExtraHours: number           = noteAnalysis?.estimatedExtraLaborHours ?? 0;
+  const notePriceAdj: number             = noteAnalysis?.localPriceAdjustment ?? 0;
+  const noteExplanation: string          = noteAnalysis?.explanation ?? "";
+  const noteSuggestedAddOns: string[]    = noteAnalysis?.suggestedAddOns ?? [];
+
   useEffect(() => {
     const fetchSettings = async () => {
       try {
@@ -2032,86 +2044,80 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
 
             {/* Detected Conditions — always rendered from deterministic local note analysis.
                 Never AI-gated: conditions come from analyzeJobNotes(jobDescription) via useMemo.
-                Shows a neutral fallback when no conditions are present. */}
-            {(() => {
-              const detectedConditions = noteAnalysis?.detectedConditions ?? [];
-              const requiredOperations = noteAnalysis?.requiredOperations ?? [];
-              const hasConditions = detectedConditions.length > 0;
-              return (
-                <div className={cn(
-                  "p-4 rounded-2xl border space-y-3",
-                  noteAnalysis?.manualReviewRecommended
-                    ? "bg-red-500/5 border-red-500/30"
-                    : hasConditions
-                      ? "bg-amber-500/5 border-amber-500/30"
-                      : "bg-white/5 border-white/5"
+                Uses pre-computed flat variables (noteDetectedConditions, etc.) so no closure
+                captures noteAnalysis inside a JSX IIFE — avoids Safari JavaScriptCore crash. */}
+            <div className={cn(
+              "p-4 rounded-2xl border space-y-3",
+              noteManualReview
+                ? "bg-red-500/5 border-red-500/30"
+                : noteHasConditions
+                  ? "bg-amber-500/5 border-amber-500/30"
+                  : "bg-white/5 border-white/5"
+            )}>
+              <div className="flex items-center justify-between gap-2">
+                <p className={cn(
+                  "text-[10px] font-black uppercase tracking-widest flex items-center gap-2",
+                  noteManualReview
+                    ? "text-red-300"
+                    : noteHasConditions
+                      ? "text-amber-300"
+                      : "text-white/40"
                 )}>
-                  <div className="flex items-center justify-between gap-2">
-                    <p className={cn(
-                      "text-[10px] font-black uppercase tracking-widest flex items-center gap-2",
-                      noteAnalysis?.manualReviewRecommended
-                        ? "text-red-300"
-                        : hasConditions
-                          ? "text-amber-300"
-                          : "text-white/40"
-                    )}>
-                      <AlertCircle className="w-3 h-3" />
-                      {noteAnalysis?.manualReviewRecommended
-                        ? "Manual Review Recommended"
-                        : "Detected Conditions"}
-                    </p>
-                    {hasConditions && (
-                      <Badge className={cn(
-                        "border-none text-[8px] font-black uppercase",
-                        noteAnalysis?.manualReviewRecommended
-                          ? "bg-red-500/20 text-red-300"
-                          : "bg-amber-500/20 text-amber-300"
-                      )}>
-                        +{noteAnalysis.estimatedExtraLaborHours.toFixed(1)} hrs · +${noteAnalysis.localPriceAdjustment}
-                      </Badge>
-                    )}
+                  <AlertCircle className="w-3 h-3" />
+                  {noteManualReview
+                    ? "Manual Review Recommended"
+                    : "Detected Conditions"}
+                </p>
+                {noteHasConditions && (
+                  <Badge className={cn(
+                    "border-none text-[8px] font-black uppercase",
+                    noteManualReview
+                      ? "bg-red-500/20 text-red-300"
+                      : "bg-amber-500/20 text-amber-300"
+                  )}>
+                    +{noteExtraHours.toFixed(1)} hrs · +${notePriceAdj}
+                  </Badge>
+                )}
+              </div>
+              {noteHasConditions ? (
+                <>
+                  <div className="flex flex-wrap gap-1.5">
+                    {noteDetectedConditions.map((c) => (
+                      <span
+                        key={c}
+                        className={cn(
+                          "text-[10px] font-bold px-2 py-1 rounded-md border",
+                          noteManualReview
+                            ? "bg-red-500/10 text-red-200 border-red-500/30"
+                            : "bg-amber-500/10 text-amber-200 border-amber-500/30"
+                        )}
+                      >
+                        {c}
+                      </span>
+                    ))}
                   </div>
-                  {hasConditions ? (
-                    <>
-                      <div className="flex flex-wrap gap-1.5">
-                        {detectedConditions.map((c) => (
-                          <span
-                            key={c}
-                            className={cn(
-                              "text-[10px] font-bold px-2 py-1 rounded-md border",
-                              noteAnalysis?.manualReviewRecommended
-                                ? "bg-red-500/10 text-red-200 border-red-500/30"
-                                : "bg-amber-500/10 text-amber-200 border-amber-500/30"
-                            )}
-                          >
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                      {noteAnalysis.explanation && (
-                        <p className="text-[11px] text-white/70 font-medium leading-relaxed">
-                          {noteAnalysis.explanation}
-                        </p>
-                      )}
-                      {noteAnalysis.suggestedAddOns.length > 0 && (
-                        <p className="text-[10px] text-white/50 font-medium leading-relaxed">
-                          <span className="font-black uppercase tracking-widest text-white/60">Consider:</span>{" "}
-                          {noteAnalysis.suggestedAddOns.join(" · ")}
-                        </p>
-                      )}
-                      {requiredOperations.length > 0 && (
-                        <p className="text-[10px] text-white/50 font-medium leading-relaxed">
-                          <span className="font-black uppercase tracking-widest text-white/60">Required Ops:</span>{" "}
-                          {requiredOperations.join(" · ")}
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-white/40 font-medium">No major risk conditions detected from notes.</p>
+                  {noteExplanation && (
+                    <p className="text-[11px] text-white/70 font-medium leading-relaxed">
+                      {noteExplanation}
+                    </p>
                   )}
-                </div>
-              );
-            })()}
+                  {noteSuggestedAddOns.length > 0 && (
+                    <p className="text-[10px] text-white/50 font-medium leading-relaxed">
+                      <span className="font-black uppercase tracking-widest text-white/60">Consider:</span>{" "}
+                      {noteSuggestedAddOns.join(" · ")}
+                    </p>
+                  )}
+                  {noteRequiredOperations.length > 0 && (
+                    <p className="text-[10px] text-white/50 font-medium leading-relaxed">
+                      <span className="font-black uppercase tracking-widest text-white/60">Required Ops:</span>{" "}
+                      {noteRequiredOperations.join(" · ")}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-[11px] text-white/40 font-medium">No major risk conditions detected from notes.</p>
+              )}
+            </div>
 
             {recommendations && (
               <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-3">
