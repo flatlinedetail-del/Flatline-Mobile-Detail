@@ -1274,12 +1274,15 @@ export default function PublicBooking() {
                       <div className="space-y-4">
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Request a Date & Time</Label>
                         <div className="space-y-2">
-                          <Input 
-                            type="datetime-local" 
-                            value={scheduledAt}
-                            onChange={e => setScheduledAt(e.target.value)}
-                            className="h-14 bg-white border-2 border-gray-300 rounded-xl focus:border-primary transition-all text-gray-900 font-bold text-lg px-4"
-                          />
+                          <div className="relative">
+                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary z-10 pointer-events-none" />
+                            <input
+                              type="datetime-local"
+                              value={scheduledAt}
+                              onChange={e => setScheduledAt(e.target.value)}
+                              className="w-full h-14 bg-white border-2 border-gray-300 rounded-xl focus:border-primary focus:outline-none transition-all text-gray-900 font-bold text-lg pl-12 pr-4"
+                            />
+                          </div>
                           {scheduledAt && isTimeAvailable !== null && (
                             <div className={cn(
                               "mt-4 p-5 rounded-2xl border flex flex-col gap-4",
@@ -1345,12 +1348,15 @@ export default function PublicBooking() {
 
                                   <div className="space-y-3">
                                     <Label className="text-[10px] font-black uppercase tracking-widest text-red-900/60">Backup Time (Required)</Label>
-                                    <Input 
-                                      type="datetime-local" 
-                                      value={backupScheduledAt}
-                                      onChange={e => setBackupScheduledAt(e.target.value)}
-                                      className="h-12 bg-white border-2 border-red-200 text-red-900 font-bold focus:border-red-500"
-                                    />
+                                    <div className="relative">
+                                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-red-500 z-10 pointer-events-none" />
+                                      <input
+                                        type="datetime-local"
+                                        value={backupScheduledAt}
+                                        onChange={e => setBackupScheduledAt(e.target.value)}
+                                        className="w-full h-12 bg-white border-2 border-red-200 rounded-xl text-red-900 font-bold focus:border-red-500 focus:outline-none pl-11 pr-4"
+                                      />
+                                    </div>
                                     {backupScheduledAt && isBackupAvailable === false && (
                                        <div className="flex items-center gap-2 text-red-700 bg-red-100 p-2 rounded-lg mt-1">
                                          <AlertCircle className="w-4 h-4" />
@@ -1763,10 +1769,10 @@ export default function PublicBooking() {
                                <h4 className="font-black text-gray-900">{recommendedChoice.lowerCostService.name}</h4>
                             </div>
                             {step === 4 && (
-                               <Button 
-                                 type="button" 
-                                 variant="outline" 
-                                 className="font-bold border-gray-300 text-gray-700 text-xs px-4"
+                               <Button
+                                 type="button"
+                                 variant="outline"
+                                 className="font-bold border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 text-xs px-4"
                                  onClick={() => {
                                    setSelectedServices([recommendedChoice.lowerCostService!.id]);
                                    setSelectedAddons([]); 
