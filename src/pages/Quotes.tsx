@@ -134,8 +134,8 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   // structured condition signals and the UI can show detected conditions even
   // when the AI step is skipped. analyzeJobNotes returns a stable EMPTY object
   // when notes are blank, so this never crashes or returns undefined.
-  const noteAnalysis = useMemo(
-    () => analyzeJobNotes(jobDescription),
+  const noteAnalysis: NoteAnalysis = useMemo(
+    () => analyzeJobNotes(jobDescription || ""),
     [jobDescription],
   );
 
@@ -160,13 +160,6 @@ function SmartQuote({ clients, allVehicles, services, addOns, invoices, appointm
   const [catalogLoading, setCatalogLoading] = useState(false);
   // Which line's dropdown is open (by product cost id)
   const [openCatalogFor, setOpenCatalogFor] = useState<string | null>(null);
-
-  // Deterministic note analysis — feeds Detected Conditions UI and AI prompt context.
-  // Never AI-gated; runs locally on every jobDescription change.
-  const noteAnalysis: NoteAnalysis = useMemo(
-    () => analyzeJobNotes(jobDescription || ""),
-    [jobDescription]
-  );
 
   useEffect(() => {
     const fetchSettings = async () => {
