@@ -42,6 +42,8 @@ const FieldClients = lazy(() => import("./pages/fieldMode/FieldClients"));
 const FieldInvoices = lazy(() => import("./pages/fieldMode/FieldInvoices"));
 const FieldLeads = lazy(() => import("./pages/fieldMode/FieldLeads"));
 const FieldQuotes = lazy(() => import("./pages/fieldMode/FieldQuotes"));
+const FieldBookJob = lazy(() => import("./pages/fieldMode/FieldBookJob"));
+const FieldBookingIntelligence = lazy(() => import("./pages/fieldMode/FieldBookingIntelligence"));
 
 /**
  * Track A shell switch: phones get the simplified Field Mode shell,
@@ -210,6 +212,15 @@ function AppContent() {
                 for phones — tablet/desktop users will normally hit the full
                 JobDetail page at /calendar/:id instead. */}
             <Route path="field/job/:id" element={<ActiveJob />} />
+            {/* Phone Field Mode mobile booking wizard. Replaces the full
+                BookAppointment page for phone users — same Firestore
+                collection, same schema, phone-optimised 5-step UI. */}
+            <Route path="field/book-job" element={<FieldBookJob />} />
+            {/* Phone Field Mode service timing intelligence. Shows which
+                services are due/overdue for the client's vehicles using
+                the deterministic serviceTimingEngine. Links out to the
+                full AI analysis in desktop JobDetail. */}
+            <Route path="field/intelligence/:id" element={<FieldBookingIntelligence />} />
           </Route>
         </Routes>
       </Suspense>

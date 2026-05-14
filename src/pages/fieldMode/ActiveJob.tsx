@@ -416,25 +416,30 @@ export default function ActiveJob() {
         )}
       </section>
 
-      {/* Upsell Intelligence — link to the existing feature.
+      {/* Booking Intelligence — mobile service timing + AI upsell entry.
           Hidden once the job is cancelled / no-show / missed, OR when
           the booking-intelligence flag has been explicitly set to false
           (item 8: no booking intelligence on a cancelled job). */}
       {!isCancellationStatus(rawStatus ?? "scheduled") &&
         raw?.bookingIntelligenceActive !== false && (
-          <section aria-label="Upsell Intelligence" className="space-y-1.5">
-            <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">Upsell Intelligence</h2>
+          <section aria-label="Booking Intelligence" className="space-y-1.5">
+            <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">
+              Booking Intelligence
+            </h2>
+            {/* Primary: mobile service timing screen */}
             <Link
-              to={`/calendar/${job.id}`}
-              className="flex items-center gap-2.5 w-full rounded-xl border border-violet-500/20 bg-violet-500/[0.06] hover:bg-violet-500/10 active:bg-violet-500/15 transition-colors px-2.5 py-2 min-h-[48px]"
+              to={`/field/intelligence/${job.id}`}
+              className="flex items-center gap-2.5 w-full rounded-xl border border-violet-500/20 bg-violet-500/[0.06] hover:bg-violet-500/10 active:bg-violet-500/15 transition-colors px-2.5 py-2.5 min-h-[52px]"
             >
               <div className="shrink-0 w-8 h-8 rounded-md bg-violet-500/15 ring-1 ring-violet-500/30 flex items-center justify-center">
                 <Sparkles className="w-3.5 h-3.5 text-violet-300" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-bold text-white truncate leading-tight">Run Revenue Optimization</p>
-                <p className="text-[10px] text-white/55 leading-tight mt-0.5 break-words">
-                  Opens the full Upsell Intelligence panel in job detail
+                <p className="text-[12px] font-bold text-white truncate leading-tight">
+                  Service Intelligence
+                </p>
+                <p className="text-[10px] text-white/50 leading-tight mt-0.5">
+                  Due dates, overdue services &amp; quick book
                 </p>
               </div>
             </Link>
