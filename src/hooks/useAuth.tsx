@@ -106,17 +106,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (clientTypes.length) localStorage.setItem('auth_clientTypes', JSON.stringify(clientTypes)); }, [clientTypes]);
   useEffect(() => { if (clientCategories.length) localStorage.setItem('auth_clientCategories', JSON.stringify(clientCategories)); }, [clientCategories]);
 
-  const handleFirebaseError = (err: any) => {
-    console.error("Firebase Operation Error:", err);
+  const handleFirebaseError = (err: any, source?: string) => {
     if (!err) return;
 
     const msg = err.message?.toLowerCase() || "";
     const code = err.code?.toLowerCase() || "";
 
-    if (code === 'resource-exhausted' || msg.includes("quota limit exceeded") || msg.includes("resource exhausted")) {
-      setSystemStatus('quota-exhausted');
-    } else if (code === 'permission-denied' || msg.includes("insufficient permissions")) {
+    if (code === 'permission-denied' || msg.includes("insufficient permissions")) {
+      // Log the exact source so the browser console pinpoints which query failed.
+      console.error(
+        `[useAuth] Firestore permission-denied${source ? ` (${source})` : ""}. ` +
+        `uid=${auth.currentUser?.uid ?? "none"} email=${auth.currentUser?.email ?? "none"} ` +
+        `code=${err.code} msg=${err.message}`
+      );
       setSystemStatus('permission-denied');
+    } else if (code === 'resource-exhausted' || msg.includes("quota limit exceeded") || msg.includes("resource exhausted")) {
+      console.warn(`[useAuth] Firestore quota exhausted${source ? ` (${source})` : ""}:`, err.message);
+      setSystemStatus('quota-exhausted');
+    } else {
+      console.error(`[useAuth] Firebase error${source ? ` (${source})` : ""}:`, err);
     }
   };
 
@@ -133,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // If profile was cached, we can stop loading early for UI shell
         if (profile) setLoading(false);
 
-        const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted';
+        const isRestricted = systemStatus === 'offline' || systemStatus === 'quota-exhausted' || systemStatus === 'permission-denied';
         
         // Always provide a fallback profile from Auth if Firestore is restricted or missing
         if (!profile || profile.uid !== authUser.uid) {
@@ -168,7 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           unsubscribeSettings = onSnapshot(doc(db, "settings", "business"), (snap) => {
             if (snap.exists()) setSettings(snap.data());
           }, (err) => {
-            handleFirebaseError(err);
+            handleFirebaseError(err, "settings/business");
           });
         }
 
@@ -176,7 +184,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           unsubscribeServices = onSnapshot(collection(db, "services"), (snap) => {
             setServices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
           }, (err) => {
-            handleFirebaseError(err);
+            handleFirebaseError(err, "services");
           });
         }
 
@@ -184,7 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           unsubscribeAddons = onSnapshot(collection(db, "addons"), (snap) => {
             setAddons(snap.docs.map(d => ({ id: d.id, ...d.data() })));
           }, (err) => {
-            handleFirebaseError(err);
+            handleFirebaseError(err, "addons");
           });
         }
 
@@ -192,7 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           unsubscribeClientTypes = onSnapshot(collection(db, "client_types"), (snap) => {
             setClientTypes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
           }, (err) => {
-            handleFirebaseError(err);
+            handleFirebaseError(err, "client_types");
           });
         }
 
@@ -200,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           unsubscribeClientCategories = onSnapshot(collection(db, "client_categories"), (snap) => {
             setClientCategories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
           }, (err) => {
-            handleFirebaseError(err);
+            handleFirebaseError(err, "client_categories");
           });
         }
         
@@ -279,7 +287,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setLoading(false);
             }
           } catch (error: any) {
-            handleFirebaseError(error);
+            handleFirebaseError(error, "users/fetchProfile");
             setLoading(false);
           }
         };
