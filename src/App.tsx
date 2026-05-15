@@ -40,6 +40,7 @@ const ActiveJob = lazy(() => import("./pages/fieldMode/ActiveJob"));
 const FieldSchedule = lazy(() => import("./pages/fieldMode/FieldSchedule"));
 const FieldClients = lazy(() => import("./pages/fieldMode/FieldClients"));
 const FieldInvoices = lazy(() => import("./pages/fieldMode/FieldInvoices"));
+const FieldInvoiceDetail = lazy(() => import("./pages/fieldMode/FieldInvoiceDetail"));
 const FieldLeads = lazy(() => import("./pages/fieldMode/FieldLeads"));
 const FieldQuotes = lazy(() => import("./pages/fieldMode/FieldQuotes"));
 
@@ -103,7 +104,8 @@ function InvoicesSwitch() {
   const isPhone = useIsPhone();
   const { search } = useLocation();
   const hasInvoiceId = new URLSearchParams(search).get("invoiceId");
-  if (isPhone && !hasInvoiceId) return <FieldInvoices />;
+  if (isPhone && hasInvoiceId) return <FieldInvoiceDetail />;
+  if (isPhone) return <FieldInvoices />;
   return <Invoices />;
 }
 

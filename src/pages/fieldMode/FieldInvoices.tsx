@@ -1,42 +1,36 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  collection,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-} from "firebase/firestore";
+import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "../../firebase";
-import { cn } from "@/lib/utils";
-import {
-  AlertCircle,
-  ChevronRight,
-  Receipt as ReceiptIcon,
-} from "lucide-react";
+import { cn, formatCurrency } from "@/lib/utils";
+import { AlertCircle, ChevronDown, ChevronRight, Receipt as ReceiptIcon } from "lucide-react";
 
 /**
- * Phone-only Invoices view. Renders at `/invoices` when the device is
- * a phone, via InvoicesSwitch in App.tsx. Desktop/tablet continue to
- * render the existing full `Invoices` page unchanged.
+ * Phone-only invoice list — grouped by client, with status-aware glow rings.
+ * Tapping an invoice row navigates to /invoices?invoiceId=<id>, which
+ * InvoicesSwitch now routes to FieldInvoiceDetail on phones.
  *
- * Live snapshot of the SAME `invoices` collection used by the desktop
- * page. Tapping a row navigates to `/invoices?invoiceId=<id>` —
- * InvoicesSwitch falls through to the full Invoices page when the URL
- * carries `invoiceId`, so the user gets every desktop action (send,
- * mark paid, PDF, refund) without a reduced phone-only feature set.
- *
- * No duplicate Firestore store, no schema divergence.
+ * Same Firestore collection as the desktop Invoices page, no schema divergence.
  */
 
 interface FieldInvoiceRow {
   id: string;
   invoiceNumber?: string;
   clientName: string;
+  clientId?: string;
   total: number;
   status: string;
   paymentStatus: string;
   createdAtMs: number;
+}
+
+interface ClientGroup {
+  groupKey: string;
+  clientName: string;
+  invoices: FieldInvoiceRow[];
+  totalAmount: number;
+  unpaidCount: number;
+  glowStatus: "paid" | "amber" | "voided" | "draft" | "mixed";
 }
 
 function toRow(id: string, data: Record<string, unknown>): FieldInvoiceRow {
@@ -45,6 +39,7 @@ function toRow(id: string, data: Record<string, unknown>): FieldInvoiceRow {
     id,
     invoiceNumber: (data.invoiceNumber as string | undefined) || undefined,
     clientName: String(data.clientName ?? "Unknown client"),
+    clientId: (data.clientId as string | undefined) || undefined,
     total: typeof data.total === "number" ? (data.total as number) : 0,
     status: String(data.status ?? "draft"),
     paymentStatus: String(data.paymentStatus ?? "unpaid"),
@@ -52,14 +47,74 @@ function toRow(id: string, data: Record<string, unknown>): FieldInvoiceRow {
   };
 }
 
+function getGroupGlowStatus(invoices: FieldInvoiceRow[]): ClientGroup["glowStatus"] {
+  const statuses = new Set(invoices.map((i) => i.status));
+  if (statuses.size === 1) {
+    const s = [...statuses][0];
+    if (s === "paid") return "paid";
+    if (s === "voided") return "voided";
+    if (s === "draft") return "draft";
+    return "amber";
+  }
+  const hasUnpaid = invoices.some((i) => i.status !== "paid" && i.status !== "voided");
+  if (hasUnpaid) return "amber";
+  return "mixed";
+}
+
+function glowClasses(gs: ClientGroup["glowStatus"]): string {
+  switch (gs) {
+    case "paid":   return "ring-1 ring-emerald-500/40 shadow-[0_0_14px_rgba(52,211,153,0.12)]";
+    case "amber":  return "ring-1 ring-amber-500/40 shadow-[0_0_14px_rgba(245,158,11,0.12)]";
+    case "voided": return "ring-1 ring-rose-500/40 shadow-[0_0_14px_rgba(244,63,94,0.12)]";
+    case "draft":  return "ring-1 ring-white/15 shadow-none";
+    case "mixed":  return "ring-1 ring-violet-500/40 shadow-[0_0_14px_rgba(139,92,246,0.12)]";
+  }
+}
+
+function glowIconClasses(gs: ClientGroup["glowStatus"]): string {
+  switch (gs) {
+    case "paid":   return "text-emerald-400 bg-emerald-500/10 ring-1 ring-emerald-500/30";
+    case "amber":  return "text-amber-400 bg-amber-500/10 ring-1 ring-amber-500/30";
+    case "voided": return "text-rose-400 bg-rose-500/10 ring-1 ring-rose-500/30";
+    case "draft":  return "text-white/40 bg-white/5 ring-1 ring-white/10";
+    case "mixed":  return "text-violet-400 bg-violet-500/10 ring-1 ring-violet-500/30";
+  }
+}
+
 function statusTone(s: string): string {
   switch (s) {
-    case "paid": return "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30";
-    case "sent": return "bg-sky-500/15 text-sky-300 ring-sky-500/30";
-    case "draft": return "bg-white/10 text-white/70 ring-white/15";
-    case "voided": return "bg-rose-500/15 text-rose-300 ring-rose-500/30";
-    default: return "bg-amber-500/15 text-amber-300 ring-amber-500/30";
+    case "paid":   return "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30";
+    case "sent":   return "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30";
+    case "draft":  return "bg-white/10 text-white/60 ring-1 ring-white/15";
+    case "voided": return "bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30";
+    default:       return "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30";
   }
+}
+
+function dotColor(status: string): string {
+  switch (status) {
+    case "paid":   return "#34d399";
+    case "voided": return "#fb7185";
+    case "draft":  return "rgba(255,255,255,0.25)";
+    default:       return "#fbbf24";
+  }
+}
+
+function groupByClient(rows: FieldInvoiceRow[]): ClientGroup[] {
+  const map = new Map<string, FieldInvoiceRow[]>();
+  for (const row of rows) {
+    const key = row.clientId || row.clientName;
+    const existing = map.get(key) || [];
+    map.set(key, [...existing, row]);
+  }
+  return Array.from(map.entries()).map(([key, invoices]) => ({
+    groupKey: key,
+    clientName: invoices[0].clientName,
+    invoices,
+    totalAmount: invoices.reduce((acc, i) => acc + i.total, 0),
+    unpaidCount: invoices.filter((i) => i.status !== "paid" && i.status !== "voided").length,
+    glowStatus: getGroupGlowStatus(invoices),
+  }));
 }
 
 export default function FieldInvoices() {
@@ -67,14 +122,15 @@ export default function FieldInvoices() {
   const [rows, setRows] = useState<FieldInvoiceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const q = query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(50));
+    const q = query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(100));
     const unsub = onSnapshot(
       q,
       (snap) => {
         const next: FieldInvoiceRow[] = [];
-        snap.forEach((doc) => next.push(toRow(doc.id, doc.data() as Record<string, unknown>)));
+        snap.forEach((d) => next.push(toRow(d.id, d.data() as Record<string, unknown>)));
         setRows(next);
         setLoading(false);
         setError(null);
@@ -88,12 +144,25 @@ export default function FieldInvoices() {
     return () => unsub();
   }, []);
 
+  const groups = groupByClient(rows);
+
+  const toggleGroup = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-3">
       <div className="px-0.5 flex items-baseline gap-2">
         <h1 className="text-base font-black text-white leading-none">Invoices</h1>
         {!loading && (
-          <span className="text-[9px] font-black uppercase tracking-widest text-white/35">{rows.length} recent</span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-white/35">
+            {rows.length} total · {groups.length} clients
+          </span>
         )}
       </div>
 
@@ -121,33 +190,83 @@ export default function FieldInvoices() {
         </div>
       )}
 
-      <div className="space-y-1.5">
-        {rows.map((r) => (
-          <button
-            key={r.id}
-            type="button"
-            onClick={() => navigate(`/invoices?invoiceId=${encodeURIComponent(r.id)}`)}
-            className={cn(
-              "w-full text-left rounded-xl border border-white/5 bg-sidebar/60",
-              "hover:bg-sidebar/80 active:bg-sidebar transition-colors px-2.5 py-2 min-h-[56px]",
-              "flex items-center gap-2.5",
-            )}
-          >
-            <div className="shrink-0 w-9 h-9 rounded-md bg-emerald-500/10 ring-1 ring-emerald-500/30 flex items-center justify-center">
-              <ReceiptIcon className="w-4 h-4 text-emerald-400" />
+      <div className="space-y-2.5">
+        {groups.map((group) => {
+          const isExpanded = expanded.has(group.groupKey);
+          return (
+            <div
+              key={group.groupKey}
+              className={cn(
+                "rounded-2xl bg-sidebar/60 overflow-hidden transition-shadow duration-300",
+                glowClasses(group.glowStatus),
+              )}
+            >
+              {/* Group header */}
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.groupKey)}
+                className="w-full text-left px-3 py-3 flex items-center gap-2.5"
+              >
+                <div className={cn("shrink-0 w-9 h-9 rounded-xl flex items-center justify-center", glowIconClasses(group.glowStatus))}>
+                  <ReceiptIcon className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-[13px] font-black text-white truncate leading-tight">{group.clientName}</p>
+                    {group.unpaidCount > 0 && (
+                      <span className="shrink-0 bg-amber-500/20 text-amber-300 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 ring-amber-500/30 leading-none">
+                        {group.unpaidCount} unpaid
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-white/45 font-medium mt-0.5 leading-tight">
+                    {group.invoices.length} invoice{group.invoices.length !== 1 ? "s" : ""} · {formatCurrency(group.totalAmount)}
+                  </p>
+                </div>
+                {isExpanded ? (
+                  <ChevronDown className="w-4 h-4 text-white/30 shrink-0" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-white/30 shrink-0" />
+                )}
+              </button>
+
+              {/* Expanded invoice rows */}
+              {isExpanded && (
+                <div className="border-t border-white/8">
+                  {group.invoices.map((inv, idx) => (
+                    <button
+                      key={inv.id}
+                      type="button"
+                      onClick={() => navigate(`/invoices?invoiceId=${encodeURIComponent(inv.id)}`)}
+                      className={cn(
+                        "w-full text-left flex items-center gap-2.5 px-3 py-2.5",
+                        "hover:bg-white/5 active:bg-white/10 transition-colors",
+                        idx > 0 && "border-t border-white/5",
+                      )}
+                    >
+                      <div
+                        className="w-1.5 h-1.5 rounded-full shrink-0 ml-1"
+                        style={{ background: dotColor(inv.status) }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-bold text-white/80 truncate leading-tight">
+                          {inv.invoiceNumber ? `#${inv.invoiceNumber}` : `#${inv.id.slice(-6).toUpperCase()}`}
+                        </p>
+                        <p className="text-[10px] text-white/40 font-medium leading-tight">
+                          {formatCurrency(inv.total)}
+                        </p>
+                      </div>
+                      <span className={cn("text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded leading-none", statusTone(inv.status))}>
+                        {inv.status}
+                      </span>
+                      <ChevronRight className="w-3.5 h-3.5 text-white/25 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-bold text-white truncate leading-tight">{r.clientName}</p>
-              <p className="text-[10px] text-white/45 font-medium truncate leading-tight mt-0.5">
-                {r.invoiceNumber ? `#${r.invoiceNumber} · ` : ""}${r.total.toFixed(2)}
-              </p>
-              <span className={cn("inline-block mt-1 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none", statusTone(r.status))}>
-                {r.status}
-              </span>
-            </div>
-            <ChevronRight className="w-3.5 h-3.5 text-white/30 shrink-0" />
-          </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
