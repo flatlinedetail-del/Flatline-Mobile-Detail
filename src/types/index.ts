@@ -788,6 +788,10 @@ export interface BusinessSettings {
     recommended: number;
     premium: number;
   };
+  /** Daily revenue goal shown as a progress target on the Field Mode dashboard KPI card. */
+  dailyRevenueTarget?: number;
+  /** Monthly revenue goal shown as a progress target on the Field Mode dashboard KPI card. */
+  monthlyRevenueTarget?: number;
   logoSettings?: {
     scale: number;
     x: number;

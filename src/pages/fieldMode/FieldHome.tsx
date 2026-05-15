@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   collection,
+  doc,
   limit,
   onSnapshot,
   orderBy,
@@ -105,6 +106,54 @@ function usePendingInvoices(): PendingInvoiceSummary {
     pendingTotal: pending.reduce((s, r) => s + r.total, 0),
     ready,
   };
+}
+
+// ─── Revenue targets mini-hook ────────────────────────────────────────────────
+// Reads dailyRevenueTarget + monthlyRevenueTarget from settings/business.
+// Falls back to hardcoded defaults if the fields are not yet set —
+// the user can override these values by adding the fields in Settings.
+//
+// Fallback defaults (conservative estimates for a solo detailer):
+//   daily:   $500   (≈ 2 standard details per day)
+//   monthly: $10 000 (≈ 20 working days × $500)
+
+interface RevenueTargets {
+  daily: number;
+  monthly: number;
+}
+
+const FALLBACK_TARGETS: RevenueTargets = {
+  daily: 500,
+  monthly: 10000,
+};
+
+function useRevenueTargets(): RevenueTargets {
+  const [targets, setTargets] = useState<RevenueTargets>(FALLBACK_TARGETS);
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, "settings", "business"),
+      (snap) => {
+        if (!snap.exists()) return;
+        const d = snap.data() as Record<string, unknown>;
+        setTargets({
+          daily:
+            typeof d.dailyRevenueTarget === "number" && (d.dailyRevenueTarget as number) > 0
+              ? (d.dailyRevenueTarget as number)
+              : FALLBACK_TARGETS.daily,
+          monthly:
+            typeof d.monthlyRevenueTarget === "number" && (d.monthlyRevenueTarget as number) > 0
+              ? (d.monthlyRevenueTarget as number)
+              : FALLBACK_TARGETS.monthly,
+        });
+      },
+      // On permission error fall back silently — targets still display defaults
+      () => {},
+    );
+    return () => unsub();
+  }, []);
+
+  return targets;
 }
 
 // ─── Tone palette ─────────────────────────────────────────────────────────────
@@ -269,6 +318,125 @@ function KpiCard({ label, value, sub, icon: Icon, tone, skeleton = false, to, on
     );
   }
 
+  return <div className="shrink-0">{inner}</div>;
+}
+
+// ─── Revenue KPI Card (with progress bar + target) ───────────────────────────
+// A specialised variant of KpiCard for the two revenue tiles.
+// Displays:
+//   • The live revenue value (large, bold)
+//   • A thin progress bar that fills to actual/target %
+//   • "XX% · $X,XXX target" line below the bar
+//
+// Tone auto-selects based on progress:
+//   ≥ 80 %  → emerald  (on target / above)
+//   ≥ 50 %  → amber    (behind but recoverable)
+//   < 50 %  → rose     (significantly behind)
+//
+// The card preserves all existing interactive affordances (tap → navigate).
+
+interface RevenueKpiCardProps {
+  label: string;
+  /** Formatted string shown as the headline value, e.g. "$640" */
+  value: string;
+  /** Raw numeric actual (used for % calculation) */
+  actual: number;
+  /** Revenue target for the period */
+  target: number;
+  icon: typeof Activity;
+  to?: string;
+  skeleton?: boolean;
+}
+
+function RevenueKpiCard({
+  label,
+  value,
+  actual,
+  target,
+  icon: Icon,
+  to,
+  skeleton = false,
+}: RevenueKpiCardProps) {
+  const pct = target > 0 ? Math.min((actual / target) * 100, 100) : 0;
+
+  // Dynamic tone based on progress
+  const tone: ToneKey = pct >= 80 ? "emerald" : pct >= 50 ? "amber" : "rose";
+  const t = TONE[tone];
+
+  // Progress bar fill colour
+  const barColor =
+    pct >= 80 ? "bg-emerald-400" : pct >= 50 ? "bg-amber-400" : "bg-rose-400";
+
+  // Percentage text colour
+  const pctColor =
+    pct >= 80 ? "text-emerald-400/90" : pct >= 50 ? "text-amber-400/90" : "text-rose-400/90";
+
+  const inner = (
+    <div
+      className={cn(
+        "shrink-0 w-[136px] rounded-xl p-3 bg-sidebar/70 border ring-1 transition-all duration-150 select-none",
+        t.border,
+        t.ring,
+        t.glow,
+        to && [
+          "cursor-pointer",
+          "hover:bg-sidebar/85",
+          "active:scale-[0.94]",
+          t.glowPress.replace("shadow-[", "active:shadow-["),
+        ],
+      )}
+    >
+      {/* Icon + label row */}
+      <div className="flex items-center gap-1.5 mb-2">
+        <div className={cn("w-6 h-6 rounded-md flex items-center justify-center ring-1 shrink-0", t.bg, t.ring)}>
+          <Icon className={cn("w-3.5 h-3.5", t.icon)} />
+        </div>
+        <span className="text-[8px] font-black uppercase tracking-widest text-white/35 leading-tight flex-1 truncate">
+          {label}
+        </span>
+        {to && <ChevronRight className="w-2.5 h-2.5 text-white/20 shrink-0" />}
+      </div>
+
+      {/* Headline value */}
+      {skeleton ? (
+        <div className="h-7 w-12 rounded bg-white/5 animate-pulse" />
+      ) : (
+        <p className="text-[20px] font-black text-white leading-none tracking-tight truncate">
+          {value}
+        </p>
+      )}
+
+      {/* Progress bar */}
+      {!skeleton && (
+        <div className="mt-2.5 space-y-1.5">
+          {/* Track */}
+          <div className="h-[3px] w-full rounded-full bg-white/8 overflow-hidden">
+            <div
+              className={cn("h-full rounded-full transition-all duration-700 ease-out", barColor)}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          {/* Meta row */}
+          <div className="flex items-center justify-between gap-1">
+            <span className={cn("text-[9px] font-black leading-none tabular-nums", pctColor)}>
+              {Math.round(pct)}%
+            </span>
+            <span className="text-[8px] text-white/28 font-medium leading-none truncate">
+              {formatCurrency(target)} goal
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  if (to) {
+    return (
+      <Link to={to} className="block shrink-0">
+        {inner}
+      </Link>
+    );
+  }
   return <div className="shrink-0">{inner}</div>;
 }
 
@@ -586,7 +754,6 @@ type ActivePanel = "active-jobs" | null;
 
 export default function FieldHome() {
   const { profile } = useAuth();
-  const navigate = useNavigate();
   const firstName = profile?.displayName?.split(" ")[0] || "Detailer";
 
   // Panel state
@@ -601,6 +768,7 @@ export default function FieldHome() {
   const { clients } = useClientsLive(30);
   const { jobs: monthJobs } = useMonthAppointments(now);
   const { pendingCount, pendingTotal } = usePendingInvoices();
+  const revenueTargets = useRevenueTargets();
 
   // ── Derived KPIs ──────────────────────────────────────────────────────────
   const activeJobs = useMemo(
@@ -737,13 +905,13 @@ export default function FieldHome() {
               to="/calendar"
             />
 
-            {/* Revenue → /invoices */}
-            <KpiCard
-              label="Revenue"
-              value={todayRevenue > 0 ? formatCurrency(todayRevenue) : "—"}
-              sub="today's total"
+            {/* Revenue → /invoices (with daily target progress) */}
+            <RevenueKpiCard
+              label="Today Revenue"
+              value={formatCurrency(todayRevenue)}
+              actual={todayRevenue}
+              target={revenueTargets.daily}
               icon={DollarSign}
-              tone="emerald"
               skeleton={jobsLoading}
               to="/invoices"
             />
@@ -768,13 +936,13 @@ export default function FieldHome() {
               to="/invoices"
             />
 
-            {/* Month Revenue → /invoices */}
-            <KpiCard
-              label="Month Rev"
-              value={monthRevenue > 0 ? formatCurrency(monthRevenue) : "—"}
-              sub="paid this month"
+            {/* Month Revenue → /invoices (with monthly target progress) */}
+            <RevenueKpiCard
+              label="Month Revenue"
+              value={formatCurrency(monthRevenue)}
+              actual={monthRevenue}
+              target={revenueTargets.monthly}
               icon={TrendingUp}
-              tone="violet"
               to="/invoices"
             />
 
