@@ -1994,7 +1994,7 @@ export default function Clients() {
       {selectedClient && (
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-[96vw] md:max-w-[96vw] lg:max-w-[96vw] xl:max-w-[96vw] 2xl:max-w-[1500px] p-0 overflow-hidden border-none shadow-2xl bg-card rounded-3xl max-h-[96vh] flex flex-col">
-            <div className="bg-gradient-to-r from-primary via-primary/80 to-white/40 p-8 text-white shrink-0 relative overflow-hidden font-sans border-b border-white/10">
+            <div className="bg-gradient-to-r from-primary via-primary/80 to-white/40 p-4 sm:p-8 text-white shrink-0 relative overflow-hidden font-sans border-b border-white/10">
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-5"></div>
               
               {/* WATERMARK LAYER */}
@@ -2040,36 +2040,40 @@ export default function Clients() {
                 )}
               </div>
 
-              <div className="relative z-10 flex justify-between items-start">
-                <div className="flex items-center gap-6">
-                  <div className="w-24 h-24 bg-primary/20 rounded-[2rem] flex items-center justify-center text-white font-black text-3xl backdrop-blur-md border border-white/20 shadow-xl shrink-0">
+              <div className="relative z-10 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+                {/* Avatar + name/contact */}
+                <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+                  <div className="w-14 h-14 sm:w-24 sm:h-24 bg-primary/20 rounded-2xl sm:rounded-[2rem] flex items-center justify-center text-white font-black text-lg sm:text-3xl backdrop-blur-md border border-white/20 shadow-xl shrink-0">
                     {getClientDisplayName(selectedClient).charAt(0)}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-4 mb-2 flex-wrap">
-                      <h2 className="text-3xl font-black tracking-tighter uppercase leading-none text-white drop-shadow-md">{getClientDisplayName(selectedClient)}</h2>
-                      {selectedClient.isVIP && <Crown className="w-6 h-6 text-yellow-400 fill-yellow-400 drop-shadow-lg" />}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 sm:gap-4 mb-1 sm:mb-2 flex-wrap">
+                      <h2 className="text-xl sm:text-3xl font-black tracking-tighter uppercase leading-none text-white drop-shadow-md">{getClientDisplayName(selectedClient)}</h2>
+                      {selectedClient.isVIP && <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-400 fill-yellow-400 drop-shadow-lg shrink-0" />}
                     </div>
-                    <div className="text-white flex items-center gap-8 mt-3 font-bold uppercase tracking-widest text-xs flex-wrap drop-shadow-sm">
-                      <a href={`tel:${selectedClient.phone}`} className="flex items-center gap-2.5 hover:opacity-80 transition-all duration-300">
-                        <Phone className="w-5 h-5" /> {formatPhoneNumber(selectedClient.phone)}
+                    <div className="text-white flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-8 mt-1 sm:mt-3 font-bold uppercase tracking-widest text-xs drop-shadow-sm">
+                      <a href={`tel:${selectedClient.phone}`} className="flex items-center gap-2 hover:opacity-80 transition-all duration-300">
+                        <Phone className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" /> {formatPhoneNumber(selectedClient.phone)}
                       </a>
                       <span className="opacity-30 hidden sm:block">|</span>
-                      <a href={`mailto:${selectedClient.email}`} className="flex items-center gap-2.5 hover:opacity-80 transition-all duration-300">
-                        <Mail className="w-5 h-5" /> {selectedClient.email}
+                      <a href={`mailto:${selectedClient.email}`} className="flex items-center gap-2 hover:opacity-80 transition-all duration-300 min-w-0">
+                        <Mail className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                        <span className="truncate">{selectedClient.email}</span>
                       </a>
                     </div>
                   </div>
                 </div>
-                <div className="text-right flex flex-col items-end gap-4">
-                  <div className="flex items-center gap-3 bg-black/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/10">
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">DETAIL</span>
+
+                {/* Risk + credits + book */}
+                <div className="flex flex-row sm:flex-col justify-between items-center sm:items-end sm:text-right gap-3 sm:gap-4 mt-1 sm:mt-0">
+                  <div className="flex items-center gap-2 sm:gap-3 bg-black/20 backdrop-blur-sm px-3 sm:px-4 py-2 rounded-xl border border-white/10">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white hidden xs:block">DETAIL</span>
                     {(() => {
                       const risk = getEffectiveRisk(selectedClient);
                       return (
                         <Badge
                           className={cn(
-                            "font-black uppercase tracking-widest text-[9px] px-3 py-1 rounded-full shadow-lg",
+                            "font-black uppercase tracking-widest text-[9px] px-2 sm:px-3 py-1 rounded-full shadow-lg",
                             getRiskBadgeClass(risk)
                           )}
                         >
@@ -2078,65 +2082,61 @@ export default function Clients() {
                       );
                     })()}
                   </div>
-                  <div className="flex flex-col items-end">
-                    <p className="text-4xl font-black tracking-tighter leading-none text-primary drop-shadow-sm">{selectedClient.loyaltyPoints || 0} <span className="text-sm uppercase tracking-widest opacity-100 ml-1 text-primary/60">Credits</span></p>
-                    <div className="flex items-center gap-3 mt-4">
-                      <Button 
-                        size="lg" 
-                        className="bg-primary text-white hover:bg-primary/90 font-black shadow-glow-blue rounded-2xl h-12 px-8 uppercase tracking-widest text-xs border border-white/20 transition-all hover:scale-105"
-                        onClick={() => {
-                          toast.success("Book Appointment Clicked");
-                          setIsDetailOpen(false);
-                          
-                          // Force absolute DOM reset immediately
-                          document.body.style.pointerEvents = "";
-                          document.body.style.overflow = "";
-                          document.body.removeAttribute("data-scroll-locked");
-                          
-                          navigate(`/book-appointment?clientId=${selectedClient.id}`);
-                        }}
-                      >
-                        <Calendar className="w-4 h-4 mr-2" />
-                        Book Appointment
-                      </Button>
-                    </div>
+                  <div className="flex items-center gap-3 sm:flex-col sm:items-end">
+                    <p className="text-2xl sm:text-4xl font-black tracking-tighter leading-none text-primary drop-shadow-sm whitespace-nowrap">{selectedClient.loyaltyPoints || 0} <span className="text-xs sm:text-sm uppercase tracking-widest ml-1 text-primary/60">Credits</span></p>
+                    <Button
+                      className="bg-primary text-white hover:bg-primary/90 font-black shadow-glow-blue rounded-xl sm:rounded-2xl h-9 sm:h-12 px-4 sm:px-8 uppercase tracking-widest text-[10px] sm:text-xs border border-white/20 transition-all hover:scale-105 shrink-0"
+                      onClick={() => {
+                        toast.success("Book Appointment Clicked");
+                        setIsDetailOpen(false);
+
+                        document.body.style.pointerEvents = "";
+                        document.body.style.overflow = "";
+                        document.body.removeAttribute("data-scroll-locked");
+
+                        navigate(`/book-appointment?clientId=${selectedClient.id}`);
+                      }}
+                    >
+                      <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
+                      <span className="hidden xs:inline">Book </span>Appt
+                    </Button>
                   </div>
                 </div>
               </div>
             </div>
 
             <Tabs defaultValue={deepLinkTab || "overview"} className="w-full flex-1 flex flex-col overflow-hidden bg-card">
-              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-8 h-14 shrink-0 gap-4 overflow-x-auto no-scrollbar scroll-smooth flex flex-nowrap">
-                <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Overview</TabsTrigger>
-                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Profile</TabsTrigger>
-                <TabsTrigger value="appointments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Appointments ({clientHistory.length})</TabsTrigger>
-                <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Vehicles ({clientVehicles.length})</TabsTrigger>
-                <TabsTrigger value="warranties" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-cyan-400">Warranties</TabsTrigger>
-                <TabsTrigger value="forms" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Forms ({signedForms.length})</TabsTrigger>
+              <TabsList className="w-full justify-start rounded-none border-b border-white/5 bg-black/40 px-2 sm:px-8 h-12 sm:h-14 shrink-0 gap-2 sm:gap-4 overflow-x-auto no-scrollbar scroll-smooth flex flex-nowrap">
+                <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap">Overview</TabsTrigger>
+                <TabsTrigger value="profile" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap">Profile</TabsTrigger>
+                <TabsTrigger value="appointments" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap">Appointments ({clientHistory.length})</TabsTrigger>
+                <TabsTrigger value="vehicles" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap">Vehicles ({clientVehicles.length})</TabsTrigger>
+                <TabsTrigger value="warranties" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap text-cyan-400">Warranties</TabsTrigger>
+                <TabsTrigger value="forms" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap">Forms ({signedForms.length})</TabsTrigger>
                 {selectedClient.isVIP && (
-                  <TabsTrigger value="vip-pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-yellow-500">VIP Pricing</TabsTrigger>
+                  <TabsTrigger value="vip-pricing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap text-yellow-500">VIP Pricing</TabsTrigger>
                 )}
-                <TabsTrigger value="billing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Billing ({clientInvoices.length + clientQuotes.length})</TabsTrigger>
-                <TabsTrigger value="photos" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px]">Gallery</TabsTrigger>
-                <TabsTrigger value="timing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-purple-500">
+                <TabsTrigger value="billing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap">Billing ({clientInvoices.length + clientQuotes.length})</TabsTrigger>
+                <TabsTrigger value="photos" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap">Gallery</TabsTrigger>
+                <TabsTrigger value="timing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap text-purple-500">
                   <Clock className="w-3.5 h-3.5 mr-2" />
                   Service Timing
                 </TabsTrigger>
-                <TabsTrigger value="strategy" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-primary">
+                <TabsTrigger value="strategy" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap text-primary">
                   <Brain className="w-3.5 h-3.5 mr-2" />
                   AI Strategy
                 </TabsTrigger>
-                <TabsTrigger value="comms" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-emerald-500">
+                <TabsTrigger value="comms" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap text-emerald-500">
                   <MessageSquare className="w-3.5 h-3.5 mr-2" />
                   Client Comms
                 </TabsTrigger>
-                <TabsTrigger value="service-history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[11px] text-orange-400">
+                <TabsTrigger value="service-history" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-0 font-black uppercase tracking-widest text-[10px] sm:text-[11px] whitespace-nowrap text-orange-400">
                   <History className="w-3.5 h-3.5 mr-2" />
                   Service History ({clientServiceHistory.length})
                 </TabsTrigger>
               </TabsList>
 
-              <div className="flex-1 overflow-y-auto p-8 bg-card custom-scrollbar">
+              <div className="flex-1 overflow-y-auto p-3 sm:p-8 bg-card custom-scrollbar">
                 <TabsContent value="overview" className="mt-0 space-y-8 outline-none">
                   {(() => {
                     const risk = getEffectiveRisk(selectedClient);
@@ -2144,13 +2144,13 @@ export default function Clients() {
                     const isBlocked = risk === "block_booking" || risk === "do_not_book";
                     return (
                       <div className={cn(
-                        "p-6 border rounded-[2rem] flex items-center gap-6 animate-in fade-in slide-in-from-top-4",
+                        "p-4 sm:p-6 border rounded-2xl sm:rounded-[2rem] flex items-center gap-3 sm:gap-6 animate-in fade-in slide-in-from-top-4",
                         isBlocked
                           ? "bg-red-900/20 border-red-700/40"
                           : "bg-red-500/10 border-red-500/20"
                       )}>
                         <div className={cn(
-                          "w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 shadow-glow-red",
+                          "w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 shadow-glow-red",
                           isBlocked ? "bg-red-900/40 text-red-400" : "bg-red-500/20 text-red-500"
                         )}>
                           <AlertOctagon className="w-8 h-8" />
@@ -2174,7 +2174,7 @@ export default function Clients() {
                   <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-8 px-2">
                     {/* Status Summary */}
                     <div className="space-y-6 min-w-0">
-                      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="p-6 bg-white/5 rounded-[2rem] border border-white/5 space-y-4 min-w-0">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Financial Standing</span>
@@ -2229,8 +2229,8 @@ export default function Clients() {
                       </div>
 
                       {/* Timeline/Recent */}
-                      <div className="p-8 bg-white/5 rounded-[2.5rem] border border-white/5">
-                        <div className="flex items-center justify-between mb-8">
+                      <div className="p-4 sm:p-8 bg-white/5 rounded-2xl sm:rounded-[2.5rem] border border-white/5">
+                        <div className="flex items-center justify-between mb-4 sm:mb-8">
                           <h4 className="text-sm font-black uppercase tracking-[0.2em] text-white">Recent Dossier Activity</h4>
                           <History className="w-4 h-4 text-primary" />
                         </div>
