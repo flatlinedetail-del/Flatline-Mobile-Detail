@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   collection,
   limit,
@@ -23,6 +23,8 @@ import {
   Sparkles,
   TrendingUp,
   UserPlus,
+  X,
+  Zap,
 } from "lucide-react";
 import { useTodayAppointments } from "../../hooks/useTodayAppointments";
 import { useClientsLive } from "../../hooks/useClientsLive";
@@ -37,13 +39,22 @@ import {
 /**
  * FieldHome — Premium Field Mode Dashboard
  *
- * A live operational command center for field technicians.
+ * Live operational command center. Every KPI card is tappable and
+ * navigates to a real filtered operational view.
  *
  * Data sources (all real Firestore, no mock data):
  *   - useTodayAppointments(): live today's jobs (appointments collection)
  *   - useClientsLive(30):      recent clients for risk/VIP signals
  *   - useMonthAppointments():  this month's jobs for monthly revenue KPI
  *   - usePendingInvoices():    recent invoices, filtered in memory for pending count
+ *
+ * KPI card destinations:
+ *   Jobs Today    → /calendar  (today pre-selected by FieldSchedule default)
+ *   Revenue       → /invoices  (full billing view)
+ *   Active Now    → inline ActiveJobsPanel overlay (in-progress/en-route filter)
+ *   Invoices      → /invoices  (unpaid prominently highlighted)
+ *   Month Rev     → /invoices  (full billing view)
+ *   At Risk       → /protected-clients (risk management screen)
  */
 
 // ─── Pending invoice mini-hook ────────────────────────────────────────────────
@@ -102,49 +113,55 @@ type ToneKey = "primary" | "amber" | "emerald" | "violet" | "rose" | "sky";
 
 const TONE: Record<
   ToneKey,
-  { bg: string; ring: string; icon: string; border: string; glow: string }
+  { bg: string; ring: string; icon: string; border: string; glow: string; glowPress: string }
 > = {
   primary: {
-    bg:     "bg-[#0A4DFF]/10",
-    ring:   "ring-[#0A4DFF]/25",
-    icon:   "text-[#6B8FFF]",
-    border: "border-[#0A4DFF]/20",
-    glow:   "shadow-[0_0_18px_rgba(10,77,255,0.10)]",
+    bg:       "bg-[#0A4DFF]/10",
+    ring:     "ring-[#0A4DFF]/25",
+    icon:     "text-[#6B8FFF]",
+    border:   "border-[#0A4DFF]/20",
+    glow:     "shadow-[0_0_18px_rgba(10,77,255,0.10)]",
+    glowPress:"shadow-[0_0_28px_rgba(10,77,255,0.28)]",
   },
   amber: {
-    bg:     "bg-amber-500/10",
-    ring:   "ring-amber-500/25",
-    icon:   "text-amber-400",
-    border: "border-amber-500/20",
-    glow:   "shadow-[0_0_18px_rgba(245,158,11,0.10)]",
+    bg:       "bg-amber-500/10",
+    ring:     "ring-amber-500/25",
+    icon:     "text-amber-400",
+    border:   "border-amber-500/20",
+    glow:     "shadow-[0_0_18px_rgba(245,158,11,0.10)]",
+    glowPress:"shadow-[0_0_28px_rgba(245,158,11,0.28)]",
   },
   emerald: {
-    bg:     "bg-emerald-500/10",
-    ring:   "ring-emerald-500/25",
-    icon:   "text-emerald-400",
-    border: "border-emerald-500/20",
-    glow:   "shadow-[0_0_18px_rgba(16,185,129,0.10)]",
+    bg:       "bg-emerald-500/10",
+    ring:     "ring-emerald-500/25",
+    icon:     "text-emerald-400",
+    border:   "border-emerald-500/20",
+    glow:     "shadow-[0_0_18px_rgba(16,185,129,0.10)]",
+    glowPress:"shadow-[0_0_28px_rgba(16,185,129,0.28)]",
   },
   violet: {
-    bg:     "bg-violet-500/10",
-    ring:   "ring-violet-500/25",
-    icon:   "text-violet-400",
-    border: "border-violet-500/20",
-    glow:   "shadow-[0_0_18px_rgba(139,92,246,0.10)]",
+    bg:       "bg-violet-500/10",
+    ring:     "ring-violet-500/25",
+    icon:     "text-violet-400",
+    border:   "border-violet-500/20",
+    glow:     "shadow-[0_0_18px_rgba(139,92,246,0.10)]",
+    glowPress:"shadow-[0_0_28px_rgba(139,92,246,0.28)]",
   },
   rose: {
-    bg:     "bg-rose-500/10",
-    ring:   "ring-rose-500/25",
-    icon:   "text-rose-400",
-    border: "border-rose-500/20",
-    glow:   "shadow-[0_0_18px_rgba(244,63,94,0.10)]",
+    bg:       "bg-rose-500/10",
+    ring:     "ring-rose-500/25",
+    icon:     "text-rose-400",
+    border:   "border-rose-500/20",
+    glow:     "shadow-[0_0_18px_rgba(244,63,94,0.10)]",
+    glowPress:"shadow-[0_0_28px_rgba(244,63,94,0.28)]",
   },
   sky: {
-    bg:     "bg-sky-500/10",
-    ring:   "ring-sky-500/25",
-    icon:   "text-sky-400",
-    border: "border-sky-500/20",
-    glow:   "shadow-[0_0_18px_rgba(14,165,233,0.10)]",
+    bg:       "bg-sky-500/10",
+    ring:     "ring-sky-500/25",
+    icon:     "text-sky-400",
+    border:   "border-sky-500/20",
+    glow:     "shadow-[0_0_18px_rgba(14,165,233,0.10)]",
+    glowPress:"shadow-[0_0_28px_rgba(14,165,233,0.28)]",
   },
 };
 
@@ -169,49 +186,244 @@ function statusToneClass(status: FieldJobStatus): string {
   }
 }
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
+// ─── Interactive KPI Card ─────────────────────────────────────────────────────
+// Supports three interaction modes:
+//   to        → rendered as a <Link> (most common — simple navigation)
+//   onClick   → rendered as a <button> (overlay panels, custom logic)
+//   neither   → static display (skeleton / loading states)
 
-function KpiCard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  tone,
-  skeleton = false,
-}: {
+interface KpiCardProps {
   label: string;
   value: string | number;
   sub?: string;
   icon: typeof Activity;
   tone: ToneKey;
   skeleton?: boolean;
-}) {
+  /** Navigate to this route on tap */
+  to?: string;
+  /** Custom tap handler (overrides `to`) */
+  onClick?: () => void;
+}
+
+function KpiCard({ label, value, sub, icon: Icon, tone, skeleton = false, to, onClick }: KpiCardProps) {
   const t = TONE[tone];
-  return (
+  const interactive = Boolean(to || onClick);
+
+  const inner = (
     <div
       className={cn(
-        "shrink-0 w-[118px] rounded-xl p-3 bg-sidebar/70 border ring-1",
+        "shrink-0 w-[118px] rounded-xl p-3 bg-sidebar/70 border ring-1 select-none",
+        "transition-all duration-150",
         t.border,
         t.ring,
         t.glow,
+        interactive && [
+          "cursor-pointer",
+          "hover:bg-sidebar/85",
+          "active:scale-[0.94]",
+          t.glowPress.replace("shadow-[", "active:shadow-["),
+          "active:border-opacity-60",
+        ],
       )}
     >
+      {/* Icon + label row */}
       <div className="flex items-center gap-1.5 mb-2.5">
         <div className={cn("w-6 h-6 rounded-md flex items-center justify-center ring-1", t.bg, t.ring)}>
           <Icon className={cn("w-3.5 h-3.5", t.icon)} />
         </div>
-        <span className="text-[8px] font-black uppercase tracking-widest text-white/35 leading-tight">
+        <span className="text-[8px] font-black uppercase tracking-widest text-white/35 leading-tight flex-1">
           {label}
         </span>
+        {interactive && (
+          <ChevronRight className="w-2.5 h-2.5 text-white/20 shrink-0" />
+        )}
       </div>
+
+      {/* Value */}
       {skeleton ? (
         <div className="h-7 w-10 rounded bg-white/5 animate-pulse" />
       ) : (
         <p className="text-[21px] font-black text-white leading-none tracking-tight">{value}</p>
       )}
+
+      {/* Sub-label */}
       {sub && !skeleton && (
         <p className="text-[9px] text-white/40 font-medium mt-1 leading-tight">{sub}</p>
       )}
+    </div>
+  );
+
+  if (to && !onClick) {
+    return (
+      <Link to={to} className="block shrink-0">
+        {inner}
+      </Link>
+    );
+  }
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className="block shrink-0 text-left">
+        {inner}
+      </button>
+    );
+  }
+
+  return <div className="shrink-0">{inner}</div>;
+}
+
+// ─── Active Jobs Overlay Panel ────────────────────────────────────────────────
+// Slide-up overlay showing in_progress/en_route jobs only.
+// Invoked when the "Active Now" KPI card is tapped.
+
+function ActiveJobsPanel({
+  jobs,
+  onClose,
+}: {
+  jobs: FieldJob[];
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center"
+      aria-modal="true"
+      role="dialog"
+      aria-label="Active jobs"
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Panel */}
+      <div
+        className={cn(
+          "relative w-full max-w-md z-10",
+          "bg-[#0d0d14] border-t border-amber-500/25 rounded-t-2xl",
+          "shadow-[0_-6px_40px_rgba(245,158,11,0.13)]",
+          "pb-[max(env(safe-area-inset-bottom),1rem)]",
+          "animate-in slide-in-from-bottom-2 duration-200",
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Handle + header */}
+        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            {/* Pull handle */}
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 w-8 h-1 rounded-full bg-white/15" />
+            <div className="w-7 h-7 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/25 flex items-center justify-center shrink-0">
+              <Activity className="w-3.5 h-3.5 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-[13px] font-black text-white leading-none">Active Now</p>
+              <p className="text-[9px] font-bold text-white/35 uppercase tracking-widest leading-none mt-0.5">
+                {jobs.length > 0
+                  ? `${jobs.length} job${jobs.length > 1 ? "s" : ""} in progress`
+                  : "Live operations"}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-7 h-7 rounded-lg bg-white/5 ring-1 ring-white/8 flex items-center justify-center text-white/50 hover:text-white/80 transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="px-3 pt-3 pb-1 max-h-[60vh] overflow-y-auto scrollbar-none space-y-1.5">
+          {jobs.length === 0 ? (
+            /* Premium empty state */
+            <div className="py-8 flex flex-col items-center text-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/[0.07] ring-1 ring-amber-500/20 flex items-center justify-center">
+                <Zap className="w-5 h-5 text-amber-400/50" />
+              </div>
+              <div>
+                <p className="text-[13px] font-bold text-white/50 leading-tight">No active jobs running</p>
+                <p className="text-[10px] text-white/30 font-medium leading-tight mt-1">
+                  Jobs in progress or en route will appear here
+                </p>
+              </div>
+              <Link
+                to="/field/book-job"
+                onClick={onClose}
+                className={cn(
+                  "flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors",
+                  "bg-[#0A4DFF]/15 ring-1 ring-[#0A4DFF]/25 text-[#6B8FFF] hover:bg-[#0A4DFF]/25",
+                )}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Book a Job
+              </Link>
+            </div>
+          ) : (
+            jobs.map((job) => (
+              <Link
+                key={job.id}
+                to={`/field/job/${job.id}`}
+                onClick={onClose}
+                className={cn(
+                  "flex items-center gap-3 w-full rounded-xl border transition-colors",
+                  "px-3 py-3 min-h-[64px]",
+                  "border-amber-500/20 bg-amber-500/[0.06] hover:bg-amber-500/10",
+                  "shadow-[0_0_12px_rgba(245,158,11,0.07)]",
+                )}
+              >
+                {/* Pulse indicator */}
+                <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-bold text-white truncate leading-tight">
+                    {job.clientName}
+                  </p>
+                  <p className="text-[10px] text-white/45 font-medium leading-tight mt-0.5 truncate">
+                    {formatJobTime(job.scheduledAt)}
+                    {job.serviceNames.length > 0 ? ` · ${job.serviceNames[0]}` : ""}
+                    {job.vehicleInfo ? ` · ${job.vehicleInfo}` : ""}
+                  </p>
+                  <span
+                    className={cn(
+                      "inline-block mt-1 text-[8px] font-black uppercase tracking-widest",
+                      "px-1.5 py-0.5 rounded ring-1 leading-none",
+                      statusToneClass(job.status),
+                    )}
+                  >
+                    {statusLabel(job.status)}
+                  </span>
+                </div>
+
+                {/* Amount + arrow */}
+                <div className="shrink-0 flex flex-col items-end gap-1">
+                  <p className="text-[12px] font-black text-amber-300/80">
+                    {formatCurrency(job.totalAmount)}
+                  </p>
+                  <ChevronRight className="w-3.5 h-3.5 text-amber-400/40" />
+                </div>
+              </Link>
+            ))
+          )}
+        </div>
+
+        {/* Footer CTA — only when jobs exist */}
+        {jobs.length > 0 && (
+          <div className="px-3 pt-3 pb-2 border-t border-white/[0.06] mt-1">
+            <Link
+              to="/calendar"
+              onClick={onClose}
+              className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl bg-white/5 ring-1 ring-white/8 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white/75 hover:bg-white/8 transition-colors"
+            >
+              <CalendarDays className="w-3.5 h-3.5" />
+              Full Schedule
+            </Link>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -239,11 +451,11 @@ function ActionModule({
     <div
       className={cn(
         "rounded-xl p-3 bg-sidebar/60 border ring-1 transition-all min-h-[84px]",
-        "flex flex-col gap-2",
+        "flex flex-col gap-2 select-none",
         t.border,
         t.ring,
         !comingSoon && t.glow,
-        !comingSoon && "hover:bg-sidebar/80 active:scale-[0.97]",
+        !comingSoon && "hover:bg-sidebar/80 active:scale-[0.96]",
         comingSoon && "opacity-40",
       )}
     >
@@ -276,8 +488,8 @@ function JobRow({ job }: { job: FieldJob }) {
     <Link
       to={`/field/job/${job.id}`}
       className={cn(
-        "flex items-center gap-2.5 w-full rounded-xl border transition-colors",
-        "px-3 py-2.5 min-h-[60px]",
+        "flex items-center gap-2.5 w-full rounded-xl border transition-all",
+        "px-3 py-2.5 min-h-[60px] select-none active:scale-[0.98]",
         isActive
           ? "border-amber-500/20 bg-amber-500/[0.06] hover:bg-amber-500/10"
           : "border-white/5 bg-sidebar/60 hover:bg-sidebar/80",
@@ -369,9 +581,17 @@ function NoJobsCard() {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+/** Which overlay panel is currently open. null = none. */
+type ActivePanel = "active-jobs" | null;
+
 export default function FieldHome() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const firstName = profile?.displayName?.split(" ")[0] || "Detailer";
+
+  // Panel state
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null);
+  const closePanel = () => setActivePanel(null);
 
   // Stable "now" for the month hook — only needs to be current month at mount
   const now = useMemo(() => new Date(), []);
@@ -474,217 +694,253 @@ export default function FieldHome() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-4 pb-2">
+    <>
+      <div className="space-y-4 pb-2">
 
-      {/* ── Section 1: Header ── */}
-      <div className="flex items-center justify-between px-0.5">
-        <div>
-          <p className="text-[9px] font-black uppercase tracking-widest text-white/30 leading-none mb-0.5">
-            {dateLabel}
-          </p>
-          <h1 className="text-[18px] font-black text-white leading-tight">
-            {greeting}, {firstName}
-          </h1>
-        </div>
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-500/10 ring-1 ring-emerald-500/25">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400">Live</span>
-        </div>
-      </div>
-
-      {/* ── Section 2: KPI Cards (horizontal scroll) ── */}
-      <div className="-mx-2.5 px-2.5 overflow-x-auto scrollbar-none">
-        <div className="flex gap-2 w-max pb-0.5">
-          <KpiCard
-            label="Jobs Today"
-            value={jobsLoading ? "—" : todayJobs.length}
-            sub={activeJobs.length > 0 ? `${activeJobs.length} active` : "on schedule"}
-            icon={CalendarDays}
-            tone="primary"
-            skeleton={jobsLoading}
-          />
-          <KpiCard
-            label="Revenue"
-            value={todayRevenue > 0 ? formatCurrency(todayRevenue) : "—"}
-            sub="today's total"
-            icon={DollarSign}
-            tone="emerald"
-            skeleton={jobsLoading}
-          />
-          <KpiCard
-            label="Active Now"
-            value={activeJobs.length}
-            sub={activeJobs.length > 0 ? "in progress" : "none running"}
-            icon={Activity}
-            tone="amber"
-          />
-          <KpiCard
-            label="Invoices"
-            value={pendingCount > 0 ? pendingCount : "—"}
-            sub={pendingCount > 0 ? formatCurrency(pendingTotal) : "all clear"}
-            icon={Receipt}
-            tone={pendingCount > 2 ? "rose" : "emerald"}
-          />
-          <KpiCard
-            label="Month Rev"
-            value={monthRevenue > 0 ? formatCurrency(monthRevenue) : "—"}
-            sub="paid this month"
-            icon={TrendingUp}
-            tone="violet"
-          />
-          {atRiskCount > 0 && (
-            <KpiCard
-              label="At Risk"
-              value={atRiskCount}
-              sub="clients flagged"
-              icon={ShieldAlert}
-              tone="rose"
-            />
-          )}
-        </div>
-      </div>
-
-      {/* ── Section 3: Today's Operations ── */}
-      <section aria-label="Today's Operations" className="space-y-2">
+        {/* ── Section 1: Header ── */}
         <div className="flex items-center justify-between px-0.5">
-          <h2 className="text-[9px] font-black uppercase tracking-widest text-white/40">
-            Today's Operations
-          </h2>
-          <Link
-            to="/calendar"
-            className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-white/55 transition-colors"
-          >
-            Full Schedule →
-          </Link>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/30 leading-none mb-0.5">
+              {dateLabel}
+            </p>
+            <h1 className="text-[18px] font-black text-white leading-tight">
+              {greeting}, {firstName}
+            </h1>
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-500/10 ring-1 ring-emerald-500/25">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400">Live</span>
+          </div>
         </div>
 
-        {jobsLoading ? (
-          <div className="space-y-1.5">
-            {[0, 1].map((i) => (
-              <div
-                key={i}
-                className="rounded-xl border border-white/5 bg-sidebar/40 h-[60px] animate-pulse"
+        {/* ── Section 2: KPI Cards (horizontal scroll) ── */}
+        {/*
+          Each KPI card is now fully interactive:
+            Jobs Today  → /calendar  (today auto-selected in FieldSchedule)
+            Revenue     → /invoices  (full billing view)
+            Active Now  → ActiveJobsPanel overlay (in-progress/en-route filter)
+            Invoices    → /invoices  (unpaid entries highlighted)
+            Month Rev   → /invoices
+            At Risk     → /protected-clients
+        */}
+        <div className="-mx-2.5 px-2.5 overflow-x-auto scrollbar-none">
+          <div className="flex gap-2 w-max pb-0.5">
+
+            {/* Jobs Today → /calendar */}
+            <KpiCard
+              label="Jobs Today"
+              value={jobsLoading ? "—" : todayJobs.length}
+              sub={activeJobs.length > 0 ? `${activeJobs.length} active` : "on schedule"}
+              icon={CalendarDays}
+              tone="primary"
+              skeleton={jobsLoading}
+              to="/calendar"
+            />
+
+            {/* Revenue → /invoices */}
+            <KpiCard
+              label="Revenue"
+              value={todayRevenue > 0 ? formatCurrency(todayRevenue) : "—"}
+              sub="today's total"
+              icon={DollarSign}
+              tone="emerald"
+              skeleton={jobsLoading}
+              to="/invoices"
+            />
+
+            {/* Active Now → ActiveJobsPanel overlay */}
+            <KpiCard
+              label="Active Now"
+              value={activeJobs.length}
+              sub={activeJobs.length > 0 ? "in progress" : "none running"}
+              icon={Activity}
+              tone="amber"
+              onClick={() => setActivePanel("active-jobs")}
+            />
+
+            {/* Invoices → /invoices */}
+            <KpiCard
+              label="Invoices"
+              value={pendingCount > 0 ? pendingCount : "—"}
+              sub={pendingCount > 0 ? formatCurrency(pendingTotal) : "all clear"}
+              icon={Receipt}
+              tone={pendingCount > 2 ? "rose" : "emerald"}
+              to="/invoices"
+            />
+
+            {/* Month Revenue → /invoices */}
+            <KpiCard
+              label="Month Rev"
+              value={monthRevenue > 0 ? formatCurrency(monthRevenue) : "—"}
+              sub="paid this month"
+              icon={TrendingUp}
+              tone="violet"
+              to="/invoices"
+            />
+
+            {/* At Risk → /protected-clients (only shown when clients are flagged) */}
+            {atRiskCount > 0 && (
+              <KpiCard
+                label="At Risk"
+                value={atRiskCount}
+                sub="clients flagged"
+                icon={ShieldAlert}
+                tone="rose"
+                to="/protected-clients"
               />
-            ))}
-          </div>
-        ) : todayJobs.length === 0 ? (
-          <NoJobsCard />
-        ) : (
-          <div className="space-y-1.5">
-            {/* Active job highlight banner */}
-            {heroJob && (heroJob.status === "in_progress" || heroJob.status === "en_route") && (
-              <Link
-                to={`/field/job/${heroJob.id}`}
-                className={cn(
-                  "block rounded-xl border px-3 py-3 ring-1 transition-colors",
-                  "border-amber-500/25 bg-amber-500/[0.07] ring-amber-500/15",
-                  "hover:bg-amber-500/10 shadow-[0_0_20px_rgba(245,158,11,0.08)]",
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                  <span className="text-[8px] font-black uppercase tracking-widest text-amber-400">
-                    Active Now
-                  </span>
-                </div>
-                <p className="text-[13px] font-bold text-white mt-1 leading-tight">
-                  {heroJob.clientName}
-                </p>
-                <p className="text-[10px] text-white/50 font-medium leading-tight">
-                  {formatJobTime(heroJob.scheduledAt)}
-                  {heroJob.serviceNames.length > 0 ? ` · ${heroJob.serviceNames[0]}` : ""}
-                  {" · "}
-                  {statusLabel(heroJob.status)}
-                </p>
-              </Link>
             )}
 
-            {/* Full job list */}
-            {todayJobs.map((j) => (
-              <JobRow key={j.id} job={j} />
-            ))}
           </div>
-        )}
-      </section>
-
-      {/* ── Section 4: Quick Launch ── */}
-      <section aria-label="Quick Launch" className="space-y-2">
-        <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">
-          Quick Launch
-        </h2>
-        <div className="grid grid-cols-2 gap-2">
-          <ActionModule
-            title="Book Job"
-            subtitle="New appointment"
-            icon={Plus}
-            tone="primary"
-            to="/field/book-job"
-          />
-          <ActionModule
-            title="Invoices"
-            subtitle="Billing & payments"
-            icon={Receipt}
-            tone="emerald"
-            to="/invoices"
-          />
-          <ActionModule
-            title="Schedule"
-            subtitle="Calendar view"
-            icon={CalendarDays}
-            tone="sky"
-            to="/calendar"
-          />
-          <ActionModule
-            title="Leads"
-            subtitle="Pipeline"
-            icon={UserPlus}
-            tone="amber"
-            to="/leads"
-          />
-          <ActionModule
-            title="Quotes"
-            subtitle="Estimates"
-            icon={FileText}
-            tone="violet"
-            to="/quotes"
-          />
-          <ActionModule
-            title="AI Assist"
-            subtitle="Coming soon"
-            icon={Sparkles}
-            tone="violet"
-            comingSoon
-          />
         </div>
-      </section>
 
-      {/* ── Section 5: Intelligence signals ── */}
-      {signals.length > 0 && (
-        <section aria-label="Intelligence" className="space-y-2">
-          <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">
-            Intelligence
-          </h2>
-          <div
-            className={cn(
-              "rounded-xl border border-violet-500/15 bg-violet-950/25 ring-1 ring-violet-500/10",
-              "p-3 space-y-2.5 shadow-[0_0_20px_rgba(139,92,246,0.07)]",
-            )}
-          >
-            <div className="flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-              <span className="text-[8px] font-black uppercase tracking-widest text-violet-400">
-                Operational Signals
-              </span>
+        {/* ── Section 3: Today's Operations ── */}
+        <section aria-label="Today's Operations" className="space-y-2">
+          <div className="flex items-center justify-between px-0.5">
+            <h2 className="text-[9px] font-black uppercase tracking-widest text-white/40">
+              Today's Operations
+            </h2>
+            <Link
+              to="/calendar"
+              className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-white/55 transition-colors"
+            >
+              Full Schedule →
+            </Link>
+          </div>
+
+          {jobsLoading ? (
+            <div className="space-y-1.5">
+              {[0, 1].map((i) => (
+                <div
+                  key={i}
+                  className="rounded-xl border border-white/5 bg-sidebar/40 h-[60px] animate-pulse"
+                />
+              ))}
             </div>
-            {signals.map((sig, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <div className="w-1 h-1 rounded-full bg-violet-400/50 mt-1.5 shrink-0" />
-                <p className="text-[11px] text-white/60 font-medium leading-snug">{sig}</p>
-              </div>
-            ))}
+          ) : todayJobs.length === 0 ? (
+            <NoJobsCard />
+          ) : (
+            <div className="space-y-1.5">
+              {/* Active job highlight banner */}
+              {heroJob && (heroJob.status === "in_progress" || heroJob.status === "en_route") && (
+                <Link
+                  to={`/field/job/${heroJob.id}`}
+                  className={cn(
+                    "block rounded-xl border px-3 py-3 ring-1 transition-all select-none",
+                    "border-amber-500/25 bg-amber-500/[0.07] ring-amber-500/15",
+                    "hover:bg-amber-500/10 active:scale-[0.98]",
+                    "shadow-[0_0_20px_rgba(245,158,11,0.08)]",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                    <span className="text-[8px] font-black uppercase tracking-widest text-amber-400">
+                      Active Now
+                    </span>
+                  </div>
+                  <p className="text-[13px] font-bold text-white mt-1 leading-tight">
+                    {heroJob.clientName}
+                  </p>
+                  <p className="text-[10px] text-white/50 font-medium leading-tight">
+                    {formatJobTime(heroJob.scheduledAt)}
+                    {heroJob.serviceNames.length > 0 ? ` · ${heroJob.serviceNames[0]}` : ""}
+                    {" · "}
+                    {statusLabel(heroJob.status)}
+                  </p>
+                </Link>
+              )}
+
+              {/* Full job list */}
+              {todayJobs.map((j) => (
+                <JobRow key={j.id} job={j} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* ── Section 4: Quick Launch ── */}
+        <section aria-label="Quick Launch" className="space-y-2">
+          <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">
+            Quick Launch
+          </h2>
+          <div className="grid grid-cols-2 gap-2">
+            <ActionModule
+              title="Book Job"
+              subtitle="New appointment"
+              icon={Plus}
+              tone="primary"
+              to="/field/book-job"
+            />
+            <ActionModule
+              title="Invoices"
+              subtitle="Billing & payments"
+              icon={Receipt}
+              tone="emerald"
+              to="/invoices"
+            />
+            <ActionModule
+              title="Schedule"
+              subtitle="Calendar view"
+              icon={CalendarDays}
+              tone="sky"
+              to="/calendar"
+            />
+            <ActionModule
+              title="Leads"
+              subtitle="Pipeline"
+              icon={UserPlus}
+              tone="amber"
+              to="/leads"
+            />
+            <ActionModule
+              title="Quotes"
+              subtitle="Estimates"
+              icon={FileText}
+              tone="violet"
+              to="/quotes"
+            />
+            <ActionModule
+              title="AI Assist"
+              subtitle="Coming soon"
+              icon={Sparkles}
+              tone="violet"
+              comingSoon
+            />
           </div>
         </section>
+
+        {/* ── Section 5: Intelligence signals ── */}
+        {signals.length > 0 && (
+          <section aria-label="Intelligence" className="space-y-2">
+            <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">
+              Intelligence
+            </h2>
+            <div
+              className={cn(
+                "rounded-xl border border-violet-500/15 bg-violet-950/25 ring-1 ring-violet-500/10",
+                "p-3 space-y-2.5 shadow-[0_0_20px_rgba(139,92,246,0.07)]",
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+                <span className="text-[8px] font-black uppercase tracking-widest text-violet-400">
+                  Operational Signals
+                </span>
+              </div>
+              {signals.map((sig, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <div className="w-1 h-1 rounded-full bg-violet-400/50 mt-1.5 shrink-0" />
+                  <p className="text-[11px] text-white/60 font-medium leading-snug">{sig}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+
+      {/* ── Overlay Panels ── */}
+      {activePanel === "active-jobs" && (
+        <ActiveJobsPanel jobs={activeJobs} onClose={closePanel} />
       )}
-    </div>
+    </>
   );
 }
