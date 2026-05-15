@@ -105,6 +105,7 @@ export default function BookAppointment() {
 
   const [isServicesOpen, setIsServicesOpen] = useState(false);
   const [isEnhancementsOpen, setIsEnhancementsOpen] = useState(false);
+  const [isAddVehicleOpen, setIsAddVehicleOpen] = useState(false);
 
   const [scheduledAtValue, setScheduledAtValue] = useState("");
   const [routeSynergy, setRouteSynergy] = useState<{distance: number, name: string, time: string, bestOption: string, beforeValue: string, beforeTime: string, afterValue: string, afterTime: string} | null>(null);
@@ -1592,63 +1593,86 @@ export default function BookAppointment() {
 
             {/* 2. VEHICLES SECTION */}
             {selectedCustomerId && (
-              <div className="space-y-4">
-                <h2 className="text-sm font-black uppercase text-primary tracking-widest border-b border-white/10 pb-2">Asset Selection (Vehicles)</h2>
-                {availableVehicles.length > 0 && (
-                  <div className="space-y-2 p-4 bg-black/50 border border-white/10 rounded-xl">
-                    <Label className="text-white/60 font-bold mb-2 block">Available Client Assets</Label>
-                    <div className="flex flex-wrap gap-3">
-                      {availableVehicles.filter(v => v.id && !v.id.startsWith("temp-")).map(v => {
-                        const vehicleRecs = timingRecommendations.filter(r => r.vehicleId === v.id);
-                        const hasDue = vehicleRecs.some(r => r.dueStatus === "Overdue" || r.dueStatus === "Due");
-                        const hasRec = vehicleRecs.some(r => r.dueStatus === "Due Soon" || r.dueStatus === "Never Performed");
+              <div className="space-y-3">
+                <h2 className="text-sm font-black uppercase text-primary tracking-widest border-b border-white/10 pb-2">Vehicle</h2>
 
-                        return (
-                          <div key={v.id} className="flex items-center space-x-2 bg-white/5 px-3 py-2 rounded-lg border border-white/10 hover:border-white/20 transition-all cursor-pointer">
-                            <Checkbox 
-                              id={`v-${v.id}`}
-                              checked={selectedVehicleIds.includes(v.id)}
-                              onCheckedChange={(checked) => {
-                                if (checked) setSelectedVehicleIds(prev => [...prev, v.id]);
-                                else {
-                                  setSelectedVehicleIds(prev => prev.filter(id => id !== v.id));
-                                  setSelectedServices(prev => prev.filter(s => s.vehicleId !== v.id));
-                                }
-                              }}
-                              className="border-white/30 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                            />
-                            <div 
-                              className="flex-1 min-w-0" 
-                              onClick={() => {
-                                if (hasDue || hasRec) {
-                                  setRecPanelVehicleId(v.id);
-                                  setIsRecPanelOpen(true);
-                                }
-                              }}
-                            >
-                              <Label htmlFor={`v-${v.id}`} className="cursor-pointer font-bold text-white flex items-center justify-between gap-2">
-                                <span className="truncate">{v.year} {v.make} {v.model}</span>
-                                <div className="flex gap-1 shrink-0">
-                                  {hasDue && <Badge className="bg-red-600 text-white text-[7px] h-3.5 font-black uppercase px-1 border-none flex items-center gap-0.5"><AlertCircle size={8}/> Due</Badge>}
-                                  {hasRec && <Badge className="bg-[#0A4DFF] text-white text-[7px] h-3.5 font-black uppercase px-1 border-none flex items-center gap-0.5"><Info size={8}/> Recommended</Badge>}
-                                </div>
-                              </Label>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                {/* Saved vehicle chips — tap to select, auto-fills vehicle data */}
+                {availableVehicles.filter(v => v.id && !v.id.startsWith("temp-")).length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {availableVehicles.filter(v => v.id && !v.id.startsWith("temp-")).map(v => {
+                      const isSelected = selectedVehicleIds.includes(v.id);
+                      const vehicleRecs = timingRecommendations.filter(r => r.vehicleId === v.id);
+                      const hasDue = vehicleRecs.some(r => r.dueStatus === "Overdue" || r.dueStatus === "Due");
+                      const hasRec = vehicleRecs.some(r => r.dueStatus === "Due Soon" || r.dueStatus === "Never Performed");
+
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedVehicleIds(prev => prev.filter(id => id !== v.id));
+                              setSelectedServices(prev => prev.filter(s => s.vehicleId !== v.id));
+                            } else {
+                              setSelectedVehicleIds(prev => [...prev, v.id]);
+                              if (hasDue || hasRec) {
+                                setRecPanelVehicleId(v.id);
+                                setIsRecPanelOpen(true);
+                              }
+                            }
+                          }}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold transition-all",
+                            isSelected
+                              ? "bg-primary text-white border-primary shadow-glow-blue"
+                              : "bg-white/5 text-white/80 border-white/10 hover:border-primary/40"
+                          )}
+                        >
+                          <Car className="w-3.5 h-3.5 shrink-0" />
+                          <span>{v.year} {v.make} {v.model}</span>
+                          {hasDue && <Badge className="bg-red-600 text-white text-[7px] h-3.5 font-black uppercase px-1 border-none flex items-center gap-0.5"><AlertCircle size={8}/> Due</Badge>}
+                          {hasRec && !hasDue && <Badge className="bg-[#0A4DFF] text-white text-[7px] h-3.5 font-black uppercase px-1 border-none flex items-center gap-0.5"><Info size={8}/> Rec</Badge>}
+                          {isSelected && <Check className="w-3.5 h-3.5 shrink-0 ml-1" />}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
-                
-                <div className="p-4 bg-black/50 border border-white/10 rounded-xl space-y-4">
-                  <Label className="text-white/60 font-bold">Add New Vehicle to Appointment</Label>
-                  <VehicleSelector 
-                    onSelect={(vData) => setPendingVehicle(vData)} 
-                  />
-                  <div className="flex justify-end mt-2">
-                    <Button 
-                      type="button" 
+
+                {/* Temp (manually added) vehicles */}
+                {selectedVehicleIds.filter(id => id.startsWith("temp-")).length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedVehicleIds.filter(id => id.startsWith("temp-")).map(tempId => {
+                      const v = availableVehicles.find(av => av.id === tempId);
+                      if (!v) return null;
+                      return (
+                        <div key={tempId} className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-2 rounded-xl text-sm font-bold text-white">
+                          <Car size={14} className="text-primary shrink-0" />
+                          <span>{v.year} {v.make} {v.model}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedVehicleIds(prev => prev.filter(id => id !== tempId));
+                              setSelectedServices(prev => prev.filter(s => s.vehicleId !== tempId));
+                              setAvailableVehicles(prev => prev.filter(av => av.id !== tempId));
+                            }}
+                            className="text-white/40 hover:text-red-400 transition-colors ml-1"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Add vehicle toggle — collapsed by default when saved vehicles exist, open for walk-ins */}
+                {availableVehicles.filter(v => !v.id.startsWith("temp-")).length === 0 ? (
+                  <div className="p-4 bg-black/50 border border-white/10 rounded-xl space-y-4">
+                    <Label className="text-white/60 font-bold">Select Vehicle</Label>
+                    <VehicleSelector onSelect={(vData) => setPendingVehicle(vData)} />
+                    <Button
+                      type="button"
                       onClick={() => {
                         if (pendingVehicle) {
                           const tempId = "temp-" + Date.now();
@@ -1658,34 +1682,45 @@ export default function BookAppointment() {
                         }
                       }}
                       disabled={!pendingVehicle?.year || !pendingVehicle?.make || !pendingVehicle?.model}
-                      className="bg-primary hover:bg-primary/90 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px]"
+                      className="bg-primary hover:bg-primary/90 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] w-full"
                     >
                       <Plus className="w-4 h-4 mr-2" /> Add Vehicle
                     </Button>
                   </div>
+                ) : (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddVehicleOpen(prev => !prev)}
+                      className="flex items-center gap-1.5 text-white/40 hover:text-primary text-xs font-bold uppercase tracking-widest transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      {isAddVehicleOpen ? "Cancel" : "Add different vehicle"}
+                    </button>
 
-                  {/* Render temps */}
-                  {selectedVehicleIds.filter(id => id.startsWith("temp-")).length > 0 && (
-                    <div className="mt-4 space-y-2">
-                       {selectedVehicleIds.filter(id => id.startsWith("temp-")).map(tempId => {
-                         const v = availableVehicles.find(av => av.id === tempId);
-                         if(!v) return null;
-                         return (
-                           <div key={tempId} className="flex justify-between items-center bg-white/5 p-2 rounded-xl border border-white/10">
-                              <span className="text-white font-bold text-sm ml-2 flex items-center gap-2">
-                                <Car size={14} className="text-primary" /> {v.year} {v.make} {v.model}
-                              </span>
-                              <Button variant="ghost" size="sm" className="text-white hover:text-white bg-red-500/20 hover:bg-red-500 transition-colors" onClick={() => {
-                                 setSelectedVehicleIds(prev => prev.filter(id => id !== tempId));
-                                 setSelectedServices(prev => prev.filter(s => s.vehicleId !== tempId));
-                                 setAvailableVehicles(prev => prev.filter(av => av.id !== tempId));
-                              }}>Remove</Button>
-                           </div>
-                         );
-                       })}
-                    </div>
-                  )}
-                </div>
+                    {isAddVehicleOpen && (
+                      <div className="mt-3 p-3 bg-black/50 border border-white/10 rounded-xl space-y-3">
+                        <VehicleSelector onSelect={(vData) => setPendingVehicle(vData)} />
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            if (pendingVehicle) {
+                              const tempId = "temp-" + Date.now();
+                              setAvailableVehicles(prev => [...prev, { id: tempId, ...pendingVehicle, size: "medium" }]);
+                              setSelectedVehicleIds(prev => [...prev, tempId]);
+                              setPendingVehicle(null);
+                              setIsAddVehicleOpen(false);
+                            }
+                          }}
+                          disabled={!pendingVehicle?.year || !pendingVehicle?.make || !pendingVehicle?.model}
+                          className="bg-primary hover:bg-primary/90 text-white font-black h-10 px-6 rounded-xl uppercase tracking-widest text-[10px] w-full"
+                        >
+                          <Plus className="w-4 h-4 mr-2" /> Add Vehicle
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
