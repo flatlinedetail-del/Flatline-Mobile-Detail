@@ -1,12 +1,12 @@
 import React, { useMemo } from "react";
-import { 
-  Brain, 
-  TrendingUp, 
-  Target, 
-  MessageSquare, 
-  Zap, 
-  Calendar, 
-  DollarSign, 
+import {
+  Brain,
+  TrendingUp,
+  Target,
+  MessageSquare,
+  Zap,
+  Calendar,
+  DollarSign,
   Clock,
   AlertCircle,
   CheckCircle2,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { format, differenceInDays, subMonths, isAfter } from "date-fns";
 import { Client, Appointment, Invoice, Quote, Vehicle, Service } from "../types";
+import { computeUpsells, toLegacyType } from "../services/upsellEngine";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -105,64 +106,22 @@ export function ClientAIStrategy({
     };
   }, [appointments]);
 
+  // Recommendations from the shared upsell engine — same logic as mobile.
   const recommendations = useMemo(() => {
-    if (!analysis) return [];
-    const recs: { title: string; reason: string; type: "maintenance" | "upsell" | "reactivation" }[] = [];
-    
-    // 1. Maintenance Logic
-    if (analysis.hasCeramic && analysis.daysSinceLast > 180) {
-      recs.push({
-        title: "Ceramic Coating Maintenance",
-        reason: "It's been over 6 months since the last ceramic service. A maintenance wash is recommended to preserve the hydrophobic properties and warranty.",
-        type: "maintenance"
-      });
-    }
-
-    if (analysis.avgDaysBetween > 0 && analysis.daysSinceLast > (analysis.avgDaysBetween * 1.5)) {
-      recs.push({
-        title: "Routine Maintenance Overdue",
-        reason: `This client typically visits every ${Math.round(analysis.avgDaysBetween)} days. They are currently at ${analysis.daysSinceLast} days, indicating they are overdue for their regular service.`,
-        type: "maintenance"
-      });
-    }
-
-    // 2. Upsell Logic
-    if (analysis.hasExterior && !analysis.hasInterior) {
-      recs.push({
-        title: "Full Interior Sanitization",
-        reason: "Client consistently prioritizes exterior aesthetics. Recommending a deep interior clean to match the exterior condition.",
-        type: "upsell"
-      });
-    }
-
-    if (analysis.visitCount > 3 && !client.isVIP) {
-      recs.push({
-        title: "VIP Loyalty Conversion",
-        reason: "Frequent engagement pattern detected. Offering VIP status with a recurring maintenance plan would secure consistent monthly recurring revenue.",
-        type: "upsell"
-      });
-    }
-
-    const hasLargeVehicle = vehicles.some(v => v.size === "large" || v.size === "extra_large");
-    if (hasLargeVehicle && !analysis.hasCeramic) {
-      recs.push({
-        title: "Large Asset Protection",
-        reason: "Client has large-scale vehicles registered. A ceramic coating would significantly reduce maintenance time and protect the extensive surface area.",
-        type: "upsell"
-      });
-    }
-
-    // 3. Reactivation
-    if (analysis.status === "inactive") {
-      recs.push({
-        title: "Strategic Reactivation",
-        reason: "Client has been inactive for over 120 days. A high-value reactivation offer is required to prevent total churn.",
-        type: "reactivation"
-      });
-    }
-
-    return recs;
-  }, [analysis, client.isVIP, vehicles]);
+    return computeUpsells({ client, appointments, vehicles, services })
+      .filter((r) => {
+        // On the desktop strategy panel: show customer-facing and medium+ priority
+        // internal recs (excluding low-noise gaps and financial flags handled elsewhere)
+        if (r.id === "outstanding-balance" || r.id === "deposit-required") return false;
+        if (r.priority === "low") return false;
+        return true;
+      })
+      .map((r) => ({
+        title: r.title,
+        reason: r.reason,
+        type: toLegacyType(r.type),
+      }));
+  }, [client, appointments, vehicles, services]);
 
   const marketingStrategy = useMemo(() => {
     if (!analysis) return null;
