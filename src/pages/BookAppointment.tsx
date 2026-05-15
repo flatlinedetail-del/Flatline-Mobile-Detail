@@ -1488,27 +1488,69 @@ export default function BookAppointment() {
     );
   }
 
+  // ── Booking screen derived values ─────────────────────────────────────
+  const _bookSelectedClient = selectedCustomerId
+    ? (clients.find(c => c.id === selectedCustomerId) ?? null)
+    : null;
+  const _bookClientName = _bookSelectedClient ? getClientDisplayName(_bookSelectedClient) : "";
+  const _bookClientInitials = _bookClientName
+    .split(" ")
+    .filter(Boolean)
+    .map((n: string) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || "?";
+  const _bookTotalAmount = (() => {
+    const customFeesTotal = customFees.reduce((acc, f) => acc + f.amount, 0);
+    return Math.max(0, baseAmount + travelFee + afterHoursFeeDisplay + customFeesTotal - discountAmount);
+  })();
+  const _bookIsVip = _bookSelectedClient?.vipSettings?.isVip === true;
+  const _bookIsRisky = isRiskyClient;
+
   return (
     <div className="w-full font-sans">
       <div className="w-full min-w-0">
-        <div className="flex items-center gap-4 mb-8">
-          <button onClick={() => navigate(-1)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full text-white transition-colors">
-            <ChevronLeft size={24} />
+        {/* PREMIUM HEADER */}
+        <div className="flex items-center gap-4 mb-6">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-white transition-all hover:scale-105 shrink-0"
+          >
+            <ChevronLeft size={20} />
           </button>
-          <div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">Booking Setup</h1>
-            <p className="text-gray-400 mt-1">Configure appointment details.</p>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary shrink-0" />
+                Book Job
+              </h1>
+              {_bookIsVip && (
+                <Badge className="bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[9px] font-black uppercase tracking-widest px-2 h-5">
+                  ★ VIP
+                </Badge>
+              )}
+              {_bookIsRisky && (
+                <Badge className="bg-red-500/20 border border-red-500/40 text-red-400 text-[9px] font-black uppercase tracking-widest px-2 h-5">
+                  ⚠ Risk
+                </Badge>
+              )}
+            </div>
+            <p className="text-white/40 text-xs font-medium mt-0.5">
+              {format(new Date(), "EEEE, MMMM d")} · Field Booking Assistant
+            </p>
           </div>
         </div>
 
-        <form onSubmit={handleSave} className="space-y-6">
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 md:p-8 space-y-8">
+        <form onSubmit={handleSave} className="space-y-5">
+          <div className="bg-black/60 border border-white/10 rounded-3xl p-5 md:p-7 space-y-7 shadow-2xl shadow-black/60">
             
             {/* 1. CLIENT SECTION */}
             <div className="space-y-4">
-              <h2 className="text-sm font-black uppercase text-primary tracking-widest border-b border-white/10 pb-2">Client Intelligence</h2>
-              <div className="space-y-2" id="client-trigger">
-                <Label className="font-black uppercase tracking-widest text-[10px] text-white/90">Target Client *</Label>
+              <h2 className="text-xs font-black uppercase text-primary tracking-widest border-b border-white/10 pb-2">Client</h2>
+
+              {/* Hidden selector — always mounted so state stays wired */}
+              <div className={cn("space-y-2", _bookSelectedClient ? "hidden" : "")} id="client-trigger">
+                <Label className="font-black uppercase tracking-widest text-[10px] text-white/90">Select Client *</Label>
                 <SearchableSelector
                   options={clients.map(c => ({
                     value: c.id,
@@ -1521,6 +1563,51 @@ export default function BookAppointment() {
                   className="bg-black border border-white/10 text-white font-bold rounded-xl h-12"
                 />
               </div>
+
+              {/* Premium selected-client card */}
+              {_bookSelectedClient && (
+                <div className="relative flex items-center gap-4 bg-gradient-to-br from-white/5 to-white/[0.02] border border-white/10 rounded-2xl p-4 overflow-hidden">
+                  {/* Subtle glow */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent pointer-events-none rounded-2xl" />
+                  {/* Initials avatar */}
+                  <div className={cn(
+                    "w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm tracking-widest shrink-0 border",
+                    _bookIsVip
+                      ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                      : _bookIsRisky
+                        ? "bg-red-500/20 border-red-500/40 text-red-300"
+                        : "bg-primary/20 border-primary/30 text-primary"
+                  )}>
+                    {_bookClientInitials}
+                  </div>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-black text-white text-sm leading-tight truncate">{_bookClientName}</span>
+                      {_bookIsVip && <Badge className="bg-amber-500/20 border border-amber-500/30 text-amber-400 text-[8px] font-black uppercase px-1.5 h-4">VIP</Badge>}
+                      {_bookIsRisky && <Badge className="bg-red-500/20 border border-red-500/30 text-red-400 text-[8px] font-black uppercase px-1.5 h-4">Risk</Badge>}
+                    </div>
+                    {_bookSelectedClient.phone && (
+                      <p className="text-white/40 text-[11px] font-medium mt-0.5 truncate">{formatPhoneNumber(_bookSelectedClient.phone)}</p>
+                    )}
+                    {_bookSelectedClient.email && (
+                      <p className="text-white/30 text-[10px] truncate">{_bookSelectedClient.email}</p>
+                    )}
+                  </div>
+                  {/* Change button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCustomerId("");
+                      setSelectedVehicleIds([]);
+                      setAvailableVehicles([]);
+                    }}
+                    className="shrink-0 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white/80 border border-white/10 hover:border-white/30 rounded-xl px-3 py-1.5 transition-all"
+                  >
+                    Change
+                  </button>
+                </div>
+              )}
 
               <div className="space-y-2" id="address-trigger">
                 <Label className="font-black uppercase tracking-widest text-[10px] text-white/90">Service Location</Label>
@@ -1593,12 +1680,12 @@ export default function BookAppointment() {
 
             {/* 2. VEHICLES SECTION */}
             {selectedCustomerId && (
-              <div className="space-y-3">
-                <h2 className="text-sm font-black uppercase text-primary tracking-widest border-b border-white/10 pb-2">Vehicle</h2>
+              <div className="space-y-4">
+                <h2 className="text-xs font-black uppercase text-primary tracking-widest border-b border-white/10 pb-2">Vehicles</h2>
 
-                {/* Saved vehicle chips — tap to select, auto-fills vehicle data */}
+                {/* Tap-to-select vehicle chips */}
                 {availableVehicles.filter(v => v.id && !v.id.startsWith("temp-")).length > 0 && (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="space-y-2">
                     {availableVehicles.filter(v => v.id && !v.id.startsWith("temp-")).map(v => {
                       const isSelected = selectedVehicleIds.includes(v.id);
                       const vehicleRecs = timingRecommendations.filter(r => r.vehicleId === v.id);
@@ -1622,17 +1709,64 @@ export default function BookAppointment() {
                             }
                           }}
                           className={cn(
-                            "flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold transition-all",
+                            "w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all text-left",
                             isSelected
-                              ? "bg-primary text-white border-primary shadow-glow-blue"
-                              : "bg-white/5 text-white/80 border-white/10 hover:border-primary/40"
+                              ? "bg-primary/10 border-primary/50 shadow-[0_0_12px_rgba(10,77,255,0.15)]"
+                              : "bg-white/[0.03] border-white/10 hover:border-white/20 hover:bg-white/[0.05]"
                           )}
                         >
-                          <Car className="w-3.5 h-3.5 shrink-0" />
-                          <span>{v.year} {v.make} {v.model}</span>
-                          {hasDue && <Badge className="bg-red-600 text-white text-[7px] h-3.5 font-black uppercase px-1 border-none flex items-center gap-0.5"><AlertCircle size={8}/> Due</Badge>}
-                          {hasRec && !hasDue && <Badge className="bg-[#0A4DFF] text-white text-[7px] h-3.5 font-black uppercase px-1 border-none flex items-center gap-0.5"><Info size={8}/> Rec</Badge>}
-                          {isSelected && <Check className="w-3.5 h-3.5 shrink-0 ml-1" />}
+                          {/* Car icon */}
+                          <div className={cn(
+                            "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border",
+                            isSelected ? "bg-primary/20 border-primary/30" : "bg-white/5 border-white/10"
+                          )}>
+                            <Car size={16} className={isSelected ? "text-primary" : "text-white/40"} />
+                          </div>
+
+                          {/* Vehicle info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={cn("font-black text-sm truncate", isSelected ? "text-white" : "text-white/70")}>
+                                {v.year} {v.make} {v.model}
+                              </span>
+                              {hasDue && (
+                                <Badge className="bg-red-500/20 border border-red-500/30 text-red-400 text-[8px] font-black uppercase px-1.5 h-4 flex items-center gap-0.5">
+                                  <AlertCircle size={7} /> Due
+                                </Badge>
+                              )}
+                              {hasRec && (
+                                <Badge className="bg-blue-500/20 border border-blue-500/30 text-blue-400 text-[8px] font-black uppercase px-1.5 h-4 flex items-center gap-0.5">
+                                  <Info size={7} /> Rec
+                                </Badge>
+                              )}
+                            </div>
+                            {v.color && (
+                              <p className="text-white/30 text-[10px] font-medium mt-0.5">{v.color}</p>
+                            )}
+                          </div>
+
+                          {/* Check / intelligence button */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {(hasDue || hasRec) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRecPanelVehicleId(v.id);
+                                  setIsRecPanelOpen(true);
+                                }}
+                                className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center hover:bg-primary/20 transition-colors"
+                              >
+                                <Sparkles size={12} className="text-primary" />
+                              </button>
+                            )}
+                            <div className={cn(
+                              "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
+                              isSelected ? "border-primary bg-primary" : "border-white/20 bg-transparent"
+                            )}>
+                              {isSelected && <Check size={12} className="text-white" />}
+                            </div>
+                          </div>
                         </button>
                       );
                     })}
@@ -1666,10 +1800,10 @@ export default function BookAppointment() {
                   </div>
                 )}
 
-                {/* Add vehicle toggle — collapsed by default when saved vehicles exist, open for walk-ins */}
+                {/* Add vehicle — always-open when no saved vehicles, collapsible toggle otherwise */}
                 {availableVehicles.filter(v => !v.id.startsWith("temp-")).length === 0 ? (
-                  <div className="p-4 bg-black/50 border border-white/10 rounded-xl space-y-4">
-                    <Label className="text-white/60 font-bold">Select Vehicle</Label>
+                  <div className="p-4 bg-white/[0.03] border border-white/10 rounded-2xl space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Select Vehicle</p>
                     <VehicleSelector onSelect={(vData) => setPendingVehicle(vData)} />
                     <Button
                       type="button"
@@ -2678,22 +2812,33 @@ export default function BookAppointment() {
           )}
 
           {/* 7. ACTIONS */}
-          <div className="flex justify-end gap-4 pb-12">
-            <Button
-              type="button"
-              onClick={() => navigate(-1)}
-              variant="outline"
-              className="px-8 h-12 bg-white/5 border-white/10 hover:bg-white/10 text-white rounded-xl font-bold uppercase tracking-wider"
-            >
-              Cancel
-            </Button>
+          <div className="space-y-3 pb-12">
             <Button
               type="submit"
               disabled={saving}
-              className="px-8 h-12 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest rounded-xl shadow-glow-blue transition-all hover:scale-105 disabled:opacity-50"
+              className="w-full h-14 bg-primary hover:bg-[#2A6CFF] text-white font-black uppercase tracking-widest rounded-2xl shadow-glow-blue transition-all hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100 text-sm"
             >
-              {saving ? "Deploying..." : "Confirm Booking"}
+              {saving ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Booking…
+                </span>
+              ) : (
+                <span className="flex items-center justify-center gap-2">
+                  <Check className="w-4 h-4" />
+                  {_bookTotalAmount > 0
+                    ? `Confirm Booking · ${formatCurrency(_bookTotalAmount)}`
+                    : "Confirm Booking"}
+                </span>
+              )}
             </Button>
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="w-full h-10 bg-transparent border border-white/10 hover:border-white/20 hover:bg-white/5 text-white/50 hover:text-white/80 font-black uppercase tracking-widest rounded-xl transition-all text-[11px]"
+            >
+              Cancel
+            </button>
           </div>
         </form>
 
