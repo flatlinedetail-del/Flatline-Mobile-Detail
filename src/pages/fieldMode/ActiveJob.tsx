@@ -244,18 +244,20 @@ export default function ActiveJob() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // ── Auto-load upsells when job is completed+unpaid ──────────────────────────
+  // ── Auto-load upsells once when the job document first arrives ─────────────
+  // Fires for any non-cancelled status so results are cached before completion.
+  // Auto-opens the panel only when the job is already completed+unpaid.
   useEffect(() => {
-    if (!job || !raw) return;
-    const isCompleted = rawStatus === "completed";
-    const isUnpaid    = job.paymentStatus !== "paid";
-    if (!isCompleted || !isUnpaid) return;
+    if (!raw || !job) return;
+    if (isCancellationStatus(rawStatus ?? "scheduled")) return;
     if (upsellsReady || upsellLoadRef.current) return;
     upsellLoadRef.current = true;
     loadUpsells(raw);
-    setShowUpsellPanel(true);
+    if (rawStatus === "completed" && job.paymentStatus !== "paid") {
+      setShowUpsellPanel(true);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawStatus, job?.paymentStatus]);
+  }, [raw?.id]);
 
   // ── Cancellation fee preview ────────────────────────────────────────────────
   const feePreview = useMemo(() => {
@@ -755,110 +757,190 @@ export default function ActiveJob() {
         )}
       </section>
 
-      {/* ── AI Revenue Opportunities (upsell panel) ── */}
-      {isCompleted && !isCancelled && raw?.bookingIntelligenceActive !== false && (
-        <section aria-label="Revenue Opportunities" className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => setShowUpsellPanel((v) => !v)}
-            className="w-full flex items-center justify-between px-0.5 py-1"
-          >
-            <div className="flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-              <h2 className="text-[9px] font-black uppercase tracking-widest text-white/40">
-                Revenue Opportunities
-              </h2>
-              {upsells.length > 0 && (
-                <span className="text-[8px] font-black uppercase tracking-widest bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/30 px-1.5 py-0.5 rounded leading-none">
-                  {upsells.length}
-                </span>
-              )}
+      {/* ── Revenue Optimization — 4-state card + inline recommendations ── */}
+      {!isCancelled && raw?.bookingIntelligenceActive !== false && (
+        <section aria-label="Revenue Optimization" className="space-y-1.5">
+
+          {/* ── State: Loading ── */}
+          {upsellsLoading && (
+            <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.06] px-3 py-3 flex items-center gap-2.5">
+              <div className="shrink-0 w-9 h-9 rounded-xl bg-violet-500/15 ring-1 ring-violet-500/25 flex items-center justify-center">
+                <div className="w-4 h-4 border-2 border-violet-500/30 border-t-violet-400 rounded-full animate-spin" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-black uppercase tracking-wide text-violet-200 leading-none">Optimizing Revenue…</p>
+                <p className="text-[9px] text-violet-300/50 font-medium mt-0.5 leading-tight">Analyzing service history and opportunities</p>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
+          )}
+
+          {/* ── State: Not yet run (manual trigger) ── */}
+          {!upsellsLoading && !upsellsReady && (
+            <button
+              type="button"
+              onClick={() => {
+                upsellLoadRef.current = false;
+                setUpsells([]);
+                setUpsellsReady(false);
+                if (raw) loadUpsells(raw);
+              }}
+              className="w-full rounded-xl border border-violet-500/25 bg-gradient-to-r from-violet-950/60 to-purple-950/40 px-3 py-3 flex items-center gap-2.5 transition-all active:scale-[0.985] shadow-[0_0_12px_rgba(139,92,246,0.12)]"
+            >
+              <div className="shrink-0 w-9 h-9 rounded-xl bg-violet-500/20 ring-1 ring-violet-500/35 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-violet-300" />
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-[12px] font-black uppercase tracking-wide text-violet-100 leading-none">Run Revenue Optimization</p>
+                <p className="text-[9px] text-violet-300/55 font-medium mt-0.5 leading-tight">AI upsell &amp; service recommendations</p>
+              </div>
+              <Sparkles className="w-3.5 h-3.5 text-violet-400/40 shrink-0" />
+            </button>
+          )}
+
+          {/* ── State: No recommendations ── */}
+          {!upsellsLoading && upsellsReady && upsells.length === 0 && (
+            <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-3 flex items-center gap-2.5">
+              <div className="shrink-0 w-9 h-9 rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/15 flex items-center justify-center">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400/55" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-black uppercase tracking-wide text-white/45 leading-none">No Smart Upsells Right Now</p>
+                <p className="text-[9px] text-white/25 font-medium mt-0.5 leading-tight">Client is on an optimal service cycle</p>
+              </div>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); handleForceRefreshUpsells(); }}
-                className="p-0.5 text-white/20 hover:text-white/50 transition-colors"
-                title="Refresh recommendations"
+                onClick={handleForceRefreshUpsells}
+                className="shrink-0 p-1.5 text-white/20 hover:text-white/50 transition-colors"
+                title="Refresh"
               >
-                <RefreshCw className="w-3 h-3" />
+                <RefreshCw className="w-3.5 h-3.5" />
               </button>
-              {showUpsellPanel ? <ChevronUp className="w-3 h-3 text-white/30" /> : <ChevronDown className="w-3 h-3 text-white/30" />}
             </div>
-          </button>
+          )}
 
-          {showUpsellPanel && (
+          {/* ── State: Results ready ── */}
+          {!upsellsLoading && upsellsReady && upsells.length > 0 && (
             <div className="space-y-2">
-              {upsellsLoading && (
-                <div className="rounded-xl border border-violet-500/10 bg-violet-500/5 px-3 py-3 flex items-center gap-2">
-                  <div className="w-3.5 h-3.5 border border-violet-500/30 border-t-violet-400 rounded-full animate-spin" />
-                  <span className="text-[10px] text-violet-300/70 font-medium">Analyzing revenue opportunities…</span>
+              {/* Ready card — tap to expand / collapse */}
+              <button
+                type="button"
+                onClick={() => setShowUpsellPanel((v) => !v)}
+                className="w-full rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-950/60 to-purple-950/40 px-3 py-3 flex items-center gap-2.5 transition-all active:scale-[0.985] shadow-[0_0_14px_rgba(139,92,246,0.15)]"
+              >
+                <div className="shrink-0 w-9 h-9 rounded-xl bg-violet-500/20 ring-2 ring-violet-500/40 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-violet-300" />
                 </div>
-              )}
-
-              {!upsellsLoading && upsells.length === 0 && (
-                <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-3 text-center">
-                  <p className="text-[10px] text-white/40 font-medium">No recommendations available for this client right now.</p>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-[12px] font-black uppercase tracking-wide text-violet-100 leading-none">Revenue Optimization Ready</p>
+                    <span className="text-[8px] font-black uppercase tracking-widest bg-violet-500/30 text-violet-200 ring-1 ring-violet-500/40 px-1.5 py-0.5 rounded leading-none">
+                      {upsells.length}
+                    </span>
+                  </div>
+                  <p className="text-[9px] text-violet-300/55 font-medium mt-0.5 leading-tight">
+                    {upsells.length} revenue opportunit{upsells.length !== 1 ? "ies" : "y"} identified
+                  </p>
                 </div>
-              )}
-
-              {!upsellsLoading && upsells.map((rec) => {
-                const isAccepted = acceptedRecIds.has(rec.id);
-                const isBlocked  = Boolean(rec.blockedBy);
-                return (
-                  <div
-                    key={rec.id}
-                    className={cn(
-                      "rounded-xl border px-3 py-2.5 transition-all",
-                      isAccepted
-                        ? "border-emerald-500/30 bg-emerald-500/8"
-                        : isBlocked
-                        ? "border-white/5 bg-sidebar/30 opacity-50"
-                        : "border-violet-500/15 bg-violet-500/5",
-                    )}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleForceRefreshUpsells(); }}
+                    className="p-1 text-violet-400/35 hover:text-violet-400/70 transition-colors"
+                    title="Refresh recommendations"
                   >
-                    <div className="flex items-start gap-2.5">
-                      <div className={cn(
-                        "shrink-0 w-7 h-7 rounded-md flex items-center justify-center mt-0.5",
-                        isAccepted ? "bg-emerald-500/15 ring-1 ring-emerald-500/30 text-emerald-400"
-                                   : "bg-violet-500/10 ring-1 ring-violet-500/20 text-violet-400",
-                      )}>
-                        <Sparkles className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-1.5">
-                          <p className="text-[11px] font-bold text-white leading-tight">{rec.title}</p>
-                          {rec.estimatedPriceImpact != null && rec.estimatedPriceImpact > 0 && (
-                            <span className="shrink-0 text-[9px] font-black text-emerald-300 bg-emerald-500/10 ring-1 ring-emerald-500/20 rounded px-1.5 py-0.5 leading-none">
-                              +{formatCurrency(rec.estimatedPriceImpact)}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-white/45 leading-tight mt-0.5">{rec.reason}</p>
-                        {rec.blockedBy && (
-                          <p className="text-[9px] text-rose-300/70 leading-tight mt-0.5">{rec.blockedBy}</p>
-                        )}
-                      </div>
-                    </div>
-                    {!isBlocked && (
-                      <button
-                        type="button"
-                        onClick={() => toggleRec(rec.id)}
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
+                  {showUpsellPanel
+                    ? <ChevronUp className="w-3.5 h-3.5 text-violet-400/55" />
+                    : <ChevronDown className="w-3.5 h-3.5 text-violet-400/55" />}
+                </div>
+              </button>
+
+              {/* Inline recommendations panel */}
+              {showUpsellPanel && (
+                <div className="space-y-2">
+                  {upsells.map((rec) => {
+                    const isAccepted = acceptedRecIds.has(rec.id);
+                    const isBlocked  = Boolean(rec.blockedBy);
+                    return (
+                      <div
+                        key={rec.id}
                         className={cn(
-                          "mt-2 w-full flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors",
+                          "rounded-xl border px-3 py-2.5 transition-all",
                           isAccepted
-                            ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
-                            : "bg-white/5 text-white/50 hover:bg-white/10",
+                            ? "border-emerald-500/30 bg-emerald-500/[0.08]"
+                            : isBlocked
+                            ? "border-white/5 bg-sidebar/30 opacity-50"
+                            : "border-violet-500/15 bg-violet-500/5",
                         )}
                       >
-                        {isAccepted
-                          ? <><Minus className="w-3 h-3" /> Remove</>
-                          : <><Plus className="w-3 h-3" /> Add to Invoice</>}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                        {/* Rec header */}
+                        <div className="flex items-start gap-2.5">
+                          <div className={cn(
+                            "shrink-0 w-7 h-7 rounded-md flex items-center justify-center mt-0.5",
+                            isAccepted
+                              ? "bg-emerald-500/15 ring-1 ring-emerald-500/30 text-emerald-400"
+                              : "bg-violet-500/10 ring-1 ring-violet-500/20 text-violet-400",
+                          )}>
+                            <Sparkles className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-1.5">
+                              <p className="text-[11px] font-bold text-white leading-tight">{rec.title}</p>
+                              {rec.estimatedPriceImpact != null && rec.estimatedPriceImpact > 0 && (
+                                <span className="shrink-0 text-[9px] font-black text-emerald-300 bg-emerald-500/10 ring-1 ring-emerald-500/20 rounded px-1.5 py-0.5 leading-none">
+                                  +{formatCurrency(rec.estimatedPriceImpact)}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-white/45 leading-tight mt-0.5">{rec.reason}</p>
+                            {/* Time + data source row */}
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              {rec.estimatedTimeImpact != null && rec.estimatedTimeImpact > 0 && (
+                                <span className="text-[8px] text-white/30 font-medium">+{rec.estimatedTimeImpact} min</span>
+                              )}
+                              {rec.dataSource && (
+                                <span className="text-[8px] text-white/20 font-medium truncate">{rec.dataSource}</span>
+                              )}
+                            </div>
+                            {rec.blockedBy && (
+                              <p className="text-[9px] text-rose-300/70 leading-tight mt-0.5">⛔ {rec.blockedBy}</p>
+                            )}
+                          </div>
+                        </div>
+                        {/* Accept / defer / decline actions */}
+                        {!isBlocked && (
+                          <div className="mt-2 flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => toggleRec(rec.id)}
+                              className={cn(
+                                "flex-1 flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors",
+                                isAccepted
+                                  ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 ring-1 ring-emerald-500/20"
+                                  : "bg-emerald-500/8 text-emerald-400/60 hover:bg-emerald-500/15 ring-1 ring-emerald-500/15",
+                              )}
+                            >
+                              <Plus className="w-2.5 h-2.5" />
+                              {isAccepted ? "Added" : "Accept"}
+                            </button>
+                            {isAccepted && (
+                              <button
+                                type="button"
+                                onClick={() => toggleRec(rec.id)}
+                                className="flex-1 flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors bg-white/5 text-white/35 hover:bg-white/10 ring-1 ring-white/8"
+                              >
+                                <Minus className="w-2.5 h-2.5" />
+                                Defer
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </section>

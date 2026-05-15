@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   collection,
   doc,
@@ -19,10 +19,8 @@ import type { Appointment, Service, Vehicle } from "../../types";
 import {
   AlertCircle,
   ArrowLeft,
-  Calendar,
   CheckCircle2,
   Clock,
-  ExternalLink,
   Sparkles,
   Wrench,
 } from "lucide-react";
@@ -393,23 +391,16 @@ export default function FieldBookingIntelligence() {
         </div>
       )}
 
-      {/* Full AI analysis link */}
-      {!apptLoading && jobId && (
-        <Link
-          to={`/calendar/${jobId}`}
-          className="flex items-center gap-2.5 w-full rounded-xl border border-violet-500/20 bg-violet-500/[0.06] hover:bg-violet-500/10 active:bg-violet-500/15 transition-colors px-2.5 py-3 min-h-[52px]"
-        >
-          <div className="shrink-0 w-8 h-8 rounded-md bg-violet-500/15 ring-1 ring-violet-500/30 flex items-center justify-center">
-            <Sparkles className="w-3.5 h-3.5 text-violet-300" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-bold text-white leading-tight">Full AI Revenue Analysis</p>
-            <p className="text-[10px] text-white/45 leading-tight mt-0.5">
-              AI-powered upsell recommendations in job detail
-            </p>
-          </div>
-          <ExternalLink className="w-3.5 h-3.5 text-violet-400/60 shrink-0" />
-        </Link>
+      {/* Revenue upsell note — runs natively inside the Active Job screen */}
+      {!apptLoading && (
+        <div className="rounded-xl border border-white/5 bg-sidebar/30 px-3 py-2.5 flex items-start gap-2">
+          <Sparkles className="w-3.5 h-3.5 text-violet-400/60 shrink-0 mt-0.5" />
+          <p className="text-[9px] text-white/35 font-medium leading-snug">
+            Revenue optimization and upsell recommendations run automatically
+            inside the <strong className="text-white/50">Active Job</strong> screen
+            for this appointment.
+          </p>
+        </div>
       )}
     </div>
   );
