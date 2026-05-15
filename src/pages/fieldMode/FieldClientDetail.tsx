@@ -29,7 +29,7 @@ import {
 } from "@/lib/riskUtils";
 import { useAuth } from "../../hooks/useAuth";
 import { messagingService } from "../../services/messagingService";
-import { format, differenceInDays, formatDistanceToNow } from "date-fns";
+import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -44,21 +44,16 @@ import {
   Car,
   Receipt,
   History,
-  FileText,
   AlertOctagon,
   Crown,
-  ChevronRight,
   Clipboard,
   ShieldAlert,
   Navigation,
-  CreditCard,
   Sparkles,
   TrendingUp,
-  Target,
   RefreshCw,
   Zap,
   DollarSign,
-  Clock,
   CheckCircle2,
   XCircle,
   AlertTriangle,
@@ -76,6 +71,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import type { Client, Vehicle, Appointment, Invoice, Quote, Service, ProtectedClient } from "../../types";
+import { computeUpsells, computeClientAnalytics, type UpsellRecommendation } from "../../services/upsellEngine";
 
 // ─── Tab type ────────────────────────────────────────────────────────────────
 type TabKey = "overview" | "jobs" | "vehicles" | "billing" | "notes" | "risk" | "ai";
@@ -707,7 +703,6 @@ export default function FieldClientDetail() {
             client={client}
             appointments={appointments}
             invoices={invoices}
-            quotes={quotes}
             vehicles={vehicles}
             services={services}
           />
@@ -1337,7 +1332,7 @@ function BillingTab({
         <div className="space-y-1">
           <p className="text-[8px] font-black uppercase tracking-widest text-white/25 px-0.5">Voided</p>
           {voided.map((inv) => (
-            <InvoiceCard key={inv.id} invoice={inv} onCollect={() => {}} onSend={() => onSend(inv)} onVoid={() => {}} onUndo={() => {}} />
+            <InvoiceCard key={inv.id} invoice={inv} onCollect={() => {}} onSend={() => onSend(inv)} onVoid={async () => {}} onUndo={async () => {}} />
           ))}
         </div>
       )}
@@ -1671,115 +1666,30 @@ function TrustIndicator({ label, ok, warn }: { label: string; ok: boolean; warn?
 }
 
 // ─── AI Tab ───────────────────────────────────────────────────────────────────
+// Uses the shared upsell engine — same logic as desktop ClientAIStrategy.
 function AITab({
-  client, appointments, invoices, quotes, vehicles, services,
+  client, appointments, invoices, vehicles, services,
 }: {
   client: Client; appointments: Appointment[]; invoices: Invoice[];
-  quotes: Quote[]; vehicles: Vehicle[]; services: Service[];
+  vehicles: Vehicle[]; services: Service[];
 }) {
-  const completedAppts = appointments.filter((a) => a.status === "completed" || a.status === "paid");
-  const totalSpend = completedAppts.reduce((s, a) => s + (a.totalAmount || 0), 0);
-  const avgSpend = completedAppts.length > 0 ? totalSpend / completedAppts.length : 0;
+  // Shared analytics + shared engine output
+  const analytics = useMemo(() => computeClientAnalytics(appointments), [appointments]);
+  const allRecs = useMemo(
+    () => computeUpsells({ client, appointments, vehicles, services, invoices }),
+    [client, appointments, vehicles, services, invoices],
+  );
 
-  // Service mix
-  const serviceNames = appointments.flatMap((a) => a.serviceNames || []);
-  const hasCeramic = serviceNames.some((s) => s.toLowerCase().includes("ceramic"));
-  const hasInterior = serviceNames.some((s) => s.toLowerCase().includes("interior"));
-  const hasExterior = serviceNames.some((s) => s.toLowerCase().includes("exterior") || s.toLowerCase().includes("wash"));
-  const hasCoating = serviceNames.some((s) => s.toLowerCase().includes("coating") || s.toLowerCase().includes("ppf"));
-  const hasLeather = serviceNames.some((s) => s.toLowerCase().includes("leather"));
-  const hasEngine = serviceNames.some((s) => s.toLowerCase().includes("engine"));
-  const hasHeadlight = serviceNames.some((s) => s.toLowerCase().includes("headlight"));
+  const { avgSpend, daysSinceLast, avgDaysBetween, retentionStatus, projectedMonthly, projectedAnnual, topServices, completedCount } = analytics;
 
-  // Retention status
-  let daysSinceLast = Infinity;
-  let retentionStatus: "active" | "at_risk" | "inactive" = "active";
-  if (completedAppts.length > 0) {
-    try {
-      daysSinceLast = differenceInDays(new Date(), convertToDate(completedAppts[0].scheduledAt));
-    } catch {}
-  }
-  if (daysSinceLast > 120) retentionStatus = "inactive";
-  else if (daysSinceLast > 60) retentionStatus = "at_risk";
+  // Split into customer-facing and internal
+  const actionable = allRecs.filter((r) => r.id !== "outstanding-balance" && r.id !== "deposit-required");
+  const flags = allRecs.filter((r) => r.id === "outstanding-balance" || r.id === "deposit-required");
 
-  // Visit frequency
-  let avgDays: number | null = null;
-  if (completedAppts.length > 1) {
-    try {
-      const first = convertToDate(completedAppts[completedAppts.length - 1].scheduledAt).getTime();
-      const last = convertToDate(completedAppts[0].scheduledAt).getTime();
-      avgDays = Math.round((last - first) / (completedAppts.length - 1) / 86400000);
-    } catch {}
-  }
+  const displayName = getClientDisplayName(client);
+  const firstName = client.firstName || displayName.split(" ")[0];
 
-  // Service count map
-  const svcCounts: Record<string, number> = {};
-  completedAppts.forEach((a) => { a.serviceNames?.forEach((s) => { svcCounts[s] = (svcCounts[s] || 0) + 1; }); });
-  const topServices = Object.entries(svcCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n);
-
-  // Upsell recommendations
-  const recommendations: { title: string; reason: string; type: "upsell" | "maintenance" | "reactivation" | "package" }[] = [];
-
-  if (hasCeramic) {
-    const ceramicAppts = completedAppts.filter((a) => a.serviceNames?.some((s) => s.toLowerCase().includes("ceramic")));
-    if (ceramicAppts.length > 0) {
-      try {
-        const daysSinceCeramic = differenceInDays(new Date(), convertToDate(ceramicAppts[0].scheduledAt));
-        if (daysSinceCeramic > 180) {
-          recommendations.push({ title: "Ceramic Maintenance Wash", reason: "It's been 6+ months since ceramic service. A maintenance wash preserves hydrophobic properties.", type: "maintenance" });
-        }
-      } catch {}
-    }
-  }
-
-  if (!hasCeramic && completedAppts.length >= 2) {
-    recommendations.push({ title: "Ceramic Coating Upgrade", reason: `Client has ${completedAppts.length} completed services. Strong candidate for protective coating investment.`, type: "upsell" });
-  }
-
-  if (!hasInterior && hasExterior && completedAppts.length >= 1) {
-    recommendations.push({ title: "Interior Detail Add-On", reason: "Client only books exterior services. Introducing interior detail could increase ticket by 40–70%.", type: "upsell" });
-  }
-
-  if (!hasLeather && hasInterior) {
-    recommendations.push({ title: "Leather Conditioning", reason: "Interior history detected — leather conditioning is a natural upsell with high acceptance rate.", type: "upsell" });
-  }
-
-  if (completedAppts.length >= 4 && avgDays && avgDays <= 40 && !client.membershipLevel?.match(/gold|platinum/)) {
-    recommendations.push({ title: "Monthly Maintenance Plan", reason: "High visit frequency detected. A maintenance subscription secures recurring revenue and client loyalty.", type: "package" });
-  }
-
-  if (retentionStatus === "inactive") {
-    recommendations.push({ title: "Win-Back Campaign", reason: `Client hasn't booked in ${daysSinceLast} days. A personalized offer could reactivate this account.`, type: "reactivation" });
-  } else if (retentionStatus === "at_risk") {
-    recommendations.push({ title: "Follow-Up Touchpoint", reason: `${Math.round(daysSinceLast)} days since last service. A quick check-in keeps the relationship warm.`, type: "reactivation" });
-  }
-
-  if (!hasHeadlight && vehicles.some((v) => parseInt(v.year) < 2015)) {
-    recommendations.push({ title: "Headlight Restoration", reason: "Older vehicle detected — headlight restoration is a high-margin, quick-win service.", type: "upsell" });
-  }
-
-  if (!hasEngine && completedAppts.length >= 3) {
-    recommendations.push({ title: "Engine Bay Cleaning", reason: "Loyal client — engine bay detail is a premium add-on with strong acceptance among repeat customers.", type: "upsell" });
-  }
-
-  const hasLargeVehicle = vehicles.some((v) => v.size === "large" || v.size === "extra_large");
-  if (hasLargeVehicle && !hasCoating) {
-    recommendations.push({ title: "PPF / Paint Protection", reason: "Large vehicle on file — paint protection film is a premium investment with strong ROI for truck/SUV owners.", type: "upsell" });
-  }
-
-  // Estimated lifetime value growth
-  const projectedMonthly = avgDays && avgDays > 0 ? (avgSpend / avgDays) * 30 : null;
-  const projectedAnnual = projectedMonthly ? projectedMonthly * 12 : null;
-
-  // Talking points
-  const talkingPoints: string[] = [];
-  if (topServices.length > 0) talkingPoints.push(`Top services: ${topServices.join(", ")}`);
-  if (client.isVIP) talkingPoints.push("VIP client — acknowledge loyalty");
-  if (avgDays) talkingPoints.push(`Returns every ~${avgDays} days — consistent client`);
-  if (avgSpend > 0) talkingPoints.push(`Average ticket: ${formatCurrency(avgSpend)}`);
-  if (recommendations.length > 0) talkingPoints.push(`Key upsell: ${recommendations[0].title}`);
-
-  if (completedAppts.length === 0) {
+  if (completedCount === 0) {
     return (
       <div className="space-y-2">
         <EmptyState icon={Brain} label="No completed jobs to analyze" />
@@ -1790,6 +1700,17 @@ function AITab({
 
   return (
     <div className="space-y-2.5">
+      {/* Financial flags — always first */}
+      {flags.map((f) => (
+        <div key={f.id} className="rounded-xl border border-rose-500/25 bg-rose-950/25 px-3 py-2.5 flex items-start gap-2">
+          <AlertOctagon className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-rose-300 leading-tight">{f.title}</p>
+            <p className="text-[8px] text-rose-300/60 font-medium mt-0.5 leading-tight">{f.reason}</p>
+          </div>
+        </div>
+      ))}
+
       {/* Retention status */}
       <div className={cn(
         "rounded-xl border px-3 py-3 flex items-center gap-3",
@@ -1808,19 +1729,21 @@ function AITab({
         <div className="flex-1 min-w-0">
           <p className={cn(
             "text-[10px] font-black uppercase tracking-widest leading-none",
-            retentionStatus === "active" ? "text-emerald-400" : retentionStatus === "at_risk" ? "text-amber-400" : "text-rose-400",
+            retentionStatus === "active" ? "text-emerald-400"
+              : retentionStatus === "at_risk" ? "text-amber-400"
+              : "text-rose-400",
           )}>
             {retentionStatus === "active" ? "Active Client" : retentionStatus === "at_risk" ? "At Risk" : "Inactive"}
           </p>
           <p className="text-[9px] text-white/50 font-medium mt-0.5 leading-tight">
             {daysSinceLast === Infinity ? "No services yet" : `Last service ${Math.round(daysSinceLast)} days ago`}
-            {avgDays ? ` · avg every ${avgDays}d` : ""}
+            {avgDaysBetween ? ` · avg every ${avgDaysBetween}d` : ""}
           </p>
         </div>
       </div>
 
       {/* Revenue intelligence */}
-      {projectedAnnual && (
+      {projectedAnnual != null && (
         <div className="rounded-xl border border-violet-500/20 bg-gradient-to-r from-violet-950/30 to-sidebar/60 px-3 py-3">
           <div className="flex items-center gap-1.5 mb-2">
             <BarChart3 className="w-3.5 h-3.5 text-violet-400" />
@@ -1843,86 +1766,119 @@ function AITab({
         </div>
       )}
 
-      {/* Upsell recommendations */}
-      {recommendations.length > 0 && (
+      {/* Recommendations from shared engine */}
+      {actionable.length > 0 ? (
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5 px-0.5">
             <Sparkles className="w-3 h-3 text-violet-400" />
-            <p className="text-[8px] font-black uppercase tracking-widest text-violet-400/80">AI Recommendations</p>
+            <p className="text-[8px] font-black uppercase tracking-widest text-violet-400/80">Smart Recommendations</p>
           </div>
-          {recommendations.map((rec, i) => {
-            const colors = {
-              upsell: "border-violet-500/20 bg-violet-950/20",
-              maintenance: "border-sky-500/20 bg-sky-950/20",
-              reactivation: "border-amber-500/20 bg-amber-950/20",
-              package: "border-emerald-500/20 bg-emerald-950/20",
-            };
-            const iconColors = {
-              upsell: "bg-violet-500/15 text-violet-400",
-              maintenance: "bg-sky-500/15 text-sky-400",
-              reactivation: "bg-amber-500/15 text-amber-400",
-              package: "bg-emerald-500/15 text-emerald-400",
-            };
-            const icons = { upsell: TrendingUp, maintenance: RefreshCw, reactivation: Repeat, package: BookOpen };
-            const IconComponent = icons[rec.type];
-            return (
-              <div key={i} className={cn("rounded-xl border px-3 py-2.5", colors[rec.type])}>
-                <div className="flex items-start gap-2.5">
-                  <div className={cn("shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mt-0.5", iconColors[rec.type])}>
-                    <IconComponent className="w-3 h-3" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-black text-white leading-tight">{rec.title}</p>
-                    <p className="text-[8px] text-white/50 font-medium mt-0.5 leading-tight">{rec.reason}</p>
-                    <span className={cn(
-                      "inline-block mt-1 text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none",
-                      rec.type === "upsell" ? "bg-violet-500/10 text-violet-300 ring-violet-500/20"
-                        : rec.type === "maintenance" ? "bg-sky-500/10 text-sky-300 ring-sky-500/20"
-                        : rec.type === "reactivation" ? "bg-amber-500/10 text-amber-300 ring-amber-500/20"
-                        : "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20",
-                    )}>
-                      {rec.type}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {actionable.map((rec) => (
+            <UpsellCard key={rec.id} rec={rec} />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-4 text-center">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400/30 mx-auto" />
+          <p className="text-[10px] font-black text-white/40 mt-1.5">No smart upsells right now</p>
+          <p className="text-[8px] text-white/25 font-medium mt-0.5">Client is on an optimal service cycle</p>
         </div>
       )}
 
-      {/* Talking points */}
-      {talkingPoints.length > 0 && (
+      {/* Field talking points */}
+      {topServices.length > 0 && (
         <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-2.5">
           <div className="flex items-center gap-1.5 mb-2">
             <MessageCircle className="w-3 h-3 text-sky-400" />
             <p className="text-[8px] font-black uppercase tracking-widest text-sky-400/70">Field Talking Points</p>
           </div>
           <div className="space-y-1">
-            {talkingPoints.map((pt, i) => (
-              <div key={i} className="flex items-start gap-1.5">
-                <div className="shrink-0 w-1 h-1 rounded-full bg-sky-400/50 mt-1.5" />
-                <p className="text-[9px] font-bold text-white/60 leading-tight">{pt}</p>
-              </div>
-            ))}
+            {topServices.length > 0 && (
+              <TalkingPoint text={`Top services: ${topServices.join(", ")}`} />
+            )}
+            {client.isVIP && <TalkingPoint text="VIP client — acknowledge their loyalty" />}
+            {avgDaysBetween > 0 && <TalkingPoint text={`Returns every ~${avgDaysBetween} days — consistent client`} />}
+            {avgSpend > 0 && <TalkingPoint text={`Average ticket: ${formatCurrency(avgSpend)}`} />}
+            {actionable.length > 0 && <TalkingPoint text={`Key opportunity: ${actionable[0].title}`} />}
           </div>
         </div>
       )}
 
-      {/* Follow-up suggestion */}
+      {/* Follow-up message */}
       {retentionStatus !== "active" && (
         <div className="rounded-xl border border-amber-500/15 bg-amber-500/5 px-3 py-2.5">
           <div className="flex items-center gap-1.5 mb-1.5">
             <Zap className="w-3 h-3 text-amber-400" />
-            <p className="text-[8px] font-black uppercase tracking-widest text-amber-400/80">Follow-Up Suggestion</p>
+            <p className="text-[8px] font-black uppercase tracking-widest text-amber-400/80">Suggested Follow-Up</p>
           </div>
           <p className="text-[10px] font-bold text-white/65 leading-tight">
             {retentionStatus === "at_risk"
-              ? `"Hey ${client.firstName || getClientDisplayName(client).split(" ")[0]}, it's been a while! Your ${vehicles[0] ? `${vehicles[0].make} ${vehicles[0].model}` : "vehicle"} might be due for a detail. Want to get something on the calendar?"`
-              : `"Hi ${client.firstName || getClientDisplayName(client).split(" ")[0]}! We'd love to have you back. We're running a loyalty offer for returning clients — want details?"`}
+              ? `"Hey ${firstName}, it's been a while! Your ${vehicles[0] ? `${vehicles[0].make} ${vehicles[0].model}` : "vehicle"} might be due for a detail. Want to get something on the calendar?"`
+              : `"Hi ${firstName}! We'd love to have you back. We're running a loyalty offer for returning clients — want details?"`}
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function UpsellCard({ rec }: { rec: UpsellRecommendation }) {
+  const typeStyle: Record<string, { border: string; icon: string; badge: string }> = {
+    timing:      { border: "border-sky-500/25 bg-sky-950/20",      icon: "bg-sky-500/15 text-sky-400",      badge: "bg-sky-500/10 text-sky-300 ring-sky-500/20" },
+    maintenance: { border: "border-sky-500/25 bg-sky-950/20",      icon: "bg-sky-500/15 text-sky-400",      badge: "bg-sky-500/10 text-sky-300 ring-sky-500/20" },
+    upsell:      { border: "border-violet-500/20 bg-violet-950/20", icon: "bg-violet-500/15 text-violet-400", badge: "bg-violet-500/10 text-violet-300 ring-violet-500/20" },
+    package:     { border: "border-emerald-500/20 bg-emerald-950/20", icon: "bg-emerald-500/15 text-emerald-400", badge: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20" },
+    reactivation:{ border: "border-amber-500/20 bg-amber-950/20",  icon: "bg-amber-500/15 text-amber-400",  badge: "bg-amber-500/10 text-amber-300 ring-amber-500/20" },
+    addon:       { border: "border-violet-500/15 bg-violet-950/15", icon: "bg-violet-500/10 text-violet-300", badge: "bg-violet-500/10 text-violet-300 ring-violet-500/20" },
+    condition:   { border: "border-rose-500/20 bg-rose-950/15",    icon: "bg-rose-500/15 text-rose-400",    badge: "bg-rose-500/10 text-rose-300 ring-rose-500/20" },
+  };
+  const style = typeStyle[rec.type] ?? typeStyle.upsell;
+
+  const IconMap: Record<string, typeof TrendingUp> = {
+    timing: RefreshCw, maintenance: RefreshCw, upsell: TrendingUp,
+    package: BookOpen, reactivation: Repeat, addon: TrendingUp, condition: AlertTriangle,
+  };
+  const Icon = IconMap[rec.type] ?? TrendingUp;
+
+  return (
+    <div className={cn("rounded-xl border px-3 py-2.5", style.border, rec.blockedBy ? "opacity-60" : "")}>
+      <div className="flex items-start gap-2.5">
+        <div className={cn("shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mt-0.5", style.icon)}>
+          <Icon className="w-3 h-3" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-[10px] font-black text-white leading-tight">{rec.title}</p>
+            {rec.estimatedPriceImpact != null && (
+              <span className="text-[8px] font-black text-emerald-300">+{formatCurrency(rec.estimatedPriceImpact)}</span>
+            )}
+          </div>
+          <p className="text-[8px] text-white/50 font-medium mt-0.5 leading-tight">{rec.reason}</p>
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            <span className={cn("text-[6px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none", style.badge)}>
+              {rec.type}
+            </span>
+            <span className="text-[6px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none bg-white/5 text-white/30 ring-white/10">
+              {rec.priority}
+            </span>
+            {!rec.isCustomerFacing && (
+              <span className="text-[6px] font-black uppercase tracking-widest text-white/20">Internal</span>
+            )}
+          </div>
+          {rec.blockedBy && (
+            <p className="text-[7px] text-rose-400/70 font-bold mt-1 leading-tight">⛔ {rec.blockedBy}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TalkingPoint({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-1.5">
+      <div className="shrink-0 w-1 h-1 rounded-full bg-sky-400/50 mt-1.5" />
+      <p className="text-[9px] font-bold text-white/60 leading-tight">{text}</p>
     </div>
   );
 }
