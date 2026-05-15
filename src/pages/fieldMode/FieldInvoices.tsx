@@ -47,6 +47,8 @@ interface FieldInvoiceRow {
   createdAtMs: number;
 }
 
+type GlowStatus = "paid" | "amber" | "voided" | "draft" | "mixed";
+
 interface ClientGroup {
   /** Stable key: clientId when present, else clientName */
   key: string;
@@ -57,6 +59,7 @@ interface ClientGroup {
   latestMs: number;
   /** Count of invoices that haven't been paid or voided yet */
   unpaidCount: number;
+  glowStatus: GlowStatus;
 }
 
 function toRow(id: string, data: Record<string, unknown>): FieldInvoiceRow {
@@ -82,6 +85,39 @@ function statusTone(s: string): string {
     case "draft":  return "bg-white/10 text-white/70 ring-white/15";
     case "voided": return "bg-rose-500/15 text-rose-300 ring-rose-500/30";
     default:       return "bg-amber-500/15 text-amber-300 ring-amber-500/30";
+  }
+}
+
+function getGlowStatus(invoices: FieldInvoiceRow[]): GlowStatus {
+  const statuses = new Set(invoices.map((i) => i.status));
+  if (statuses.size === 1) {
+    const s = [...statuses][0];
+    if (s === "paid") return "paid";
+    if (s === "voided") return "voided";
+    if (s === "draft") return "draft";
+    return "amber";
+  }
+  const hasUnpaid = invoices.some((i) => i.status !== "paid" && i.status !== "voided");
+  return hasUnpaid ? "amber" : "mixed";
+}
+
+function glowCardClasses(gs: GlowStatus): string {
+  switch (gs) {
+    case "paid":   return "border-emerald-500/30 shadow-[0_0_14px_rgba(52,211,153,0.10)]";
+    case "amber":  return "border-amber-500/30 shadow-[0_0_14px_rgba(245,158,11,0.10)]";
+    case "voided": return "border-rose-500/30 shadow-[0_0_14px_rgba(244,63,94,0.10)]";
+    case "draft":  return "border-white/8";
+    case "mixed":  return "border-violet-500/30 shadow-[0_0_14px_rgba(139,92,246,0.10)]";
+  }
+}
+
+function glowAvatarClasses(gs: GlowStatus): string {
+  switch (gs) {
+    case "paid":   return "bg-emerald-500/10 ring-1 ring-emerald-500/30 text-emerald-300";
+    case "amber":  return "bg-amber-500/10 ring-1 ring-amber-500/30 text-amber-300";
+    case "voided": return "bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-300";
+    case "draft":  return "bg-white/8 ring-1 ring-white/10 text-white/50";
+    case "mixed":  return "bg-violet-500/10 ring-1 ring-violet-500/30 text-violet-300";
   }
 }
 
@@ -154,6 +190,7 @@ export default function FieldInvoices() {
           groupTotal: 0,
           latestMs: 0,
           unpaidCount: 0,
+          glowStatus: "draft",
         });
       }
       const g = map.get(key)!;
@@ -163,7 +200,9 @@ export default function FieldInvoices() {
       const isPaid = row.status === "paid" || row.paymentStatus === "paid" || row.status === "voided";
       if (!isPaid) g.unpaidCount++;
     }
-    return Array.from(map.values()).sort((a, b) => b.latestMs - a.latestMs);
+    return Array.from(map.values())
+      .map((g) => ({ ...g, glowStatus: getGlowStatus(g.invoices) }))
+      .sort((a, b) => b.latestMs - a.latestMs);
   }, [rows]);
 
   const toggleGroup = (key: string) => {
@@ -221,7 +260,7 @@ export default function FieldInvoices() {
           return (
             <div
               key={g.key}
-              className="rounded-xl border border-white/5 overflow-hidden"
+              className={cn("rounded-xl border overflow-hidden transition-shadow duration-300", glowCardClasses(g.glowStatus))}
             >
               {/* ── Group header (tap to expand/collapse) ── */}
               <button
@@ -230,8 +269,8 @@ export default function FieldInvoices() {
                 className="w-full flex items-center gap-2.5 px-2.5 py-2 bg-white/[0.04] hover:bg-white/[0.07] active:bg-white/[0.10] transition-colors"
               >
                 {/* Avatar */}
-                <div className="shrink-0 w-8 h-8 rounded-md bg-white/10 ring-1 ring-white/15 flex items-center justify-center">
-                  <span className="text-[11px] font-black text-white/70 uppercase leading-none">
+                <div className={cn("shrink-0 w-8 h-8 rounded-md flex items-center justify-center", glowAvatarClasses(g.glowStatus))}>
+                  <span className="text-[11px] font-black uppercase leading-none">
                     {g.clientName.charAt(0)}
                   </span>
                 </div>
