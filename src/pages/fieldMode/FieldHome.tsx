@@ -5,9 +5,6 @@ import {
   Calendar as CalendarIcon,
   PlayCircle,
   Phone,
-  CheckSquare,
-  Car,
-  Camera,
   Receipt,
   Sparkles,
   ChevronRight,
@@ -279,9 +276,6 @@ export default function FieldHome() {
           <Tile title="Schedule" icon={CalendarIcon} tone="primary" to="/calendar" />
           <Tile title="Leads" icon={UserPlus} tone="amber" to="/leads" />
           <Tile title="Quotes" icon={FileText} tone="sky" to="/quotes" />
-          <Tile title="Vehicle Info" icon={Car} tone="primary" comingSoon />
-          <Tile title="Checklist" icon={CheckSquare} tone="emerald" comingSoon />
-          <Tile title="Photos" icon={Camera} tone="rose" comingSoon />
           <Tile title="AI Assist" icon={Sparkles} tone="violet" comingSoon />
         </div>
       </section>

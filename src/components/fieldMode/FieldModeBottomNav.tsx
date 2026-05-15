@@ -18,7 +18,7 @@ export interface FieldModeBottomNavProps {
 }
 
 const tabs = [
-  { name: "Today", href: "/", icon: Home, exact: true },
+  { name: "Dashboard", href: "/", icon: Home, exact: true },
   { name: "Schedule", href: "/calendar", icon: Calendar },
   { name: "Clients", href: "/clients", icon: Users },
   { name: "Invoices", href: "/invoices", icon: Receipt },
