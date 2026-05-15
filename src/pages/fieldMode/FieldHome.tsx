@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   collection,
-  doc,
   limit,
   onSnapshot,
   orderBy,
@@ -10,7 +9,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../../hooks/useAuth";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, toJsDateOrNull } from "@/lib/utils";
 import {
   Activity,
   AlertCircle,
@@ -108,52 +107,164 @@ function usePendingInvoices(): PendingInvoiceSummary {
   };
 }
 
-// ─── Revenue targets mini-hook ────────────────────────────────────────────────
-// Reads dailyRevenueTarget + monthlyRevenueTarget from settings/business.
-// Falls back to hardcoded defaults if the fields are not yet set —
-// the user can override these values by adding the fields in Settings.
+// ─── Trend-based revenue targets hook ────────────────────────────────────────
+// Derives forward-looking KPI goals purely from real paid-invoice history.
+// No hardcoded values. No settings reads. Trend only.
 //
-// Fallback defaults (conservative estimates for a solo detailer):
-//   daily:   $500   (≈ 2 standard details per day)
-//   monthly: $10 000 (≈ 20 working days × $500)
+// DAILY GOAL
+//   1. Collect all paid invoices from the last 30 calendar days.
+//   2. Group revenue by date → count "active business days" (days with > $0 paid).
+//   3. Average daily revenue = total / active-day count.
+//   4. Daily Goal = average × 1.10 (10 % growth target).
+//   If no active days in the last 30 days → null ("No trend yet").
+//
+// MONTHLY GOAL
+//   1. Collect all paid invoices from the last 5 months.
+//   2. Group by YYYY-MM, exclude the current (incomplete) month.
+//   3. Take the 3 most-recent complete months; average their totals.
+//   4. Monthly Goal = average × 1.10.
+//   Fallback A — fewer than 3 complete months exist:
+//     use whatever complete months are available (1–2) × 1.10.
+//   Fallback B — no complete months but current month has revenue:
+//     pace current-month revenue to end-of-month × 1.10.
+//   Fallback C — no paid revenue at all → null ("No trend yet").
+//
+// Data source: `invoices` collection, same as usePendingInvoices.
+// Query: orderBy("createdAt", "desc") + limit(500) — no composite index.
 
-interface RevenueTargets {
-  daily: number;
-  monthly: number;
+interface TrendTargets {
+  /** null = no paid history available */
+  dailyTarget: number | null;
+  /** null = no paid history available */
+  monthlyTarget: number | null;
+  /** Human-readable note shown inside the card */
+  dailyMeta: string;
+  /** Human-readable note shown inside the card */
+  monthlyMeta: string;
+  ready: boolean;
 }
 
-const FALLBACK_TARGETS: RevenueTargets = {
-  daily: 500,
-  monthly: 10000,
-};
-
-function useRevenueTargets(): RevenueTargets {
-  const [targets, setTargets] = useState<RevenueTargets>(FALLBACK_TARGETS);
+function useTrendTargets(): TrendTargets {
+  const [result, setResult] = useState<TrendTargets>({
+    dailyTarget: null,
+    monthlyTarget: null,
+    dailyMeta: "",
+    monthlyMeta: "",
+    ready: false,
+  });
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      doc(db, "settings", "business"),
-      (snap) => {
-        if (!snap.exists()) return;
-        const d = snap.data() as Record<string, unknown>;
-        setTargets({
-          daily:
-            typeof d.dailyRevenueTarget === "number" && (d.dailyRevenueTarget as number) > 0
-              ? (d.dailyRevenueTarget as number)
-              : FALLBACK_TARGETS.daily,
-          monthly:
-            typeof d.monthlyRevenueTarget === "number" && (d.monthlyRevenueTarget as number) > 0
-              ? (d.monthlyRevenueTarget as number)
-              : FALLBACK_TARGETS.monthly,
-        });
-      },
-      // On permission error fall back silently — targets still display defaults
-      () => {},
+    const q = query(
+      collection(db, "invoices"),
+      orderBy("createdAt", "desc"),
+      limit(500),
     );
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        interface InvRow { total: number; dateMs: number; status: string; paymentStatus: string }
+        const rows: InvRow[] = [];
+        snap.forEach((d) => {
+          const data = d.data() as Record<string, unknown>;
+          const jsDate = toJsDateOrNull(data.createdAt);
+          if (!jsDate) return;
+          rows.push({
+            total: typeof data.total === "number" ? (data.total as number) : 0,
+            dateMs: jsDate.getTime(),
+            status: String(data.status ?? ""),
+            paymentStatus: String(data.paymentStatus ?? ""),
+          });
+        });
+
+        const isPaid = (r: InvRow) =>
+          r.status === "paid" || r.paymentStatus === "paid";
+
+        const now = new Date();
+        const nowMs = now.getTime();
+
+        // ── Daily trend ────────────────────────────────────────────────────
+        const thirtyDaysAgoMs = nowMs - 30 * 24 * 60 * 60 * 1000;
+        const recentPaid = rows.filter((r) => isPaid(r) && r.dateMs >= thirtyDaysAgoMs);
+
+        // Group by YYYY-MM-DD
+        const byDay: Record<string, number> = {};
+        for (const r of recentPaid) {
+          const d = new Date(r.dateMs);
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          byDay[key] = (byDay[key] ?? 0) + r.total;
+        }
+        const activeDayTotals = Object.values(byDay).filter((v) => v > 0);
+
+        let dailyTarget: number | null = null;
+        let dailyMeta = "No trend yet";
+        if (activeDayTotals.length > 0) {
+          const avgDaily =
+            activeDayTotals.reduce((s, v) => s + v, 0) / activeDayTotals.length;
+          dailyTarget = Math.round(avgDaily * 1.10);
+          dailyMeta = `${activeDayTotals.length}-day avg ×1.1`;
+        }
+
+        // ── Monthly trend ──────────────────────────────────────────────────
+        // Cover last 5 months so we reliably find 3 complete ones.
+        const fiveMonthsAgoMs = nowMs - 5 * 31 * 24 * 60 * 60 * 1000;
+        const historicalPaid = rows.filter(
+          (r) => isPaid(r) && r.dateMs >= fiveMonthsAgoMs,
+        );
+
+        const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+        const byMonth: Record<string, number> = {};
+        for (const r of historicalPaid) {
+          const d = new Date(r.dateMs);
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+          byMonth[key] = (byMonth[key] ?? 0) + r.total;
+        }
+
+        // Completed months: strictly before current month, most-recent first
+        const completedMonths = Object.entries(byMonth)
+          .filter(([key]) => key < currentMonthKey)
+          .sort(([a], [b]) => b.localeCompare(a))
+          .slice(0, 3);
+
+        let monthlyTarget: number | null = null;
+        let monthlyMeta = "No trend yet";
+
+        if (completedMonths.length > 0) {
+          const avgMonthly =
+            completedMonths.reduce((s, [, v]) => s + v, 0) / completedMonths.length;
+          monthlyTarget = Math.round(avgMonthly * 1.10);
+          monthlyMeta =
+            completedMonths.length === 3
+              ? "3-mo avg ×1.1"
+              : `${completedMonths.length}-mo avg ×1.1`;
+        } else {
+          // Fallback B: pace current month revenue to end of month
+          const currentMonthRev = byMonth[currentMonthKey] ?? 0;
+          if (currentMonthRev > 0) {
+            const dayOfMonth = now.getDate();
+            const daysInMonth = new Date(
+              now.getFullYear(),
+              now.getMonth() + 1,
+              0,
+            ).getDate();
+            const paced = (currentMonthRev / dayOfMonth) * daysInMonth;
+            monthlyTarget = Math.round(paced * 1.10);
+            monthlyMeta = "month pace ×1.1";
+          }
+          // else: target stays null, meta stays "No trend yet"
+        }
+
+        setResult({ dailyTarget, monthlyTarget, dailyMeta, monthlyMeta, ready: true });
+      },
+      // On Firestore error: mark ready, targets remain null
+      () => setResult((prev) => ({ ...prev, ready: true })),
+    );
+
     return () => unsub();
   }, []);
 
-  return targets;
+  return result;
 }
 
 // ─── Tone palette ─────────────────────────────────────────────────────────────
@@ -341,8 +452,16 @@ interface RevenueKpiCardProps {
   value: string;
   /** Raw numeric actual (used for % calculation) */
   actual: number;
-  /** Revenue target for the period */
-  target: number;
+  /**
+   * Trend-derived target. null = no history available — card shows
+   * "No trend yet" with no progress bar instead of a fake number.
+   */
+  target: number | null;
+  /**
+   * Short provenance label shown below the progress bar,
+   * e.g. "30-day avg ×1.1" or "month pace ×1.1".
+   */
+  meta?: string;
   icon: typeof Activity;
   to?: string;
   skeleton?: boolean;
@@ -353,14 +472,22 @@ function RevenueKpiCard({
   value,
   actual,
   target,
+  meta,
   icon: Icon,
   to,
   skeleton = false,
 }: RevenueKpiCardProps) {
-  const pct = target > 0 ? Math.min((actual / target) * 100, 100) : 0;
+  const hasTarget = target !== null && target > 0;
+  const pct = hasTarget ? Math.min((actual / target!) * 100, 100) : 0;
 
-  // Dynamic tone based on progress
-  const tone: ToneKey = pct >= 80 ? "emerald" : pct >= 50 ? "amber" : "rose";
+  // Dynamic tone: shifts with progress when a target exists; stays primary when no trend.
+  const tone: ToneKey = !hasTarget
+    ? "primary"
+    : pct >= 80
+    ? "emerald"
+    : pct >= 50
+    ? "amber"
+    : "rose";
   const t = TONE[tone];
 
   // Progress bar fill colour
@@ -406,25 +533,40 @@ function RevenueKpiCard({
         </p>
       )}
 
-      {/* Progress bar */}
+      {/* Bottom section: progress bar OR no-trend message */}
       {!skeleton && (
-        <div className="mt-2.5 space-y-1.5">
-          {/* Track */}
-          <div className="h-[3px] w-full rounded-full bg-white/8 overflow-hidden">
-            <div
-              className={cn("h-full rounded-full transition-all duration-700 ease-out", barColor)}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          {/* Meta row */}
-          <div className="flex items-center justify-between gap-1">
-            <span className={cn("text-[9px] font-black leading-none tabular-nums", pctColor)}>
-              {Math.round(pct)}%
-            </span>
-            <span className="text-[8px] text-white/28 font-medium leading-none truncate">
-              {formatCurrency(target)} goal
-            </span>
-          </div>
+        <div className="mt-2.5">
+          {hasTarget ? (
+            <div className="space-y-1.5">
+              {/* Track */}
+              <div className="h-[3px] w-full rounded-full bg-white/8 overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full transition-all duration-700 ease-out", barColor)}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              {/* Percentage + trend target */}
+              <div className="flex items-center justify-between gap-1">
+                <span className={cn("text-[9px] font-black leading-none tabular-nums", pctColor)}>
+                  {Math.round(pct)}%
+                </span>
+                <span className="text-[8px] text-white/28 font-medium leading-none truncate">
+                  {formatCurrency(target!)} trend
+                </span>
+              </div>
+              {/* Provenance note */}
+              {meta && (
+                <p className="text-[7px] font-medium text-white/20 leading-none truncate uppercase tracking-wide">
+                  {meta}
+                </p>
+              )}
+            </div>
+          ) : (
+            /* No trend yet */
+            <p className="text-[9px] text-white/28 font-medium leading-tight">
+              No trend yet
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -768,7 +910,7 @@ export default function FieldHome() {
   const { clients } = useClientsLive(30);
   const { jobs: monthJobs } = useMonthAppointments(now);
   const { pendingCount, pendingTotal } = usePendingInvoices();
-  const revenueTargets = useRevenueTargets();
+  const { dailyTarget, monthlyTarget, dailyMeta, monthlyMeta } = useTrendTargets();
 
   // ── Derived KPIs ──────────────────────────────────────────────────────────
   const activeJobs = useMemo(
@@ -905,12 +1047,13 @@ export default function FieldHome() {
               to="/calendar"
             />
 
-            {/* Revenue → /invoices (with daily target progress) */}
+            {/* Revenue → /invoices (trend-based daily target) */}
             <RevenueKpiCard
               label="Today Revenue"
               value={formatCurrency(todayRevenue)}
               actual={todayRevenue}
-              target={revenueTargets.daily}
+              target={dailyTarget}
+              meta={dailyMeta}
               icon={DollarSign}
               skeleton={jobsLoading}
               to="/invoices"
@@ -936,12 +1079,13 @@ export default function FieldHome() {
               to="/invoices"
             />
 
-            {/* Month Revenue → /invoices (with monthly target progress) */}
+            {/* Month Revenue → /invoices (trend-based monthly target) */}
             <RevenueKpiCard
               label="Month Revenue"
               value={formatCurrency(monthRevenue)}
               actual={monthRevenue}
-              target={revenueTargets.monthly}
+              target={monthlyTarget}
+              meta={monthlyMeta}
               icon={TrendingUp}
               to="/invoices"
             />
