@@ -38,6 +38,11 @@ export interface FieldJob {
   telUrl?: string;
   smsUrl?: string;
   mailtoUrl?: string;
+  // Intelligence fields for schedule dispatch display
+  depositRequired?: boolean;
+  depositPaid?: boolean;
+  clientRiskLevel?: "low" | "medium" | "high" | null;
+  pendingOwnerReview?: boolean;
 }
 
 /**
@@ -82,6 +87,10 @@ export function toFieldJob(raw: Appointment | (Partial<Appointment> & Record<str
     telUrl: phone ? `tel:${phone}` : undefined,
     smsUrl: phone ? `sms:${phone}` : undefined,
     mailtoUrl: email ? `mailto:${email}` : undefined,
+    depositRequired: Boolean(r.depositRequired),
+    depositPaid: Boolean(r.depositPaid),
+    clientRiskLevel: (r.clientRiskLevelAtBooking as "low" | "medium" | "high" | null) ?? null,
+    pendingOwnerReview: Boolean(r.pendingOwnerReview),
   };
 }
 
