@@ -1,16 +1,4 @@
-/**
- * FieldClientDetail — full mobile client profile with 6 tabs.
- *
- * Tabs: Overview · Profile · Appointments · Vehicles · Notes · Risk
- *
- * Rules enforced:
- *   - No JSX IIFEs ((() => …)() inside JSX)
- *   - No mock data — all Firestore reads
- *   - No desktop tables, no horizontal overflow
- *   - Mobile-first stacked cards throughout
- *   - Risk wired to riskUtils (getEffectiveRisk / getRiskBadgeClass)
- */
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   doc,
   onSnapshot,
@@ -22,10 +10,11 @@ import {
   getDocs,
   updateDoc,
   serverTimestamp,
+  arrayUnion,
+  deleteField,
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { toast } from "sonner";
 import {
   cn,
   formatPhoneNumber,
@@ -38,6 +27,10 @@ import {
   getRiskBadgeClass,
   getRiskBadgeLabel,
 } from "@/lib/riskUtils";
+import { useAuth } from "../../hooks/useAuth";
+import { messagingService } from "../../services/messagingService";
+import { format, differenceInDays, formatDistanceToNow } from "date-fns";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   Phone,
@@ -45,97 +38,197 @@ import {
   MapPin,
   Star,
   User,
-  Monitor,
-  ExternalLink,
   AlertCircle,
   MessageSquare,
   Calendar,
   Car,
   Receipt,
   History,
+  FileText,
   AlertOctagon,
   Crown,
   ChevronRight,
-  ShieldAlert,
-  Edit2,
-  Save,
-  X,
-  Building2,
-  CheckCircle2,
   Clipboard,
-  AlertTriangle,
-  UserX,
+  ShieldAlert,
+  Navigation,
   CreditCard,
-  BadgeCheck,
+  Sparkles,
+  TrendingUp,
+  Target,
+  RefreshCw,
+  Zap,
+  DollarSign,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Plus,
+  Send,
+  Undo2,
+  Ban,
+  Shield,
+  ShieldCheck,
+  Brain,
+  BarChart3,
+  Users,
+  Repeat,
+  BookOpen,
+  MessageCircle,
 } from "lucide-react";
-import { format } from "date-fns";
-import type { Client, Vehicle, Appointment, Invoice, Quote } from "../../types";
+import type { Client, Vehicle, Appointment, Invoice, Quote, Service, ProtectedClient } from "../../types";
 
-// ─── Tab definitions ─────────────────────────────────────────────────────────
-type TabKey = "overview" | "profile" | "appointments" | "vehicles" | "notes" | "risk";
+// ─── Tab type ────────────────────────────────────────────────────────────────
+type TabKey = "overview" | "jobs" | "vehicles" | "billing" | "notes" | "risk" | "ai";
 
-const TAB_LABELS: { key: TabKey; label: string }[] = [
-  { key: "overview",      label: "Overview"      },
-  { key: "profile",       label: "Profile"       },
-  { key: "appointments",  label: "Appts"         },
-  { key: "vehicles",      label: "Vehicles"      },
-  { key: "notes",         label: "Notes"         },
-  { key: "risk",          label: "Risk"          },
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "overview", label: "Overview" },
+  { key: "jobs", label: "Jobs" },
+  { key: "vehicles", label: "Vehicles" },
+  { key: "billing", label: "Billing" },
+  { key: "notes", label: "Notes" },
+  { key: "risk", label: "Risk" },
+  { key: "ai", label: "AI" },
 ];
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Status helpers ───────────────────────────────────────────────────────────
 function statusColor(status: string): string {
   switch (status) {
     case "completed":
-    case "paid":       return "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30";
+    case "paid":
+      return "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30";
     case "in_progress":
-    case "en_route":   return "bg-amber-500/15 text-amber-300 ring-amber-500/30";
+    case "en_route":
+      return "bg-amber-500/15 text-amber-300 ring-amber-500/30";
     case "confirmed":
-    case "approved":   return "bg-sky-500/15 text-sky-300 ring-sky-500/30";
+    case "approved":
+      return "bg-sky-500/15 text-sky-300 ring-sky-500/30";
     case "canceled":
     case "declined":
-    case "no_show":    return "bg-rose-500/15 text-rose-300 ring-rose-500/30";
-    case "scheduled":  return "bg-[#0A4DFF]/15 text-[#4D8AFF] ring-[#0A4DFF]/30";
-    default:           return "bg-white/10 text-white/60 ring-white/15";
+    case "no_show":
+      return "bg-rose-500/15 text-rose-300 ring-rose-500/30";
+    case "scheduled":
+      return "bg-[#0A4DFF]/15 text-[#4D8AFF] ring-[#0A4DFF]/30";
+    case "voided":
+      return "bg-white/10 text-white/40 ring-white/10";
+    case "partial":
+      return "bg-amber-500/15 text-amber-300 ring-amber-500/30";
+    case "draft":
+    case "pending":
+    case "sent":
+      return "bg-sky-500/15 text-sky-300 ring-sky-500/30";
+    default:
+      return "bg-white/10 text-white/60 ring-white/15";
   }
 }
 
-function safeDate(ts: any): Date | null {
-  try { return convertToDate(ts); } catch { return null; }
+function statusGlow(status: string): string {
+  switch (status) {
+    case "completed":
+    case "paid":
+      return "border-emerald-500/25 shadow-[0_0_12px_rgba(16,185,129,0.12)]";
+    case "in_progress":
+    case "en_route":
+      return "border-amber-500/25 shadow-[0_0_12px_rgba(245,158,11,0.12)]";
+    case "canceled":
+    case "no_show":
+      return "border-rose-500/20 shadow-[0_0_8px_rgba(239,68,68,0.08)]";
+    case "confirmed":
+    case "scheduled":
+      return "border-sky-500/20 shadow-[0_0_8px_rgba(14,165,233,0.08)]";
+    default:
+      return "border-white/5";
+  }
+}
+
+// ─── Maps helpers ─────────────────────────────────────────────────────────────
+function buildMapsUrls(address: string) {
+  const encoded = encodeURIComponent(address);
+  return {
+    apple: `maps:?daddr=${encoded}`,
+    google: `https://maps.google.com/?daddr=${encoded}`,
+    waze: `https://waze.com/ul?q=${encoded}`,
+  };
+}
+
+// ─── Loading / Error primitives ───────────────────────────────────────────────
+function LoadingCard() {
+  return (
+    <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-3 flex items-center justify-center min-h-[56px]">
+      <div className="w-3.5 h-3.5 border border-white/10 border-t-white/40 rounded-full animate-spin" />
+      <span className="ml-2 text-[9px] font-black uppercase tracking-widest text-white/40">Loading…</span>
+    </div>
+  );
+}
+
+function ErrorCard({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 px-2.5 py-2 flex items-start gap-1.5">
+      <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+      <div className="min-w-0">
+        <p className="text-[11px] font-bold text-rose-300 leading-tight">Couldn't load client</p>
+        <p className="text-[9px] text-rose-300/70 mt-0.5 break-words leading-tight">{message}</p>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, label }: { icon: typeof Calendar; label: string }) {
+  return (
+    <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-6 text-center">
+      <Icon className="w-5 h-5 text-white/20 mx-auto" />
+      <p className="text-[11px] font-bold text-white/40 mt-1.5">{label}</p>
+    </div>
+  );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function FieldClientDetail() {
-  const navigate       = useNavigate();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const clientId       = searchParams.get("clientId");
-  const initialTab     = (searchParams.get("tab") as TabKey) || "overview";
+  const clientId = searchParams.get("clientId");
+  const initialTab = (searchParams.get("tab") as TabKey) || "overview";
+  const { services, settings } = useAuth();
 
-  const [client,      setClient]      = useState<Client | null>(null);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState<string | null>(null);
-  const [activeTab,   setActiveTab]   = useState<TabKey>(initialTab);
+  const [client, setClient] = useState<Client | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
-  // Related data
-  const [vehicles,     setVehicles]     = useState<Vehicle[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [invoices,     setInvoices]     = useState<Invoice[]>([]);
-  const [quotes,       setQuotes]       = useState<Quote[]>([]);
-  // Protected-client entry for Risk tab
-  const [protectedEntry, setProtectedEntry] = useState<any | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [protectedMatch, setProtectedMatch] = useState<ProtectedClient | null>(null);
 
-  // ── Load client (live) ──────────────────────────────────────────────────────
+  // Maps dialog state
+  const [showMaps, setShowMaps] = useState(false);
+
+  // Payment dialog state
+  const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [processingPayment, setProcessingPayment] = useState(false);
+
+  // Note edit state
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
+  // ── Client listener ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!clientId) { setLoading(false); return; }
+    const ref = doc(db, "clients", clientId);
     const unsub = onSnapshot(
-      doc(db, "clients", clientId),
+      ref,
       (snap) => {
-        if (snap.exists()) setClient({ id: snap.id, ...(snap.data() as any) } as Client);
-        else setError("Client not found.");
+        if (snap.exists()) {
+          setClient({ id: snap.id, ...(snap.data() as any) } as Client);
+        } else {
+          setError("Client not found.");
+        }
         setLoading(false);
       },
       (err) => {
-        console.warn("[FieldClientDetail] client error", err);
+        console.warn("[FieldClientDetail] client snapshot error", err);
         setError(err?.message || "Failed to load client.");
         setLoading(false);
       },
@@ -143,60 +236,91 @@ export default function FieldClientDetail() {
     return () => unsub();
   }, [clientId]);
 
-  // ── Load related data ────────────────────────────────────────────────────────
+  // ── Vehicles listener ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!clientId) return;
-
-    // Vehicles — live listener
-    const unsubVehicles = onSnapshot(
+    const unsub = onSnapshot(
       query(collection(db, "vehicles"), where("clientId", "==", clientId)),
       (snap) => setVehicles(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }) as Vehicle)),
       (err) => { if (err?.code !== "cancelled") console.warn("[FieldClientDetail] vehicles", err); },
     );
-
-    // Protected clients — live listener
-    const unsubProtected = onSnapshot(
-      query(collection(db, "protected_clients"), where("clientId", "==", clientId), limit(1)),
-      (snap) => setProtectedEntry(snap.empty ? null : { id: snap.docs[0].id, ...(snap.docs[0].data() as any) }),
-      (err) => { if (err?.code !== "cancelled") console.warn("[FieldClientDetail] protected", err); },
-    );
-
-    // Appointments + invoices + quotes — one-time batch fetch
-    const fetchDetails = async () => {
-      try {
-        const [apptSnap, invSnap, quoteSnap] = await Promise.all([
-          getDocs(query(collection(db, "appointments"), where("clientId", "==", clientId), orderBy("scheduledAt", "desc"), limit(50))),
-          getDocs(query(collection(db, "invoices"),     where("clientId", "==", clientId), orderBy("createdAt",   "desc"), limit(30))),
-          getDocs(query(collection(db, "quotes"),       where("clientId", "==", clientId), orderBy("createdAt",   "desc"), limit(20))),
-        ]);
-        setAppointments(apptSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }) as Appointment));
-        setInvoices(invSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }) as Invoice));
-        setQuotes(quoteSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }) as Quote));
-      } catch (err) {
-        console.warn("[FieldClientDetail] detail fetch", err);
-      }
-    };
-    fetchDetails();
-
-    return () => { unsubVehicles(); unsubProtected(); };
+    return () => unsub();
   }, [clientId]);
 
-  // ── Derived values ───────────────────────────────────────────────────────────
-  const lifetimeValue = useMemo(
-    () => appointments.reduce((s, a) => s + (a.totalAmount || 0), 0),
+  // ── Invoices listener (live) ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!clientId) return;
+    const unsub = onSnapshot(
+      query(collection(db, "invoices"), where("clientId", "==", clientId), orderBy("createdAt", "desc"), limit(50)),
+      (snap) => setInvoices(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }) as Invoice)),
+      (err) => { if (err?.code !== "cancelled") console.warn("[FieldClientDetail] invoices", err); },
+    );
+    return () => unsub();
+  }, [clientId]);
+
+  // ── Appointments + quotes one-time fetch ─────────────────────────────────────
+  useEffect(() => {
+    if (!clientId) return;
+    const run = async () => {
+      try {
+        const [apptSnap, quoteSnap] = await Promise.all([
+          getDocs(query(collection(db, "appointments"), where("clientId", "==", clientId), orderBy("scheduledAt", "desc"), limit(50))),
+          getDocs(query(collection(db, "quotes"), where("clientId", "==", clientId), orderBy("createdAt", "desc"), limit(20))),
+        ]);
+        setAppointments(apptSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }) as Appointment));
+        setQuotes(quoteSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }) as Quote));
+      } catch (err) {
+        console.warn("[FieldClientDetail] appointments/quotes fetch", err);
+      }
+    };
+    run();
+  }, [clientId]);
+
+  // ── Protected client match ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!client) return;
+    const check = async () => {
+      try {
+        const snap = await getDocs(collection(db, "protected_clients"));
+        const phone = client.phone?.replace(/\D/g, "") ?? "";
+        const email = (client.email ?? "").toLowerCase();
+        const nameLower = getClientDisplayName(client).toLowerCase();
+        const match = snap.docs.find((d) => {
+          const pc = d.data() as ProtectedClient;
+          if (!pc.isActive) return false;
+          const pcPhone = (pc.phone ?? "").replace(/\D/g, "");
+          const pcEmail = (pc.email ?? "").toLowerCase();
+          const pcName = (pc.fullName ?? "").toLowerCase();
+          return (
+            (phone && pcPhone && phone === pcPhone) ||
+            (email && pcEmail && email === pcEmail) ||
+            (nameLower && pcName && nameLower === pcName)
+          );
+        });
+        setProtectedMatch(match ? ({ id: match.id, ...match.data() } as ProtectedClient) : null);
+      } catch (err) {
+        console.warn("[FieldClientDetail] protected_clients check", err);
+      }
+    };
+    check();
+  }, [client]);
+
+  // ── Derived analytics ────────────────────────────────────────────────────────
+  const completedJobs = useMemo(
+    () => appointments.filter((a) => a.status === "completed" || a.status === "paid"),
     [appointments],
   );
-  const unpaidInvoices = useMemo(
-    () => invoices.filter((i) => i.status !== "paid" && i.status !== "voided"),
+  const lifetimeValue = useMemo(
+    () => completedJobs.reduce((s, a) => s + (a.totalAmount || 0), 0),
+    [completedJobs],
+  );
+  const outstandingInvoices = useMemo(
+    () => invoices.filter((inv) => inv.status !== "paid" && inv.status !== "voided"),
     [invoices],
   );
   const outstandingTotal = useMemo(
-    () => unpaidInvoices.reduce((s, i) => s + ((i as any).total || (i as any).totalAmount || 0), 0),
-    [unpaidInvoices],
-  );
-  const completedCount = useMemo(
-    () => appointments.filter((a) => a.status === "completed" || a.status === "paid").length,
-    [appointments],
+    () => outstandingInvoices.reduce((s, inv) => s + ((inv as any).total || 0), 0),
+    [outstandingInvoices],
   );
   const noShowCount = useMemo(
     () => appointments.filter((a) => a.status === "no_show").length,
@@ -206,18 +330,134 @@ export default function FieldClientDetail() {
     () => appointments.filter((a) => a.status === "canceled").length,
     [appointments],
   );
-  const lastServiceDate = useMemo(() => {
-    const done = appointments.find((a) => a.status === "completed" || a.status === "paid");
-    return done ? safeDate(done.scheduledAt) : null;
+  const lastService = useMemo(() => {
+    const job = completedJobs[0];
+    if (!job) return null;
+    try { return convertToDate(job.scheduledAt); } catch { return null; }
+  }, [completedJobs]);
+  const nextJob = useMemo(() => {
+    const now = Date.now();
+    const upcoming = appointments.filter((a) => {
+      if (a.status === "canceled" || a.status === "no_show" || a.status === "completed" || a.status === "paid") return false;
+      try { return convertToDate(a.scheduledAt).getTime() > now; } catch { return false; }
+    });
+    return upcoming[upcoming.length - 1] || null; // earliest upcoming
   }, [appointments]);
-  const avgOrderValue = useMemo(() => {
-    if (!completedCount) return 0;
-    return appointments
-      .filter((a) => a.status === "completed" || a.status === "paid")
-      .reduce((s, a) => s + (a.totalAmount || 0), 0) / completedCount;
-  }, [appointments, completedCount]);
 
-  // ── Guard states ─────────────────────────────────────────────────────────────
+  // ── Payment actions ──────────────────────────────────────────────────────────
+  const handleRecordPayment = useCallback(async (invoice: Invoice) => {
+    if (processingPayment) return;
+    const alreadyPaid = (invoice.amountPaid || 0) >= invoice.total || invoice.status === "paid" || invoice.status === "voided";
+    if (alreadyPaid) { toast.info("Invoice already settled."); return; }
+    const balance = invoice.total - (invoice.amountPaid || 0);
+    const newPaid = (invoice.amountPaid || 0) + balance;
+    const isFull = newPaid >= invoice.total;
+    setProcessingPayment(true);
+    try {
+      toast.loading("Processing payment…", { id: "pay" });
+      const ref = doc(db, "invoices", invoice.id);
+      const entry = { action: "paid" as const, timestamp: serverTimestamp(), method: paymentMethod, amount: balance, provider: "manual" };
+      const upd: Record<string, any> = {
+        amountPaid: newPaid,
+        paymentStatus: isFull ? "paid" : "partial",
+        paymentMethodDetails: paymentMethod,
+        paymentProvider: "manual",
+        paymentHistory: arrayUnion(entry),
+        updatedAt: serverTimestamp(),
+      };
+      if (isFull) { upd.status = "paid"; upd.paidAt = serverTimestamp(); }
+      await updateDoc(ref, upd);
+      if (invoice.clientPhone) {
+        messagingService.sendSms({ to: invoice.clientPhone, body: `Payment of ${formatCurrency(balance)} received via ${paymentMethod}. Thank you!` }).catch(() => {});
+      }
+      if (invoice.appointmentId) {
+        await updateDoc(doc(db, "appointments", invoice.appointmentId), { paymentStatus: isFull ? "paid" : "partial" });
+      }
+      toast.success(isFull ? "Invoice marked paid" : "Partial payment recorded", { id: "pay" });
+      setPayingInvoice(null);
+    } catch (e) {
+      console.error("Payment error", e);
+      toast.error("Failed to record payment", { id: "pay" });
+    } finally {
+      setProcessingPayment(false);
+    }
+  }, [processingPayment, paymentMethod]);
+
+  const handleVoid = useCallback(async (invoice: Invoice) => {
+    try {
+      toast.loading("Voiding invoice…", { id: "void" });
+      const ref = doc(db, "invoices", invoice.id);
+      await updateDoc(ref, {
+        status: "voided",
+        paymentStatus: "voided",
+        paymentHistory: arrayUnion({ action: "voided", timestamp: serverTimestamp(), method: invoice.paymentMethodDetails || "unknown" }),
+      });
+      if (invoice.appointmentId) {
+        await updateDoc(doc(db, "appointments", invoice.appointmentId), { paymentStatus: "voided" });
+      }
+      toast.success("Invoice voided", { id: "void" });
+    } catch (e) {
+      toast.error("Failed to void", { id: "void" });
+    }
+  }, []);
+
+  const handleUndoPayment = useCallback(async (invoice: Invoice) => {
+    try {
+      toast.loading("Reversing payment…", { id: "undo" });
+      const ref = doc(db, "invoices", invoice.id);
+      await updateDoc(ref, {
+        status: "pending",
+        paymentStatus: "unpaid",
+        paymentProvider: deleteField(),
+        paymentMethodDetails: deleteField(),
+        paidAt: deleteField(),
+        transactionReference: deleteField(),
+        paymentHistory: arrayUnion({ action: "undone", timestamp: serverTimestamp(), method: invoice.paymentMethodDetails || "unknown" }),
+      } as any);
+      if (invoice.appointmentId) {
+        await updateDoc(doc(db, "appointments", invoice.appointmentId), { paymentStatus: "unpaid" });
+      }
+      toast.success("Payment reversed", { id: "undo" });
+    } catch (e) {
+      toast.error("Failed to undo payment", { id: "undo" });
+    }
+  }, []);
+
+  const handleSendInvoice = useCallback(async (invoice: Invoice) => {
+    try {
+      toast.loading("Sending invoice…", { id: "send-inv" });
+      if (invoice.clientEmail) {
+        await messagingService.sendEmail({
+          to: invoice.clientEmail,
+          subject: `Invoice ${invoice.invoiceNumber || ""} from ${settings?.businessName || "Us"}`,
+          html: `<p>Hi ${invoice.clientName},</p><p>Your invoice <strong>${invoice.invoiceNumber}</strong> is ready.</p><p>Total: <strong>${formatCurrency(invoice.total)}</strong></p><p>Thank you!</p>`,
+        });
+      }
+      if (invoice.clientPhone) {
+        await messagingService.sendSms({ to: invoice.clientPhone, body: `Your invoice is ready. Total: ${formatCurrency(invoice.total)}. Thank you!` }).catch(() => {});
+      }
+      toast.success("Invoice sent", { id: "send-inv" });
+    } catch (e: any) {
+      toast.error(e.message || "Failed to send", { id: "send-inv" });
+    }
+  }, [settings]);
+
+  // ── Note save ────────────────────────────────────────────────────────────────
+  const handleSaveNote = useCallback(async () => {
+    if (!clientId) return;
+    setSavingNote(true);
+    try {
+      await updateDoc(doc(db, "clients", clientId), { notes: noteDraft, updatedAt: serverTimestamp() });
+      toast.success("Note saved");
+      setEditingNote(false);
+    } catch (e) {
+      toast.error("Failed to save note");
+    } finally {
+      setSavingNote(false);
+    }
+  }, [clientId, noteDraft]);
+
+  // ── Guard states ──────────────────────────────────────────────────────────────
   if (!clientId) {
     return (
       <div className="space-y-3">
@@ -244,141 +484,157 @@ export default function FieldClientDetail() {
   }
 
   const displayName = getClientDisplayName(client);
-  const risk        = getEffectiveRisk(client);
-  const phone       = client.phone ?? "";
-  const email       = client.email ?? "";
-  const address     = client.address ?? "";
+  const risk = getEffectiveRisk(client);
+  const phone = client.phone ?? "";
+  const email = client.email ?? "";
+  const address = client.address ?? "";
+  const mapsUrls = address ? buildMapsUrls(address) : null;
+
+  const isHighRisk = risk === "high" || risk === "critical" || risk === "block_booking" || risk === "do_not_book";
+  const isBlocked = risk === "block_booking" || risk === "do_not_book";
+  const hasUnpaid = outstandingTotal > 0;
 
   return (
-    <div className="space-y-3 pb-4">
+    <div className="space-y-2 pb-4">
+      <TopBar onBack={() => navigate(-1)} isVIP={client.isVIP} displayName={displayName} />
 
-      {/* ── Top bar ── */}
-      <TopBar onBack={() => navigate(-1)} isVIP={client.isVIP} />
-
-      {/* ── Profile header card ── */}
-      <div className="rounded-xl border border-white/5 bg-gradient-to-b from-[#0A4DFF]/10 to-sidebar/60 px-3 py-4">
-        {/* Avatar + name */}
-        <div className="flex items-center gap-3">
-          <div className="shrink-0 w-14 h-14 rounded-xl bg-[#0A4DFF]/15 ring-2 ring-[#0A4DFF]/30 flex items-center justify-center text-lg font-black text-[#0A4DFF] uppercase">
-            {displayName.charAt(0) || <User className="w-6 h-6 text-[#0A4DFF]/70" />}
+      {/* ── Premium header card ── */}
+      <div className="rounded-2xl border border-white/8 bg-gradient-to-b from-[#0A4DFF]/12 via-sidebar/70 to-sidebar/50 px-3 py-3">
+        {/* Avatar + name row */}
+        <div className="flex items-start gap-3">
+          <div className={cn(
+            "shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-base font-black uppercase",
+            client.isVIP
+              ? "bg-amber-500/15 ring-2 ring-amber-500/40 text-amber-300"
+              : "bg-[#0A4DFF]/15 ring-2 ring-[#0A4DFF]/30 text-[#0A4DFF]",
+          )}>
+            {displayName.charAt(0) || <User className="w-5 h-5" />}
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 pt-0.5">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <p className="text-base font-black text-white leading-none truncate">{displayName}</p>
-              {client.isVIP && <Crown className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />}
+              <p className="text-[15px] font-black text-white leading-none truncate">{displayName}</p>
+              {client.isVIP && <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400 shrink-0" />}
             </div>
             {client.businessName && client.businessName !== displayName && (
-              <p className="text-[11px] text-white/45 font-medium mt-0.5 truncate leading-tight">
-                {client.businessName}
-              </p>
+              <p className="text-[10px] text-white/45 font-medium mt-0.5 truncate">{client.businessName}</p>
             )}
+            {/* Badges row */}
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              <span className={cn("text-[7px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ring-1 leading-none", getRiskBadgeClass(risk))}>
+                {getRiskBadgeLabel(risk)}
+              </span>
+              {client.isVIP && (
+                <span className="text-[7px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ring-1 leading-none bg-amber-500/15 text-amber-300 ring-amber-500/30">
+                  VIP
+                </span>
+              )}
+              {client.membershipLevel && client.membershipLevel !== "none" && (
+                <span className="text-[7px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ring-1 leading-none bg-violet-500/15 text-violet-300 ring-violet-500/30">
+                  {client.membershipLevel}
+                </span>
+              )}
+              {protectedMatch && (
+                <span className="text-[7px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ring-1 leading-none bg-red-900/30 text-red-300 ring-red-700/40">
+                  Protected
+                </span>
+              )}
+              <span className="ml-auto text-[10px] font-black text-[#0A4DFF] tabular-nums">
+                {client.loyaltyPoints || 0} <span className="text-[7px] text-[#0A4DFF]/60 uppercase tracking-widest">pts</span>
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Badges row */}
-        <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-          <span
-            className={cn(
-              "inline-flex items-center text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ring-1 leading-none",
-              getRiskBadgeClass(risk),
-            )}
-          >
-            {getRiskBadgeLabel(risk)}
-          </span>
-          {client.isVIP && (
-            <span className="inline-flex items-center text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ring-1 leading-none bg-amber-500/15 text-amber-300 ring-amber-500/30">
-              VIP
-            </span>
-          )}
-          {client.membershipLevel && client.membershipLevel !== "none" && (
-            <span className="inline-flex items-center text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ring-1 leading-none bg-violet-500/15 text-violet-300 ring-violet-500/30">
-              {client.membershipLevel}
-            </span>
-          )}
-          <span className="ml-auto text-[11px] font-black text-[#0A4DFF] tabular-nums shrink-0">
-            {client.loyaltyPoints || 0}
-            <span className="text-[8px] text-[#0A4DFF]/60 uppercase tracking-widest ml-1">Credits</span>
-          </span>
-        </div>
-
-        {/* Contact summary */}
-        <div className="mt-3 space-y-1">
+        {/* Contact rows */}
+        <div className="mt-2.5 space-y-1">
           {phone && (
-            <a href={`tel:${phone}`} className="flex items-center gap-2 text-[12px] font-bold text-white/80 hover:text-white transition-colors">
-              <Phone className="w-3.5 h-3.5 text-white/40 shrink-0" />
-              <span className="truncate">{formatPhoneNumber(phone)}</span>
+            <a href={`tel:${phone}`} className="flex items-center gap-2 min-h-[28px]">
+              <Phone className="w-3 h-3 text-white/30 shrink-0" />
+              <span className="text-[11px] font-bold text-white/75 hover:text-white truncate">{formatPhoneNumber(phone)}</span>
             </a>
           )}
           {email && (
-            <a href={`mailto:${email}`} className="flex items-center gap-2 text-[12px] font-bold text-white/80 hover:text-white transition-colors">
-              <Mail className="w-3.5 h-3.5 text-white/40 shrink-0" />
-              <span className="truncate">{email}</span>
+            <a href={`mailto:${email}`} className="flex items-center gap-2 min-h-[28px]">
+              <Mail className="w-3 h-3 text-white/30 shrink-0" />
+              <span className="text-[11px] font-bold text-white/75 hover:text-white truncate">{email}</span>
             </a>
           )}
           {address && (
-            <div className="flex items-start gap-2 text-[12px] font-bold text-white/60">
-              <MapPin className="w-3.5 h-3.5 text-white/40 shrink-0 mt-0.5" />
-              <span className="leading-tight break-words">{address}</span>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowMaps(true)}
+              className="flex items-start gap-2 min-h-[28px] w-full text-left hover:opacity-80 transition-opacity"
+            >
+              <MapPin className="w-3 h-3 text-white/30 shrink-0 mt-0.5" />
+              <span className="text-[11px] font-bold text-white/75 leading-tight">{address}</span>
+            </button>
           )}
         </div>
       </div>
 
-      {/* ── Quick actions ── */}
-      <div className="flex gap-2">
-        {phone && (
-          <a href={`tel:${phone}`} className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl border border-white/5 bg-emerald-500/10 hover:bg-emerald-500/15 active:bg-emerald-500/10 transition-colors">
-            <Phone className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] font-bold text-emerald-300">Call</span>
-          </a>
-        )}
-        {phone && (
-          <a href={`sms:${phone}`} className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl border border-white/5 bg-sky-500/10 hover:bg-sky-500/15 active:bg-sky-500/10 transition-colors">
-            <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
-            <span className="text-[11px] font-bold text-sky-300">Text</span>
-          </a>
-        )}
-        {email && (
-          <a href={`mailto:${email}`} className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl border border-white/5 bg-violet-500/10 hover:bg-violet-500/15 active:bg-violet-500/10 transition-colors">
-            <Mail className="w-3.5 h-3.5 text-violet-400" />
-            <span className="text-[11px] font-bold text-violet-300">Email</span>
-          </a>
-        )}
-      </div>
+      {/* ── Smart action dock ── */}
+      <SmartActionDock
+        phone={phone}
+        email={email}
+        address={address}
+        hasUnpaid={hasUnpaid}
+        nextJob={nextJob}
+        noShowCount={noShowCount}
+        clientId={clientId}
+        onNavigate={() => setShowMaps(true)}
+        onCollectPayment={() => {
+          const first = outstandingInvoices[0];
+          if (first) { setPayingInvoice(first); setPaymentMethod("Cash"); }
+          else setActiveTab("billing");
+        }}
+        onBookJob={() => navigate(`/field/book-job?clientId=${clientId}`)}
+      />
 
-      {/* ── Book Job ── */}
-      <button
-        type="button"
-        onClick={() => navigate(`/field/book-job?clientId=${clientId}`)}
-        className="w-full flex items-center justify-center gap-2 min-h-[48px] rounded-xl bg-[#0A4DFF] hover:bg-[#0A4DFF]/90 active:bg-[#0A4DFF]/80 transition-colors"
-      >
-        <Calendar className="w-4 h-4 text-white" />
-        <span className="text-[13px] font-black text-white">Book Job</span>
-      </button>
+      {/* ── Maps dialog ── */}
+      {showMaps && mapsUrls && (
+        <MapsDialog
+          address={address}
+          urls={mapsUrls}
+          onClose={() => setShowMaps(false)}
+        />
+      )}
 
-      {/* ── Scrollable tab bar ── */}
+      {/* ── Payment dialog ── */}
+      {payingInvoice && (
+        <PaymentDialog
+          invoice={payingInvoice}
+          method={paymentMethod}
+          onMethodChange={setPaymentMethod}
+          processing={processingPayment}
+          onConfirm={() => handleRecordPayment(payingInvoice)}
+          onClose={() => setPayingInvoice(null)}
+        />
+      )}
+
+      {/* ── Tab bar ── */}
       <div className="overflow-x-auto -mx-2.5 px-2.5 scrollbar-none">
         <div className="flex gap-1 min-w-max">
-          {TAB_LABELS.map(({ key, label }) => {
+          {TABS.map(({ key, label }) => {
             const isActive = activeTab === key;
-            let badge: string | null = null;
-            if (key === "appointments") badge = String(appointments.length);
-            if (key === "vehicles")     badge = String(vehicles.length);
+            let badge: number | null = null;
+            if (key === "jobs") badge = appointments.length;
+            if (key === "vehicles") badge = vehicles.length;
+            if (key === "billing") badge = outstandingInvoices.length;
             return (
               <button
                 key={key}
                 type="button"
                 onClick={() => setActiveTab(key)}
                 className={cn(
-                  "px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-colors min-h-[36px]",
+                  "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all min-h-[32px]",
                   isActive
-                    ? "bg-[#0A4DFF]/15 text-[#0A4DFF] ring-1 ring-[#0A4DFF]/30"
-                    : "text-white/45 hover:text-white/70 hover:bg-white/5",
+                    ? "bg-[#0A4DFF]/15 text-[#0A4DFF] ring-1 ring-[#0A4DFF]/30 shadow-[0_0_8px_rgba(10,77,255,0.2)]"
+                    : "text-white/40 hover:text-white/65 hover:bg-white/5",
                 )}
               >
                 {label}
-                {badge && badge !== "0" && (
-                  <span className={cn("ml-1.5 text-[8px]", isActive ? "text-[#0A4DFF]/70" : "text-white/30")}>
+                {badge != null && badge > 0 && (
+                  <span className={cn("ml-1 text-[7px] font-black", isActive ? "text-[#0A4DFF]/70" : "text-white/30")}>
                     {badge}
                   </span>
                 )}
@@ -389,1075 +645,1284 @@ export default function FieldClientDetail() {
       </div>
 
       {/* ── Tab content ── */}
-      {activeTab === "overview" && (
-        <OverviewTab
-          lifetimeValue={lifetimeValue}
-          outstandingTotal={outstandingTotal}
-          completedCount={completedCount}
-          avgOrderValue={avgOrderValue}
-          lastServiceDate={lastServiceDate}
-          unpaidCount={unpaidInvoices.length}
-          noShowCount={noShowCount}
-          cancelCount={cancelCount}
-          appointments={appointments}
-          invoices={invoices}
-          membershipLevel={client.membershipLevel}
-          risk={risk}
-        />
-      )}
-      {activeTab === "profile" && (
-        <ProfileTab client={client} clientId={clientId!} />
-      )}
-      {activeTab === "appointments" && (
-        <AppointmentsTab appointments={appointments} clientId={clientId!} />
-      )}
-      {activeTab === "vehicles" && (
-        <VehiclesTab vehicles={vehicles} />
-      )}
-      {activeTab === "notes" && (
-        <NotesTab clientId={clientId!} initialNotes={client.notes} />
-      )}
-      {activeTab === "risk" && (
-        <RiskTab
-          client={client}
-          risk={risk}
-          noShowCount={noShowCount}
-          cancelCount={cancelCount}
-          outstandingFee={client.outstandingCancellationFee}
-          protectedEntry={protectedEntry}
-        />
-      )}
-
-      {/* ── Bridge to full desktop profile ── */}
-      <button
-        type="button"
-        onClick={() => navigate(`/clients?clientId=${clientId}&adminView=1`)}
-        className="w-full flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.07] active:bg-white/[0.04] transition-colors px-2.5 py-3 min-h-[52px]"
-      >
-        <div className="shrink-0 w-8 h-8 rounded-md bg-white/10 ring-1 ring-white/15 flex items-center justify-center">
-          <Monitor className="w-4 h-4 text-white/50" />
-        </div>
-        <div className="flex-1 min-w-0 text-left">
-          <p className="text-[12px] font-bold text-white leading-tight">Open Full Client Profile</p>
-          <p className="text-[10px] text-white/40 leading-tight mt-0.5">
-            Billing, forms, AI strategy, service timing, gallery
-          </p>
-        </div>
-        <ExternalLink className="w-3.5 h-3.5 text-white/30 shrink-0" />
-      </button>
+      <div className="min-h-[200px]">
+        {activeTab === "overview" && (
+          <OverviewTab
+            client={client}
+            lifetimeValue={lifetimeValue}
+            outstandingTotal={outstandingTotal}
+            completedCount={completedJobs.length}
+            lastService={lastService}
+            nextJob={nextJob}
+            noShowCount={noShowCount}
+            cancelCount={cancelCount}
+            appointments={appointments}
+            invoices={invoices}
+            risk={risk}
+            protectedMatch={protectedMatch}
+          />
+        )}
+        {activeTab === "jobs" && (
+          <JobsTab appointments={appointments} vehicles={vehicles} />
+        )}
+        {activeTab === "vehicles" && (
+          <VehiclesTab vehicles={vehicles} appointments={appointments} />
+        )}
+        {activeTab === "billing" && (
+          <BillingTab
+            invoices={invoices}
+            outstandingTotal={outstandingTotal}
+            onCollectPayment={(inv) => { setPayingInvoice(inv); setPaymentMethod("Cash"); }}
+            onSend={handleSendInvoice}
+            onVoid={handleVoid}
+            onUndo={handleUndoPayment}
+          />
+        )}
+        {activeTab === "notes" && (
+          <NotesTab
+            notes={client.notes}
+            editing={editingNote}
+            draft={noteDraft}
+            saving={savingNote}
+            onStartEdit={() => { setNoteDraft(client.notes || ""); setEditingNote(true); }}
+            onDraftChange={setNoteDraft}
+            onSave={handleSaveNote}
+            onCancel={() => setEditingNote(false)}
+            client={client}
+            appointments={appointments}
+          />
+        )}
+        {activeTab === "risk" && (
+          <RiskTab
+            client={client}
+            risk={risk}
+            protectedMatch={protectedMatch}
+            noShowCount={noShowCount}
+            cancelCount={cancelCount}
+            outstandingTotal={outstandingTotal}
+          />
+        )}
+        {activeTab === "ai" && (
+          <AITab
+            client={client}
+            appointments={appointments}
+            invoices={invoices}
+            quotes={quotes}
+            vehicles={vehicles}
+            services={services}
+          />
+        )}
+      </div>
     </div>
   );
 }
 
-// ─── Shared chrome ────────────────────────────────────────────────────────────
-
-function TopBar({ onBack, isVIP }: { onBack: () => void; isVIP?: boolean }) {
+// ─── Top bar ─────────────────────────────────────────────────────────────────
+function TopBar({ onBack, isVIP, displayName }: { onBack: () => void; isVIP?: boolean; displayName?: string }) {
   return (
     <div className="flex items-center gap-2">
       <button
+        type="button"
         onClick={onBack}
-        className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 transition-colors flex items-center justify-center"
+        className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 transition-colors flex items-center justify-center shrink-0"
       >
         <ArrowLeft className="w-4 h-4 text-white/60" />
       </button>
-      <h1 className="text-base font-black text-white leading-none flex-1">Client</h1>
-      {isVIP && <Star className="w-4 h-4 text-amber-400 fill-amber-400/70 shrink-0" />}
+      <h1 className="text-[13px] font-black text-white leading-none flex-1 truncate">{displayName || "Client"}</h1>
+      {isVIP && <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400/70 shrink-0" />}
     </div>
   );
 }
 
-function LoadingCard() {
-  return (
-    <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-4 flex items-center justify-center min-h-[56px]">
-      <div className="w-3.5 h-3.5 border border-white/10 border-t-white/40 rounded-full animate-spin" />
-      <span className="ml-2 text-[9px] font-black uppercase tracking-widest text-white/40">Loading…</span>
-    </div>
-  );
-}
-
-function ErrorCard({ message }: { message: string }) {
-  return (
-    <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 px-2.5 py-2 flex items-start gap-1.5">
-      <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
-      <div className="min-w-0">
-        <p className="text-[11px] font-bold text-rose-300 leading-tight">Couldn't load client</p>
-        <p className="text-[9px] text-rose-300/70 mt-0.5 break-words leading-tight">{message}</p>
-      </div>
-    </div>
-  );
-}
-
-// ─── InfoRow ─────────────────────────────────────────────────────────────────
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between px-3 py-2.5 min-h-[40px] gap-3">
-      <span className="text-[9px] font-black uppercase tracking-widest text-white/40 shrink-0">{label}</span>
-      <span className="text-[11px] font-bold text-white text-right break-words min-w-0">{value}</span>
-    </div>
-  );
-}
-
-// ─── KPI card ────────────────────────────────────────────────────────────────
-
-function KpiCard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  iconColor,
+// ─── Smart Action Dock ────────────────────────────────────────────────────────
+function SmartActionDock({
+  phone, email, address, hasUnpaid, nextJob, noShowCount, clientId,
+  onNavigate, onCollectPayment, onBookJob,
 }: {
-  label: string;
-  value: string;
-  sub?: string;
-  icon: typeof Receipt;
-  iconColor: string;
+  phone: string; email: string; address: string; hasUnpaid: boolean;
+  nextJob: Appointment | null; noShowCount: number; clientId: string;
+  onNavigate: () => void; onCollectPayment: () => void; onBookJob: () => void;
 }) {
+  const actions: { label: string; icon: typeof Phone; action: () => void; color: string; priority?: boolean }[] = [];
+
+  if (hasUnpaid) {
+    actions.push({ label: "Collect", icon: DollarSign, action: onCollectPayment, color: "bg-rose-500/15 text-rose-300 ring-rose-500/30 hover:bg-rose-500/25", priority: true });
+  }
+  if (phone) {
+    actions.push({ label: "Call", icon: Phone, action: () => window.location.href = `tel:${phone}`, color: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25 hover:bg-emerald-500/20" });
+    actions.push({ label: "Text", icon: MessageSquare, action: () => window.location.href = `sms:${phone}`, color: "bg-sky-500/10 text-sky-300 ring-sky-500/25 hover:bg-sky-500/20" });
+  }
+  if (email) {
+    actions.push({ label: "Email", icon: Mail, action: () => window.location.href = `mailto:${email}`, color: "bg-violet-500/10 text-violet-300 ring-violet-500/25 hover:bg-violet-500/20" });
+  }
+  if (address) {
+    actions.push({ label: "Navigate", icon: Navigation, action: onNavigate, color: "bg-amber-500/10 text-amber-300 ring-amber-500/25 hover:bg-amber-500/20" });
+  }
+  actions.push({ label: "Book", icon: Calendar, action: onBookJob, color: "bg-[#0A4DFF]/15 text-[#4D8AFF] ring-[#0A4DFF]/30 hover:bg-[#0A4DFF]/25" });
+
   return (
-    <div className="rounded-xl border border-white/5 bg-sidebar/60 px-3 py-3 min-w-0">
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[9px] font-black uppercase tracking-widest text-white/40">{label}</span>
-        <Icon className={cn("w-3.5 h-3.5 shrink-0", iconColor)} />
-      </div>
-      <p className="text-xl font-black text-white tracking-tight leading-none">{value}</p>
-      {sub && <p className="text-[9px] text-white/40 font-bold mt-1 leading-none">{sub}</p>}
+    <div className="flex gap-1.5 overflow-x-auto scrollbar-none -mx-2.5 px-2.5">
+      {actions.map((a) => (
+        <button
+          key={a.label}
+          type="button"
+          onClick={a.action}
+          className={cn(
+            "shrink-0 flex flex-col items-center justify-center gap-1 rounded-xl ring-1 px-3 min-h-[52px] min-w-[56px] transition-colors",
+            a.color,
+          )}
+        >
+          <a.icon className="w-3.5 h-3.5" />
+          <span className="text-[8px] font-black uppercase tracking-widest leading-none">{a.label}</span>
+        </button>
+      ))}
     </div>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// OVERVIEW TAB
-// ═══════════════════════════════════════════════════════════════════════════════
+// ─── Maps dialog ──────────────────────────────────────────────────────────────
+function MapsDialog({ address, urls, onClose }: { address: string; urls: ReturnType<typeof buildMapsUrls>; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
+      <div className="w-full mx-auto max-w-sm bg-sidebar border border-white/10 rounded-t-2xl px-4 pt-4 pb-8 space-y-2" onClick={(e) => e.stopPropagation()}>
+        <div className="w-8 h-1 bg-white/20 rounded-full mx-auto mb-3" />
+        <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1">Navigate to</p>
+        <p className="text-[12px] font-bold text-white mb-3 leading-tight">{address}</p>
+        {[
+          { label: "Apple Maps", url: urls.apple, color: "text-sky-300" },
+          { label: "Google Maps", url: urls.google, color: "text-emerald-300" },
+          { label: "Waze", url: urls.waze, color: "text-violet-300" },
+        ].map((opt) => (
+          <a
+            key={opt.label}
+            href={opt.url}
+            rel="noopener noreferrer"
+            className="flex items-center justify-between min-h-[48px] rounded-xl border border-white/8 bg-white/5 hover:bg-white/8 px-3 transition-colors"
+            onClick={onClose}
+          >
+            <span className={cn("text-[13px] font-black", opt.color)}>{opt.label}</span>
+            <Navigation className="w-3.5 h-3.5 text-white/30" />
+          </a>
+        ))}
+        <button type="button" onClick={onClose} className="w-full mt-1 text-[10px] font-black uppercase tracking-widest text-white/30 py-2">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
 
+// ─── Payment dialog ───────────────────────────────────────────────────────────
+const PAYMENT_METHODS = ["Cash", "Card", "Check", "Zelle", "Venmo", "CashApp", "ACH", "Other"];
+
+function PaymentDialog({
+  invoice, method, onMethodChange, processing, onConfirm, onClose,
+}: {
+  invoice: Invoice; method: string; onMethodChange: (m: string) => void;
+  processing: boolean; onConfirm: () => void; onClose: () => void;
+}) {
+  const balance = invoice.total - (invoice.amountPaid || 0);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
+      <div className="w-full mx-auto max-w-sm bg-sidebar border border-white/10 rounded-t-2xl px-4 pt-4 pb-8 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="w-8 h-1 bg-white/20 rounded-full mx-auto" />
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Record Payment</p>
+          <p className="text-[18px] font-black text-white mt-0.5">{formatCurrency(balance)}</p>
+          <p className="text-[10px] text-white/50 mt-0.5">Invoice {invoice.invoiceNumber || invoice.id.slice(0, 8)}</p>
+        </div>
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1.5">Payment Method</p>
+          <div className="flex flex-wrap gap-1.5">
+            {PAYMENT_METHODS.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onMethodChange(m)}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black ring-1 transition-colors",
+                  method === m
+                    ? "bg-[#0A4DFF]/20 text-[#4D8AFF] ring-[#0A4DFF]/40"
+                    : "text-white/50 ring-white/10 hover:bg-white/5",
+                )}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={processing}
+          className="w-full min-h-[48px] rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50 font-black text-[13px] text-white transition-colors"
+        >
+          {processing ? "Processing…" : `Collect ${formatCurrency(balance)}`}
+        </button>
+        <button type="button" onClick={onClose} className="w-full text-[10px] font-black uppercase tracking-widest text-white/30 py-1">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Overview Tab ─────────────────────────────────────────────────────────────
 function OverviewTab({
-  lifetimeValue,
-  outstandingTotal,
-  completedCount,
-  avgOrderValue,
-  lastServiceDate,
-  unpaidCount,
-  noShowCount,
-  cancelCount,
-  appointments,
-  invoices,
-  membershipLevel,
-  risk,
+  client, lifetimeValue, outstandingTotal, completedCount, lastService, nextJob,
+  noShowCount, cancelCount, appointments, invoices, risk, protectedMatch,
 }: {
-  lifetimeValue: number;
-  outstandingTotal: number;
-  completedCount: number;
-  avgOrderValue: number;
-  lastServiceDate: Date | null;
-  unpaidCount: number;
-  noShowCount: number;
-  cancelCount: number;
-  appointments: Appointment[];
-  invoices: Invoice[];
-  membershipLevel?: string;
-  risk: ReturnType<typeof getEffectiveRisk>;
+  client: Client; lifetimeValue: number; outstandingTotal: number; completedCount: number;
+  lastService: Date | null; nextJob: Appointment | null; noShowCount: number;
+  cancelCount: number; appointments: Appointment[]; invoices: Invoice[];
+  risk: ReturnType<typeof getEffectiveRisk>; protectedMatch: ProtectedClient | null;
 }) {
-  const isBlocked   = risk === "block_booking" || risk === "do_not_book";
-  const isElevated  = risk && risk !== "low";
+  const isBlocked = risk === "block_booking" || risk === "do_not_book";
+  const isElevated = risk && risk !== "low";
 
-  // Recent activity feed — appointments + invoices merged by date
+  // Service frequency
+  const completedAppts = appointments.filter((a) => a.status === "completed" || a.status === "paid");
+  let avgDays: number | null = null;
+  if (completedAppts.length > 1) {
+    try {
+      const first = convertToDate(completedAppts[completedAppts.length - 1].scheduledAt).getTime();
+      const last = convertToDate(completedAppts[0].scheduledAt).getTime();
+      avgDays = Math.round((last - first) / (completedAppts.length - 1) / 86400000);
+    } catch { avgDays = null; }
+  }
+
+  // Booking health
+  const totalJobs = appointments.length;
+  const noShowRate = totalJobs > 0 ? Math.round((noShowCount / totalJobs) * 100) : 0;
+
+  // Recent activity
   const recentActivity = useMemo(() => {
     const items: { type: "appt" | "invoice"; label: string; sub: string; status: string; date: Date }[] = [];
-    for (const a of appointments.slice(0, 15)) {
-      const d = safeDate(a.scheduledAt);
-      if (!d) continue;
-      items.push({
-        type: "appt",
-        label: a.serviceNames?.join(", ") || "Appointment",
-        sub: a.vehicleInfo || "",
-        status: a.status,
-        date: d,
-      });
+    for (const a of appointments.slice(0, 8)) {
+      try { items.push({ type: "appt", label: a.serviceNames?.join(", ") || "Appointment", sub: a.vehicleInfo || "", status: a.status, date: convertToDate(a.scheduledAt) }); } catch {}
     }
-    for (const inv of invoices.slice(0, 15)) {
-      const d = safeDate((inv as any).createdAt);
-      if (!d) continue;
-      items.push({
-        type: "invoice",
-        label: `Invoice #${(inv as any).invoiceNumber || (inv as any).number || "—"}`,
-        sub: formatCurrency((inv as any).total || (inv as any).totalAmount || 0),
-        status: inv.status || "pending",
-        date: d,
-      });
+    for (const inv of invoices.slice(0, 6)) {
+      try { items.push({ type: "invoice", label: `Invoice ${(inv as any).invoiceNumber || ""}`, sub: formatCurrency((inv as any).total || 0), status: inv.status || "pending", date: convertToDate((inv as any).createdAt) }); } catch {}
     }
     items.sort((a, b) => b.date.getTime() - a.date.getTime());
-    return items.slice(0, 10);
+    return items.slice(0, 8);
   }, [appointments, invoices]);
 
   return (
-    <div className="space-y-2.5">
-      {/* Risk alert banner */}
-      {isElevated && (
+    <div className="space-y-2">
+      {/* Risk / block alert */}
+      {(isElevated || protectedMatch) && (
         <div className={cn(
           "rounded-xl border px-3 py-2.5 flex items-start gap-2.5",
-          isBlocked ? "bg-red-900/20 border-red-700/40" : "bg-red-500/10 border-red-500/20",
+          isBlocked || protectedMatch?.protectionLevel === "Block Booking"
+            ? "bg-red-950/40 border-red-800/40"
+            : "bg-red-500/8 border-red-500/20",
         )}>
-          <div className={cn(
-            "shrink-0 w-8 h-8 rounded-lg flex items-center justify-center",
-            isBlocked ? "bg-red-900/40 text-red-400" : "bg-red-500/20 text-red-500",
-          )}>
-            <AlertOctagon className="w-4 h-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-black text-red-400 uppercase tracking-tight">
-              {getRiskBadgeLabel(risk)} — Risk Alert
+          <AlertOctagon className={cn("w-4 h-4 shrink-0 mt-0.5", (isBlocked || protectedMatch?.protectionLevel === "Block Booking") ? "text-red-400" : "text-red-500")} />
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-red-400 uppercase tracking-tight leading-tight">
+              {protectedMatch ? `Protected — ${protectedMatch.protectionLevel}` : getRiskBadgeLabel(risk)}
             </p>
-            <p className="text-[10px] text-white/60 font-medium mt-0.5 leading-tight">
-              {isBlocked
-                ? "Account restricted. Manager approval required."
-                : "Flagged client — history of no-shows or payment issues."}
-              {(risk === "high" || risk === "critical" || isBlocked) && (
-                <span className="text-red-400 font-black"> COLLECT DEPOSIT.</span>
-              )}
+            <p className="text-[9px] text-white/55 font-medium mt-0.5 leading-tight">
+              {isBlocked ? "Account restricted. Manager approval required." : "Flagged client — verify deposit requirements."}
             </p>
           </div>
         </div>
       )}
 
-      {/* KPI grid */}
+      {/* KPI grid — 4 compact cells */}
       <div className="grid grid-cols-2 gap-2">
-        <KpiCard
+        <MetricCell
           label="Lifetime Value"
           value={formatCurrency(lifetimeValue)}
-          sub={unpaidCount > 0 ? `${formatCurrency(outstandingTotal)} outstanding` : undefined}
-          icon={Receipt}
+          sub={outstandingTotal > 0 ? `${formatCurrency(outstandingTotal)} outstanding` : "No outstanding balance"}
+          subColor={outstandingTotal > 0 ? "text-rose-400" : "text-emerald-400"}
+          icon={DollarSign}
           iconColor="text-[#0A4DFF]"
         />
-        <KpiCard
-          label="Services Done"
+        <MetricCell
+          label="Completed Jobs"
           value={String(completedCount)}
-          sub={lastServiceDate ? `Last: ${format(lastServiceDate, "MMM d")}` : undefined}
-          icon={History}
+          sub={lastService ? `Last: ${format(lastService, "MMM d")}` : "No history"}
+          subColor="text-white/40"
+          icon={CheckCircle2}
           iconColor="text-emerald-400"
         />
-        <KpiCard
-          label="Avg Order"
-          value={avgOrderValue > 0 ? formatCurrency(avgOrderValue) : "—"}
-          icon={CreditCard}
-          iconColor="text-violet-400"
+        <MetricCell
+          label="Booking Health"
+          value={noShowCount > 0 ? `${noShowRate}% miss` : "Good"}
+          sub={`${noShowCount} no-shows · ${cancelCount} cancels`}
+          subColor={noShowCount > 1 ? "text-amber-400" : "text-white/40"}
+          icon={Calendar}
+          iconColor={noShowCount > 1 ? "text-amber-400" : "text-emerald-400"}
         />
-        <KpiCard
-          label="No-shows"
-          value={noShowCount > 0 ? String(noShowCount) : "None"}
-          sub={cancelCount > 0 ? `${cancelCount} canceled` : undefined}
-          icon={UserX}
-          iconColor={noShowCount > 0 ? "text-rose-400" : "text-white/30"}
+        <MetricCell
+          label="Service Frequency"
+          value={avgDays != null ? `~${avgDays}d` : "—"}
+          sub={nextJob ? `Next: ${(() => { try { return format(convertToDate(nextJob.scheduledAt), "MMM d"); } catch { return "—"; } })()}` : "No upcoming"}
+          subColor="text-white/40"
+          icon={RefreshCw}
+          iconColor="text-violet-400"
         />
       </div>
 
-      {/* Membership banner */}
-      {membershipLevel && membershipLevel !== "none" && (
-        <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 px-3 py-2.5 flex items-center gap-2.5">
-          <BadgeCheck className="w-4 h-4 text-violet-400 shrink-0" />
-          <p className="text-[11px] font-black text-violet-300 uppercase tracking-widest">
-            {membershipLevel} Member
-          </p>
+      {/* Status pills row */}
+      <div className="flex gap-1.5 flex-wrap">
+        {client.membershipLevel !== "none" && (
+          <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ring-1 bg-violet-500/10 text-violet-300 ring-violet-500/25">
+            {client.membershipLevel} Member
+          </span>
+        )}
+        {client.isVIP && (
+          <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ring-1 bg-amber-500/10 text-amber-300 ring-amber-500/25">
+            VIP
+          </span>
+        )}
+        {client.hasSavedPaymentMethod && (
+          <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ring-1 bg-emerald-500/10 text-emerald-300 ring-emerald-500/25">
+            Payment on File
+          </span>
+        )}
+        {client.preferredContactMethod && client.preferredContactMethod !== "none" && (
+          <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ring-1 bg-sky-500/10 text-sky-300 ring-sky-500/25">
+            Prefers {client.preferredContactMethod}
+          </span>
+        )}
+        {client.smsOptOut && (
+          <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ring-1 bg-white/5 text-white/40 ring-white/10">
+            SMS Opt-Out
+          </span>
+        )}
+      </div>
+
+      {/* Next appointment */}
+      {nextJob && (
+        <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 px-3 py-2.5 flex items-center gap-2.5">
+          <div className="shrink-0 w-8 h-8 rounded-lg bg-sky-500/15 flex items-center justify-center">
+            <Calendar className="w-3.5 h-3.5 text-sky-300" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-widest text-sky-400/70">Upcoming</p>
+            <p className="text-[11px] font-black text-white truncate leading-tight">
+              {nextJob.serviceNames?.join(", ") || "Appointment"}
+            </p>
+            <p className="text-[9px] text-sky-300/60 font-medium leading-tight">
+              {(() => { try { return format(convertToDate(nextJob.scheduledAt), "EEE, MMM d · h:mm a"); } catch { return "Date unavailable"; } })()}
+            </p>
+          </div>
         </div>
       )}
 
       {/* Recent activity */}
       {recentActivity.length > 0 ? (
         <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-2.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-2">Recent Activity</p>
-          <div className="space-y-1.5">
+          <p className="text-[8px] font-black uppercase tracking-widest text-white/35 mb-2">Recent Activity</p>
+          <div className="space-y-1">
             {recentActivity.map((item, idx) => (
-              <div key={idx} className="flex items-center gap-2 min-h-[36px]">
+              <div key={idx} className="flex items-center gap-2 min-h-[32px]">
                 <div className={cn(
-                  "shrink-0 w-7 h-7 rounded-lg flex items-center justify-center",
-                  item.status === "paid" || item.status === "completed"
-                    ? "bg-emerald-500/10 text-emerald-400"
-                    : item.status === "canceled" || item.status === "no_show"
-                      ? "bg-rose-500/10 text-rose-400"
-                      : "bg-white/5 text-white/40",
+                  "shrink-0 w-6 h-6 rounded-md flex items-center justify-center",
+                  item.status === "paid" || item.status === "completed" ? "bg-emerald-500/10 text-emerald-400"
+                    : item.status === "canceled" || item.status === "no_show" ? "bg-rose-500/10 text-rose-400"
+                    : "bg-white/5 text-white/35",
                 )}>
-                  {item.type === "appt"
-                    ? <Calendar className="w-3 h-3" />
-                    : <Receipt className="w-3 h-3" />}
+                  {item.type === "appt" ? <Calendar className="w-2.5 h-2.5" /> : <Receipt className="w-2.5 h-2.5" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-bold text-white truncate leading-tight">{item.label}</p>
-                  {item.sub && <p className="text-[9px] text-white/40 truncate leading-tight">{item.sub}</p>}
+                  <p className="text-[10px] font-bold text-white truncate leading-tight">{item.label}</p>
+                  {item.sub && <p className="text-[8px] text-white/35 truncate leading-tight">{item.sub}</p>}
                 </div>
-                <div className="shrink-0 flex flex-col items-end gap-0.5">
-                  <span className={cn(
-                    "text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none",
-                    statusColor(item.status),
-                  )}>
+                <div className="shrink-0 text-right">
+                  <span className={cn("text-[6px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", statusColor(item.status))}>
                     {item.status.replace(/_/g, " ")}
                   </span>
-                  <span className="text-[8px] text-white/30 font-bold tabular-nums">
-                    {format(item.date, "MMM d")}
-                  </span>
+                  <p className="text-[7px] text-white/25 mt-0.5 tabular-nums">{format(item.date, "MMM d")}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-6 text-center">
-          <History className="w-5 h-5 text-white/20 mx-auto" />
-          <p className="text-[11px] font-bold text-white/40 mt-1.5">No activity yet</p>
-        </div>
+        <EmptyState icon={History} label="No activity yet" />
       )}
     </div>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// PROFILE TAB — editable contact + membership info
-// ═══════════════════════════════════════════════════════════════════════════════
-
-type ProfileFormData = {
-  firstName:       string;
-  lastName:        string;
-  businessName:    string;
-  phone:           string;
-  email:           string;
-  address:         string;
-  membershipLevel: "none" | "silver" | "gold" | "platinum";
-  isVIP:           boolean;
-  isOneTime:       boolean;
-};
-
-function ProfileTab({ client, clientId }: { client: Client; clientId: string }) {
-  const [editing, setEditing] = useState(false);
-  const [saving,  setSaving]  = useState(false);
-  const [form,    setForm]    = useState<ProfileFormData>({
-    firstName:       client.firstName       ?? "",
-    lastName:        client.lastName        ?? "",
-    businessName:    client.businessName    ?? "",
-    phone:           client.phone           ?? "",
-    email:           client.email           ?? "",
-    address:         client.address         ?? "",
-    membershipLevel: (client.membershipLevel as any) ?? "none",
-    isVIP:           client.isVIP           ?? false,
-    isOneTime:       client.isOneTime       ?? false,
-  });
-
-  // Sync form when client updates from Firestore
-  useEffect(() => {
-    if (!editing) {
-      setForm({
-        firstName:       client.firstName       ?? "",
-        lastName:        client.lastName        ?? "",
-        businessName:    client.businessName    ?? "",
-        phone:           client.phone           ?? "",
-        email:           client.email           ?? "",
-        address:         client.address         ?? "",
-        membershipLevel: (client.membershipLevel as any) ?? "none",
-        isVIP:           client.isVIP           ?? false,
-        isOneTime:       client.isOneTime       ?? false,
-      });
-    }
-  }, [client, editing]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const derivedName = form.businessName ||
-        [form.firstName, form.lastName].filter(Boolean).join(" ") ||
-        "Unnamed";
-      await updateDoc(doc(db, "clients", clientId), {
-        firstName:       form.firstName.trim()    || null,
-        lastName:        form.lastName.trim()     || null,
-        businessName:    form.businessName.trim() || null,
-        name:            derivedName,
-        phone:           form.phone.trim(),
-        email:           form.email.trim().toLowerCase(),
-        address:         form.address.trim(),
-        membershipLevel: form.membershipLevel,
-        isVIP:           form.isVIP,
-        isOneTime:       form.isOneTime,
-        updatedAt:       serverTimestamp(),
-      });
-      toast.success("Client updated");
-      setEditing(false);
-    } catch (e: any) {
-      toast.error(e?.message?.slice(0, 80) || "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setEditing(false);
-    setForm({
-      firstName:       client.firstName       ?? "",
-      lastName:        client.lastName        ?? "",
-      businessName:    client.businessName    ?? "",
-      phone:           client.phone           ?? "",
-      email:           client.email           ?? "",
-      address:         client.address         ?? "",
-      membershipLevel: (client.membershipLevel as any) ?? "none",
-      isVIP:           client.isVIP           ?? false,
-      isOneTime:       client.isOneTime       ?? false,
-    });
-  };
-
-  const field = (
-    key: keyof ProfileFormData,
-    label: string,
-    type: string = "text",
-    placeholder: string = "",
-  ) => (
-    <div className="px-3 py-2.5 border-b border-white/[0.04] last:border-none">
-      <label className="text-[9px] font-black uppercase tracking-widest text-white/40 leading-none block mb-1">
-        {label}
-      </label>
-      <input
-        type={type}
-        value={form[key] as string}
-        onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-        placeholder={placeholder}
-        className="w-full bg-transparent text-[12px] font-bold text-white placeholder-white/20 outline-none leading-tight"
-        autoCapitalize={type === "email" ? "none" : "words"}
-        autoCorrect="off"
-        autoComplete="off"
-        inputMode={type === "email" ? "email" : type === "tel" ? "tel" : "text"}
-      />
-    </div>
-  );
-
-  // ── Read-only view ──
-  if (!editing) {
-    return (
-      <div className="space-y-2.5">
-        {/* Edit button */}
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-[10px] font-black uppercase tracking-widest text-white/60"
-          >
-            <Edit2 className="w-3 h-3" />
-            Edit
-          </button>
-        </div>
-
-        {/* Name & business */}
-        <div className="rounded-xl border border-white/5 bg-sidebar/40 divide-y divide-white/[0.04]">
-          <InfoRow label="First Name"    value={client.firstName    || "—"} />
-          <InfoRow label="Last Name"     value={client.lastName     || "—"} />
-          <InfoRow label="Business"      value={client.businessName || "—"} />
-        </div>
-
-        {/* Contact */}
-        <div className="rounded-xl border border-white/5 bg-sidebar/40 divide-y divide-white/[0.04]">
-          {client.phone && (
-            <div className="flex items-center gap-2.5 px-3 py-2.5 min-h-[44px]">
-              <Phone className="w-3.5 h-3.5 text-white/40 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-[9px] font-black uppercase tracking-widest text-white/40 leading-none mb-0.5">Phone</p>
-                <a href={`tel:${client.phone}`} className="text-[12px] font-bold text-white hover:text-[#0A4DFF] transition-colors">
-                  {formatPhoneNumber(client.phone)}
-                </a>
-              </div>
-            </div>
-          )}
-          {client.email && (
-            <div className="flex items-center gap-2.5 px-3 py-2.5 min-h-[44px]">
-              <Mail className="w-3.5 h-3.5 text-white/40 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-[9px] font-black uppercase tracking-widest text-white/40 leading-none mb-0.5">Email</p>
-                <a href={`mailto:${client.email}`} className="text-[12px] font-bold text-white truncate block hover:text-[#0A4DFF] transition-colors">
-                  {client.email}
-                </a>
-              </div>
-            </div>
-          )}
-          {client.address && (
-            <div className="flex items-start gap-2.5 px-3 py-2.5 min-h-[44px]">
-              <MapPin className="w-3.5 h-3.5 text-white/40 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-[9px] font-black uppercase tracking-widest text-white/40 leading-none mb-0.5">Address</p>
-                <p className="text-[12px] font-bold text-white leading-tight break-words">{client.address}</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Account settings */}
-        <div className="rounded-xl border border-white/5 bg-sidebar/40 divide-y divide-white/[0.04]">
-          <InfoRow label="Membership"  value={(client.membershipLevel && client.membershipLevel !== "none") ? client.membershipLevel : "Standard"} />
-          <InfoRow label="VIP Status"  value={client.isVIP      ? "Yes" : "No"} />
-          <InfoRow label="One-Time"    value={client.isOneTime   ? "Yes" : "No"} />
-          <InfoRow label="Loyalty Pts" value={String(client.loyaltyPoints || 0)} />
-        </div>
-      </div>
-    );
-  }
-
-  // ── Edit view ──
+function MetricCell({ label, value, sub, subColor, icon: Icon, iconColor }: {
+  label: string; value: string; sub: string; subColor: string; icon: typeof DollarSign; iconColor: string;
+}) {
   return (
-    <div className="space-y-2.5">
-      {/* Save / Cancel — ABOVE fields so keyboard doesn't obscure them */}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={handleCancel}
-          disabled={saving}
-          className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors text-[11px] font-black uppercase tracking-widest text-white/60 disabled:opacity-40"
-        >
-          <X className="w-3.5 h-3.5" />
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl bg-[#0A4DFF] hover:bg-[#0A4DFF]/90 transition-colors text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50"
-        >
-          {saving
-            ? <div className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
-            : <Save className="w-3.5 h-3.5" />}
-          {saving ? "Saving…" : "Save"}
-        </button>
+    <div className="rounded-xl border border-white/5 bg-sidebar/60 px-2.5 py-2.5 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[8px] font-black uppercase tracking-widest text-white/35">{label}</span>
+        <Icon className={cn("w-3 h-3 shrink-0", iconColor)} />
       </div>
-
-      {/* Name fields */}
-      <div className="rounded-xl border border-white/5 bg-sidebar/60">
-        <p className="px-3 pt-2.5 text-[9px] font-black uppercase tracking-widest text-white/40">Name</p>
-        {field("firstName",    "First Name",      "text", "First")}
-        {field("lastName",     "Last Name",       "text", "Last")}
-        {field("businessName", "Business / Fleet","text", "Optional")}
-      </div>
-
-      {/* Contact fields */}
-      <div className="rounded-xl border border-white/5 bg-sidebar/60">
-        <p className="px-3 pt-2.5 text-[9px] font-black uppercase tracking-widest text-white/40">Contact</p>
-        {field("phone",   "Phone",   "tel",   "(555) 000-0000")}
-        {field("email",   "Email",   "email", "name@example.com")}
-        {field("address", "Address", "text",  "Street address")}
-      </div>
-
-      {/* Account fields */}
-      <div className="rounded-xl border border-white/5 bg-sidebar/60">
-        <p className="px-3 pt-2.5 text-[9px] font-black uppercase tracking-widest text-white/40">Account</p>
-
-        {/* Membership select */}
-        <div className="px-3 py-2.5 border-b border-white/[0.04]">
-          <label className="text-[9px] font-black uppercase tracking-widest text-white/40 leading-none block mb-1">
-            Membership
-          </label>
-          <select
-            value={form.membershipLevel}
-            onChange={(e) => setForm((f) => ({ ...f, membershipLevel: e.target.value as any }))}
-            className="w-full bg-transparent text-[12px] font-bold text-white outline-none leading-tight appearance-none"
-          >
-            <option value="none"     className="bg-[#0D1117]">Standard</option>
-            <option value="silver"   className="bg-[#0D1117]">Silver</option>
-            <option value="gold"     className="bg-[#0D1117]">Gold</option>
-            <option value="platinum" className="bg-[#0D1117]">Platinum</option>
-          </select>
-        </div>
-
-        {/* VIP toggle */}
-        <button
-          type="button"
-          onClick={() => setForm((f) => ({ ...f, isVIP: !f.isVIP }))}
-          className="w-full flex items-center justify-between px-3 py-2.5 border-b border-white/[0.04] min-h-[44px]"
-        >
-          <span className="text-[9px] font-black uppercase tracking-widest text-white/40">VIP Status</span>
-          <div className={cn(
-            "w-9 h-5 rounded-full transition-colors flex items-center",
-            form.isVIP ? "bg-amber-500" : "bg-white/10",
-          )}>
-            <div className={cn(
-              "w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5",
-              form.isVIP ? "translate-x-4" : "translate-x-0",
-            )} />
-          </div>
-        </button>
-
-        {/* One-time toggle */}
-        <button
-          type="button"
-          onClick={() => setForm((f) => ({ ...f, isOneTime: !f.isOneTime }))}
-          className="w-full flex items-center justify-between px-3 py-2.5 min-h-[44px]"
-        >
-          <span className="text-[9px] font-black uppercase tracking-widest text-white/40">One-Time Client</span>
-          <div className={cn(
-            "w-9 h-5 rounded-full transition-colors flex items-center",
-            form.isOneTime ? "bg-[#0A4DFF]" : "bg-white/10",
-          )}>
-            <div className={cn(
-              "w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5",
-              form.isOneTime ? "translate-x-4" : "translate-x-0",
-            )} />
-          </div>
-        </button>
-      </div>
+      <p className="text-[18px] font-black text-white tracking-tight leading-none">{value}</p>
+      <p className={cn("text-[8px] font-bold leading-tight", subColor)}>{sub}</p>
     </div>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// APPOINTMENTS TAB
-// ═══════════════════════════════════════════════════════════════════════════════
+// ─── Jobs Tab ─────────────────────────────────────────────────────────────────
+function JobsTab({ appointments, vehicles }: { appointments: Appointment[]; vehicles: Vehicle[] }) {
+  const vehicleById = useMemo(() => {
+    const m: Record<string, Vehicle> = {};
+    vehicles.forEach((v) => { m[v.id] = v; });
+    return m;
+  }, [vehicles]);
 
-function AppointmentsTab({
-  appointments,
-  clientId,
-}: {
-  appointments: Appointment[];
-  clientId: string;
-}) {
-  const navigate = useNavigate();
+  const grouped = useMemo(() => {
+    const upcoming: Appointment[] = [];
+    const active: Appointment[] = [];
+    const completed: Appointment[] = [];
+    const canceled: Appointment[] = [];
+    const noShows: Appointment[] = [];
+    const now = Date.now();
+    for (const a of appointments) {
+      if (a.status === "in_progress" || a.status === "en_route") { active.push(a); continue; }
+      if (a.status === "completed" || a.status === "paid") { completed.push(a); continue; }
+      if (a.status === "no_show") { noShows.push(a); continue; }
+      if (a.status === "canceled" || a.status === "declined") { canceled.push(a); continue; }
+      try {
+        if (convertToDate(a.scheduledAt).getTime() > now) upcoming.push(a);
+        else completed.push(a);
+      } catch { upcoming.push(a); }
+    }
+    return { active, upcoming, completed, canceled, noShows };
+  }, [appointments]);
 
-  if (appointments.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-8 text-center">
-        <Calendar className="w-6 h-6 text-white/20 mx-auto" />
-        <p className="text-[11px] font-bold text-white/40 mt-2">No appointments</p>
-        <button
-          type="button"
-          onClick={() => navigate(`/field/book-job?clientId=${clientId}`)}
-          className="mt-3 px-4 py-1.5 rounded-lg bg-[#0A4DFF]/20 text-[10px] font-black uppercase tracking-widest text-[#0A4DFF]"
-        >
-          Book First Job
-        </button>
-      </div>
-    );
-  }
+  if (appointments.length === 0) return <EmptyState icon={Calendar} label="No jobs on record" />;
 
   return (
-    <div className="space-y-1.5">
-      {appointments.map((appt) => {
-        const d     = safeDate(appt.scheduledAt);
-        const dateStr = d ? format(d, "MMM d, yyyy · h:mm a") : "Date unavailable";
+    <div className="space-y-3">
+      {grouped.active.length > 0 && (
+        <JobSection title="Active" color="text-amber-400" jobs={grouped.active} vehicleById={vehicleById} />
+      )}
+      {grouped.upcoming.length > 0 && (
+        <JobSection title="Upcoming" color="text-sky-400" jobs={grouped.upcoming} vehicleById={vehicleById} />
+      )}
+      {grouped.completed.length > 0 && (
+        <JobSection title={`Completed (${grouped.completed.length})`} color="text-emerald-400" jobs={grouped.completed} vehicleById={vehicleById} />
+      )}
+      {grouped.noShows.length > 0 && (
+        <JobSection title={`No-Shows (${grouped.noShows.length})`} color="text-rose-400" jobs={grouped.noShows} vehicleById={vehicleById} />
+      )}
+      {grouped.canceled.length > 0 && (
+        <JobSection title={`Canceled (${grouped.canceled.length})`} color="text-white/35" jobs={grouped.canceled} vehicleById={vehicleById} />
+      )}
+    </div>
+  );
+}
+
+function JobSection({ title, color, jobs, vehicleById }: {
+  title: string; color: string; jobs: Appointment[]; vehicleById: Record<string, Vehicle>;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className={cn("text-[8px] font-black uppercase tracking-widest px-0.5", color)}>{title}</p>
+      {jobs.map((appt) => {
+        let dateStr = "";
+        try { dateStr = format(convertToDate(appt.scheduledAt), "EEE MMM d · h:mm a"); } catch { dateStr = "—"; }
+        const vehicleId = (appt as any).vehicleId || (appt as any).vehicles?.[0]?.id;
+        const vehicle = vehicleId ? vehicleById[vehicleId] : null;
         return (
-          <button
+          <div
             key={appt.id}
-            type="button"
-            onClick={() => navigate(`/calendar/${appt.id}`)}
-            className="w-full rounded-xl border border-white/5 bg-sidebar/60 px-3 py-2.5 flex items-start gap-2.5 min-h-[60px] text-left hover:bg-sidebar/80 active:bg-sidebar transition-colors"
+            className={cn(
+              "rounded-xl border bg-sidebar/60 px-3 py-2.5 flex items-center gap-2.5 min-h-[60px] transition-all active:scale-[0.98]",
+              statusGlow(appt.status),
+            )}
           >
             <div className={cn(
-              "shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5",
-              appt.status === "completed" || appt.status === "paid"
-                ? "bg-emerald-500/10 text-emerald-400"
-                : appt.status === "canceled" || appt.status === "no_show"
-                  ? "bg-rose-500/10 text-rose-400"
-                  : "bg-[#0A4DFF]/10 text-[#0A4DFF]",
+              "shrink-0 w-8 h-8 rounded-lg flex items-center justify-center",
+              appt.status === "completed" || appt.status === "paid" ? "bg-emerald-500/10 text-emerald-400"
+                : appt.status === "no_show" || appt.status === "canceled" ? "bg-rose-500/10 text-rose-400"
+                : appt.status === "in_progress" || appt.status === "en_route" ? "bg-amber-500/10 text-amber-400"
+                : "bg-[#0A4DFF]/10 text-[#4D8AFF]",
             )}>
               <Calendar className="w-3.5 h-3.5" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-bold text-white truncate leading-tight">
+              <p className="text-[11px] font-black text-white truncate leading-tight">
                 {appt.serviceNames?.join(", ") || "Appointment"}
               </p>
-              <p className="text-[10px] text-white/45 font-medium leading-tight mt-0.5 truncate">
-                {appt.vehicleInfo || "No vehicle"}
+              <p className="text-[9px] text-white/40 font-medium truncate leading-tight mt-0.5">
+                {vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : appt.vehicleInfo || "Vehicle TBD"}
               </p>
-              <p className="text-[9px] text-white/30 font-bold leading-tight mt-0.5">{dateStr}</p>
-              <span className={cn(
-                "inline-block mt-1 text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none",
-                statusColor(appt.status),
-              )}>
+              <p className="text-[9px] text-white/30 leading-tight mt-0.5">{dateStr}</p>
+            </div>
+            <div className="shrink-0 text-right space-y-1">
+              <p className="text-[11px] font-black text-white tabular-nums">{formatCurrency(appt.totalAmount || 0)}</p>
+              <span className={cn("text-[6px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none", statusColor(appt.status))}>
                 {appt.status.replace(/_/g, " ")}
               </span>
             </div>
-            <div className="shrink-0 text-right pl-1">
-              <p className="text-[12px] font-black text-white tabular-nums">
-                {formatCurrency(appt.totalAmount || 0)}
-              </p>
-              <ChevronRight className="w-3 h-3 text-white/20 ml-auto mt-1" />
-            </div>
-          </button>
+          </div>
         );
       })}
     </div>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// VEHICLES TAB
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function VehiclesTab({ vehicles }: { vehicles: Vehicle[] }) {
-  if (vehicles.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-8 text-center">
-        <Car className="w-6 h-6 text-white/20 mx-auto" />
-        <p className="text-[11px] font-bold text-white/40 mt-2">No vehicles on file</p>
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-1.5">
-      {vehicles.map((v) => (
-        <div
-          key={v.id}
-          className="rounded-xl border border-white/5 bg-sidebar/60 px-3 py-3"
-        >
-          {/* Header row */}
-          <div className="flex items-start gap-2.5">
-            <div className="shrink-0 w-9 h-9 rounded-lg bg-sky-500/10 ring-1 ring-sky-500/30 flex items-center justify-center">
-              <Car className="w-4 h-4 text-sky-400" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-black text-white leading-tight truncate">
-                {[v.year, v.make, v.model].filter(Boolean).join(" ") || "Unknown Vehicle"}
-              </p>
-              {/* Detail pills */}
-              <div className="flex flex-wrap gap-1 mt-1">
-                {v.color && (
-                  <span className="text-[8px] font-bold text-white/50 bg-white/5 px-1.5 py-0.5 rounded">
-                    {v.color}
-                  </span>
-                )}
-                {v.size && (
-                  <span className="text-[8px] font-black uppercase tracking-widest text-white/40 bg-white/5 ring-1 ring-white/10 px-1.5 py-0.5 rounded">
-                    {v.size}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          {/* Extra detail rows */}
-          {(v.vin || v.licensePlate || v.roNumber) && (
-            <div className="mt-2.5 pt-2.5 border-t border-white/5 space-y-1">
-              {v.vin && (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-white/30">VIN</span>
-                  <span className="text-[9px] font-mono text-white/50 truncate">{v.vin}</span>
-                </div>
-              )}
-              {v.licensePlate && (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-white/30">Plate</span>
-                  <span className="text-[9px] font-bold text-white/50">{v.licensePlate}</span>
-                </div>
-              )}
-              {v.roNumber && (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-white/30">RO #</span>
-                  <span className="text-[9px] font-bold text-white/50">{v.roNumber}</span>
-                </div>
-              )}
-            </div>
-          )}
-          {v.notes && (
-            <p className="mt-2 text-[10px] text-white/40 leading-tight italic">{v.notes}</p>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// NOTES TAB — read + compose/edit
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function NotesTab({ clientId, initialNotes }: { clientId: string; initialNotes?: string }) {
-  const [draft,   setDraft]   = useState(initialNotes ?? "");
-  const [saving,  setSaving]  = useState(false);
-  const [editing, setEditing] = useState(false);
-
-  // Keep draft fresh when Firestore update arrives (if not currently editing)
-  useEffect(() => {
-    if (!editing) setDraft(initialNotes ?? "");
-  }, [initialNotes, editing]);
-
-  const hasNotes  = Boolean(initialNotes?.trim());
-  const hasChange = draft.trim() !== (initialNotes ?? "").trim();
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await updateDoc(doc(db, "clients", clientId), {
-        notes:     draft.trim() || null,
-        updatedAt: serverTimestamp(),
-      });
-      toast.success("Notes saved");
-      setEditing(false);
-    } catch (e: any) {
-      toast.error(e?.message?.slice(0, 80) || "Save failed");
-    } finally {
-      setSaving(false);
+// ─── Vehicles Tab ─────────────────────────────────────────────────────────────
+function VehiclesTab({ vehicles, appointments }: { vehicles: Vehicle[]; appointments: Appointment[] }) {
+  const revenueByVehicle = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const a of appointments) {
+      const vid = (a as any).vehicleId || (a as any).vehicles?.[0]?.id;
+      if (!vid) continue;
+      m[vid] = (m[vid] || 0) + (a.totalAmount || 0);
     }
-  };
+    return m;
+  }, [appointments]);
 
-  const handleCancel = () => {
-    setDraft(initialNotes ?? "");
-    setEditing(false);
-  };
+  const servicesByVehicle = useMemo(() => {
+    const m: Record<string, string[]> = {};
+    for (const a of appointments) {
+      const vid = (a as any).vehicleId || (a as any).vehicles?.[0]?.id;
+      if (!vid) continue;
+      if (!m[vid]) m[vid] = [];
+      m[vid].push(...(a.serviceNames || []));
+    }
+    return m;
+  }, [appointments]);
+
+  if (vehicles.length === 0) return <EmptyState icon={Car} label="No vehicles on file" />;
 
   return (
-    <div className="space-y-2.5">
-      {/* Action bar — ABOVE the textarea so keyboard never covers it */}
-      {editing ? (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleCancel}
-            disabled={saving}
-            className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors text-[11px] font-black uppercase tracking-widest text-white/60 disabled:opacity-40"
-          >
-            <X className="w-3.5 h-3.5" />
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving || !hasChange}
-            className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl bg-[#0A4DFF] hover:bg-[#0A4DFF]/90 transition-colors text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-40"
-          >
-            {saving
-              ? <div className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
-              : <Save className="w-3.5 h-3.5" />}
-            {saving ? "Saving…" : "Save Notes"}
-          </button>
+    <div className="space-y-2">
+      {vehicles.map((v) => {
+        const services = servicesByVehicle[v.id] || [];
+        const hasCeramic = services.some((s) => s.toLowerCase().includes("ceramic"));
+        const revenue = revenueByVehicle[v.id] || 0;
+        const sizeLabel: Record<string, string> = { small: "Small", medium: "Medium", large: "Large", extra_large: "XL" };
+
+        return (
+          <div key={v.id} className="rounded-xl border border-sky-500/15 bg-gradient-to-b from-sky-950/20 to-sidebar/60 px-3 py-3">
+            {/* Header */}
+            <div className="flex items-center gap-2.5">
+              <div className="shrink-0 w-10 h-10 rounded-xl bg-sky-500/10 ring-1 ring-sky-500/25 flex items-center justify-center">
+                <Car className="w-4 h-4 text-sky-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-black text-white truncate leading-tight">
+                  {[v.year, v.make, v.model].filter(Boolean).join(" ") || "Unknown Vehicle"}
+                </p>
+                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                  {v.color && <span className="text-[8px] text-white/45 font-medium">{v.color}</span>}
+                  {v.size && (
+                    <span className="text-[7px] font-black uppercase tracking-widest text-sky-300/70 px-1.5 py-0.5 rounded bg-sky-500/10 ring-1 ring-sky-500/20">
+                      {sizeLabel[v.size] || v.size}
+                    </span>
+                  )}
+                  {hasCeramic && (
+                    <span className="text-[7px] font-black uppercase tracking-widest text-violet-300 px-1.5 py-0.5 rounded bg-violet-500/10 ring-1 ring-violet-500/20">
+                      Ceramic
+                    </span>
+                  )}
+                </div>
+              </div>
+              {revenue > 0 && (
+                <div className="shrink-0 text-right">
+                  <p className="text-[12px] font-black text-white tabular-nums">{formatCurrency(revenue)}</p>
+                  <p className="text-[7px] text-white/30 uppercase tracking-widest">revenue</p>
+                </div>
+              )}
+            </div>
+            {/* Details */}
+            {(v.vin || v.licensePlate || v.roNumber || v.notes) && (
+              <div className="mt-2.5 pt-2.5 border-t border-white/5 space-y-1">
+                {v.vin && <DetailRow label="VIN" value={v.vin} mono />}
+                {v.licensePlate && <DetailRow label="Plate" value={v.licensePlate} />}
+                {v.roNumber && <DetailRow label="RO #" value={v.roNumber} />}
+                {v.notes && <p className="text-[9px] text-white/45 font-medium italic mt-1 leading-tight">{v.notes}</p>}
+              </div>
+            )}
+            {/* AI upsell hint */}
+            {!hasCeramic && (revenue > 200 || services.length >= 2) && (
+              <div className="mt-2.5 pt-2 border-t border-violet-500/10 flex items-start gap-1.5">
+                <Sparkles className="w-3 h-3 text-violet-400 shrink-0 mt-0.5" />
+                <p className="text-[8px] text-violet-300/70 font-bold leading-tight">
+                  Ceramic coating candidate — high service frequency detected.
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-[8px] font-black uppercase tracking-widest text-white/30">{label}</span>
+      <span className={cn("text-[9px] font-bold text-white/60", mono && "font-mono")}>{value}</span>
+    </div>
+  );
+}
+
+// ─── Billing Tab ──────────────────────────────────────────────────────────────
+function BillingTab({
+  invoices, outstandingTotal, onCollectPayment, onSend, onVoid, onUndo,
+}: {
+  invoices: Invoice[]; outstandingTotal: number;
+  onCollectPayment: (inv: Invoice) => void;
+  onSend: (inv: Invoice) => Promise<void>;
+  onVoid: (inv: Invoice) => Promise<void>;
+  onUndo: (inv: Invoice) => Promise<void>;
+}) {
+  const outstanding = invoices.filter((inv) => inv.status !== "paid" && inv.status !== "voided");
+  const paid = invoices.filter((inv) => inv.status === "paid");
+  const voided = invoices.filter((inv) => inv.status === "voided");
+
+  const totalPaid = paid.reduce((s, inv) => s + (inv.amountPaid || inv.total || 0), 0);
+
+  if (invoices.length === 0) return <EmptyState icon={Receipt} label="No invoices on file" />;
+
+  return (
+    <div className="space-y-3">
+      {/* Summary row */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 px-2.5 py-2.5">
+          <p className="text-[8px] font-black uppercase tracking-widest text-rose-400/70">Outstanding</p>
+          <p className="text-[18px] font-black text-rose-300 tabular-nums mt-0.5">{formatCurrency(outstandingTotal)}</p>
+          <p className="text-[8px] text-rose-400/50 font-bold mt-0.5">{outstanding.length} invoice{outstanding.length !== 1 ? "s" : ""}</p>
         </div>
-      ) : (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-[10px] font-black uppercase tracking-widest text-white/60"
-          >
-            <Edit2 className="w-3 h-3" />
-            {hasNotes ? "Edit Notes" : "Add Notes"}
-          </button>
+        <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/5 px-2.5 py-2.5">
+          <p className="text-[8px] font-black uppercase tracking-widest text-emerald-400/70">Collected</p>
+          <p className="text-[18px] font-black text-emerald-300 tabular-nums mt-0.5">{formatCurrency(totalPaid)}</p>
+          <p className="text-[8px] text-emerald-400/50 font-bold mt-0.5">{paid.length} paid</p>
+        </div>
+      </div>
+
+      {/* Outstanding */}
+      {outstanding.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[8px] font-black uppercase tracking-widest text-rose-400/80 px-0.5">Outstanding</p>
+          {outstanding.map((inv) => (
+            <InvoiceCard
+              key={inv.id}
+              invoice={inv}
+              onCollect={() => onCollectPayment(inv)}
+              onSend={() => onSend(inv)}
+              onVoid={() => onVoid(inv)}
+              onUndo={() => onUndo(inv)}
+            />
+          ))}
         </div>
       )}
 
-      {/* Composer — always visible when editing */}
-      {editing && (
-        <div className="rounded-xl border border-white/10 bg-sidebar/60">
-          <p className="px-3 pt-2.5 text-[9px] font-black uppercase tracking-widest text-white/40">
-            Internal Notes
-          </p>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Add internal notes about this client…"
-            rows={5}
-            className="w-full bg-transparent px-3 py-2.5 text-[12px] font-medium text-white placeholder-white/25 outline-none resize-none leading-relaxed"
-            autoFocus
-          />
+      {/* Paid */}
+      {paid.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[8px] font-black uppercase tracking-widest text-emerald-400/70 px-0.5">Paid</p>
+          {paid.map((inv) => (
+            <InvoiceCard
+              key={inv.id}
+              invoice={inv}
+              onCollect={() => onCollectPayment(inv)}
+              onSend={() => onSend(inv)}
+              onVoid={() => onVoid(inv)}
+              onUndo={() => onUndo(inv)}
+            />
+          ))}
         </div>
       )}
 
-      {/* Existing note display (read-only when not editing) */}
-      {!editing && hasNotes && (
-        <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-3">
-          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 leading-none mb-2">
-            Internal Notes
-          </p>
-          <p className="text-[12px] font-medium text-white/70 leading-relaxed whitespace-pre-wrap">{initialNotes}</p>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!editing && !hasNotes && (
-        <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-8 text-center">
-          <Clipboard className="w-6 h-6 text-white/20 mx-auto" />
-          <p className="text-[11px] font-bold text-white/40 mt-2">No notes yet</p>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="mt-3 px-4 py-1.5 rounded-lg bg-white/5 text-[10px] font-black uppercase tracking-widest text-white/50"
-          >
-            Add Note
-          </button>
+      {/* Voided */}
+      {voided.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[8px] font-black uppercase tracking-widest text-white/25 px-0.5">Voided</p>
+          {voided.map((inv) => (
+            <InvoiceCard key={inv.id} invoice={inv} onCollect={() => {}} onSend={() => onSend(inv)} onVoid={() => {}} onUndo={() => {}} />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// RISK TAB — wired to riskUtils + protected_clients + appointment history
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function RiskTab({
-  client,
-  risk,
-  noShowCount,
-  cancelCount,
-  outstandingFee,
-  protectedEntry,
+function InvoiceCard({
+  invoice, onCollect, onSend, onVoid, onUndo,
 }: {
-  client: Client;
-  risk: ReturnType<typeof getEffectiveRisk>;
-  noShowCount: number;
-  cancelCount: number;
-  outstandingFee?: number;
-  protectedEntry: any | null;
+  invoice: Invoice;
+  onCollect: () => void;
+  onSend: () => Promise<void>;
+  onVoid: () => Promise<void>;
+  onUndo: () => Promise<void>;
 }) {
-  const riskLabel  = getRiskBadgeLabel(risk);
-  const isBlocked  = risk === "block_booking" || risk === "do_not_book";
-  const isElevated = risk === "medium" || risk === "high" || risk === "critical" || isBlocked;
+  const [expanded, setExpanded] = useState(false);
+  const isPaid = invoice.status === "paid";
+  const isVoided = invoice.status === "voided";
+  const balance = invoice.total - (invoice.amountPaid || 0);
 
   return (
-    <div className="space-y-2.5">
+    <div className={cn(
+      "rounded-xl border bg-sidebar/60 overflow-hidden transition-all",
+      statusGlow(isPaid ? "paid" : isVoided ? "voided" : invoice.status || "pending"),
+    )}>
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full px-3 py-2.5 flex items-center gap-2.5 min-h-[56px] text-left"
+      >
+        <div className={cn(
+          "shrink-0 w-8 h-8 rounded-lg flex items-center justify-center",
+          isPaid ? "bg-emerald-500/10 text-emerald-400" : isVoided ? "bg-white/5 text-white/25" : "bg-rose-500/10 text-rose-400",
+        )}>
+          <Receipt className="w-3.5 h-3.5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] font-black text-white truncate leading-tight">
+            {invoice.invoiceNumber ? `Invoice ${invoice.invoiceNumber}` : `Invoice`}
+          </p>
+          <p className="text-[9px] text-white/40 font-medium truncate leading-tight mt-0.5">
+            {invoice.vehicleInfo || invoice.vehicles?.[0]?.make || ""}
+            {(invoice.paymentMethodDetails && isPaid) ? ` · ${invoice.paymentMethodDetails}` : ""}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className={cn("text-[12px] font-black tabular-nums", isPaid ? "text-emerald-300" : isVoided ? "text-white/25" : "text-white")}>
+            {formatCurrency(invoice.total)}
+          </p>
+          {!isPaid && !isVoided && balance > 0 && balance < invoice.total && (
+            <p className="text-[8px] text-amber-300 font-bold">Partial</p>
+          )}
+          <span className={cn("text-[6px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", statusColor(invoice.paymentStatus || invoice.status || ""))}>
+            {(invoice.paymentStatus || invoice.status || "").replace(/_/g, " ")}
+          </span>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 border-t border-white/5 space-y-2.5 pt-2.5">
+          {/* Payment history */}
+          {(invoice.paymentHistory?.length ?? 0) > 0 && (
+            <div className="space-y-0.5">
+              <p className="text-[7px] font-black uppercase tracking-widest text-white/30 mb-1">Payment History</p>
+              {invoice.paymentHistory!.slice(0, 5).map((h, i) => (
+                <div key={i} className="flex items-center justify-between text-[9px]">
+                  <span className="text-white/50 font-bold capitalize">{h.action} — {h.method || "unknown"}</span>
+                  {h.amount != null && <span className="text-white/40 tabular-nums font-bold">{formatCurrency(h.amount)}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Actions */}
+          <div className="flex flex-wrap gap-1.5">
+            {!isPaid && !isVoided && (
+              <button
+                type="button"
+                onClick={onCollect}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white text-[9px] font-black transition-colors"
+              >
+                <DollarSign className="w-2.5 h-2.5" />
+                Collect {formatCurrency(balance)}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onSend}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 text-[9px] font-black ring-1 ring-sky-500/25 transition-colors"
+            >
+              <Send className="w-2.5 h-2.5" />
+              {isPaid ? "Resend" : "Send"}
+            </button>
+            {isPaid && (
+              <button
+                type="button"
+                onClick={onUndo}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-[9px] font-black ring-1 ring-amber-500/25 transition-colors"
+              >
+                <Undo2 className="w-2.5 h-2.5" />
+                Undo
+              </button>
+            )}
+            {!isVoided && (
+              <button
+                type="button"
+                onClick={onVoid}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-rose-500/10 text-white/40 hover:text-rose-300 text-[9px] font-black ring-1 ring-white/10 hover:ring-rose-500/25 transition-colors"
+              >
+                <Ban className="w-2.5 h-2.5" />
+                Void
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Notes Tab ────────────────────────────────────────────────────────────────
+function NotesTab({
+  notes, editing, draft, saving, onStartEdit, onDraftChange, onSave, onCancel, client, appointments,
+}: {
+  notes?: string; editing: boolean; draft: string; saving: boolean;
+  onStartEdit: () => void; onDraftChange: (v: string) => void;
+  onSave: () => void; onCancel: () => void;
+  client: Client; appointments: Appointment[];
+}) {
+  // Infer preferences from appointment and client data
+  const signals: string[] = [];
+  if (client.preferredContactMethod === "sms") signals.push("Prefers text over calls");
+  if (client.smsOptOut) signals.push("SMS opted out — use email or call");
+  if (client.isVIP) signals.push("VIP client — premium service expected");
+  if (client.membershipLevel && client.membershipLevel !== "none") signals.push(`${client.membershipLevel} membership holder`);
+  if (client.outstandingCancellationFee && client.outstandingCancellationFee > 0) signals.push(`Outstanding cancellation fee: ${formatCurrency(client.outstandingCancellationFee)}`);
+  const serviceNames = appointments.flatMap((a) => a.serviceNames || []);
+  if (serviceNames.some((s) => s.toLowerCase().includes("interior"))) signals.push("Interior services performed");
+  if (serviceNames.some((s) => s.toLowerCase().includes("ceramic"))) signals.push("Ceramic coating history");
+
+  return (
+    <div className="space-y-2">
+      {/* Preference signals */}
+      {signals.length > 0 && (
+        <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-2.5">
+          <p className="text-[8px] font-black uppercase tracking-widest text-white/35 mb-2">Client Intelligence</p>
+          <div className="space-y-1">
+            {signals.map((sig, i) => (
+              <div key={i} className="flex items-start gap-1.5">
+                <div className="shrink-0 w-1 h-1 rounded-full bg-[#0A4DFF]/60 mt-1.5" />
+                <p className="text-[10px] font-bold text-white/60 leading-tight">{sig}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Notes editor */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-3">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[8px] font-black uppercase tracking-widest text-white/35">Internal Notes</p>
+          {!editing && (
+            <button
+              type="button"
+              onClick={onStartEdit}
+              className="text-[8px] font-black uppercase tracking-widest text-[#0A4DFF] hover:text-[#4D8AFF]"
+            >
+              {notes ? "Edit" : "+ Add Note"}
+            </button>
+          )}
+        </div>
+        {editing ? (
+          <>
+            <textarea
+              value={draft}
+              onChange={(e) => onDraftChange(e.target.value)}
+              rows={5}
+              placeholder="Service preferences, damage warnings, staff notes…"
+              className="w-full bg-transparent border border-white/10 rounded-lg px-2.5 py-2 text-[11px] font-medium text-white placeholder-white/25 focus:outline-none focus:border-[#0A4DFF]/50 resize-none"
+            />
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={saving}
+                className="flex-1 min-h-[36px] rounded-lg bg-[#0A4DFF] hover:bg-[#0A4DFF]/90 disabled:opacity-50 text-[10px] font-black text-white transition-colors"
+              >
+                {saving ? "Saving…" : "Save Note"}
+              </button>
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-4 min-h-[36px] rounded-lg bg-white/5 hover:bg-white/10 text-[10px] font-black text-white/50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : notes ? (
+          <p className="text-[11px] font-medium text-white/65 leading-relaxed whitespace-pre-wrap">{notes}</p>
+        ) : (
+          <p className="text-[10px] text-white/25 font-medium italic">No notes added yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Risk Tab ─────────────────────────────────────────────────────────────────
+function RiskTab({
+  client, risk, protectedMatch, noShowCount, cancelCount, outstandingTotal,
+}: {
+  client: Client; risk: ReturnType<typeof getEffectiveRisk>;
+  protectedMatch: ProtectedClient | null; noShowCount: number;
+  cancelCount: number; outstandingTotal: number;
+}) {
+  const isBlocked = risk === "block_booking" || risk === "do_not_book";
+  const isElevated = risk === "medium" || risk === "high" || risk === "critical" || isBlocked;
+  const requireDeposit = isElevated || (protectedMatch?.requiredDepositValue ?? 0) > 0;
+
+  return (
+    <div className="space-y-2">
       {/* Risk status hero */}
       <div className={cn(
         "rounded-xl border px-3 py-3",
-        isBlocked   ? "bg-red-900/20 border-red-700/40"
-        : isElevated ? "bg-red-500/10 border-red-500/20"
-        :              "bg-emerald-500/5 border-emerald-500/15",
+        isBlocked || protectedMatch?.protectionLevel === "Block Booking"
+          ? "bg-red-950/40 border-red-800/40"
+          : isElevated ? "bg-red-500/8 border-red-500/20"
+          : "bg-emerald-500/5 border-emerald-500/15",
       )}>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           <div className={cn(
             "shrink-0 w-10 h-10 rounded-xl flex items-center justify-center",
-            isBlocked   ? "bg-red-900/40 text-red-400"
-            : isElevated ? "bg-red-500/20 text-red-500"
-            :              "bg-emerald-500/15 text-emerald-400",
+            isElevated ? "bg-red-500/15 text-red-400" : "bg-emerald-500/10 text-emerald-400",
           )}>
-            {isElevated
-              ? <ShieldAlert className="w-5 h-5" />
-              : <CheckCircle2 className="w-5 h-5" />}
+            {isElevated ? <ShieldAlert className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
           </div>
           <div className="flex-1 min-w-0">
-            <p className={cn(
-              "text-sm font-black uppercase tracking-tight leading-none",
-              isElevated ? "text-red-400" : "text-emerald-400",
-            )}>
-              {riskLabel}
+            <p className={cn("text-[13px] font-black uppercase tracking-tight leading-none", isElevated ? "text-red-400" : "text-emerald-400")}>
+              {getRiskBadgeLabel(risk)}
             </p>
-            <p className="text-[10px] text-white/50 font-medium mt-1 leading-tight">
-              {isBlocked  && "Account restricted. Do not book without manager approval."}
-              {risk === "high"     && "History of no-shows or payment issues. Collect deposit."}
-              {risk === "critical" && "Critical risk. Deposit required for all services."}
-              {risk === "medium"   && "Moderate risk. Deposit may be required."}
-              {risk === "low"      && "Good standing. No elevated risk flags."}
-              {!risk               && "No risk assessment on file."}
+            <p className="text-[9px] text-white/50 font-medium mt-1 leading-tight">
+              {isBlocked && "Account restricted. Do not book without manager approval."}
+              {risk === "critical" && "Critical risk — deposit required for all services."}
+              {risk === "high" && "High risk — collect deposit before booking."}
+              {risk === "medium" && "Moderate risk — deposit may be required."}
+              {risk === "low" && "Good standing. No active risk flags."}
+              {!risk && "No risk assessment on file."}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Policy details */}
-      <div className="rounded-xl border border-white/5 bg-sidebar/40 divide-y divide-white/[0.04]">
-        <RiskRow label="Risk Level"      value={riskLabel} />
-        <RiskRow
-          label="Deposit Required"
-          value={risk === "medium" || risk === "high" || risk === "critical" || isBlocked ? "Yes" : "No"}
-          highlight={risk === "high" || isBlocked}
-        />
-        <RiskRow
-          label="Booking Status"
-          value={isBlocked ? "🚫 Blocked" : "✓ Allowed"}
-          highlight={isBlocked}
-        />
-        <RiskRow
-          label="Payment Method"
-          value={client.hasSavedPaymentMethod ? "On File" : "Not Saved"}
-        />
-      </div>
-
-      {/* Appointment history risk signals */}
-      <div className="rounded-xl border border-white/5 bg-sidebar/40 divide-y divide-white/[0.04]">
-        <div className="px-3 py-2 bg-white/[0.02]">
-          <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Appointment History</p>
-        </div>
-        <RiskRow
-          label="No-Shows"
-          value={noShowCount > 0 ? `${noShowCount} recorded` : "None"}
-          highlight={noShowCount >= 2}
-        />
-        <RiskRow
-          label="Cancellations"
-          value={cancelCount > 0 ? `${cancelCount} recorded` : "None"}
-          highlight={cancelCount >= 3}
-        />
-        {outstandingFee != null && outstandingFee > 0 && (
-          <RiskRow
-            label="Outstanding Cancel Fee"
-            value={formatCurrency(outstandingFee)}
-            highlight
-          />
-        )}
-      </div>
-
-      {/* Protected client entry (from ProtectedClients collection) */}
-      {protectedEntry && (
-        <div className="rounded-xl border border-red-500/25 bg-red-900/10 px-3 py-3">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-            <p className="text-[11px] font-black text-red-400 uppercase tracking-tight">
-              Protected Client Entry
-            </p>
-          </div>
-          <div className="space-y-1">
-            {protectedEntry.protectionLevel && (
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-black uppercase tracking-widest text-white/40">Level</span>
-                <span className="text-[10px] font-bold text-red-300">{protectedEntry.protectionLevel}</span>
+      {/* Protected client match */}
+      {protectedMatch && (
+        <div className="rounded-xl border border-red-800/40 bg-red-950/30 px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <Shield className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-black text-red-400 uppercase tracking-tight">Protected Client Match</p>
+              <p className="text-[9px] text-white/55 font-medium mt-0.5 leading-tight">{protectedMatch.riskReason}</p>
+              {protectedMatch.internalNotes && (
+                <p className="text-[9px] text-white/40 font-medium mt-0.5 leading-tight italic">{protectedMatch.internalNotes}</p>
+              )}
+              <div className="flex gap-2 mt-1.5 flex-wrap">
+                <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-red-900/30 text-red-300 ring-1 ring-red-700/30">
+                  {protectedMatch.protectionLevel}
+                </span>
+                {protectedMatch.requiredDepositValue > 0 && (
+                  <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-300 ring-1 ring-amber-700/30">
+                    Deposit: {protectedMatch.requiredDepositType === "percentage"
+                      ? `${protectedMatch.requiredDepositValue}%`
+                      : formatCurrency(protectedMatch.requiredDepositValue)}
+                  </span>
+                )}
               </div>
-            )}
-            {protectedEntry.riskReason && (
-              <p className="text-[10px] text-white/50 leading-tight mt-1 italic">{protectedEntry.riskReason}</p>
-            )}
-            {protectedEntry.notes && (
-              <p className="text-[10px] text-white/40 leading-tight mt-0.5 italic">{protectedEntry.notes}</p>
-            )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Client-level risk fields (riskManagement object if present) */}
-      {client.riskLevel && client.riskLevel !== "low" && (
-        <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-2.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1.5">Risk Profile</p>
-          <div className="flex flex-wrap gap-1.5">
-            <span className={cn(
-              "text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ring-1 leading-none",
-              getRiskBadgeClass(risk),
-            )}>
-              {riskLabel}
-            </span>
-            {(client as any).riskManagement?.reason && (
-              <p className="w-full text-[10px] text-white/40 leading-tight italic mt-1">
-                {(client as any).riskManagement.reason}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Risk metrics grid */}
+      <div className="rounded-xl border border-white/5 bg-sidebar/40 divide-y divide-white/[0.04]">
+        <RiskRow label="Risk Level" value={getRiskBadgeLabel(risk)} highlight={isElevated} />
+        <RiskRow label="Deposit Required" value={requireDeposit ? "Yes" : "No"} highlight={requireDeposit} />
+        <RiskRow label="Booking Status" value={isBlocked ? "⛔ Blocked" : "✓ Allowed"} highlight={isBlocked} />
+        <RiskRow label="No-Shows" value={String(noShowCount)} highlight={noShowCount > 0} />
+        <RiskRow label="Cancellations" value={String(cancelCount)} highlight={cancelCount > 2} />
+        {outstandingTotal > 0 && (
+          <RiskRow label="Outstanding Balance" value={formatCurrency(outstandingTotal)} highlight />
+        )}
+        {(client.outstandingCancellationFee ?? 0) > 0 && (
+          <RiskRow label="Cancellation Fee" value={formatCurrency(client.outstandingCancellationFee!)} highlight />
+        )}
+        <RiskRow label="Payment on File" value={client.hasSavedPaymentMethod ? "Yes" : "No"} />
+        <RiskRow label="Protected Client" value={protectedMatch ? "Yes — " + protectedMatch.protectionLevel : "No"} highlight={!!protectedMatch} />
+      </div>
 
-      {/* Bridge to full desktop risk management */}
-      <button
-        type="button"
-        onClick={() => window.location.assign(`/clients?clientId=${client.id}&adminView=1&tab=profile`)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-left min-h-[44px]"
-      >
-        <Building2 className="w-3.5 h-3.5 text-white/30 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-bold text-white leading-tight">Manage Risk Profile</p>
-          <p className="text-[9px] text-white/35 leading-tight">Full risk settings, deposit rules, block booking</p>
+      {/* Trust score */}
+      <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-2.5">
+        <p className="text-[8px] font-black uppercase tracking-widest text-white/35 mb-2">Trust Indicators</p>
+        <div className="space-y-1.5">
+          <TrustIndicator label="Payment Reliability" ok={!outstandingTotal && !client.outstandingCancellationFee} />
+          <TrustIndicator label="Show Rate" ok={noShowCount === 0} warn={noShowCount === 1} />
+          <TrustIndicator label="Cancellation History" ok={cancelCount === 0} warn={cancelCount <= 2} />
+          <TrustIndicator label="Protected List" ok={!protectedMatch} warn={protectedMatch?.protectionLevel === "Low"} />
         </div>
-        <ExternalLink className="w-3 h-3 text-white/25 shrink-0" />
-      </button>
+      </div>
     </div>
   );
 }
 
-function RiskRow({
-  label,
-  value,
-  highlight = false,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-}) {
+function RiskRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="flex items-center justify-between px-3 py-2.5 min-h-[40px] gap-3">
-      <span className="text-[9px] font-black uppercase tracking-widest text-white/40 shrink-0">{label}</span>
-      <span className={cn(
-        "text-[11px] font-bold text-right min-w-0 break-words",
-        highlight ? "text-red-400" : "text-white",
+    <div className="flex items-center justify-between px-3 py-2 min-h-[38px]">
+      <span className="text-[8px] font-black uppercase tracking-widest text-white/35">{label}</span>
+      <span className={cn("text-[10px] font-black", highlight ? "text-rose-300" : "text-white/70")}>{value}</span>
+    </div>
+  );
+}
+
+function TrustIndicator({ label, ok, warn }: { label: string; ok: boolean; warn?: boolean }) {
+  const color = ok ? "text-emerald-400" : warn ? "text-amber-400" : "text-rose-400";
+  const Icon = ok ? CheckCircle2 : warn ? AlertTriangle : XCircle;
+  return (
+    <div className="flex items-center gap-2">
+      <Icon className={cn("w-3 h-3 shrink-0", color)} />
+      <span className="text-[9px] font-bold text-white/55">{label}</span>
+    </div>
+  );
+}
+
+// ─── AI Tab ───────────────────────────────────────────────────────────────────
+function AITab({
+  client, appointments, invoices, quotes, vehicles, services,
+}: {
+  client: Client; appointments: Appointment[]; invoices: Invoice[];
+  quotes: Quote[]; vehicles: Vehicle[]; services: Service[];
+}) {
+  const completedAppts = appointments.filter((a) => a.status === "completed" || a.status === "paid");
+  const totalSpend = completedAppts.reduce((s, a) => s + (a.totalAmount || 0), 0);
+  const avgSpend = completedAppts.length > 0 ? totalSpend / completedAppts.length : 0;
+
+  // Service mix
+  const serviceNames = appointments.flatMap((a) => a.serviceNames || []);
+  const hasCeramic = serviceNames.some((s) => s.toLowerCase().includes("ceramic"));
+  const hasInterior = serviceNames.some((s) => s.toLowerCase().includes("interior"));
+  const hasExterior = serviceNames.some((s) => s.toLowerCase().includes("exterior") || s.toLowerCase().includes("wash"));
+  const hasCoating = serviceNames.some((s) => s.toLowerCase().includes("coating") || s.toLowerCase().includes("ppf"));
+  const hasLeather = serviceNames.some((s) => s.toLowerCase().includes("leather"));
+  const hasEngine = serviceNames.some((s) => s.toLowerCase().includes("engine"));
+  const hasHeadlight = serviceNames.some((s) => s.toLowerCase().includes("headlight"));
+
+  // Retention status
+  let daysSinceLast = Infinity;
+  let retentionStatus: "active" | "at_risk" | "inactive" = "active";
+  if (completedAppts.length > 0) {
+    try {
+      daysSinceLast = differenceInDays(new Date(), convertToDate(completedAppts[0].scheduledAt));
+    } catch {}
+  }
+  if (daysSinceLast > 120) retentionStatus = "inactive";
+  else if (daysSinceLast > 60) retentionStatus = "at_risk";
+
+  // Visit frequency
+  let avgDays: number | null = null;
+  if (completedAppts.length > 1) {
+    try {
+      const first = convertToDate(completedAppts[completedAppts.length - 1].scheduledAt).getTime();
+      const last = convertToDate(completedAppts[0].scheduledAt).getTime();
+      avgDays = Math.round((last - first) / (completedAppts.length - 1) / 86400000);
+    } catch {}
+  }
+
+  // Service count map
+  const svcCounts: Record<string, number> = {};
+  completedAppts.forEach((a) => { a.serviceNames?.forEach((s) => { svcCounts[s] = (svcCounts[s] || 0) + 1; }); });
+  const topServices = Object.entries(svcCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n);
+
+  // Upsell recommendations
+  const recommendations: { title: string; reason: string; type: "upsell" | "maintenance" | "reactivation" | "package" }[] = [];
+
+  if (hasCeramic) {
+    const ceramicAppts = completedAppts.filter((a) => a.serviceNames?.some((s) => s.toLowerCase().includes("ceramic")));
+    if (ceramicAppts.length > 0) {
+      try {
+        const daysSinceCeramic = differenceInDays(new Date(), convertToDate(ceramicAppts[0].scheduledAt));
+        if (daysSinceCeramic > 180) {
+          recommendations.push({ title: "Ceramic Maintenance Wash", reason: "It's been 6+ months since ceramic service. A maintenance wash preserves hydrophobic properties.", type: "maintenance" });
+        }
+      } catch {}
+    }
+  }
+
+  if (!hasCeramic && completedAppts.length >= 2) {
+    recommendations.push({ title: "Ceramic Coating Upgrade", reason: `Client has ${completedAppts.length} completed services. Strong candidate for protective coating investment.`, type: "upsell" });
+  }
+
+  if (!hasInterior && hasExterior && completedAppts.length >= 1) {
+    recommendations.push({ title: "Interior Detail Add-On", reason: "Client only books exterior services. Introducing interior detail could increase ticket by 40–70%.", type: "upsell" });
+  }
+
+  if (!hasLeather && hasInterior) {
+    recommendations.push({ title: "Leather Conditioning", reason: "Interior history detected — leather conditioning is a natural upsell with high acceptance rate.", type: "upsell" });
+  }
+
+  if (completedAppts.length >= 4 && avgDays && avgDays <= 40 && !client.membershipLevel?.match(/gold|platinum/)) {
+    recommendations.push({ title: "Monthly Maintenance Plan", reason: "High visit frequency detected. A maintenance subscription secures recurring revenue and client loyalty.", type: "package" });
+  }
+
+  if (retentionStatus === "inactive") {
+    recommendations.push({ title: "Win-Back Campaign", reason: `Client hasn't booked in ${daysSinceLast} days. A personalized offer could reactivate this account.`, type: "reactivation" });
+  } else if (retentionStatus === "at_risk") {
+    recommendations.push({ title: "Follow-Up Touchpoint", reason: `${Math.round(daysSinceLast)} days since last service. A quick check-in keeps the relationship warm.`, type: "reactivation" });
+  }
+
+  if (!hasHeadlight && vehicles.some((v) => parseInt(v.year) < 2015)) {
+    recommendations.push({ title: "Headlight Restoration", reason: "Older vehicle detected — headlight restoration is a high-margin, quick-win service.", type: "upsell" });
+  }
+
+  if (!hasEngine && completedAppts.length >= 3) {
+    recommendations.push({ title: "Engine Bay Cleaning", reason: "Loyal client — engine bay detail is a premium add-on with strong acceptance among repeat customers.", type: "upsell" });
+  }
+
+  const hasLargeVehicle = vehicles.some((v) => v.size === "large" || v.size === "extra_large");
+  if (hasLargeVehicle && !hasCoating) {
+    recommendations.push({ title: "PPF / Paint Protection", reason: "Large vehicle on file — paint protection film is a premium investment with strong ROI for truck/SUV owners.", type: "upsell" });
+  }
+
+  // Estimated lifetime value growth
+  const projectedMonthly = avgDays && avgDays > 0 ? (avgSpend / avgDays) * 30 : null;
+  const projectedAnnual = projectedMonthly ? projectedMonthly * 12 : null;
+
+  // Talking points
+  const talkingPoints: string[] = [];
+  if (topServices.length > 0) talkingPoints.push(`Top services: ${topServices.join(", ")}`);
+  if (client.isVIP) talkingPoints.push("VIP client — acknowledge loyalty");
+  if (avgDays) talkingPoints.push(`Returns every ~${avgDays} days — consistent client`);
+  if (avgSpend > 0) talkingPoints.push(`Average ticket: ${formatCurrency(avgSpend)}`);
+  if (recommendations.length > 0) talkingPoints.push(`Key upsell: ${recommendations[0].title}`);
+
+  if (completedAppts.length === 0) {
+    return (
+      <div className="space-y-2">
+        <EmptyState icon={Brain} label="No completed jobs to analyze" />
+        <p className="text-[9px] text-white/30 font-bold text-center">AI intelligence activates after first completed service</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2.5">
+      {/* Retention status */}
+      <div className={cn(
+        "rounded-xl border px-3 py-3 flex items-center gap-3",
+        retentionStatus === "active" ? "border-emerald-500/20 bg-emerald-500/5"
+          : retentionStatus === "at_risk" ? "border-amber-500/20 bg-amber-500/5"
+          : "border-rose-500/20 bg-rose-500/5",
       )}>
-        {value}
-      </span>
+        <div className={cn(
+          "shrink-0 w-9 h-9 rounded-xl flex items-center justify-center",
+          retentionStatus === "active" ? "bg-emerald-500/15 text-emerald-400"
+            : retentionStatus === "at_risk" ? "bg-amber-500/15 text-amber-400"
+            : "bg-rose-500/15 text-rose-400",
+        )}>
+          <Users className="w-4 h-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={cn(
+            "text-[10px] font-black uppercase tracking-widest leading-none",
+            retentionStatus === "active" ? "text-emerald-400" : retentionStatus === "at_risk" ? "text-amber-400" : "text-rose-400",
+          )}>
+            {retentionStatus === "active" ? "Active Client" : retentionStatus === "at_risk" ? "At Risk" : "Inactive"}
+          </p>
+          <p className="text-[9px] text-white/50 font-medium mt-0.5 leading-tight">
+            {daysSinceLast === Infinity ? "No services yet" : `Last service ${Math.round(daysSinceLast)} days ago`}
+            {avgDays ? ` · avg every ${avgDays}d` : ""}
+          </p>
+        </div>
+      </div>
+
+      {/* Revenue intelligence */}
+      {projectedAnnual && (
+        <div className="rounded-xl border border-violet-500/20 bg-gradient-to-r from-violet-950/30 to-sidebar/60 px-3 py-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <BarChart3 className="w-3.5 h-3.5 text-violet-400" />
+            <p className="text-[8px] font-black uppercase tracking-widest text-violet-400/80">Revenue Intelligence</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <p className="text-[7px] font-black uppercase tracking-widest text-white/30">Avg Ticket</p>
+              <p className="text-[13px] font-black text-white tabular-nums">{formatCurrency(avgSpend)}</p>
+            </div>
+            <div>
+              <p className="text-[7px] font-black uppercase tracking-widest text-white/30">Proj/Month</p>
+              <p className="text-[13px] font-black text-violet-300 tabular-nums">{formatCurrency(projectedMonthly!)}</p>
+            </div>
+            <div>
+              <p className="text-[7px] font-black uppercase tracking-widest text-white/30">Proj/Year</p>
+              <p className="text-[13px] font-black text-violet-300 tabular-nums">{formatCurrency(projectedAnnual)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upsell recommendations */}
+      {recommendations.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5 px-0.5">
+            <Sparkles className="w-3 h-3 text-violet-400" />
+            <p className="text-[8px] font-black uppercase tracking-widest text-violet-400/80">AI Recommendations</p>
+          </div>
+          {recommendations.map((rec, i) => {
+            const colors = {
+              upsell: "border-violet-500/20 bg-violet-950/20",
+              maintenance: "border-sky-500/20 bg-sky-950/20",
+              reactivation: "border-amber-500/20 bg-amber-950/20",
+              package: "border-emerald-500/20 bg-emerald-950/20",
+            };
+            const iconColors = {
+              upsell: "bg-violet-500/15 text-violet-400",
+              maintenance: "bg-sky-500/15 text-sky-400",
+              reactivation: "bg-amber-500/15 text-amber-400",
+              package: "bg-emerald-500/15 text-emerald-400",
+            };
+            const icons = { upsell: TrendingUp, maintenance: RefreshCw, reactivation: Repeat, package: BookOpen };
+            const IconComponent = icons[rec.type];
+            return (
+              <div key={i} className={cn("rounded-xl border px-3 py-2.5", colors[rec.type])}>
+                <div className="flex items-start gap-2.5">
+                  <div className={cn("shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mt-0.5", iconColors[rec.type])}>
+                    <IconComponent className="w-3 h-3" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black text-white leading-tight">{rec.title}</p>
+                    <p className="text-[8px] text-white/50 font-medium mt-0.5 leading-tight">{rec.reason}</p>
+                    <span className={cn(
+                      "inline-block mt-1 text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none",
+                      rec.type === "upsell" ? "bg-violet-500/10 text-violet-300 ring-violet-500/20"
+                        : rec.type === "maintenance" ? "bg-sky-500/10 text-sky-300 ring-sky-500/20"
+                        : rec.type === "reactivation" ? "bg-amber-500/10 text-amber-300 ring-amber-500/20"
+                        : "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20",
+                    )}>
+                      {rec.type}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Talking points */}
+      {talkingPoints.length > 0 && (
+        <div className="rounded-xl border border-white/5 bg-sidebar/40 px-3 py-2.5">
+          <div className="flex items-center gap-1.5 mb-2">
+            <MessageCircle className="w-3 h-3 text-sky-400" />
+            <p className="text-[8px] font-black uppercase tracking-widest text-sky-400/70">Field Talking Points</p>
+          </div>
+          <div className="space-y-1">
+            {talkingPoints.map((pt, i) => (
+              <div key={i} className="flex items-start gap-1.5">
+                <div className="shrink-0 w-1 h-1 rounded-full bg-sky-400/50 mt-1.5" />
+                <p className="text-[9px] font-bold text-white/60 leading-tight">{pt}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Follow-up suggestion */}
+      {retentionStatus !== "active" && (
+        <div className="rounded-xl border border-amber-500/15 bg-amber-500/5 px-3 py-2.5">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Zap className="w-3 h-3 text-amber-400" />
+            <p className="text-[8px] font-black uppercase tracking-widest text-amber-400/80">Follow-Up Suggestion</p>
+          </div>
+          <p className="text-[10px] font-bold text-white/65 leading-tight">
+            {retentionStatus === "at_risk"
+              ? `"Hey ${client.firstName || getClientDisplayName(client).split(" ")[0]}, it's been a while! Your ${vehicles[0] ? `${vehicles[0].make} ${vehicles[0].model}` : "vehicle"} might be due for a detail. Want to get something on the calendar?"`
+              : `"Hi ${client.firstName || getClientDisplayName(client).split(" ")[0]}! We'd love to have you back. We're running a loyalty offer for returning clients — want details?"`}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
