@@ -55,7 +55,7 @@ import {
 import { Checkbox } from "../components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn, getClientDisplayName, cleanAddress, formatCurrency } from "@/lib/utils";
+import { cn, getClientDisplayName, cleanAddress, formatCurrency, toJsDateOrNull } from "@/lib/utils";
 import { DeleteConfirmationDialog } from "../components/DeleteConfirmationDialog";
 import { 
   AlertDialog, 
@@ -667,7 +667,13 @@ export default function Invoices() {
                       </div>
                     </TableCell>
                     <TableCell className="px-8 py-6 text-[10px] font-black text-white group-hover:text-black uppercase tracking-widest">
-                      {inv.createdAt ? format((inv.createdAt as any).toDate(), "MMM d, yyyy") : "Pending"}
+                      {(() => {
+                        // Tolerate Firestore Timestamp, JS Date, ISO string,
+                        // numeric millis, and missing values without crashing
+                        // when older docs stored createdAt in a non-Timestamp shape.
+                        const d = toJsDateOrNull(inv.createdAt);
+                        return d ? format(d, "MMM d, yyyy") : "Unknown date";
+                      })()}
                     </TableCell>
                     <TableCell className="px-8 py-6 font-black text-white group-hover:text-black text-lg tracking-tighter">
                       {formatCurrency(inv.total || 0)}

@@ -227,3 +227,47 @@ export function convertToDate(timestamp: any): Date {
   }
   return new Date();
 }
+
+/**
+ * Strict variant of `convertToDate`: returns `null` when the input is
+ * missing, malformed, or otherwise unparseable. Use this when the UI
+ * needs to distinguish "no date" from "today" (e.g. invoice rows whose
+ * `createdAt` is sometimes a Firestore Timestamp, sometimes an ISO
+ * string, sometimes missing entirely).
+ *
+ * Accepts:
+ *   - Firestore Timestamp objects (`.toDate()`)
+ *   - JS Date instances
+ *   - ISO/date strings
+ *   - numeric millis or `{ seconds }` shapes
+ *   - missing / null / undefined → `null`
+ */
+export function toJsDateOrNull(value: unknown): Date | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === 'object') {
+    const obj = value as { toDate?: () => Date; seconds?: number };
+    if (typeof obj.toDate === 'function') {
+      try {
+        const d = obj.toDate();
+        return d instanceof Date && !isNaN(d.getTime()) ? d : null;
+      } catch {
+        return null;
+      }
+    }
+    if (typeof obj.seconds === 'number') {
+      const d = new Date(obj.seconds * 1000);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    if (typeof value === 'string' && !value.trim()) return null;
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+

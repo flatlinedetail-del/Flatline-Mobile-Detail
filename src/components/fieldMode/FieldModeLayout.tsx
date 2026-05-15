@@ -61,7 +61,7 @@ export default function FieldModeLayout() {
   };
 
   const moreLinks: { name: string; href: string; icon: typeof SettingsIcon; adminOnly?: boolean }[] = [
-    { name: "Book Job", href: "/book-appointment", icon: PlusCircle },
+    { name: "Book Job", href: "/field/book-job", icon: PlusCircle },
     { name: "Leads", href: "/leads", icon: UserPlus },
     { name: "Smart Quotes", href: "/quotes", icon: FileText },
     { name: "Marketing", href: "/marketing", icon: MessageSquare },

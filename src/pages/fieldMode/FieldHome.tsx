@@ -274,7 +274,7 @@ export default function FieldHome() {
       <section aria-label="Tools" className="space-y-1.5">
         <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">Tools</h2>
         <div className="grid grid-cols-2 gap-1.5">
-          <Tile title="Book Job" icon={Plus} tone="primary" to="/book-appointment" />
+          <Tile title="Book Job" icon={Plus} tone="primary" to="/field/book-job" />
           <Tile title="Invoices" icon={Receipt} tone="emerald" to="/invoices" />
           <Tile title="Schedule" icon={CalendarIcon} tone="primary" to="/calendar" />
           <Tile title="Leads" icon={UserPlus} tone="amber" to="/leads" />
