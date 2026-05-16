@@ -1438,6 +1438,9 @@ export default function PublicBooking() {
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Service Location</Label>
                         <AddressInput
                           defaultValue={clientInfo.address}
+                          onChange={(val) =>
+                            setClientInfo(prev => ({ ...prev, address: val, lat: 0, lng: 0 }))
+                          }
                           onAddressSelect={(addr, lat, lng) =>
                             setClientInfo(prev => ({ ...prev, address: addr, lat, lng }))
                           }

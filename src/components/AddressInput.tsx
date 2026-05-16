@@ -10,6 +10,8 @@ import { StructuredAddress } from "../types";
 
 interface AddressInputProps {
   defaultValue?: string;
+  /** Called on every keystroke so the parent can sync the raw typed value. */
+  onChange?: (value: string) => void;
   onAddressSelect: (address: string, lat: number, lng: number, structured?: StructuredAddress) => void;
   placeholder?: string;
   className?: string;
@@ -17,6 +19,7 @@ interface AddressInputProps {
 
 export default function AddressInput({
   defaultValue = "",
+  onChange,
   onAddressSelect,
   placeholder = "Search address...",
   className = "",
@@ -135,6 +138,7 @@ export default function AddressInput({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setValue(val);
+    onChange?.(val);
     setShowSuggestions(val.length > 0);
     setGeocodingSuccess(false);
   };
