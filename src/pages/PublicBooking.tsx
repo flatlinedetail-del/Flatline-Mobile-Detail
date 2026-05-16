@@ -17,10 +17,10 @@ import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtils";
 import Logo from "../components/Logo";
-import { geocodeAddress } from "../services/geocodingService";
 import type { PublicBookingGateResponse } from "../services/onlineBookingGateCore";
 import { computePublicBookingTravel } from "../services/publicBookingTravelEngine";
 import { aggregateServiceDeposits } from "../services/publicBookingDepositDetector";
+import { usePublicBookingAddress } from "../hooks/usePublicBookingAddress";
 
 // ─── Public booking gate fetch ──────────────────────────────────────────────
 // `/api/booking/gate` is the public-safe server endpoint that loads
@@ -165,14 +165,16 @@ export default function PublicBooking() {
     name: "",
     email: "",
     phone: "",
-    address: "",
-    lat: 0,
-    lng: 0,
     vehicleInfo: "",
     vehicleSize: "sedan",
     vehicleColor: "",
     vehiclePlate: ""
   });
+
+  // Single source of truth for the customer's service address. Owns text,
+  // coords, placeId, status; persists across step transitions because it
+  // lives at the page-component level.
+  const address = usePublicBookingAddress();
   
   const [clientGoal, setClientGoal] = useState("");
   const [condition, setCondition] = useState({
@@ -468,6 +470,12 @@ export default function PublicBooking() {
       // these IDs server-side (the public client cannot tamper with prices).
       const resolvedServices = services.filter(s => selectedServices.includes(s.id));
 
+      // Resolve the address: if the customer typed without selecting an
+      // autocomplete suggestion the coords may still be missing. ensureGeocoded
+      // performs a best-effort lookup; on failure the appointment still saves
+      // (the server gate routes uncoordinated bookings to owner review).
+      const resolvedAddress = await address.ensureGeocoded();
+
       // ── Server-side Online Booking Gate ──────────────────────────────────
       // Authoritative risk + deposit check. Runs with admin credentials
       // server-side so protected_clients stays inaccessible to the public
@@ -481,8 +489,8 @@ export default function PublicBooking() {
         selectedServiceIds: selectedServices,
         grandTotal,
         customerCoordinates:
-          clientInfo.lat && clientInfo.lng
-            ? { lat: clientInfo.lat, lng: clientInfo.lng }
+          resolvedAddress.lat && resolvedAddress.lng
+            ? { lat: resolvedAddress.lat, lng: resolvedAddress.lng }
             : null,
       });
 
@@ -527,9 +535,10 @@ export default function PublicBooking() {
         customerName: clientInfo.name,
         customerEmail: clientInfo.email,
         customerPhone: clientInfo.phone,
-        address: clientInfo.address,
-        latitude: clientInfo.lat,
-        longitude: clientInfo.lng,
+        address: resolvedAddress.address,
+        latitude: resolvedAddress.lat,
+        longitude: resolvedAddress.lng,
+        addressPlaceId: resolvedAddress.placeId,
         vehicleInfo: fullVehicleInfo,
         vehicleSize: clientInfo.vehicleSize,
         serviceIds: selectedServices,
@@ -733,6 +742,9 @@ export default function PublicBooking() {
   // Uses the centralized publicBookingTravelEngine so the preview matches
   // exactly what the server gate computes at submission time. Business home /
   // travel origin coordinates are owned by the engine and never surfaced.
+  // Coordinates come from the address controller hook — typed-only addresses
+  // are geocoded on demand by `ensureGeocoded()` at submit; the preview
+  // simply shows zero travel until coords resolve.
   const travelResult = useMemo(() => {
     if (!settings) {
       return {
@@ -745,31 +757,12 @@ export default function PublicBooking() {
       };
     }
     return computePublicBookingTravel({
-      customerLat: clientInfo.lat,
-      customerLng: clientInfo.lng,
+      customerLat: address.state.lat,
+      customerLng: address.state.lng,
       settings,
     });
-  }, [settings, clientInfo.lat, clientInfo.lng]);
+  }, [settings, address.state.lat, address.state.lng]);
   const travelFee = travelResult.travelFee;
-
-  // Geocoding fallback — if the customer typed an address without selecting
-  // a Google suggestion, lat/lng come in as 0. Debounce-geocode once the
-  // address stops changing so the travel fee + service-area check resolve
-  // before the customer reaches review.
-  useEffect(() => {
-    if (!clientInfo.address) return;
-    if (clientInfo.lat && clientInfo.lng) return;
-    const handle = setTimeout(() => {
-      geocodeAddress(clientInfo.address)
-        .then(({ lat, lng }) => {
-          if (lat && lng) {
-            setClientInfo(prev => (prev.lat || prev.lng ? prev : { ...prev, lat, lng }));
-          }
-        })
-        .catch(() => { /* geocoding is best-effort */ });
-    }, 700);
-    return () => clearTimeout(handle);
-  }, [clientInfo.address, clientInfo.lat, clientInfo.lng]);
 
   const totalPrice = serviceSubtotal + travelFee;
 
@@ -1446,12 +1439,15 @@ export default function PublicBooking() {
                       <div className="space-y-4 pt-4 border-t border-gray-100">
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Service Location</Label>
                         <AddressInput
-                          defaultValue={clientInfo.address}
-                          onChange={(val) =>
-                            setClientInfo(prev => ({ ...prev, address: val, lat: 0, lng: 0 }))
-                          }
-                          onAddressSelect={(addr, lat, lng) =>
-                            setClientInfo(prev => ({ ...prev, address: addr, lat, lng }))
+                          value={address.state.address}
+                          onChange={address.setText}
+                          onAddressSelect={(addr, lat, lng, structured) =>
+                            address.setSelection({
+                              address: addr,
+                              lat,
+                              lng,
+                              placeId: structured?.placeId ?? null,
+                            })
                           }
                           placeholder="Enter your location for mobile service"
                         />
@@ -1459,10 +1455,10 @@ export default function PublicBooking() {
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
                         <Button type="button" variant="outline" className="font-bold h-12 px-8 border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" onClick={() => setStep(5)}>Back</Button>
-                        <Button 
-                          type="button" 
+                        <Button
+                          type="button"
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
-                          disabled={!clientInfo.name || !clientInfo.phone || !clientInfo.address}
+                          disabled={!clientInfo.name || !clientInfo.phone || !address.state.address}
                           onClick={() => setStep(7)}
                         >
                           Review & Confirm <ArrowRight className="w-5 h-5 ml-2" />
@@ -1491,7 +1487,7 @@ export default function PublicBooking() {
                         </div>
                         <div className="flex items-center gap-3 pt-2">
                            <MapPin className="w-5 h-5 text-gray-500" />
-                           <p className="text-sm font-bold text-gray-800">{clientInfo.address}</p>
+                           <p className="text-sm font-bold text-gray-800">{address.state.address}</p>
                         </div>
                       </div>
 

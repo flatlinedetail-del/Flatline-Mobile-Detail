@@ -9,6 +9,18 @@ import { cn, cleanAddress } from "@/lib/utils";
 import { StructuredAddress } from "../types";
 
 interface AddressInputProps {
+  /**
+   * Controlled mode. When provided, this string is the source of truth for
+   * the visible input value and `defaultValue` is ignored. Required for the
+   * public booking flow where the parent (via usePublicBookingAddress) owns
+   * the address state.
+   */
+  value?: string;
+  /**
+   * Uncontrolled-mode initial value. Used only when `value` is not provided.
+   * Preserved for existing callers (BookAppointment) that still rely on the
+   * uncontrolled pattern.
+   */
   defaultValue?: string;
   /** Called on every keystroke so the parent can sync the raw typed value. */
   onChange?: (value: string) => void;
@@ -18,12 +30,14 @@ interface AddressInputProps {
 }
 
 export default function AddressInput({
+  value: controlledValue,
   defaultValue = "",
   onChange,
   onAddressSelect,
   placeholder = "Search address...",
   className = "",
 }: AddressInputProps) {
+  const isControlled = controlledValue !== undefined;
   const { isLoaded, loadError: loaderError } = useGoogleMaps();
 
   const [loadError, setLoadError] = useState<Error | null>(null);
@@ -69,14 +83,30 @@ export default function AddressInput({
     }
   }, [isLoaded, init]);
 
-  // Sync defaultValue carefully
+  // Sync defaultValue carefully — ONLY in uncontrolled mode. When the parent
+  // passes `value`, the controlled-sync effect below owns the input.
   const lastDefaultValue = useRef(defaultValue);
   useEffect(() => {
+    if (isControlled) return;
     if (defaultValue !== lastDefaultValue.current && !isFocused.current) {
       setValue(cleanAddress(defaultValue), false);
       lastDefaultValue.current = defaultValue;
     }
-  }, [defaultValue, setValue]);
+  }, [defaultValue, setValue, isControlled]);
+
+  // Controlled-mode sync — keep the usePlacesAutocomplete internal value
+  // aligned with the parent's `value` so suggestion queries stay in sync.
+  // No-op when the values already match (avoids re-render churn).
+  useEffect(() => {
+    if (!isControlled) return;
+    const next = controlledValue ?? "";
+    if (next !== value) {
+      // `false` suppresses fetching suggestions for parent-driven updates
+      // (e.g. step transitions, programmatic resets). Suggestions still
+      // fetch normally for user keystrokes via handleInputChange.
+      setValue(next, false);
+    }
+  }, [isControlled, controlledValue, value, setValue]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -137,6 +167,9 @@ export default function AddressInput({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
+    // In uncontrolled mode we own the internal state; in controlled mode the
+    // parent's `value` will flow back through the sync effect on the next
+    // render. Either way we still call setValue so suggestions stay live.
     setValue(val);
     onChange?.(val);
     setShowSuggestions(val.length > 0);
@@ -147,7 +180,11 @@ export default function AddressInput({
     isFocused.current = false;
     // Delay to allow handleSelect to run first if a suggestion was clicked
     setTimeout(async () => {
-      if (!selectionMadeRef.current && value && value !== defaultValue) {
+      // Compare against the appropriate "baseline" — in controlled mode the
+      // parent's `value` is the baseline; in uncontrolled mode it's the
+      // original defaultValue.
+      const baseline = isControlled ? (controlledValue ?? "") : defaultValue;
+      if (!selectionMadeRef.current && value && value !== baseline) {
         setShowSuggestions(false);
         // Background geocode manual entry
         setIsGeocoding(true);
@@ -178,12 +215,13 @@ export default function AddressInput({
         <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-700 z-10" />
         <input
           type="text"
-          value={value}
+          value={isControlled ? (controlledValue ?? "") : value}
           onChange={handleInputChange}
           onBlur={handleBlur}
           onFocus={() => {
             isFocused.current = true;
-            if (value.length > 0) setShowSuggestions(true);
+            const current = isControlled ? (controlledValue ?? "") : value;
+            if (current.length > 0) setShowSuggestions(true);
           }}
           placeholder={!isLoaded ? "Loading maps..." : placeholder}
           className={cn(
