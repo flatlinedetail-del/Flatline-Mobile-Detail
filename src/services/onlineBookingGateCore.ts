@@ -99,6 +99,17 @@ export interface BookingGateResult {
   depositAmount: number;
   depositType: "fixed" | "percentage" | "mixed" | null;
   depositSource: "risk_rule" | "service" | "none";
+  /**
+   * Audit-only strings explaining why a deposit was triggered. Kept GENERIC
+   * so they are safe for public exposure (service names are publicly readable
+   * already; risk-level text is intentionally NOT included here — see the
+   * stricter `riskReason` field for that).
+   *
+   *   • "Service deposit: <service name>"
+   *   • "Account requires advance review"
+   *   • "Client profile requires deposit"
+   */
+  depositReasons: string[];
   depositPaid: false;
   paymentStatus: "deposit_pending" | "unpaid";
   balanceDue: number;
@@ -128,6 +139,8 @@ export interface PublicBookingGateResponse {
   depositAmount: number;
   depositType: "fixed" | "percentage" | "mixed" | null;
   depositSource: "risk_rule" | "service" | "none";
+  /** Generic deposit-trigger strings. Never include raw risk-level wording. */
+  depositReasons: string[];
   paymentStatus: "deposit_pending" | "unpaid";
   balanceDue: number;
   customerMessageType: CustomerMessageType;
@@ -229,10 +242,15 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     (clientInherentRisk ? "Risk level detected on client profile." : null);
 
   // ── 4. Determine deposit requirement ──────────────────────────────────────
+  // Reasons array is built alongside the decision so admins can audit *why*
+  // a deposit fired. Strings are intentionally GENERIC — they never include
+  // raw risk-level wording (use `riskReason` for that), so the array is safe
+  // to expose to the public client and persist on the appointment doc.
   let depositRequired = false;
   let depositAmount = 0;
   let depositType: "fixed" | "percentage" | "mixed" | null = null;
   let depositSource: "risk_rule" | "service" | "none" = "none";
+  const depositReasons: string[] = [];
 
   if (matchedPc && (matchedPc.requiredDepositValue ?? 0) > 0) {
     // Protected-client rule takes highest priority.
@@ -245,6 +263,7 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     } else {
       depositAmount = matchedPc.requiredDepositValue ?? 0;
     }
+    depositReasons.push("Account requires advance review");
   } else if (
     clientInherentRisk &&
     ["high", "High", "medium", "Medium", "Med", "med"].includes(clientInherentRisk)
@@ -254,20 +273,32 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     depositSource = "risk_rule";
     depositType = "percentage";
     depositAmount = (grandTotal * 25) / 100;
+    depositReasons.push("Client profile requires deposit");
   } else {
     // Service-level deposits: accumulate, track types for "mixed" detection.
+    // Match the same field-name variance used by riskUtils.computeDepositRequirement
+    // (`depositRequired` / `requireDeposit` / `requiresDeposit`) so real-world
+    // service docs with the alternate names are not silently skipped.
     const seenTypes = new Set<string>();
     for (const svc of selectedServices) {
-      if (!svc.depositRequired) continue;
+      const svcRaw = svc as Service & {
+        requireDeposit?: boolean;
+        requiresDeposit?: boolean;
+      };
+      const svcRequires = Boolean(
+        svcRaw.depositRequired || svcRaw.requireDeposit || svcRaw.requiresDeposit,
+      );
+      if (!svcRequires) continue;
       depositRequired = true;
       depositSource = "service";
-      const svcType = svc.depositType ?? "fixed";
+      const svcType = svcRaw.depositType ?? "fixed";
       seenTypes.add(svcType);
       if (svcType === "percentage") {
-        depositAmount += ((svc.depositAmount ?? 0) * svc.basePrice) / 100;
+        depositAmount += ((svcRaw.depositAmount ?? 0) * svcRaw.basePrice) / 100;
       } else {
-        depositAmount += svc.depositAmount ?? 0;
+        depositAmount += svcRaw.depositAmount ?? 0;
       }
+      depositReasons.push(`Service deposit: ${svcRaw.name ?? svcRaw.id}`);
     }
     if (seenTypes.size === 1) {
       depositType = seenTypes.values().next().value as "fixed" | "percentage";
@@ -332,6 +363,7 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     depositAmount,
     depositType: depositRequired ? depositType : null,
     depositSource,
+    depositReasons,
     depositPaid: false,
     paymentStatus,
     balanceDue,
@@ -356,12 +388,13 @@ export function sanitizeGateResultForPublic(
     depositAmount: full.depositAmount,
     depositType: full.depositType,
     depositSource: full.depositSource,
+    depositReasons: full.depositReasons,
     paymentStatus: full.paymentStatus,
     balanceDue: full.balanceDue,
     customerMessageType: full.customerMessageType,
     // DELIBERATELY OMITTED — never cross the wire to a public client:
-    //   - riskReason
-    //   - protectionLevel
-    //   - clientRiskLevelAtBooking
+    //   - riskReason          (raw protected-client reason text)
+    //   - protectionLevel     (raw enum text)
+    //   - clientRiskLevelAtBooking (raw enum text)
   };
 }

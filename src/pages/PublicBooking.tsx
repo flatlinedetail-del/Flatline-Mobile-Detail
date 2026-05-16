@@ -575,6 +575,7 @@ export default function PublicBooking() {
         depositAmount: gate.depositAmount,
         depositType: gate.depositType,
         depositSource: gate.depositSource,
+        depositReasons: gate.depositReasons,
         depositPaid: false,
         depositPaidAt: null,
         paymentStatus: gate.paymentStatus,
@@ -764,18 +765,27 @@ export default function PublicBooking() {
     // protected_clients / clients, which are admin-only — those are resolved
     // server-side at submission via /api/booking/gate and reflected in the
     // post-submit confirmation screen instead of the live preview.
+    //
+    // Accept the same field-name variance the server gate uses
+    // (`depositRequired` / `requireDeposit` / `requiresDeposit`) so a real
+    // Firestore service doc with the alternate name shows the deposit here.
     let amount = 0;
     let isRequired = false;
 
     selectedServices.forEach(id => {
-      const s = services.find(x => x.id === id);
-      if (s?.depositRequired) {
-        isRequired = true;
-        if (s.depositType === "percentage") {
-          amount += (s.basePrice * (s.depositAmount || 0)) / 100;
-        } else {
-          amount += s.depositAmount || 0;
-        }
+      const s = services.find(x => x.id === id) as
+        | (Service & { requireDeposit?: boolean; requiresDeposit?: boolean })
+        | undefined;
+      if (!s) return;
+      const requires = Boolean(
+        s.depositRequired || s.requireDeposit || s.requiresDeposit,
+      );
+      if (!requires) return;
+      isRequired = true;
+      if (s.depositType === "percentage") {
+        amount += (s.basePrice * (s.depositAmount || 0)) / 100;
+      } else {
+        amount += s.depositAmount || 0;
       }
     });
 
@@ -1426,8 +1436,11 @@ export default function PublicBooking() {
 
                       <div className="space-y-4 pt-4 border-t border-gray-100">
                         <Label className="text-sm font-black uppercase tracking-widest text-gray-900">Service Location</Label>
-                        <AddressInput 
-                          onAddressSelect={(addr, lat, lng) => setClientInfo(prev => ({ ...prev, address: addr, lat, lng }))}
+                        <AddressInput
+                          defaultValue={clientInfo.address}
+                          onAddressSelect={(addr, lat, lng) =>
+                            setClientInfo(prev => ({ ...prev, address: addr, lat, lng }))
+                          }
                           placeholder="Enter your location for mobile service"
                         />
                       </div>
