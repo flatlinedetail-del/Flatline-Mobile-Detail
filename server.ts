@@ -489,6 +489,232 @@ async function startServer() {
     }
   });
 
+  // ── TEMPORARY DIAGNOSTIC ────────────────────────────────────────────────────
+  //
+  // POST /api/debug/protected-client-match
+  //
+  // Live-data diagnostic for the Risk Management → public booking matcher.
+  // Returns the exact protected_clients rows the server sees, the normalised
+  // identifiers on both sides, and the deposit decision the gate would emit
+  // for a given customer payload.
+  //
+  // SECURITY: gated by the `BOOKING_DEBUG_TOKEN` env var. If the env var is
+  // unset the endpoint returns 503 — it is OFF by default in production.
+  // Requests must send a matching `X-Debug-Token` header. Even when enabled
+  // the response excludes `riskReason` and `internalNotes` per the user's
+  // explicit instruction.
+  //
+  // REMOVAL: this endpoint exists only to diagnose the live-data mismatch
+  // documented in the May-2026 Risk Management rebuild. Delete this whole
+  // block (and the BOOKING_DEBUG_TOKEN env var) once the root cause is
+  // resolved.
+  app.post("/api/debug/protected-client-match", async (req, res) => {
+    const expectedToken = process.env.BOOKING_DEBUG_TOKEN;
+    if (!expectedToken) {
+      return res.status(503).json({
+        error: "Diagnostic disabled",
+        code: "DEBUG_DISABLED",
+        message: "Set BOOKING_DEBUG_TOKEN in the server env to enable.",
+      });
+    }
+    const provided = req.header("x-debug-token");
+    if (provided !== expectedToken) {
+      return res.status(401).json({ error: "unauthorized", code: "DEBUG_AUTH" });
+    }
+
+    const db = getBookingGateAdminDb();
+    if (!db) {
+      return res.status(503).json({
+        error: "Admin SDK not configured",
+        code: "GATE_NOT_CONFIGURED",
+      });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const email = typeof body.email === "string" ? body.email : "";
+    const phone = typeof body.phone === "string" ? body.phone : "";
+    const licensePlate = typeof body.licensePlate === "string" ? body.licensePlate : "";
+    const vin = typeof body.vin === "string" ? body.vin : "";
+    const grandTotalRaw = body.grandTotal;
+    const grandTotal =
+      typeof grandTotalRaw === "number" && isFinite(grandTotalRaw) && grandTotalRaw >= 0
+        ? grandTotalRaw
+        : 100;
+
+    // Re-read the firebase-applet-config so we can echo the configured
+    // databaseId in the diagnostic output — this is the most common source
+    // of "matcher loads zero docs" issues.
+    let configuredDatabaseId: string | null = null;
+    let configuredProjectId: string | null = null;
+    try {
+      const configPath = path.join(__dirname, "firebase-applet-config.json");
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      configuredDatabaseId =
+        typeof config.firestoreDatabaseId === "string" ? config.firestoreDatabaseId : "(default)";
+      configuredProjectId = typeof config.projectId === "string" ? config.projectId : null;
+    } catch {
+      configuredDatabaseId = "(could not read firebase-applet-config.json)";
+    }
+
+    const normEmail = gateNormalizeEmail(email);
+    const normPhone = (phone || "").replace(/\D/g, "");
+    const normPhoneTrimmed =
+      normPhone.length === 11 && normPhone.startsWith("1") ? normPhone.slice(1) : normPhone;
+    const normPlate = (licensePlate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const normVin = (vin || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+    try {
+      const pcSnap = await db.collection("protected_clients").get();
+
+      const candidates = pcSnap.docs.map((d) => {
+        const data = d.data() as Record<string, unknown>;
+        const pcEmail = typeof data.email === "string" ? data.email : "";
+        const pcPhone = typeof data.phone === "string" ? data.phone : "";
+        const pcPlate = typeof data.licensePlate === "string" ? data.licensePlate : "";
+        const pcVin = typeof data.vin === "string" ? data.vin : "";
+
+        const pcNormEmail = pcEmail.trim().toLowerCase();
+        const pcNormPhoneRaw = pcPhone.replace(/\D/g, "");
+        const pcNormPhone =
+          pcNormPhoneRaw.length === 11 && pcNormPhoneRaw.startsWith("1")
+            ? pcNormPhoneRaw.slice(1)
+            : pcNormPhoneRaw;
+        const pcNormPlate = pcPlate.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const pcNormVin = pcVin.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+        const isActive = data.isActive !== false; // default-active if field missing
+
+        // Match guards mirror publicBookingRiskEngine.matchProtectedClient
+        const emailHit =
+          isActive &&
+          normEmail.length > 3 &&
+          pcNormEmail.length > 3 &&
+          pcNormEmail === normEmail;
+        const phoneHit =
+          isActive &&
+          normPhoneTrimmed.length >= 10 &&
+          pcNormPhone.length >= 10 &&
+          pcNormPhone === normPhoneTrimmed;
+        const plateHit =
+          isActive &&
+          normPlate.length > 3 &&
+          pcNormPlate.length > 3 &&
+          pcNormPlate === normPlate;
+        const vinHit =
+          isActive &&
+          normVin.length > 3 &&
+          pcNormVin.length > 3 &&
+          pcNormVin === normVin;
+
+        const matched = emailHit || phoneHit || plateHit || vinHit;
+        const matchedBy = emailHit
+          ? "email"
+          : phoneHit
+            ? "phone"
+            : plateHit
+              ? "licensePlate"
+              : vinHit
+                ? "vin"
+                : null;
+
+        return {
+          id: d.id,
+          // raw stored values
+          raw: {
+            email: pcEmail,
+            phone: pcPhone,
+            licensePlate: pcPlate,
+            vin: pcVin,
+            isActive: data.isActive,
+            isActiveResolved: isActive,
+            protectionLevel: data.protectionLevel ?? null,
+            depositRequired: data.depositRequired ?? null,
+            requiredDepositType: data.requiredDepositType ?? null,
+            requiredDepositValue: data.requiredDepositValue ?? null,
+            fullName: data.fullName ?? null,
+            linkedClientId: data.linkedClientId ?? null,
+            createdAt: data.createdAt ?? null,
+            updatedAt: data.updatedAt ?? null,
+            // Field-name presence map — answers "does this doc even have the
+            // canonical field names the matcher looks for?"
+            __keysPresent: Object.keys(data).sort(),
+          },
+          normalized: {
+            email: pcNormEmail,
+            phone: pcNormPhone,
+            licensePlate: pcNormPlate,
+            vin: pcNormVin,
+          },
+          match: { matched, matchedBy, emailHit, phoneHit, plateHit, vinHit },
+          // EXCLUDED per spec: riskReason, internalNotes
+        };
+      });
+
+      const matchedCandidate = candidates.find((c) => c.match.matched) ?? null;
+
+      // Run the actual gate against the same data the public endpoint would
+      // use, so the diagnostic shows the final deposit decision the matcher
+      // would produce.
+      const gateResult = decideBookingGate({
+        email,
+        phone,
+        licensePlate: licensePlate || undefined,
+        vin: vin || undefined,
+        selectedServices: [], // deposit-only diagnostic; service deposits not exercised
+        grandTotal,
+        protectedClients: pcSnap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Record<string, unknown>),
+        })),
+        matchedClient: null,
+      });
+
+      return res.json({
+        meta: {
+          databaseId: configuredDatabaseId,
+          projectId: configuredProjectId,
+          protectedClientsCount: pcSnap.size,
+          timestamp: new Date().toISOString(),
+        },
+        input: {
+          raw: { email, phone, licensePlate, vin, grandTotal },
+          normalized: {
+            email: normEmail,
+            phone: normPhoneTrimmed,
+            licensePlate: normPlate,
+            vin: normVin,
+          },
+        },
+        candidates,
+        matchedCandidateId: matchedCandidate?.id ?? null,
+        depositDecision: {
+          bookingMode: gateResult.bookingMode,
+          pendingOwnerReview: gateResult.pendingOwnerReview,
+          depositRequired: gateResult.depositRequired,
+          depositAmount: gateResult.depositAmount,
+          depositType: gateResult.depositType,
+          depositSource: gateResult.depositSource,
+          depositReasons: gateResult.depositReasons,
+          paymentStatus: gateResult.paymentStatus,
+          balanceDue: gateResult.balanceDue,
+          customerMessageType: gateResult.customerMessageType,
+          matchedProtectedClientId: gateResult.matchedProtectedClientId,
+          protectedClientMatch: gateResult.protectedClientMatch,
+          // EXCLUDED per spec: riskReason, protectionLevel raw text,
+          // clientRiskLevelAtBooking — though this is an admin-only endpoint,
+          // we deliberately mirror the public-safe contract.
+        },
+      });
+    } catch (err) {
+      console.error("[debug/protected-client-match] error:", err);
+      return res.status(500).json({
+        error: "diagnostic failed",
+        code: "DEBUG_INTERNAL_ERROR",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
