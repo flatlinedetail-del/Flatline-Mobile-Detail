@@ -1,13 +1,80 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import "dotenv/config";
 import sgMail from "@sendgrid/mail";
 import twilio from "twilio";
+import {
+  initializeApp as initAdminApp,
+  cert as adminCert,
+  getApps as getAdminApps,
+  type App as AdminApp,
+} from "firebase-admin/app";
+import {
+  getFirestore as getAdminFirestore,
+  type Firestore as AdminFirestore,
+} from "firebase-admin/firestore";
 import { startScheduler } from "./scheduler.ts";
+import type { Service } from "./src/types";
+import {
+  decideBookingGate,
+  sanitizeGateResultForPublic,
+  normalizeEmail as gateNormalizeEmail,
+} from "./src/services/onlineBookingGateCore";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ─── Firebase Admin (for /api/booking/gate) ──────────────────────────────────
+// Lazy-initialized on first request so the rest of the server starts even when
+// FIREBASE_SERVICE_ACCOUNT_KEY is not configured. When unset, the booking-gate
+// endpoint returns 503 — the public booking page then fails safe.
+
+let adminInitAttempted = false;
+let adminDb: AdminFirestore | null = null;
+
+function getBookingGateAdminDb(): AdminFirestore | null {
+  if (adminInitAttempted) return adminDb;
+  adminInitAttempted = true;
+
+  const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  if (!keyJson) {
+    console.warn(
+      "[booking-gate] FIREBASE_SERVICE_ACCOUNT_KEY not set — /api/booking/gate disabled. " +
+      "Public booking will fail safe (no instant-confirm) until a service account is provided.",
+    );
+    return null;
+  }
+
+  try {
+    const serviceAccount = JSON.parse(keyJson);
+    const existing: AdminApp[] = getAdminApps();
+    const app: AdminApp = existing.length === 0
+      ? initAdminApp({ credential: adminCert(serviceAccount) }, "bookingGateApp")
+      : (existing.find((a) => a.name === "bookingGateApp") ?? existing[0]);
+
+    // Read the firestoreDatabaseId from the same applet config the scheduler
+    // uses, so the admin SDK targets the same named database as the client.
+    let databaseId: string | undefined;
+    try {
+      const configPath = path.join(__dirname, "firebase-applet-config.json");
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      databaseId = typeof config.firestoreDatabaseId === "string"
+        ? config.firestoreDatabaseId
+        : undefined;
+    } catch (cfgErr) {
+      console.warn("[booking-gate] Could not read firebase-applet-config.json for databaseId; using default.", cfgErr);
+    }
+
+    adminDb = databaseId ? getAdminFirestore(app, databaseId) : getAdminFirestore(app);
+    console.log("[booking-gate] firebase-admin initialized — /api/booking/gate ready.");
+    return adminDb;
+  } catch (e) {
+    console.error("[booking-gate] Failed to initialize firebase-admin:", e);
+    return null;
+  }
+}
 
 // Initialize providers if available
 if (process.env.SENDGRID_API_KEY) {
@@ -280,11 +347,122 @@ async function startServer() {
     }
 
     const { amount, invoiceId } = req.body;
-    
+
     // TODO: Implement Clover REST API integration using the token
     console.log(`Processing Clover payment for invoice ${invoiceId} of $${amount}`);
-    
+
     return res.status(501).json({ error: "Payment system not configured" });
+  });
+
+  // ── Public Booking Gate ─────────────────────────────────────────────────────
+  //
+  // POST /api/booking/gate
+  // Loads protected_clients + matching client + services with ADMIN credentials,
+  // runs the pure decision core, and returns a sanitized result.
+  //
+  // The public /book page calls this endpoint instead of reading
+  // protected_clients directly (which is admin-only per firestore.rules and
+  // must remain so). Sensitive text fields (riskReason, protectionLevel,
+  // clientRiskLevelAtBooking) are NEVER returned to the public client.
+  app.post("/api/booking/gate", async (req, res) => {
+    const db = getBookingGateAdminDb();
+    if (!db) {
+      return res.status(503).json({
+        error: "Booking gate not configured",
+        code: "GATE_NOT_CONFIGURED",
+        message:
+          "Booking review is temporarily unavailable. Please try again shortly or contact us directly.",
+      });
+    }
+
+    // ── Validate body ────────────────────────────────────────────────────────
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const email = typeof body.email === "string" ? body.email : "";
+    const phone = typeof body.phone === "string" ? body.phone : "";
+    const licensePlate = typeof body.licensePlate === "string" ? body.licensePlate : undefined;
+    const grandTotalRaw = body.grandTotal;
+    const grandTotal = typeof grandTotalRaw === "number" && isFinite(grandTotalRaw) && grandTotalRaw >= 0
+      ? grandTotalRaw
+      : NaN;
+    const selectedServiceIdsRaw = body.selectedServiceIds;
+    const selectedServiceIds = Array.isArray(selectedServiceIdsRaw)
+      ? selectedServiceIdsRaw.filter((x): x is string => typeof x === "string" && x.length > 0).slice(0, 40)
+      : [];
+
+    if (!email && !phone) {
+      return res.status(400).json({ error: "email or phone is required" });
+    }
+    if (!isFinite(grandTotal)) {
+      return res.status(400).json({ error: "grandTotal must be a non-negative number" });
+    }
+    if (selectedServiceIds.length === 0) {
+      return res.status(400).json({ error: "selectedServiceIds must be a non-empty array" });
+    }
+
+    try {
+      // ── Load data with admin privileges ────────────────────────────────────
+      // protected_clients: list is small; full collection load is fine.
+      // clients: lookup by normalized email (one-document expected).
+      // services: load each by ID so deposit rules use authoritative server data
+      //           (the public client can't tamper with depositRequired/amount).
+      const normEmail = gateNormalizeEmail(email);
+
+      const pcPromise = db.collection("protected_clients").get();
+      const clientPromise = normEmail.length > 3
+        ? db.collection("clients").where("email", "==", normEmail).limit(1).get()
+        : Promise.resolve(null);
+      const servicesPromise = Promise.all(
+        selectedServiceIds.map((id) => db.collection("services").doc(id).get()),
+      );
+
+      const [pcSnap, clientSnap, serviceSnaps] = await Promise.all([
+        pcPromise,
+        clientPromise,
+        servicesPromise,
+      ]);
+
+      const protectedClients = pcSnap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Record<string, unknown>),
+      }));
+
+      const matchedClient = clientSnap && !clientSnap.empty
+        ? { id: clientSnap.docs[0].id, ...(clientSnap.docs[0].data() as Record<string, unknown>) }
+        : null;
+
+      const selectedServices: Service[] = serviceSnaps
+        .filter((s) => s.exists)
+        .map((s) => ({ id: s.id, ...(s.data() as Omit<Service, "id">) }));
+
+      if (selectedServices.length === 0) {
+        return res.status(400).json({ error: "No matching services found for selectedServiceIds" });
+      }
+
+      // ── Run pure decision core ──────────────────────────────────────────────
+      const result = decideBookingGate({
+        email,
+        phone,
+        licensePlate,
+        selectedServices,
+        grandTotal,
+        protectedClients,
+        matchedClient,
+      });
+
+      // ── Sanitize and return ─────────────────────────────────────────────────
+      // riskReason / protectionLevel / clientRiskLevelAtBooking are stripped
+      // by sanitizeGateResultForPublic — they never cross the wire.
+      const safeResult = sanitizeGateResultForPublic(result);
+      return res.json(safeResult);
+    } catch (err) {
+      console.error("[booking-gate] error:", err);
+      return res.status(500).json({
+        error: "Booking gate failed",
+        code: "GATE_INTERNAL_ERROR",
+        message:
+          "We could not complete booking review right now. Please try again or contact us directly.",
+      });
+    }
   });
 
   // Vite middleware for development

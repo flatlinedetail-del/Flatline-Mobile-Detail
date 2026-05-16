@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { collection, query, addDoc, updateDoc, serverTimestamp, doc, getDoc, getDocs, where, Timestamp } from "firebase/firestore";
+import { collection, query, addDoc, serverTimestamp, doc, getDoc, getDocs, where, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,12 +19,41 @@ import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtil
 import Logo from "../components/Logo";
 import { calculateDistance, calculateTravelFee } from "../services/travelService";
 import { geocodeAddress } from "../services/geocodingService";
-import {
-  runOnlineBookingGate,
-  normalizeEmail as gateNormalizeEmail,
-  normalizePhone as gateNormalizePhone,
-} from "../services/onlineBookingGate";
-import type { BookingGateResult } from "../services/onlineBookingGate";
+import type { PublicBookingGateResponse } from "../services/onlineBookingGateCore";
+
+// ─── Public booking gate fetch ──────────────────────────────────────────────
+// `/api/booking/gate` is the public-safe server endpoint that loads
+// protected_clients with admin credentials and returns ONLY sanitized fields.
+// We never read protected_clients from the browser on this page.
+type GateFetchResult =
+  | { ok: true; data: PublicBookingGateResponse }
+  | { ok: false; status: number; code?: string; message?: string };
+
+async function fetchPublicBookingGate(body: {
+  email: string;
+  phone: string;
+  licensePlate?: string;
+  selectedServiceIds: string[];
+  grandTotal: number;
+}): Promise<GateFetchResult> {
+  try {
+    const resp = await fetch("/api/booking/gate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      let err: { code?: string; message?: string; error?: string } = {};
+      try { err = await resp.json(); } catch { /* non-JSON body */ }
+      return { ok: false, status: resp.status, code: err.code, message: err.message ?? err.error };
+    }
+    const data = (await resp.json()) as PublicBookingGateResponse;
+    return { ok: true, data };
+  } catch (e) {
+    console.error("[PublicBooking] gate fetch failed:", e);
+    return { ok: false, status: 0, code: "GATE_NETWORK_ERROR" };
+  }
+}
 
 const STEPS = ["Vehicle", "Needs", "Condition", "Options", "Date & Time", "Info", "Review"];
 
@@ -177,83 +206,21 @@ export default function PublicBooking() {
 
   const [recommendedChoice, setRecommendedChoice] = useState<{recommendedService: Service | null, lowerCostService: Service | null, suggestedAddons: AddOn[], explanation: string}>({ recommendedService: null, lowerCostService: null, suggestedAddons: [], explanation: "" });
 
-  // protected_clients loaded at page init — used for the live deposit preview
-  // in the review step. The gate re-fetches fresh data at submission time.
-  const [protectedClients, setProtectedClients] = useState<any[]>([]);
-  // Single client record looked up by email (lazy, debounced) — drives the
-  // inherent-risk fallback in the preview matching below.
-  const [matchedClientRecord, setMatchedClientRecord] = useState<any | null>(null);
-  // Derived from protectedClients + matchedClientRecord — drives the review UI
-  // deposit preview only. Gate result is authoritative for the actual write.
-  const [matchedRiskRule, setMatchedRiskRule] = useState<any | null>(null);
-  // Set at submission time from runOnlineBookingGate — used for success screen
-  const [gateResult, setGateResult] = useState<BookingGateResult | null>(null);
+  // Set at submission time from the server-side /api/booking/gate endpoint.
+  // The server returns only sanitized public-safe fields — risk text
+  // (riskReason, protectionLevel, clientRiskLevelAtBooking) never reaches
+  // the public browser. See `PublicBookingGateResponse` in
+  // `src/services/onlineBookingGateCore.ts`.
+  const [gateResult, setGateResult] = useState<PublicBookingGateResponse | null>(null);
 
-  // ── Lazy client record lookup by email (for inherent-risk preview) ─────────
-  useEffect(() => {
-    const email = gateNormalizeEmail(clientInfo.email);
-    if (email.length < 5) {
-      setMatchedClientRecord(null);
-      return;
-    }
-    // Debounce to avoid a Firestore read on every keystroke
-    const timer = setTimeout(() => {
-      getDocs(query(collection(db, "clients"), where("email", "==", email)))
-        .then(snap => {
-          setMatchedClientRecord(
-            snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }
-          );
-        })
-        .catch(() => { /* non-critical — fail silently */ });
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [clientInfo.email]);
-
-  // ── Live risk preview — runs when email/phone/protectedClients change ──────
-  useEffect(() => {
-    if (!clientInfo.email && !clientInfo.phone) {
-      setMatchedRiskRule(null);
-      return;
-    }
-
-    const normEmail = gateNormalizeEmail(clientInfo.email);
-    // Use gate normalization: strips formatting AND leading country code "1"
-    const normPhone = gateNormalizePhone(clientInfo.phone);
-
-    const match = protectedClients.find(pc => {
-      if (!pc.isActive) return false;
-      const pcEmail = gateNormalizeEmail(pc.email || "");
-      const pcPhone = gateNormalizePhone(pc.phone || "");
-      return (
-        (normEmail.length > 3 && pcEmail.length > 3 && pcEmail === normEmail) ||
-        (normPhone.length >= 10 && pcPhone.length >= 10 && pcPhone === normPhone)
-      );
-    });
-
-    const inherentRisk = matchedClientRecord
-      ? (matchedClientRecord.riskLevel ??
-         matchedClientRecord.risk_level ??
-         matchedClientRecord.riskStatus ??
-         matchedClientRecord.clientRiskLevel ??
-         matchedClientRecord.riskManagement?.level ??
-         null)
-      : null;
-
-    if (match) {
-      setMatchedRiskRule(match);
-    } else if (inherentRisk) {
-      setMatchedRiskRule({
-        id: "client-risk-" + matchedClientRecord.id,
-        isActive: true,
-        protectionLevel: inherentRisk,
-        riskReason: "Risk level detected on client profile.",
-        requiredDepositValue: 25,
-        requiredDepositType: "percentage",
-      });
-    } else {
-      setMatchedRiskRule(null);
-    }
-  }, [clientInfo.email, clientInfo.phone, protectedClients, matchedClientRecord]);
+  // NOTE: The previous live-preview useEffects that read `protected_clients`
+  // and `clients` from the browser have been removed. Those collections are
+  // admin-only per firestore.rules and reading them from a logged-out browser
+  // either fails with `permission-denied` or (if rules were ever loosened)
+  // would leak PII. Risk-based deposit detection now happens only inside the
+  // server-side /api/booking/gate call at submission time. Service-level
+  // deposits (Service.depositRequired) are still previewed below from the
+  // publicly-readable `services` collection.
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -372,11 +339,10 @@ export default function PublicBooking() {
         const blockedSnap = await getDocs(query(collection(db, "blocked_dates"), where("start", ">=", new Date())));
         setBlockedDates(blockedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-        // Load protected clients for the live risk/deposit preview in the review
-        // step. The gate also fetches fresh data at submission, but loading here
-        // means the customer sees deposit info before they click Submit.
-        const pcSnap = await getDocs(collection(db, "protected_clients"));
-        setProtectedClients(pcSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        // NOTE: protected_clients is intentionally NOT loaded here. It is an
+        // admin-only collection per firestore.rules and must never be read
+        // from a logged-out browser. Risk matching runs server-side at
+        // submission time via /api/booking/gate.
       } catch (error) {
         console.error("Error fetching data for booking:", error);
         toast.error("Failed to load booking information.");
@@ -495,52 +461,47 @@ export default function PublicBooking() {
 
     setIsSubmitting(true);
     try {
-      // ── OnlineBookingGate ─────────────────────────────────────────────────
-      // Authoritative risk + deposit check. Fetches fresh data from Firestore
-      // so the result is never stale from page-load caches.
+      // Resolved Service objects — used below for the admin notification message
+      // and the `serviceNames` field on the appointment. The gate runs against
+      // these IDs server-side (the public client cannot tamper with prices).
       const resolvedServices = services.filter(s => selectedServices.includes(s.id));
-      const gate = await runOnlineBookingGate({
+
+      // ── Server-side Online Booking Gate ──────────────────────────────────
+      // Authoritative risk + deposit check. Runs with admin credentials
+      // server-side so protected_clients stays inaccessible to the public
+      // browser. The response is the sanitized PublicBookingGateResponse —
+      // raw risk text (protectionLevel, riskReason, clientRiskLevelAtBooking)
+      // is intentionally NOT included.
+      const gateFetch = await fetchPublicBookingGate({
         email: clientInfo.email,
         phone: clientInfo.phone,
         licensePlate: clientInfo.vehiclePlate || undefined,
-        selectedServices: resolvedServices,
+        selectedServiceIds: selectedServices,
         grandTotal,
       });
+
+      if (gateFetch.ok !== true) {
+        // FAIL SAFE: do NOT instant-confirm when the gate is unavailable.
+        // The customer sees a generic retry message; nothing is written to
+        // Firestore. This is the explicit Phase-1 behaviour: better to lose
+        // a booking than to bypass risk routing.
+        const gateCode: string | undefined = gateFetch.code;
+        const friendly =
+          gateCode === "GATE_NOT_CONFIGURED"
+            ? "Booking review is temporarily unavailable. Please try again shortly or contact us directly."
+            : "We could not complete booking review. Please try again or contact us.";
+        toast.error(friendly);
+        console.warn("[PublicBooking] gate unavailable — booking aborted", gateFetch);
+        return;
+      }
+      const gate = gateFetch.data;
       setGateResult(gate);
 
-      // ── Sync matched client riskLevel (upgrade-only, fire-and-forget) ────────
-      // When the gate matched a protected-client record, ensure the corresponding
-      // clients/ document reflects at least that risk level so internal booking
-      // flows (Calendar, manual jobs) enforce deposits correctly.
-      // Rule: only upgrade, never downgrade. Failure must not block the booking.
-      if (gate.matchedClientId && gate.protectionLevel) {
-        const _pcLevelMap: Record<string, "low" | "medium" | "high"> = {
-          Low: "low",
-          Med: "medium",
-          Medium: "medium",
-          High: "high",
-          "Block Booking": "high",
-        };
-        const _syncLevel = _pcLevelMap[gate.protectionLevel] ?? null;
-        if (_syncLevel) {
-          const _riskRank: Record<string, number> = { low: 1, medium: 2, high: 3 };
-          (async () => {
-            try {
-              const _clientSnap = await getDoc(doc(db, "clients", gate.matchedClientId!));
-              const _current = (_clientSnap.data()?.riskLevel as string) || "";
-              if ((_riskRank[_syncLevel] ?? 0) > (_riskRank[_current] ?? 0)) {
-                await updateDoc(doc(db, "clients", gate.matchedClientId!), {
-                  riskLevel: _syncLevel,
-                  updatedAt: serverTimestamp(),
-                });
-              }
-            } catch (syncErr) {
-              console.error("[BookingGate] Failed to sync client riskLevel:", syncErr);
-            }
-          })();
-        }
-      }
-      // ─────────────────────────────────────────────────────────────────────────
+      // Risk-syncing of the matched client's riskLevel was previously done
+      // here as a fire-and-forget client-side write. Public browsers cannot
+      // (and should not) write to the `clients` collection, so this step has
+      // been removed. The server endpoint can be extended in a later phase
+      // to perform the upgrade-only sync with admin credentials.
 
       const fullVehicleInfo = `${clientInfo.vehicleInfo} (${clientInfo.vehicleSize}) ${clientInfo.vehicleColor} ${clientInfo.vehiclePlate}`.trim();
 
@@ -599,15 +560,17 @@ export default function PublicBooking() {
           businessHoursSnapshot: settings?.businessHours || null
         } : null,
 
-        // ── Gate-derived fields (authoritative) ───────────────────────────
+        // ── Gate-derived fields (sanitized — public-safe subset) ──────────
+        // protectionLevel / riskReason / clientRiskLevelAtBooking are
+        // intentionally NOT written here — they are sensitive risk text
+        // and the server-side endpoint no longer returns them to the public
+        // browser. Admins can dereference matchedProtectedClientId /
+        // matchedClientId to retrieve the full audit picture.
         bookingMode: gate.bookingMode,
         pendingOwnerReview: gate.pendingOwnerReview,
         matchedProtectedClientId: gate.matchedProtectedClientId,
         matchedClientId: gate.matchedClientId,
         protectedClientMatch: gate.protectedClientMatch,
-        clientRiskLevelAtBooking: gate.clientRiskLevelAtBooking,
-        protectionLevel: gate.protectionLevel,
-        riskReason: gate.riskReason,
         depositRequired: gate.depositRequired,
         depositAmount: gate.depositAmount,
         depositType: gate.depositType,
@@ -646,11 +609,14 @@ export default function PublicBooking() {
         const hasRisk = gate.pendingOwnerReview;
 
         // Internal-only risk note appended to admin notification message.
-        // Never shown to the customer.
+        // Never shown to the customer. Raw risk text (protectionLevel /
+        // clientRiskLevelAtBooking) is no longer included — admins open
+        // the appointment to dereference matchedProtectedClientId /
+        // matchedClientId for the full picture.
         const internalRiskNote = isBlockBooking
           ? ` — 🚫 FLAGGED (Block Booking${gate.depositRequired ? `, deposit ${formatCurrency(gate.depositAmount)}` : ""})`
           : hasRisk
-            ? ` — ⚠️ ${gate.protectionLevel || gate.clientRiskLevelAtBooking} risk${gate.depositRequired ? `, deposit ${formatCurrency(gate.depositAmount)} required` : ""} — pending owner review`
+            ? ` — ⚠️ Risk match${gate.depositRequired ? `, deposit ${formatCurrency(gate.depositAmount)} required` : ""} — pending owner review`
             : gate.depositRequired
               ? ` — ⚠️ DEPOSIT ${formatCurrency(gate.depositAmount)} required`
               : "";
@@ -793,43 +759,31 @@ export default function PublicBooking() {
   const finalTotal = Math.max(0, totalPrice - discountAmount);
 
   const depositInfo = useMemo(() => {
+    // Public-side preview shows only SERVICE-LEVEL deposits (read from the
+    // publicly-readable `services` collection). Risk-rule deposits depend on
+    // protected_clients / clients, which are admin-only — those are resolved
+    // server-side at submission via /api/booking/gate and reflected in the
+    // post-submit confirmation screen instead of the live preview.
     let amount = 0;
-    let type: "fixed" | "percentage" = "fixed";
     let isRequired = false;
-    let source = "service";
 
-    // 1. Check matched risk rule FIRST (Manual Adjustment)
-    if (matchedRiskRule) {
-      isRequired = true;
-      amount = matchedRiskRule.requiredDepositValue || 0;
-      type = matchedRiskRule.requiredDepositType || "fixed";
-      source = "risk_rule";
-    } else {
-      // 2. Check service-level deposits
-      selectedServices.forEach(id => {
-        const s = services.find(x => x.id === id);
-        if (s?.depositRequired) {
-          isRequired = true;
-          if (s.depositType === "percentage") {
-            amount += (s.basePrice * (s.depositAmount || 0)) / 100;
-          } else {
-            amount += s.depositAmount || 0;
-          }
+    selectedServices.forEach(id => {
+      const s = services.find(x => x.id === id);
+      if (s?.depositRequired) {
+        isRequired = true;
+        if (s.depositType === "percentage") {
+          amount += (s.basePrice * (s.depositAmount || 0)) / 100;
+        } else {
+          amount += s.depositAmount || 0;
         }
-      });
-    }
-
-    // If percentage from risk rule, calculate from discounted total
-    if (source === "risk_rule" && type === "percentage") {
-      amount = (finalTotal * amount) / 100;
-    }
+      }
+    });
 
     // Cap deposit at final total
     amount = Math.min(amount, finalTotal);
 
-    return { amount, isRequired, source, riskLevel: matchedRiskRule?.protectionLevel };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchedRiskRule, selectedServices, services, finalTotal]);
+    return { amount, isRequired, source: "service" as const, riskLevel: null as string | null };
+  }, [selectedServices, services, finalTotal]);
 
   // Grand total = post-discount services + after-hours fee (if any)
   const grandTotal = finalTotal + (isAfterHours ? afterHoursFee : 0);
