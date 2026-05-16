@@ -49,6 +49,33 @@ export const normalizePhone = (v: string): string => {
 export const normalizeLicensePlate = (v: string): string =>
   (v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
+/**
+ * Classify a protectionLevel string into a coarse severity tier.
+ *
+ *   "Low" | "Normal"                        → "low"
+ *   "Med" | "Medium" | "High"               → "review"  (owner-review + default deposit)
+ *   "Critical" | "Do Not Book" |
+ *   "Block Booking"                         → "block"   (blocked_review + default deposit)
+ *   anything else (unknown)                 → "review"  (fail-safe — never instant-confirm
+ *                                                       a level we do not recognise)
+ *
+ * Comparison is case-insensitive and tolerant of whitespace so values written
+ * by older UI iterations (e.g. "medium" lowercase, " Block Booking ") still
+ * classify correctly. Used by `decideBookingGate` to decide whether a
+ * protected-client match should trigger the default 25% risk deposit and what
+ * booking mode to route to.
+ */
+export function protectionLevelTier(
+  level: string | null | undefined,
+): "none" | "low" | "review" | "block" {
+  if (!level) return "none";
+  const lc = String(level).trim().toLowerCase();
+  if (lc === "low" || lc === "normal") return "low";
+  if (lc === "block booking" || lc === "critical" || lc === "do not book") return "block";
+  if (lc === "med" || lc === "medium" || lc === "high") return "review";
+  return "review";
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** The routing decision for this booking submission. */
@@ -305,39 +332,73 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
   // a deposit fired. Strings are intentionally GENERIC — they never include
   // raw risk-level wording (use `riskReason` for that), so the array is safe
   // to expose to the public client and persist on the appointment doc.
+  //
+  // Priority (highest first):
+  //   1. Protected-client EXPLICIT deposit (requiredDepositValue > 0)
+  //   2. Protected-client default risk deposit — applies whenever a match
+  //      exists AND either the per-client `depositRequired` flag is set OR
+  //      the protectionLevel tier is "review"/"block" (Med/High/Critical/
+  //      Do Not Book/Block Booking). Default 25% of grandTotal so flagging a
+  //      client as high-risk without filling in a value still fires a
+  //      deposit — the previous behaviour silently fell through to $0.
+  //   3. Client-level inherent risk (from clients collection riskLevel)
+  //      default 25% — fallback for clients who have a riskLevel set but
+  //      no matching protected_clients entry.
+  //   4. Service-level deposits via shared detector.
   let depositRequired = false;
   let depositAmount = 0;
   let depositType: "fixed" | "percentage" | "mixed" | null = null;
   let depositSource: "risk_rule" | "service" | "none" = "none";
   const depositReasons: string[] = [];
 
-  const pcDeposit = matchedPc
+  const pcExplicit = matchedPc
     ? readProtectedClientDeposit(matchedPc, grandTotal)
     : { required: false, amount: 0, type: null as "fixed" | "percentage" | null };
 
-  if (pcDeposit.required) {
-    // Protected-client rule takes highest priority.
+  const tier = protectionLevelTier(protectionLevel);
+  const pcDepositFlag = Boolean(
+    matchedPc &&
+      ((matchedPc as Record<string, unknown>).depositRequired === true),
+  );
+  const safeGrandTotal = Math.max(0, grandTotal);
+
+  if (pcExplicit.required) {
+    // Explicit configured value takes top priority.
     depositRequired = true;
     depositSource = "risk_rule";
-    depositType = pcDeposit.type;
-    depositAmount = pcDeposit.amount;
+    depositType = pcExplicit.type;
+    depositAmount = pcExplicit.amount;
     depositReasons.push("Account requires advance review");
+  } else if (matchedPc && (pcDepositFlag || tier === "review" || tier === "block")) {
+    // Protected-client match at a risk-bearing tier (or with the
+    // "Require deposit before booking" flag checked) but no explicit value
+    // configured → default 25% of grandTotal so the flag is never ignored.
+    depositRequired = true;
+    depositSource = "risk_rule";
+    depositType = "percentage";
+    depositAmount = (safeGrandTotal * 25) / 100;
+    depositReasons.push("Risk profile requires deposit");
   } else if (
     clientInherentRisk &&
-    ["high", "High", "medium", "Medium", "Med", "med"].includes(clientInherentRisk)
+    [
+      "high", "High",
+      "medium", "Medium", "med", "Med",
+      "critical", "Critical",
+      "do not book", "Do Not Book",
+    ].includes(clientInherentRisk)
   ) {
     // Client has inherent risk but no PC rule — default 25% deposit.
     depositRequired = true;
     depositSource = "risk_rule";
     depositType = "percentage";
-    depositAmount = (Math.max(0, grandTotal) * 25) / 100;
+    depositAmount = (safeGrandTotal * 25) / 100;
     depositReasons.push("Client profile requires deposit");
   } else {
     // Service-level deposits via shared detector (handles all field-name
     // variants observed across schema iterations).
     const agg = aggregateServiceDeposits(
       selectedServices as DepositServiceLike[],
-      Math.max(0, grandTotal),
+      safeGrandTotal,
     );
     if (agg.required) {
       depositRequired = true;
@@ -349,19 +410,20 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
   }
 
   // Cap at grandTotal; never negative.
-  depositAmount = Math.max(0, Math.min(depositAmount, Math.max(0, grandTotal)));
+  depositAmount = Math.max(0, Math.min(depositAmount, safeGrandTotal));
 
   // ── 6. Booking mode ───────────────────────────────────────────────────────
   // Priority (highest first):
-  //   1. Block Booking flag      → blocked_review
-  //   2. Travel outside service  → pending_owner_review
-  //   3. Any other risk level    → pending_owner_review
+  //   1. Block-tier protection   → blocked_review (Block Booking, Critical,
+  //                                Do Not Book — owner must explicitly approve)
+  //   2. Any other risk level    → pending_owner_review
+  //   3. Travel outside service  → pending_owner_review
   //   4. Deposit required        → deposit_required
   //   5. Otherwise               → instant_confirm
   let bookingMode: BookingMode;
   let pendingOwnerReview = false;
 
-  if (protectionLevel === "Block Booking") {
+  if (tier === "block") {
     bookingMode = "blocked_review";
     pendingOwnerReview = true;
   } else if (effectiveRiskLevel) {
