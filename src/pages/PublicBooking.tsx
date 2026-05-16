@@ -17,9 +17,10 @@ import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { checkLocalAvailability, findLocalBackupSlots } from "../lib/bookingUtils";
 import Logo from "../components/Logo";
-import { calculateDistance, calculateTravelFee } from "../services/travelService";
 import { geocodeAddress } from "../services/geocodingService";
 import type { PublicBookingGateResponse } from "../services/onlineBookingGateCore";
+import { computePublicBookingTravel } from "../services/publicBookingTravelEngine";
+import { aggregateServiceDeposits } from "../services/publicBookingDepositDetector";
 
 // ─── Public booking gate fetch ──────────────────────────────────────────────
 // `/api/booking/gate` is the public-safe server endpoint that loads
@@ -35,6 +36,7 @@ async function fetchPublicBookingGate(body: {
   licensePlate?: string;
   selectedServiceIds: string[];
   grandTotal: number;
+  customerCoordinates?: { lat: number; lng: number } | null;
 }): Promise<GateFetchResult> {
   try {
     const resp = await fetch("/api/booking/gate", {
@@ -478,6 +480,10 @@ export default function PublicBooking() {
         licensePlate: clientInfo.vehiclePlate || undefined,
         selectedServiceIds: selectedServices,
         grandTotal,
+        customerCoordinates:
+          clientInfo.lat && clientInfo.lng
+            ? { lat: clientInfo.lat, lng: clientInfo.lng }
+            : null,
       });
 
       if (gateFetch.ok !== true) {
@@ -511,6 +517,12 @@ export default function PublicBooking() {
         clientNote
       } : null;
 
+      // The gate response is the SINGLE SOURCE OF TRUTH for travel fee,
+      // deposit, and risk routing. We never overwrite gate fields with
+      // client-computed previews on the persisted appointment.
+      const authoritativeTravelFee = gate.travel.travelFee;
+      const authoritativeTotal = serviceSubtotal + authoritativeTravelFee - discountAmount + (isAfterHours ? afterHoursFee : 0);
+      const authoritativeGrandTotal = Math.max(0, authoritativeTotal);
       const appointmentData: any = {
         customerName: clientInfo.name,
         customerEmail: clientInfo.email,
@@ -535,23 +547,32 @@ export default function PublicBooking() {
         updatedAt: serverTimestamp(),
         customerType: "retail",
         baseAmount: serviceSubtotal,
-        travelFee,
-        estimatedTravelDistance: travelCalc.miles,
-        travelFeeBreakdown: travelFee > 0 ? {
-          miles: travelCalc.miles,
+
+        // ── Travel (server-authoritative — single source of truth) ────────
+        travelFee: authoritativeTravelFee,
+        travelDistanceMiles: gate.travel.travelDistanceMiles,
+        estimatedTravelMinutes: gate.travel.estimatedTravelMinutes,
+        estimatedTravelDistance: gate.travel.travelDistanceMiles, // legacy alias
+        travelZone: gate.travel.travelZone || null,
+        travelFeeReason: gate.travel.travelFeeReason || null,
+        travelReviewRequired: gate.travel.travelReviewRequired,
+        travelFeeBreakdown: authoritativeTravelFee > 0 ? {
+          miles: gate.travel.travelDistanceMiles,
           rate: settings?.travelPricing?.pricePerMile ?? 0,
           adjustment: 0,
           isRoundTrip: !!settings?.travelPricing?.roundTripToggle,
+          zone: gate.travel.travelZone || null,
         } : null,
-        totalBeforeDiscount: totalPrice,
+
+        totalBeforeDiscount: serviceSubtotal + authoritativeTravelFee,
         discountAmount: discountAmount,
-        totalAfterDiscount: finalTotal,
+        totalAfterDiscount: Math.max(0, serviceSubtotal + authoritativeTravelFee - discountAmount),
         couponId: appliedCoupon?.id || null,
         couponCode: appliedCoupon?.code || null,
         couponTitle: appliedCoupon?.title || null,
         discountType: appliedCoupon?.discountType || null,
         discountPercent: appliedCoupon?.discountType === "percentage" ? appliedCoupon.discountValue : null,
-        totalAmount: grandTotal,
+        totalAmount: authoritativeGrandTotal,
         estimatedDuration: totalDuration,
         afterHoursRecord: isAfterHours ? {
           isAfterHours: true,
@@ -708,25 +729,33 @@ export default function PublicBooking() {
      return price;
   }, [selectedServices, selectedAddons, services, addons]);
 
-  // Travel fee — computed from the customer's service address to the
-  // business's private travel origin (travelStart*) when set, otherwise
-  // baseLatitude/baseLongitude. The origin address itself is never shown
-  // to the customer; only the fee and distance appear in the summary.
-  const travelCalc = useMemo(() => {
-    if (!settings?.travelPricing?.enabled) return { fee: 0, miles: 0, zoneName: "" };
-    const originLat = settings.travelStartLatitude ?? settings.baseLatitude;
-    const originLng = settings.travelStartLongitude ?? settings.baseLongitude;
-    if (!originLat || !originLng) return { fee: 0, miles: 0, zoneName: "" };
-    if (!clientInfo.lat || !clientInfo.lng) return { fee: 0, miles: 0, zoneName: "" };
-    const distance = calculateDistance(originLat, originLng, clientInfo.lat, clientInfo.lng);
-    const result = calculateTravelFee(distance, settings.travelPricing, { lat: clientInfo.lat, lng: clientInfo.lng });
-    return { fee: result.fee, miles: result.miles, zoneName: result.zoneName };
+  // ── Travel preview ────────────────────────────────────────────────────────
+  // Uses the centralized publicBookingTravelEngine so the preview matches
+  // exactly what the server gate computes at submission time. Business home /
+  // travel origin coordinates are owned by the engine and never surfaced.
+  const travelResult = useMemo(() => {
+    if (!settings) {
+      return {
+        travelFee: 0,
+        travelDistanceMiles: 0,
+        estimatedTravelMinutes: 0,
+        travelZone: "",
+        travelFeeReason: "",
+        travelReviewRequired: false,
+      };
+    }
+    return computePublicBookingTravel({
+      customerLat: clientInfo.lat,
+      customerLng: clientInfo.lng,
+      settings,
+    });
   }, [settings, clientInfo.lat, clientInfo.lng]);
-  const travelFee = travelCalc.fee;
+  const travelFee = travelResult.travelFee;
 
   // Geocoding fallback — if the customer typed an address without selecting
   // a Google suggestion, lat/lng come in as 0. Debounce-geocode once the
-  // address stops changing so the travel fee can still be shown in review.
+  // address stops changing so the travel fee + service-area check resolve
+  // before the customer reaches review.
   useEffect(() => {
     if (!clientInfo.address) return;
     if (clientInfo.lat && clientInfo.lng) return;
@@ -759,44 +788,24 @@ export default function PublicBooking() {
   // Final customer-facing total after discount
   const finalTotal = Math.max(0, totalPrice - discountAmount);
 
-  const depositInfo = useMemo(() => {
-    // Public-side preview shows only SERVICE-LEVEL deposits (read from the
-    // publicly-readable `services` collection). Risk-rule deposits depend on
-    // protected_clients / clients, which are admin-only — those are resolved
-    // server-side at submission via /api/booking/gate and reflected in the
-    // post-submit confirmation screen instead of the live preview.
-    //
-    // Accept the same field-name variance the server gate uses
-    // (`depositRequired` / `requireDeposit` / `requiresDeposit`) so a real
-    // Firestore service doc with the alternate name shows the deposit here.
-    let amount = 0;
-    let isRequired = false;
-
-    selectedServices.forEach(id => {
-      const s = services.find(x => x.id === id) as
-        | (Service & { requireDeposit?: boolean; requiresDeposit?: boolean })
-        | undefined;
-      if (!s) return;
-      const requires = Boolean(
-        s.depositRequired || s.requireDeposit || s.requiresDeposit,
-      );
-      if (!requires) return;
-      isRequired = true;
-      if (s.depositType === "percentage") {
-        amount += (s.basePrice * (s.depositAmount || 0)) / 100;
-      } else {
-        amount += s.depositAmount || 0;
-      }
-    });
-
-    // Cap deposit at final total
-    amount = Math.min(amount, finalTotal);
-
-    return { amount, isRequired, source: "service" as const, riskLevel: null as string | null };
-  }, [selectedServices, services, finalTotal]);
-
   // Grand total = post-discount services + after-hours fee (if any)
   const grandTotal = finalTotal + (isAfterHours ? afterHoursFee : 0);
+
+  // ── Deposit preview ──────────────────────────────────────────────────────
+  // Service-level only (publicly readable). Risk-rule deposits resolve at
+  // submission via /api/booking/gate. Uses the shared deposit detector so
+  // the preview understands every historical field-name variant.
+  const depositInfo = useMemo(() => {
+    const resolved = services.filter(s => selectedServices.includes(s.id));
+    const agg = aggregateServiceDeposits(resolved, grandTotal);
+    return {
+      amount: agg.amount,
+      isRequired: agg.required,
+      source: "service" as const,
+      riskLevel: null as string | null,
+    };
+  }, [selectedServices, services, grandTotal]);
+
   // Balance due after deposit is collected
   const balanceDue = depositInfo.isRequired
     ? Math.max(0, grandTotal - depositInfo.amount)
@@ -1517,7 +1526,7 @@ export default function PublicBooking() {
                              <div className="flex justify-between items-start text-sm pt-2 border-t border-gray-100">
                                <span className="font-bold text-gray-700 flex items-center gap-1.5">
                                  <Truck className="w-3.5 h-3.5 text-gray-500" />
-                                 Travel Fee{travelCalc.miles ? ` (~${travelCalc.miles.toFixed(1)} mi)` : ""}
+                                 Travel Fee{travelResult.travelDistanceMiles ? ` (~${travelResult.travelDistanceMiles.toFixed(1)} mi)` : ""}
                                </span>
                                <span className="font-black text-gray-700">{formatCurrency(travelFee)}</span>
                              </div>
@@ -1794,7 +1803,7 @@ export default function PublicBooking() {
                              <div className="flex justify-between items-start text-sm pt-2 border-t border-gray-100">
                                <span className="font-bold text-gray-700 flex items-center gap-1.5">
                                  <Truck className="w-3.5 h-3.5 text-gray-500" />
-                                 Travel Fee{travelCalc.miles ? ` (~${travelCalc.miles.toFixed(1)} mi)` : ""}
+                                 Travel Fee{travelResult.travelDistanceMiles ? ` (~${travelResult.travelDistanceMiles.toFixed(1)} mi)` : ""}
                                </span>
                                <span className="font-black text-gray-700">{formatCurrency(travelFee)}</span>
                              </div>

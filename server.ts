@@ -17,7 +17,7 @@ import {
   type Firestore as AdminFirestore,
 } from "firebase-admin/firestore";
 import { startScheduler } from "./scheduler.ts";
-import type { Service } from "./src/types";
+import type { BusinessSettings, Service } from "./src/types";
 import {
   decideBookingGate,
   sanitizeGateResultForPublic,
@@ -388,6 +388,18 @@ async function startServer() {
     const selectedServiceIds = Array.isArray(selectedServiceIdsRaw)
       ? selectedServiceIdsRaw.filter((x): x is string => typeof x === "string" && x.length > 0).slice(0, 40)
       : [];
+    const coordsRaw = body.customerCoordinates as
+      | { lat?: unknown; lng?: unknown }
+      | undefined;
+    const customerCoordinates: { lat: number; lng: number } | null =
+      coordsRaw &&
+      typeof coordsRaw.lat === "number" &&
+      typeof coordsRaw.lng === "number" &&
+      isFinite(coordsRaw.lat) &&
+      isFinite(coordsRaw.lng) &&
+      !(coordsRaw.lat === 0 && coordsRaw.lng === 0)
+        ? { lat: coordsRaw.lat, lng: coordsRaw.lng }
+        : null;
 
     if (!email && !phone) {
       return res.status(400).json({ error: "email or phone is required" });
@@ -405,6 +417,9 @@ async function startServer() {
       // clients: lookup by normalized email (one-document expected).
       // services: load each by ID so deposit rules use authoritative server data
       //           (the public client can't tamper with depositRequired/amount).
+      // settings: a single doc — required for the server-authoritative travel
+      //           fee computation. We tolerate a missing settings doc (gate
+      //           still decides risk + deposit), travel fields just zero out.
       const normEmail = gateNormalizeEmail(email);
 
       const pcPromise = db.collection("protected_clients").get();
@@ -414,11 +429,14 @@ async function startServer() {
       const servicesPromise = Promise.all(
         selectedServiceIds.map((id) => db.collection("services").doc(id).get()),
       );
+      // BusinessSettings live at settings/business in this codebase.
+      const settingsPromise = db.collection("settings").doc("business").get();
 
-      const [pcSnap, clientSnap, serviceSnaps] = await Promise.all([
+      const [pcSnap, clientSnap, serviceSnaps, settingsSnap] = await Promise.all([
         pcPromise,
         clientPromise,
         servicesPromise,
+        settingsPromise,
       ]);
 
       const protectedClients = pcSnap.docs.map((d) => ({
@@ -438,6 +456,10 @@ async function startServer() {
         return res.status(400).json({ error: "No matching services found for selectedServiceIds" });
       }
 
+      const settings = settingsSnap.exists
+        ? (settingsSnap.data() as BusinessSettings)
+        : null;
+
       // ── Run pure decision core ──────────────────────────────────────────────
       const result = decideBookingGate({
         email,
@@ -447,6 +469,8 @@ async function startServer() {
         grandTotal,
         protectedClients,
         matchedClient,
+        customerCoordinates,
+        settings,
       });
 
       // ── Sanitize and return ─────────────────────────────────────────────────

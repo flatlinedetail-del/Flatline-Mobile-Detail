@@ -1,4 +1,13 @@
-import type { Service } from "../types";
+import type { BusinessSettings, Service } from "../types";
+import {
+  aggregateServiceDeposits,
+  readProtectedClientDeposit,
+  type DepositServiceLike,
+} from "./publicBookingDepositDetector";
+import {
+  computePublicBookingTravel,
+  type PublicBookingTravelResult,
+} from "./publicBookingTravelEngine";
 
 /**
  * Online Booking Gate — pure decision core.
@@ -11,6 +20,12 @@ import type { Service } from "../types";
  * Hard rule: NEVER call Firestore from this file. Add a Firestore-aware
  * wrapper in `onlineBookingGate.ts` (client) or directly in `server.ts`
  * (server) instead.
+ *
+ * The gate is the SINGLE SOURCE OF TRUTH for: protected-client matching,
+ * service-level deposits, risk-rule deposits, travel-fee computation (when
+ * `customerCoordinates` + `settings` are provided) and the resulting
+ * booking-mode routing (instant_confirm / deposit_required /
+ * pending_owner_review / blocked_review).
  */
 
 // ─── Normalization helpers ────────────────────────────────────────────────────
@@ -67,12 +82,25 @@ export interface BookingGateDecisionInput {
    * Full customer-facing total after all adjustments:
    * serviceSubtotal + travelFee - discount + afterHoursFee.
    * Deposit percentages and balance-due calculation use this value.
+   *
+   * NOTE: when `customerCoordinates` and `settings` are also provided the
+   * gate will RECOMPUTE the authoritative travel fee server-side. Callers
+   * should pass `grandTotal` excluding any client-computed travel fee in
+   * that case (or pass it with the client's preview value — the gate's
+   * travel result is exported separately as `travel` on the result).
    */
   grandTotal: number;
   /** Pre-loaded `protected_clients` documents (security-critical — admin-only). */
   protectedClients: Array<Record<string, unknown> & { id: string }>;
   /** Pre-loaded matching `clients` doc by email (may be null). */
   matchedClient: (Record<string, unknown> & { id: string }) | null;
+
+  // ── Optional travel-fee inputs ─────────────────────────────────────────────
+  // When BOTH are provided, the gate runs `computePublicBookingTravel` and
+  // returns the result. The gate also routes to pending_owner_review when
+  // the customer's coordinates fall outside the configured service area.
+  customerCoordinates?: { lat: number; lng: number } | null;
+  settings?: BusinessSettings | null;
 }
 
 /**
@@ -114,6 +142,9 @@ export interface BookingGateResult {
   paymentStatus: "deposit_pending" | "unpaid";
   balanceDue: number;
 
+  // ── Travel (only meaningful when settings + customerCoordinates provided) ─
+  travel: PublicBookingTravelResult;
+
   // ── UI hint ───────────────────────────────────────────────────────────────
   customerMessageType: CustomerMessageType;
 }
@@ -143,6 +174,8 @@ export interface PublicBookingGateResponse {
   depositReasons: string[];
   paymentStatus: "deposit_pending" | "unpaid";
   balanceDue: number;
+  /** Authoritative travel-fee computation. Safe to expose. */
+  travel: PublicBookingTravelResult;
   customerMessageType: CustomerMessageType;
 }
 
@@ -164,6 +197,8 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     grandTotal,
     protectedClients,
     matchedClient,
+    customerCoordinates,
+    settings,
   } = input;
 
   // ── 1. Normalize identifiers ──────────────────────────────────────────────
@@ -241,7 +276,31 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     matchedPc?.riskReason ??
     (clientInherentRisk ? "Risk level detected on client profile." : null);
 
-  // ── 4. Determine deposit requirement ──────────────────────────────────────
+  // ── 4. Travel fee (server-authoritative when inputs available) ────────────
+  // Computed BEFORE deposit so the deposit can be capped at the correct
+  // grandTotal (caller-supplied grandTotal already includes whatever travel
+  // fee preview the client computed; we trust the caller's grandTotal and
+  // surface the authoritative travel result separately for the appointment
+  // payload).
+  const travel: PublicBookingTravelResult = (() => {
+    if (customerCoordinates && settings) {
+      return computePublicBookingTravel({
+        customerLat: customerCoordinates.lat,
+        customerLng: customerCoordinates.lng,
+        settings,
+      });
+    }
+    return {
+      travelFee: 0,
+      travelDistanceMiles: 0,
+      estimatedTravelMinutes: 0,
+      travelZone: "",
+      travelFeeReason: "Travel not evaluated (no coordinates supplied)",
+      travelReviewRequired: false,
+    };
+  })();
+
+  // ── 5. Determine deposit requirement ──────────────────────────────────────
   // Reasons array is built alongside the decision so admins can audit *why*
   // a deposit fired. Strings are intentionally GENERIC — they never include
   // raw risk-level wording (use `riskReason` for that), so the array is safe
@@ -252,17 +311,16 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
   let depositSource: "risk_rule" | "service" | "none" = "none";
   const depositReasons: string[] = [];
 
-  if (matchedPc && (matchedPc.requiredDepositValue ?? 0) > 0) {
+  const pcDeposit = matchedPc
+    ? readProtectedClientDeposit(matchedPc, grandTotal)
+    : { required: false, amount: 0, type: null as "fixed" | "percentage" | null };
+
+  if (pcDeposit.required) {
     // Protected-client rule takes highest priority.
     depositRequired = true;
     depositSource = "risk_rule";
-    const rawType: string = matchedPc.requiredDepositType ?? "fixed";
-    depositType = rawType as "fixed" | "percentage";
-    if (rawType === "percentage") {
-      depositAmount = (grandTotal * (matchedPc.requiredDepositValue ?? 0)) / 100;
-    } else {
-      depositAmount = matchedPc.requiredDepositValue ?? 0;
-    }
+    depositType = pcDeposit.type;
+    depositAmount = pcDeposit.amount;
     depositReasons.push("Account requires advance review");
   } else if (
     clientInherentRisk &&
@@ -272,45 +330,34 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     depositRequired = true;
     depositSource = "risk_rule";
     depositType = "percentage";
-    depositAmount = (grandTotal * 25) / 100;
+    depositAmount = (Math.max(0, grandTotal) * 25) / 100;
     depositReasons.push("Client profile requires deposit");
   } else {
-    // Service-level deposits: accumulate, track types for "mixed" detection.
-    // Match the same field-name variance used by riskUtils.computeDepositRequirement
-    // (`depositRequired` / `requireDeposit` / `requiresDeposit`) so real-world
-    // service docs with the alternate names are not silently skipped.
-    const seenTypes = new Set<string>();
-    for (const svc of selectedServices) {
-      const svcRaw = svc as Service & {
-        requireDeposit?: boolean;
-        requiresDeposit?: boolean;
-      };
-      const svcRequires = Boolean(
-        svcRaw.depositRequired || svcRaw.requireDeposit || svcRaw.requiresDeposit,
-      );
-      if (!svcRequires) continue;
+    // Service-level deposits via shared detector (handles all field-name
+    // variants observed across schema iterations).
+    const agg = aggregateServiceDeposits(
+      selectedServices as DepositServiceLike[],
+      Math.max(0, grandTotal),
+    );
+    if (agg.required) {
       depositRequired = true;
       depositSource = "service";
-      const svcType = svcRaw.depositType ?? "fixed";
-      seenTypes.add(svcType);
-      if (svcType === "percentage") {
-        depositAmount += ((svcRaw.depositAmount ?? 0) * svcRaw.basePrice) / 100;
-      } else {
-        depositAmount += svcRaw.depositAmount ?? 0;
-      }
-      depositReasons.push(`Service deposit: ${svcRaw.name ?? svcRaw.id}`);
-    }
-    if (seenTypes.size === 1) {
-      depositType = seenTypes.values().next().value as "fixed" | "percentage";
-    } else if (seenTypes.size > 1) {
-      depositType = "mixed";
+      depositAmount = agg.amount;
+      depositType = agg.type;
+      for (const reason of agg.reasons) depositReasons.push(reason);
     }
   }
 
   // Cap at grandTotal; never negative.
-  depositAmount = Math.max(0, Math.min(depositAmount, grandTotal));
+  depositAmount = Math.max(0, Math.min(depositAmount, Math.max(0, grandTotal)));
 
-  // ── 5. Booking mode ───────────────────────────────────────────────────────
+  // ── 6. Booking mode ───────────────────────────────────────────────────────
+  // Priority (highest first):
+  //   1. Block Booking flag      → blocked_review
+  //   2. Travel outside service  → pending_owner_review
+  //   3. Any other risk level    → pending_owner_review
+  //   4. Deposit required        → deposit_required
+  //   5. Otherwise               → instant_confirm
   let bookingMode: BookingMode;
   let pendingOwnerReview = false;
 
@@ -320,6 +367,10 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
   } else if (effectiveRiskLevel) {
     bookingMode = "pending_owner_review";
     pendingOwnerReview = true;
+  } else if (travel.travelReviewRequired) {
+    bookingMode = "pending_owner_review";
+    pendingOwnerReview = true;
+    depositReasons.push("Service location requires owner review");
   } else if (depositRequired) {
     bookingMode = "deposit_required";
     pendingOwnerReview = false;
@@ -328,7 +379,7 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     pendingOwnerReview = false;
   }
 
-  // ── 6. Customer-facing message type ──────────────────────────────────────
+  // ── 7. Customer-facing message type ──────────────────────────────────────
   // Risk details are NEVER disclosed. Both pending_owner_review and
   // blocked_review show the same generic green confirmation screen.
   let customerMessageType: CustomerMessageType;
@@ -348,7 +399,7 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     : "unpaid";
   const balanceDue = depositRequired
     ? Math.max(0, grandTotal - depositAmount)
-    : grandTotal;
+    : Math.max(0, grandTotal);
 
   return {
     bookingMode,
@@ -367,6 +418,7 @@ export function decideBookingGate(input: BookingGateDecisionInput): BookingGateR
     depositPaid: false,
     paymentStatus,
     balanceDue,
+    travel,
     customerMessageType,
   };
 }
@@ -391,6 +443,7 @@ export function sanitizeGateResultForPublic(
     depositReasons: full.depositReasons,
     paymentStatus: full.paymentStatus,
     balanceDue: full.balanceDue,
+    travel: full.travel,
     customerMessageType: full.customerMessageType,
     // DELIBERATELY OMITTED — never cross the wire to a public client:
     //   - riskReason          (raw protected-client reason text)
