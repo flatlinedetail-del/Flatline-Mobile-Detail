@@ -2,7 +2,8 @@ import usePlacesAutocomplete, {
   getGeocode,
   getLatLng,
 } from "use-places-autocomplete";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { MapPin, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 import { useGoogleMaps } from "./GoogleMapsProvider";
 import { cn, cleanAddress } from "@/lib/utils";
@@ -45,8 +46,19 @@ export default function AddressInput({
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [geocodingSuccess, setGeocodingSuccess] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const isFocused = useRef(false);
   const selectionMadeRef = useRef(false);
+
+  // Dropdown position state — the suggestions are portaled to document.body
+  // so they escape any parent `overflow-hidden` (e.g. the Card on /book step 6).
+  // We track the input's bounding rect via a layout effect + scroll/resize
+  // listeners so the floating dropdown stays glued to the input.
+  const [dropdownRect, setDropdownRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
 
   useEffect(() => {
     if (loaderError) {
@@ -96,17 +108,44 @@ export default function AddressInput({
 
   // Controlled-mode sync — keep the usePlacesAutocomplete internal value
   // aligned with the parent's `value` so suggestion queries stay in sync.
-  // No-op when the values already match (avoids re-render churn).
+  // Tracks `controlledValue` only (not `value`) so we don't fire on every
+  // hook-internal state change; typing is already handled in handleInputChange
+  // which calls `setValue(val)` (with fetch). Only external parent-driven
+  // changes (programmatic resets, autocomplete selection from outside)
+  // need this sync.
+  const lastSyncedControlledValue = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!isControlled) return;
     const next = controlledValue ?? "";
-    if (next !== value) {
-      // `false` suppresses fetching suggestions for parent-driven updates
-      // (e.g. step transitions, programmatic resets). Suggestions still
-      // fetch normally for user keystrokes via handleInputChange.
-      setValue(next, false);
-    }
-  }, [isControlled, controlledValue, value, setValue]);
+    if (lastSyncedControlledValue.current === next) return;
+    lastSyncedControlledValue.current = next;
+    // `false` suppresses fetching suggestions — external parent updates
+    // shouldn't trigger a Places API call. User typing keeps fetching via
+    // handleInputChange.
+    setValue(next, false);
+  }, [isControlled, controlledValue, setValue]);
+
+  // Track the input's position so the portaled dropdown can follow it.
+  useLayoutEffect(() => {
+    if (!showSuggestions) return;
+    const update = () => {
+      const el = inputRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setDropdownRect({
+        top: rect.bottom,
+        left: rect.left,
+        width: rect.width,
+      });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [showSuggestions]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -214,6 +253,7 @@ export default function AddressInput({
       <div className="relative">
         <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-700 z-10" />
         <input
+          ref={inputRef}
           type="text"
           value={isControlled ? (controlledValue ?? "") : value}
           onChange={handleInputChange}
@@ -259,32 +299,57 @@ export default function AddressInput({
         </div>
       )}
 
-      {showSuggestions && status === "OK" && (
-        <div className="absolute left-0 right-0 top-full mt-2 z-[9999] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
-          <div className="max-h-[300px] overflow-y-auto py-2">
-            {data.map(({ place_id, description, structured_formatting }) => (
-              <button
-                key={place_id}
-                type="button"
-                onClick={() => handleSelect(description)}
-                className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50 last:border-none"
-              >
-                <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
-                  <MapPin className="w-4 h-4 text-gray-700" />
-                </div>
-                <div className="flex flex-col min-w-0">
-                  <span className="text-sm font-bold text-gray-900 truncate">
-                    {structured_formatting?.main_text || cleanAddress(description)}
-                  </span>
-                  <span className="text-[10px] text-gray-700 truncate font-bold">
-                    {cleanAddress(structured_formatting?.secondary_text || "")}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Suggestions dropdown — portaled to <body> so it escapes any parent
+          `overflow-hidden` (e.g. the rounded Card on PublicBooking step 6
+          previously clipped this list, which is why suggestions appeared to
+          never show up). `position: fixed` keeps it pinned to the viewport;
+          the layout effect above updates its rect on scroll/resize. */}
+      {showSuggestions && status === "OK" && dropdownRect && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            style={{
+              position: "fixed",
+              top: dropdownRect.top + 8,
+              left: dropdownRect.left,
+              width: dropdownRect.width,
+              zIndex: 9999,
+            }}
+            className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
+            // The dropdown is portaled to <body>, OUTSIDE containerRef, so
+            // the document-level click-outside listener would close it on
+            // mousedown unless we stop propagation. preventDefault keeps the
+            // input focused so handleSelect can run cleanly without handleBlur
+            // racing it.
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          >
+            <div className="max-h-[300px] overflow-y-auto py-2">
+              {data.map(({ place_id, description, structured_formatting }) => (
+                <button
+                  key={place_id}
+                  type="button"
+                  onClick={() => handleSelect(description)}
+                  className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50 last:border-none"
+                >
+                  <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
+                    <MapPin className="w-4 h-4 text-gray-700" />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-sm font-bold text-gray-900 truncate">
+                      {structured_formatting?.main_text || cleanAddress(description)}
+                    </span>
+                    <span className="text-[10px] text-gray-700 truncate font-bold">
+                      {cleanAddress(structured_formatting?.secondary_text || "")}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
