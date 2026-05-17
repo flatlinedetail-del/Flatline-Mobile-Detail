@@ -1,4 +1,4 @@
-import { BusinessSettings } from "../types";
+import type { BusinessSettings } from "../types";
 
 /**
  * Calculates the distance between two points in miles using the Haversine formula.
