@@ -8,8 +8,8 @@
  * REMOVE this file once the live-data mismatch is resolved.
  */
 
-import { handleProtectedClientMatchRequest } from "../../src/server/handlers/protectedClientMatchHandler";
-import { getBookingGateAdminDb } from "../../src/server/adminFirestore";
+import { handleProtectedClientMatchRequest } from "../../src/server/handlers/protectedClientMatchHandler.js";
+import { getBookingGateAdminDb } from "../../src/server/adminFirestore.js";
 
 interface VercelLikeRequest {
   method?: string;

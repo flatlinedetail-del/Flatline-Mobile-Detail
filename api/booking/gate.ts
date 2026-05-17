@@ -15,8 +15,8 @@
  *                                  using a non-default Firestore database.
  */
 
-import { handleBookingGateRequest } from "../../src/server/handlers/bookingGateHandler";
-import { getBookingGateAdminDb } from "../../src/server/adminFirestore";
+import { handleBookingGateRequest } from "../../src/server/handlers/bookingGateHandler.js";
+import { getBookingGateAdminDb } from "../../src/server/adminFirestore.js";
 
 interface VercelLikeRequest {
   method?: string;
