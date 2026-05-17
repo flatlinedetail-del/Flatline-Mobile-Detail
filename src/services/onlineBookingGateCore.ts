@@ -2,7 +2,7 @@ import type { BusinessSettings, Service } from "../types";
 import {
   computePublicBookingTravel,
   type PublicBookingTravelResult,
-} from "./publicBookingTravelEngine";
+} from "./publicBookingTravelEngine.js";
 import {
   decideBookingRiskGate,
   normalizeEmail as _normalizeEmail,
@@ -14,12 +14,12 @@ import {
   type ProtectedClientRecord,
   type ClientRecord,
   type RiskTier,
-} from "./publicBookingRiskEngine";
+} from "./publicBookingRiskEngine.js";
 import {
   decideBookingDeposit,
   type DepositSource,
   type DepositType,
-} from "./publicBookingDepositEngine";
+} from "./publicBookingDepositEngine.js";
 import type { DepositServiceLike } from "./publicBookingDepositDetector";
 
 /**

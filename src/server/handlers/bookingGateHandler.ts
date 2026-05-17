@@ -18,7 +18,7 @@ import {
   decideBookingGate,
   normalizeEmail as gateNormalizeEmail,
   sanitizeGateResultForPublic,
-} from "../../services/onlineBookingGateCore";
+} from "../../services/onlineBookingGateCore.js";
 
 export interface BookingGateHandlerResponse {
   status: number;

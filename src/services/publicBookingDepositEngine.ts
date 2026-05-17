@@ -30,7 +30,7 @@ import {
   aggregateServiceDeposits,
   readProtectedClientDeposit,
   type DepositServiceLike,
-} from "./publicBookingDepositDetector";
+} from "./publicBookingDepositDetector.js";
 import type { RiskEngineResult } from "./publicBookingRiskEngine";
 
 // ─── Types ────────────────────────────────────────────────────────────────────

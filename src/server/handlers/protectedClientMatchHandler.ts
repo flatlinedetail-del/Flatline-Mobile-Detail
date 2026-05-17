@@ -17,7 +17,7 @@ import type { Firestore as AdminFirestore } from "firebase-admin/firestore";
 import {
   decideBookingGate,
   normalizeEmail as gateNormalizeEmail,
-} from "../../services/onlineBookingGateCore";
+} from "../../services/onlineBookingGateCore.js";
 
 export interface ProtectedClientMatchHandlerResponse {
   status: number;

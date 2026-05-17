@@ -26,7 +26,7 @@ import {
   calculateDistance,
   calculateTravelFee,
   estimateTravelTime,
-} from "./travelService";
+} from "./travelService.js";
 
 /** Output shape — written verbatim onto the appointment doc. */
 export interface PublicBookingTravelResult {
