@@ -1,80 +1,21 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import fs from "fs";
 import { fileURLToPath } from "url";
 import "dotenv/config";
 import sgMail from "@sendgrid/mail";
 import twilio from "twilio";
-import {
-  initializeApp as initAdminApp,
-  cert as adminCert,
-  getApps as getAdminApps,
-  type App as AdminApp,
-} from "firebase-admin/app";
-import {
-  getFirestore as getAdminFirestore,
-  type Firestore as AdminFirestore,
-} from "firebase-admin/firestore";
 import { startScheduler } from "./scheduler.ts";
-import type { BusinessSettings, Service } from "./src/types";
-import {
-  decideBookingGate,
-  sanitizeGateResultForPublic,
-  normalizeEmail as gateNormalizeEmail,
-} from "./src/services/onlineBookingGateCore";
+import { getBookingGateAdminDb } from "./src/server/adminFirestore";
+import { handleBookingGateRequest } from "./src/server/handlers/bookingGateHandler";
+import { handleProtectedClientMatchRequest } from "./src/server/handlers/protectedClientMatchHandler";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ─── Firebase Admin (for /api/booking/gate) ──────────────────────────────────
-// Lazy-initialized on first request so the rest of the server starts even when
-// FIREBASE_SERVICE_ACCOUNT_KEY is not configured. When unset, the booking-gate
-// endpoint returns 503 — the public booking page then fails safe.
-
-let adminInitAttempted = false;
-let adminDb: AdminFirestore | null = null;
-
-function getBookingGateAdminDb(): AdminFirestore | null {
-  if (adminInitAttempted) return adminDb;
-  adminInitAttempted = true;
-
-  const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (!keyJson) {
-    console.warn(
-      "[booking-gate] FIREBASE_SERVICE_ACCOUNT_KEY not set — /api/booking/gate disabled. " +
-      "Public booking will fail safe (no instant-confirm) until a service account is provided.",
-    );
-    return null;
-  }
-
-  try {
-    const serviceAccount = JSON.parse(keyJson);
-    const existing: AdminApp[] = getAdminApps();
-    const app: AdminApp = existing.length === 0
-      ? initAdminApp({ credential: adminCert(serviceAccount) }, "bookingGateApp")
-      : (existing.find((a) => a.name === "bookingGateApp") ?? existing[0]);
-
-    // Read the firestoreDatabaseId from the same applet config the scheduler
-    // uses, so the admin SDK targets the same named database as the client.
-    let databaseId: string | undefined;
-    try {
-      const configPath = path.join(__dirname, "firebase-applet-config.json");
-      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-      databaseId = typeof config.firestoreDatabaseId === "string"
-        ? config.firestoreDatabaseId
-        : undefined;
-    } catch (cfgErr) {
-      console.warn("[booking-gate] Could not read firebase-applet-config.json for databaseId; using default.", cfgErr);
-    }
-
-    adminDb = databaseId ? getAdminFirestore(app, databaseId) : getAdminFirestore(app);
-    console.log("[booking-gate] firebase-admin initialized — /api/booking/gate ready.");
-    return adminDb;
-  } catch (e) {
-    console.error("[booking-gate] Failed to initialize firebase-admin:", e);
-    return null;
-  }
-}
+// ─── Firebase Admin ──────────────────────────────────────────────────────────
+// Booking-gate admin init now lives in src/server/adminFirestore.ts so the
+// same lazy-init pattern is shared by the Express routes below AND the Vercel
+// serverless functions in api/. See that file for env-var configuration.
 
 // Initialize providers if available
 if (process.env.SENDGRID_API_KEY) {
@@ -355,160 +296,32 @@ async function startServer() {
   });
 
   // ── Public Booking Gate ─────────────────────────────────────────────────────
+  // Express adapter — the actual logic lives in
+  // `src/server/handlers/bookingGateHandler.ts`. The same handler powers the
+  // Vercel serverless function at `api/booking/gate.ts` so production and
+  // local dev share one decision path.
   //
-  // POST /api/booking/gate
-  // Loads protected_clients + matching client + services with ADMIN credentials,
-  // runs the pure decision core, and returns a sanitized result.
-  //
-  // The public /book page calls this endpoint instead of reading
-  // protected_clients directly (which is admin-only per firestore.rules and
-  // must remain so). Sensitive text fields (riskReason, protectionLevel,
-  // clientRiskLevelAtBooking) are NEVER returned to the public client.
+  // protected_clients is admin-only per firestore.rules; sensitive text
+  // (riskReason, protectionLevel, clientRiskLevelAtBooking) is stripped by
+  // sanitizeGateResultForPublic before crossing the wire.
   app.post("/api/booking/gate", async (req, res) => {
-    const db = getBookingGateAdminDb();
-    if (!db) {
-      return res.status(503).json({
-        error: "Booking gate not configured",
-        code: "GATE_NOT_CONFIGURED",
-        message:
-          "Booking review is temporarily unavailable. Please try again shortly or contact us directly.",
-      });
-    }
-
-    // ── Validate body ────────────────────────────────────────────────────────
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const email = typeof body.email === "string" ? body.email : "";
-    const phone = typeof body.phone === "string" ? body.phone : "";
-    const licensePlate = typeof body.licensePlate === "string" ? body.licensePlate : undefined;
-    const grandTotalRaw = body.grandTotal;
-    const grandTotal = typeof grandTotalRaw === "number" && isFinite(grandTotalRaw) && grandTotalRaw >= 0
-      ? grandTotalRaw
-      : NaN;
-    const selectedServiceIdsRaw = body.selectedServiceIds;
-    const selectedServiceIds = Array.isArray(selectedServiceIdsRaw)
-      ? selectedServiceIdsRaw.filter((x): x is string => typeof x === "string" && x.length > 0).slice(0, 40)
-      : [];
-    const coordsRaw = body.customerCoordinates as
-      | { lat?: unknown; lng?: unknown }
-      | undefined;
-    const customerCoordinates: { lat: number; lng: number } | null =
-      coordsRaw &&
-      typeof coordsRaw.lat === "number" &&
-      typeof coordsRaw.lng === "number" &&
-      isFinite(coordsRaw.lat) &&
-      isFinite(coordsRaw.lng) &&
-      !(coordsRaw.lat === 0 && coordsRaw.lng === 0)
-        ? { lat: coordsRaw.lat, lng: coordsRaw.lng }
-        : null;
-
-    if (!email && !phone) {
-      return res.status(400).json({ error: "email or phone is required" });
-    }
-    if (!isFinite(grandTotal)) {
-      return res.status(400).json({ error: "grandTotal must be a non-negative number" });
-    }
-    if (selectedServiceIds.length === 0) {
-      return res.status(400).json({ error: "selectedServiceIds must be a non-empty array" });
-    }
-
-    try {
-      // ── Load data with admin privileges ────────────────────────────────────
-      // protected_clients: list is small; full collection load is fine.
-      // clients: lookup by normalized email (one-document expected).
-      // services: load each by ID so deposit rules use authoritative server data
-      //           (the public client can't tamper with depositRequired/amount).
-      // settings: a single doc — required for the server-authoritative travel
-      //           fee computation. We tolerate a missing settings doc (gate
-      //           still decides risk + deposit), travel fields just zero out.
-      const normEmail = gateNormalizeEmail(email);
-
-      const pcPromise = db.collection("protected_clients").get();
-      const clientPromise = normEmail.length > 3
-        ? db.collection("clients").where("email", "==", normEmail).limit(1).get()
-        : Promise.resolve(null);
-      const servicesPromise = Promise.all(
-        selectedServiceIds.map((id) => db.collection("services").doc(id).get()),
-      );
-      // BusinessSettings live at settings/business in this codebase.
-      const settingsPromise = db.collection("settings").doc("business").get();
-
-      const [pcSnap, clientSnap, serviceSnaps, settingsSnap] = await Promise.all([
-        pcPromise,
-        clientPromise,
-        servicesPromise,
-        settingsPromise,
-      ]);
-
-      const protectedClients = pcSnap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Record<string, unknown>),
-      }));
-
-      const matchedClient = clientSnap && !clientSnap.empty
-        ? { id: clientSnap.docs[0].id, ...(clientSnap.docs[0].data() as Record<string, unknown>) }
-        : null;
-
-      const selectedServices: Service[] = serviceSnaps
-        .filter((s) => s.exists)
-        .map((s) => ({ id: s.id, ...(s.data() as Omit<Service, "id">) }));
-
-      if (selectedServices.length === 0) {
-        return res.status(400).json({ error: "No matching services found for selectedServiceIds" });
-      }
-
-      const settings = settingsSnap.exists
-        ? (settingsSnap.data() as BusinessSettings)
-        : null;
-
-      // ── Run pure decision core ──────────────────────────────────────────────
-      const result = decideBookingGate({
-        email,
-        phone,
-        licensePlate,
-        selectedServices,
-        grandTotal,
-        protectedClients,
-        matchedClient,
-        customerCoordinates,
-        settings,
-      });
-
-      // ── Sanitize and return ─────────────────────────────────────────────────
-      // riskReason / protectionLevel / clientRiskLevelAtBooking are stripped
-      // by sanitizeGateResultForPublic — they never cross the wire.
-      const safeResult = sanitizeGateResultForPublic(result);
-      return res.json(safeResult);
-    } catch (err) {
-      console.error("[booking-gate] error:", err);
-      return res.status(500).json({
-        error: "Booking gate failed",
-        code: "GATE_INTERNAL_ERROR",
-        message:
-          "We could not complete booking review right now. Please try again or contact us directly.",
-      });
-    }
+    console.log("[BookingGate] method", req.method);
+    const { status, body } = await handleBookingGateRequest(
+      req.body,
+      getBookingGateAdminDb(),
+    );
+    return res.status(status).json(body);
   });
 
   // ── TEMPORARY DIAGNOSTIC ────────────────────────────────────────────────────
-  //
-  // POST /api/debug/protected-client-match
-  //
-  // Live-data diagnostic for the Risk Management → public booking matcher.
-  // Returns the exact protected_clients rows the server sees, the normalised
-  // identifiers on both sides, and the deposit decision the gate would emit
-  // for a given customer payload.
-  //
-  // SECURITY: gated by the `BOOKING_DEBUG_TOKEN` env var. If the env var is
-  // unset the endpoint returns 503 — it is OFF by default in production.
-  // Requests must send a matching `X-Debug-Token` header. Even when enabled
-  // the response excludes `riskReason` and `internalNotes` per the user's
-  // explicit instruction.
-  //
-  // REMOVAL: this endpoint exists only to diagnose the live-data mismatch
-  // documented in the May-2026 Risk Management rebuild. Delete this whole
-  // block (and the BOOKING_DEBUG_TOKEN env var) once the root cause is
-  // resolved.
+  // Express adapter — logic lives in
+  // `src/server/handlers/protectedClientMatchHandler.ts`. The same handler
+  // powers the Vercel function at `api/debug/protected-client-match.ts`.
+  // Gated by `BOOKING_DEBUG_TOKEN` env var + matching `X-Debug-Token` header.
+  // Remove this block (and the Vercel sibling) once the live-data mismatch
+  // is resolved.
   app.post("/api/debug/protected-client-match", async (req, res) => {
+    console.log("[BookingGate/debug] method", req.method);
     const expectedToken = process.env.BOOKING_DEBUG_TOKEN;
     if (!expectedToken) {
       return res.status(503).json({
@@ -521,198 +334,11 @@ async function startServer() {
     if (provided !== expectedToken) {
       return res.status(401).json({ error: "unauthorized", code: "DEBUG_AUTH" });
     }
-
-    const db = getBookingGateAdminDb();
-    if (!db) {
-      return res.status(503).json({
-        error: "Admin SDK not configured",
-        code: "GATE_NOT_CONFIGURED",
-      });
-    }
-
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const email = typeof body.email === "string" ? body.email : "";
-    const phone = typeof body.phone === "string" ? body.phone : "";
-    const licensePlate = typeof body.licensePlate === "string" ? body.licensePlate : "";
-    const vin = typeof body.vin === "string" ? body.vin : "";
-    const grandTotalRaw = body.grandTotal;
-    const grandTotal =
-      typeof grandTotalRaw === "number" && isFinite(grandTotalRaw) && grandTotalRaw >= 0
-        ? grandTotalRaw
-        : 100;
-
-    // Re-read the firebase-applet-config so we can echo the configured
-    // databaseId in the diagnostic output — this is the most common source
-    // of "matcher loads zero docs" issues.
-    let configuredDatabaseId: string | null = null;
-    let configuredProjectId: string | null = null;
-    try {
-      const configPath = path.join(__dirname, "firebase-applet-config.json");
-      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-      configuredDatabaseId =
-        typeof config.firestoreDatabaseId === "string" ? config.firestoreDatabaseId : "(default)";
-      configuredProjectId = typeof config.projectId === "string" ? config.projectId : null;
-    } catch {
-      configuredDatabaseId = "(could not read firebase-applet-config.json)";
-    }
-
-    const normEmail = gateNormalizeEmail(email);
-    const normPhone = (phone || "").replace(/\D/g, "");
-    const normPhoneTrimmed =
-      normPhone.length === 11 && normPhone.startsWith("1") ? normPhone.slice(1) : normPhone;
-    const normPlate = (licensePlate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const normVin = (vin || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-    try {
-      const pcSnap = await db.collection("protected_clients").get();
-
-      const candidates = pcSnap.docs.map((d) => {
-        const data = d.data() as Record<string, unknown>;
-        const pcEmail = typeof data.email === "string" ? data.email : "";
-        const pcPhone = typeof data.phone === "string" ? data.phone : "";
-        const pcPlate = typeof data.licensePlate === "string" ? data.licensePlate : "";
-        const pcVin = typeof data.vin === "string" ? data.vin : "";
-
-        const pcNormEmail = pcEmail.trim().toLowerCase();
-        const pcNormPhoneRaw = pcPhone.replace(/\D/g, "");
-        const pcNormPhone =
-          pcNormPhoneRaw.length === 11 && pcNormPhoneRaw.startsWith("1")
-            ? pcNormPhoneRaw.slice(1)
-            : pcNormPhoneRaw;
-        const pcNormPlate = pcPlate.toUpperCase().replace(/[^A-Z0-9]/g, "");
-        const pcNormVin = pcVin.toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-        const isActive = data.isActive !== false; // default-active if field missing
-
-        // Match guards mirror publicBookingRiskEngine.matchProtectedClient
-        const emailHit =
-          isActive &&
-          normEmail.length > 3 &&
-          pcNormEmail.length > 3 &&
-          pcNormEmail === normEmail;
-        const phoneHit =
-          isActive &&
-          normPhoneTrimmed.length >= 10 &&
-          pcNormPhone.length >= 10 &&
-          pcNormPhone === normPhoneTrimmed;
-        const plateHit =
-          isActive &&
-          normPlate.length > 3 &&
-          pcNormPlate.length > 3 &&
-          pcNormPlate === normPlate;
-        const vinHit =
-          isActive &&
-          normVin.length > 3 &&
-          pcNormVin.length > 3 &&
-          pcNormVin === normVin;
-
-        const matched = emailHit || phoneHit || plateHit || vinHit;
-        const matchedBy = emailHit
-          ? "email"
-          : phoneHit
-            ? "phone"
-            : plateHit
-              ? "licensePlate"
-              : vinHit
-                ? "vin"
-                : null;
-
-        return {
-          id: d.id,
-          // raw stored values
-          raw: {
-            email: pcEmail,
-            phone: pcPhone,
-            licensePlate: pcPlate,
-            vin: pcVin,
-            isActive: data.isActive,
-            isActiveResolved: isActive,
-            protectionLevel: data.protectionLevel ?? null,
-            depositRequired: data.depositRequired ?? null,
-            requiredDepositType: data.requiredDepositType ?? null,
-            requiredDepositValue: data.requiredDepositValue ?? null,
-            fullName: data.fullName ?? null,
-            linkedClientId: data.linkedClientId ?? null,
-            createdAt: data.createdAt ?? null,
-            updatedAt: data.updatedAt ?? null,
-            // Field-name presence map — answers "does this doc even have the
-            // canonical field names the matcher looks for?"
-            __keysPresent: Object.keys(data).sort(),
-          },
-          normalized: {
-            email: pcNormEmail,
-            phone: pcNormPhone,
-            licensePlate: pcNormPlate,
-            vin: pcNormVin,
-          },
-          match: { matched, matchedBy, emailHit, phoneHit, plateHit, vinHit },
-          // EXCLUDED per spec: riskReason, internalNotes
-        };
-      });
-
-      const matchedCandidate = candidates.find((c) => c.match.matched) ?? null;
-
-      // Run the actual gate against the same data the public endpoint would
-      // use, so the diagnostic shows the final deposit decision the matcher
-      // would produce.
-      const gateResult = decideBookingGate({
-        email,
-        phone,
-        licensePlate: licensePlate || undefined,
-        vin: vin || undefined,
-        selectedServices: [], // deposit-only diagnostic; service deposits not exercised
-        grandTotal,
-        protectedClients: pcSnap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Record<string, unknown>),
-        })),
-        matchedClient: null,
-      });
-
-      return res.json({
-        meta: {
-          databaseId: configuredDatabaseId,
-          projectId: configuredProjectId,
-          protectedClientsCount: pcSnap.size,
-          timestamp: new Date().toISOString(),
-        },
-        input: {
-          raw: { email, phone, licensePlate, vin, grandTotal },
-          normalized: {
-            email: normEmail,
-            phone: normPhoneTrimmed,
-            licensePlate: normPlate,
-            vin: normVin,
-          },
-        },
-        candidates,
-        matchedCandidateId: matchedCandidate?.id ?? null,
-        depositDecision: {
-          bookingMode: gateResult.bookingMode,
-          pendingOwnerReview: gateResult.pendingOwnerReview,
-          depositRequired: gateResult.depositRequired,
-          depositAmount: gateResult.depositAmount,
-          depositType: gateResult.depositType,
-          depositSource: gateResult.depositSource,
-          depositReasons: gateResult.depositReasons,
-          paymentStatus: gateResult.paymentStatus,
-          balanceDue: gateResult.balanceDue,
-          customerMessageType: gateResult.customerMessageType,
-          matchedProtectedClientId: gateResult.matchedProtectedClientId,
-          protectedClientMatch: gateResult.protectedClientMatch,
-          // EXCLUDED per spec: riskReason, protectionLevel raw text,
-          // clientRiskLevelAtBooking — though this is an admin-only endpoint,
-          // we deliberately mirror the public-safe contract.
-        },
-      });
-    } catch (err) {
-      console.error("[debug/protected-client-match] error:", err);
-      return res.status(500).json({
-        error: "diagnostic failed",
-        code: "DEBUG_INTERNAL_ERROR",
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
+    const { status, body } = await handleProtectedClientMatchRequest(
+      req.body,
+      getBookingGateAdminDb(),
+    );
+    return res.status(status).json(body);
   });
 
   // Vite middleware for development
