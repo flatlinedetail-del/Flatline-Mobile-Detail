@@ -14,7 +14,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "../../firebase";
-import type { Appointment, AddOn, Client, Invoice, ServiceSelection, Vehicle } from "../../types/index";
+import type { Appointment, AddOn, Client, Invoice, Service, ServiceSelection, Vehicle } from "../../types/index";
 import {
   formatJobTime,
   statusLabel,
@@ -63,6 +63,7 @@ import {
   Star,
   UserX,
   CalendarX,
+  Wrench,
   X,
   XCircle,
   Zap,
@@ -980,6 +981,14 @@ export default function ActiveJob() {
   const [pendingAddonIds, setPendingAddonIds] = useState<Set<string>>(new Set());
   const [addingAddons, setAddingAddons] = useState(false);
 
+  // Current Charges sheet (Invoice button)
+  const [showChargesSheet, setShowChargesSheet] = useState(false);
+
+  // Change / Upgrade Service sheet
+  const [showChangeServiceSheet, setShowChangeServiceSheet] = useState(false);
+  const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
+  const [changingService, setChangingService] = useState(false);
+
   // ── Appointment subscription ────────────────────────────────────────────
   useEffect(() => {
     if (!id) {
@@ -1269,6 +1278,94 @@ export default function ActiveJob() {
     () => pendingAddonsToAdd.reduce((s, a) => s + a.price, 0),
     [pendingAddonsToAdd],
   );
+
+  // ── Change / Upgrade Service ─────────────────────────────────────────────
+
+  /** The Service object the technician has selected in the change-service sheet. */
+  const pendingService = useMemo(
+    () => (services as Service[]).find((s) => s.id === pendingServiceId) ?? null,
+    [pendingServiceId, services],
+  );
+
+  /**
+   * Price delta = new service basePrice − current service subtotal.
+   * We derive the current subtotal from serviceSelections when available,
+   * falling back to raw.baseAmount (which should equal services-only price).
+   * The delta is then applied to totalAmount so travel/discount/tax/add-ons
+   * are preserved correctly.
+   */
+  const currentServiceSubtotal = useMemo(() => {
+    if ((raw?.serviceSelections ?? []).length > 0) {
+      return (raw!.serviceSelections!).reduce((s, sel) => s + (sel.price ?? sel.total ?? 0), 0);
+    }
+    return raw?.baseAmount ?? 0;
+  }, [raw]);
+
+  const serviceChangeDelta = pendingService
+    ? pendingService.basePrice - currentServiceSubtotal
+    : 0;
+
+  const newServiceTotal = Math.max(0, (raw?.totalAmount ?? 0) + serviceChangeDelta);
+
+  const handleChangeService = useCallback(async () => {
+    if (!id || !pendingService || changingService) return;
+    setChangingService(true);
+    try {
+      const newSelection: ServiceSelection = {
+        id: pendingService.id,
+        name: pendingService.name,
+        description: pendingService.description ?? "",
+        qty: 1,
+        price: pendingService.basePrice,
+        total: pendingService.basePrice,
+        source: "manual" as const,
+        protocolAccepted: true,
+      };
+
+      const delta = pendingService.basePrice - currentServiceSubtotal;
+      const updatedTotal = Math.max(0, (raw?.totalAmount ?? 0) + delta);
+
+      await updateDoc(doc(db, "appointments", id), {
+        serviceIds: [pendingService.id],
+        serviceNames: [pendingService.name],
+        serviceSelections: [newSelection],
+        baseAmount: pendingService.basePrice,
+        totalAmount: updatedTotal,
+        updatedAt: serverTimestamp(),
+      });
+
+      // Sync invoice if one exists — replace service line items, keep add-on
+      // items and anything else (travel, custom fees) intact.
+      const inv = invoices[0] ?? null;
+      if (inv) {
+        const currentServiceNames = new Set(raw?.serviceNames ?? []);
+        const otherItems = (inv.lineItems ?? []).filter(
+          (li) => !currentServiceNames.has(li.serviceName),
+        );
+        const newServiceItem = {
+          serviceName: newSelection.name,
+          description: newSelection.description || "",
+          quantity: 1,
+          price: newSelection.price,
+          total: newSelection.price,
+          source: "manual",
+          protocolAccepted: true,
+        };
+        await updateDoc(doc(db, "invoices", inv.id), {
+          lineItems: [newServiceItem, ...otherItems],
+          total: Math.max(0, (inv.total ?? 0) + delta),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      setShowChangeServiceSheet(false);
+      setPendingServiceId(null);
+    } catch (e) {
+      console.warn("[ActiveJob] service change failed", e);
+    } finally {
+      setChangingService(false);
+    }
+  }, [id, raw, pendingService, currentServiceSubtotal, invoices, changingService]);
 
   const nextAction = getNextJobStatusAction(rawStatus ?? "scheduled");
   const isCompleteAction = nextAction?.targetStatus === "completed";
@@ -1714,11 +1811,16 @@ export default function ActiveJob() {
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             <WorkflowChip icon={Camera} label="Photos" comingSoon />
             <WorkflowChip
+              icon={Wrench}
+              label="Service"
+              onClick={() => { setPendingServiceId(null); setShowChangeServiceSheet(true); }}
+            />
+            <WorkflowChip
               icon={Zap}
               label="Add-On"
               onClick={() => { setPendingAddonIds(new Set()); setShowAddAddonSheet(true); }}
             />
-            <WorkflowChip icon={Receipt} label="Invoice" onClick={() => setShowTerminal(true)} />
+            <WorkflowChip icon={Receipt} label="Invoice" onClick={() => setShowChargesSheet(true)} />
           </div>
         )}
 
@@ -1949,6 +2051,339 @@ export default function ActiveJob() {
                 : pendingAddonsToAdd.length === 0
                   ? "Select Add-Ons Above"
                   : `Add ${pendingAddonsToAdd.length} Add-On${pendingAddonsToAdd.length !== 1 ? "s" : ""} · +$${pendingAddonsTotal.toFixed(2)}`}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Current Charges / Invoice sheet ──────────────────────────────── */}
+      <Dialog open={showChargesSheet} onOpenChange={setShowChargesSheet}>
+        <DialogContent
+          className="max-w-sm mx-auto bg-[#0D0D0D] border border-white/10 rounded-2xl p-0 overflow-hidden flex flex-col"
+          style={{ maxHeight: "82vh" }}
+        >
+          <DialogHeader className="px-4 pt-4 pb-3 border-b border-white/8 flex-none">
+            <DialogTitle className="text-[12px] font-black uppercase tracking-widest text-white/70 text-left flex items-center gap-2">
+              <Receipt className="w-3.5 h-3.5 text-emerald-300" />
+              {invoice ? "Invoice" : "Current Charges"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+            {invoice ? (
+              <>
+                {/* Status row */}
+                <div className="flex items-center justify-between">
+                  <span className={cn(
+                    "text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg",
+                    invoice.paymentStatus === "paid"
+                      ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
+                      : invoice.paymentStatus === "partial"
+                        ? "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30"
+                        : "bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30",
+                  )}>
+                    {invoice.paymentStatus === "paid" ? "Paid" : invoice.paymentStatus === "partial" ? "Partial" : "Unpaid"}
+                  </span>
+                  {invoice.invoiceNumber && (
+                    <span className="text-[9px] font-bold text-white/30">#{invoice.invoiceNumber}</span>
+                  )}
+                </div>
+
+                {/* Line items */}
+                {(invoice.lineItems ?? []).length > 0 && (
+                  <div className="rounded-xl border border-white/8 bg-white/3 overflow-hidden">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-white/30 px-3 pt-2.5 pb-1.5">
+                      Line Items
+                    </p>
+                    <div className="divide-y divide-white/5">
+                      {invoice.lineItems.map((li, i) => (
+                        <div key={i} className="flex items-start justify-between px-3 py-2 gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-bold text-white leading-tight truncate">{li.serviceName}</p>
+                            {li.description && (
+                              <p className="text-[9px] text-white/40 leading-tight mt-0.5 truncate">{li.description}</p>
+                            )}
+                          </div>
+                          <span className="text-[11px] font-black text-white/80 tabular-nums shrink-0">
+                            ${(li.total ?? li.price ?? 0).toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Totals */}
+                    <div className="border-t border-white/8 px-3 py-2.5 space-y-1">
+                      <div className="flex justify-between text-[12px]">
+                        <span className="font-black text-white">Total</span>
+                        <span className="font-black text-white">${(invoice.total ?? 0).toFixed(2)}</span>
+                      </div>
+                      {(invoice.amountPaid ?? 0) > 0 && (
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-emerald-400 font-bold">Paid</span>
+                          <span className="text-emerald-400 font-bold">${(invoice.amountPaid ?? 0).toFixed(2)}</span>
+                        </div>
+                      )}
+                      {(() => {
+                        const bal = (invoice.total ?? 0) - (invoice.amountPaid ?? 0);
+                        return bal > 0 ? (
+                          <div className="flex justify-between text-[11px] pt-1 border-t border-white/8">
+                            <span className="font-black text-rose-300">Balance Due</span>
+                            <span className="font-black text-rose-300">${bal.toFixed(2)}</span>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Deposit info */}
+                {raw?.depositPaid && (
+                  <div className="flex items-center gap-2 px-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                    <p className="text-[10px] font-bold text-emerald-300">
+                      Deposit paid · ${(raw.depositAmount ?? 0).toFixed(2)}
+                    </p>
+                  </div>
+                )}
+
+                {/* View full invoice button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowChargesSheet(false);
+                    navigate(`/invoices?invoiceId=${invoice.id}`);
+                  }}
+                  className="w-full py-3 rounded-xl border border-emerald-500/25 bg-emerald-500/8 hover:bg-emerald-500/15 active:bg-emerald-500/20 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Receipt className="w-3.5 h-3.5 text-emerald-300" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300">
+                    View Full Invoice
+                  </span>
+                </button>
+              </>
+            ) : (
+              /* No invoice — synthesise charges from appointment fields */
+              <>
+                {/* Services */}
+                {((raw?.serviceSelections ?? []).length > 0 || (raw?.serviceNames ?? []).length > 0) && (
+                  <div className="rounded-xl border border-white/8 bg-white/3 overflow-hidden">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-white/30 px-3 pt-2.5 pb-1.5">
+                      Services
+                    </p>
+                    <div className="divide-y divide-white/5">
+                      {(raw?.serviceSelections ?? []).length > 0
+                        ? (raw!.serviceSelections!).map((sel, i) => (
+                            <div key={i} className="flex items-start justify-between px-3 py-2 gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[11px] font-bold text-white leading-tight">{sel.name}</p>
+                                {sel.description && (
+                                  <p className="text-[9px] text-white/40 leading-tight mt-0.5 truncate">{sel.description}</p>
+                                )}
+                              </div>
+                              {(sel.price ?? 0) > 0 && (
+                                <span className="text-[11px] font-black text-white/80 tabular-nums shrink-0">
+                                  ${(sel.price ?? 0).toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          ))
+                        : (raw?.serviceNames ?? []).map((name, i) => (
+                            <div key={i} className="px-3 py-2">
+                              <p className="text-[11px] font-bold text-white leading-tight">{name}</p>
+                            </div>
+                          ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Add-ons */}
+                {((raw?.addOnSelections ?? []).length > 0 || (raw?.addOnNames ?? []).length > 0) && (
+                  <div className="rounded-xl border border-white/8 bg-white/3 overflow-hidden">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-white/30 px-3 pt-2.5 pb-1.5">
+                      Add-Ons
+                    </p>
+                    <div className="divide-y divide-white/5">
+                      {(raw?.addOnSelections ?? []).length > 0
+                        ? (raw!.addOnSelections!).map((sel, i) => (
+                            <div key={i} className="flex items-start justify-between px-3 py-2 gap-2">
+                              <p className="text-[11px] font-bold text-white leading-tight">{sel.name}</p>
+                              {(sel.price ?? 0) > 0 && (
+                                <span className="text-[11px] font-black text-white/80 tabular-nums shrink-0">
+                                  ${(sel.price ?? 0).toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          ))
+                        : (raw?.addOnNames ?? []).map((name, i) => (
+                            <div key={i} className="px-3 py-2">
+                              <p className="text-[11px] font-bold text-white leading-tight">{name}</p>
+                            </div>
+                          ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Total summary */}
+                {(raw?.totalAmount ?? 0) > 0 && (
+                  <div className="rounded-xl border border-white/8 bg-white/3 px-3 py-3 space-y-1.5">
+                    {(raw?.travelFee ?? 0) > 0 && (
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-white/50 font-bold">Travel Fee</span>
+                        <span className="text-white font-bold">${(raw!.travelFee!).toFixed(2)}</span>
+                      </div>
+                    )}
+                    {(raw?.discountAmount ?? 0) > 0 && (
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-emerald-400 font-bold">Discount</span>
+                        <span className="text-emerald-400 font-bold">−${(raw!.discountAmount!).toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-[12px] pt-1 border-t border-white/8">
+                      <span className="font-black text-white">Total</span>
+                      <span className="font-black text-white">${raw!.totalAmount.toFixed(2)}</span>
+                    </div>
+                    {raw?.depositPaid && (
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-emerald-400 font-bold">Deposit Paid</span>
+                        <span className="text-emerald-400 font-bold">${(raw.depositAmount ?? 0).toFixed(2)}</span>
+                      </div>
+                    )}
+                    {(raw?.balanceDue ?? 0) > 0 && (
+                      <div className="flex justify-between text-[11px] pt-1 border-t border-white/8">
+                        <span className="text-rose-300 font-black">Balance Due</span>
+                        <span className="text-rose-300 font-black">${(raw!.balanceDue as number).toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <p className="text-[9px] text-white/25 text-center px-2 leading-snug">
+                  No invoice generated yet. Charges shown from appointment record.
+                </p>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Change / Upgrade Service sheet ───────────────────────────────── */}
+      <Dialog
+        open={showChangeServiceSheet}
+        onOpenChange={(v) => {
+          if (!changingService) {
+            setShowChangeServiceSheet(v);
+            if (!v) setPendingServiceId(null);
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-sm mx-auto bg-[#0D0D0D] border border-white/10 rounded-2xl p-0 overflow-hidden flex flex-col"
+          style={{ maxHeight: "82vh" }}
+        >
+          <DialogHeader className="px-4 pt-4 pb-3 border-b border-white/8 flex-none">
+            <DialogTitle className="text-[12px] font-black uppercase tracking-widest text-white/70 text-left flex items-center gap-2">
+              <Wrench className="w-3.5 h-3.5 text-amber-300" />
+              Change / Upgrade Service
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Current service indicator */}
+          {(raw?.serviceNames ?? []).length > 0 && (
+            <div className="px-4 py-2 border-b border-white/5 flex-none">
+              <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Current Service</p>
+              <p className="text-[11px] font-bold text-white/60 mt-0.5 leading-tight truncate">
+                {raw!.serviceNames!.join(", ")}
+              </p>
+            </div>
+          )}
+
+          {/* Service catalog list */}
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+            {(services as Service[]).filter((s) => s.isActive).length === 0 ? (
+              <p className="text-[11px] text-white/30 text-center py-6 italic">No services in catalog</p>
+            ) : (
+              (services as Service[])
+                .filter((s) => s.isActive)
+                .map((svc) => {
+                  const isCurrent = (raw?.serviceIds ?? []).includes(svc.id);
+                  const isSelected = pendingServiceId === svc.id;
+                  return (
+                    <button
+                      key={svc.id}
+                      type="button"
+                      disabled={isCurrent}
+                      onClick={() => setPendingServiceId(isSelected ? null : svc.id)}
+                      className={cn(
+                        "w-full text-left rounded-xl border transition-all px-3 py-2.5",
+                        isCurrent
+                          ? "border-emerald-500/20 bg-emerald-500/5 cursor-default"
+                          : isSelected
+                            ? "border-amber-500/40 bg-amber-500/8 shadow-[0_0_8px_rgba(245,158,11,0.10)]"
+                            : "border-white/8 bg-white/3 hover:bg-white/6 active:bg-white/8",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            {isSelected && (
+                              <CheckCircle2 className="w-3 h-3 text-amber-400 shrink-0" />
+                            )}
+                            {isCurrent && (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                            )}
+                            <p className="text-[11px] font-bold text-white leading-tight truncate">{svc.name}</p>
+                          </div>
+                          {svc.description && (
+                            <p className="text-[9px] text-white/40 leading-tight mt-0.5 line-clamp-1">{svc.description}</p>
+                          )}
+                          {isCurrent && (
+                            <p className="text-[9px] text-emerald-400/70 font-bold mt-0.5 leading-none">✓ Currently booked</p>
+                          )}
+                          {svc.estimatedDuration > 0 && !isCurrent && (
+                            <p className="text-[8px] text-white/25 mt-0.5 leading-none">{svc.estimatedDuration} min</p>
+                          )}
+                        </div>
+                        <span className="text-[12px] font-black text-white/80 shrink-0 tabular-nums">
+                          ${svc.basePrice.toFixed(0)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
+            )}
+          </div>
+
+          {/* Footer: price diff preview + confirm */}
+          <div className="flex-none px-3 py-3 border-t border-white/8 space-y-2">
+            {pendingService && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 space-y-1">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-white/50 font-bold">Price change</span>
+                  <span className={cn("font-black tabular-nums", serviceChangeDelta >= 0 ? "text-amber-300" : "text-rose-300")}>
+                    {serviceChangeDelta >= 0 ? "+" : ""}${serviceChangeDelta.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-white/70 font-black">New Total</span>
+                  <span className="text-white font-black tabular-nums">${newServiceTotal.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              disabled={!pendingServiceId || changingService}
+              onClick={handleChangeService}
+              className={cn(
+                "w-full py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all",
+                !pendingServiceId || changingService
+                  ? "bg-white/5 text-white/25 cursor-not-allowed"
+                  : "bg-amber-500/20 border border-amber-500/30 text-amber-200 hover:bg-amber-500/30 active:bg-amber-500/40",
+              )}
+            >
+              {changingService
+                ? "Updating…"
+                : pendingService
+                  ? `Upgrade to ${pendingService.name} · $${pendingService.basePrice.toFixed(0)}`
+                  : "Select a Service Above"}
             </button>
           </div>
         </DialogContent>
