@@ -220,6 +220,12 @@ export default function PublicBooking() {
   // `src/services/onlineBookingGateCore.ts`.
   const [gateResult, setGateResult] = useState<PublicBookingGateResponse | null>(null);
 
+  // Preview gate result — fetched when the customer reaches the Review step.
+  // Used only for the amber deposit/review notice and button label; no
+  // appointment is created and no payment data is captured at this point.
+  const [previewGateResult, setPreviewGateResult] = useState<PublicBookingGateResponse | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+
   // NOTE: The previous live-preview useEffects that read `protected_clients`
   // and `clients` from the browser have been removed. Those collections are
   // admin-only per firestore.rules and reading them from a logged-out browser
@@ -237,6 +243,43 @@ export default function PublicBooking() {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
+
+  // Preview gate call — fires when the customer reaches Step 7 (Review) with
+  // all required fields populated. Result drives the amber deposit notice and
+  // button label only; no appointment is created here.
+  useEffect(() => {
+    if (
+      step !== 7 ||
+      !clientInfo.email ||
+      !clientInfo.phone ||
+      selectedServices.length === 0 ||
+      grandTotal <= 0 ||
+      !scheduledAt
+    ) return;
+
+    let cancelled = false;
+    setIsPreviewLoading(true);
+    fetchPublicBookingGate({
+      email: clientInfo.email,
+      phone: clientInfo.phone,
+      licensePlate: clientInfo.vehiclePlate || undefined,
+      selectedServiceIds: selectedServices,
+      grandTotal,
+      customerCoordinates:
+        address.state.lat && address.state.lng
+          ? { lat: address.state.lat, lng: address.state.lng }
+          : null,
+    }).then((result) => {
+      if (cancelled) return;
+      if (result.ok) setPreviewGateResult(result.data);
+      // On gate failure, don't block the Review step — just skip the notice.
+    }).finally(() => {
+      if (!cancelled) setIsPreviewLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -724,16 +767,39 @@ export default function PublicBooking() {
 
       // Set customer-facing screen based on gate decision.
       // Priority (highest first):
-      //   1. depositRequired + depositAmount > 0 → deposit screen regardless
-      //      of bookingMode. A risk client can have pendingOwnerReview AND a
-      //      deposit — the deposit screen wins; pendingOwnerReview is still
-      //      persisted on the appointment doc for admin routing.
+      //   1. depositRequired + depositAmount > 0 → auto-redirect to Stripe.
+      //      If Stripe call fails, fall back to the deposit_pending screen so
+      //      the customer can retry via the "Pay Deposit Now" button.
       //   2. pending_review (risk / travel review, no deposit) → generic screen
       //   3. success → instant-confirm
       // The customer never sees risk wording at any point.
       if (gate.depositRequired && gate.depositAmount > 0) {
-        setBookingStatus("deposit_pending");
-        toast.success("Booking request submitted — deposit required to confirm.");
+        toast.success("Booking submitted — redirecting to payment...");
+        try {
+          const checkoutResp = await fetch("/api/payments/deposit-checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              appointmentId: docRef.id,
+              depositAmount: gate.depositAmount,
+              customerEmail: clientInfo.email,
+              customerName: clientInfo.name,
+              serviceNames: resolvedServices.map((s) => s.name).join(", "),
+              origin: window.location.origin,
+            }),
+          });
+          const checkoutData = await checkoutResp.json();
+          if (checkoutData.url) {
+            window.location.href = checkoutData.url;
+            return; // browser navigates away — no further state updates
+          }
+          // Stripe session creation failed — fall back to intermediate screen
+          toast.error("Could not start payment. Use the button below to try again.");
+          setBookingStatus("deposit_pending");
+        } catch {
+          toast.error("Payment connection failed. Use the button below to try again.");
+          setBookingStatus("deposit_pending");
+        }
       } else if (gate.customerMessageType === "pending_review") {
         setBookingStatus("pending_review");
         toast.success("Booking request submitted!");
@@ -915,7 +981,7 @@ export default function PublicBooking() {
             {isDepositPending ? (
               <>
                 <p className="text-gray-500 font-medium">
-                  Thank you, <strong className="text-gray-800">{clientInfo.name.split(" ")[0] || "there"}</strong>! Your request has been received. A deposit is required before final confirmation.
+                  Thank you, <strong className="text-gray-800">{clientInfo.name.split(" ")[0] || "there"}</strong>! Your booking is saved. A deposit is required to confirm your appointment — use the button below to complete payment.
                 </p>
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-left space-y-2">
                   <p className="text-xs font-black uppercase tracking-widest text-amber-700">Deposit Required to Confirm</p>
@@ -924,7 +990,7 @@ export default function PublicBooking() {
                     Your appointment is not confirmed until your deposit is received.
                   </p>
                 </div>
-                {/* ── Pay now (Stripe Checkout) ─────────────────────────── */}
+                {/* ── Pay now (Stripe Checkout) — fallback if auto-redirect failed ── */}
                 <Button
                   onClick={handlePayDeposit}
                   disabled={isCreatingCheckout || !savedAppointmentId}
@@ -1721,16 +1787,49 @@ export default function PublicBooking() {
                         </Label>
                       </div>
 
+                      {/* Pre-submit deposit / review notice from preview gate call */}
+                      {(() => {
+                        const previewDeposit =
+                          previewGateResult?.depositRequired &&
+                          (previewGateResult?.depositAmount ?? 0) > 0;
+                        const previewReview =
+                          !previewDeposit && previewGateResult?.pendingOwnerReview === true;
+                        if (isPreviewLoading || (!previewDeposit && !previewReview)) return null;
+                        return previewDeposit ? (
+                          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-black text-amber-800 uppercase tracking-wide">
+                                Deposit required before confirmation —{" "}
+                                {formatCurrency(previewGateResult!.depositAmount)}
+                              </p>
+                              <p className="text-xs font-medium text-amber-700 mt-1">
+                                This request can be submitted now, but final confirmation requires a deposit.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start gap-3 p-4 bg-gray-50 border border-gray-200 rounded-2xl">
+                            <AlertCircle className="w-5 h-5 text-gray-500 shrink-0 mt-0.5" />
+                            <p className="text-sm font-medium text-gray-700">
+                              This request may require owner review before final confirmation.
+                            </p>
+                          </div>
+                        );
+                      })()}
+
                       <div className="flex justify-between pt-4 border-t border-gray-100">
                         <Button type="button" variant="outline" className="font-bold h-12 px-8 border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" onClick={() => setStep(6)}>Back</Button>
-                        <Button 
-                          type="submit" 
+                        <Button
+                          type="submit"
                           form="booking-form"
                           className="bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 px-8 text-lg shadow-glow-blue transition-all hover:scale-105"
                           disabled={isSubmitting}
                         >
                           {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
-                          {depositInfo.isRequired ? "Submit Request — Deposit Required" : "Submit Booking Request"}
+                          {(previewGateResult?.depositRequired && (previewGateResult?.depositAmount ?? 0) > 0)
+                            ? "Submit & Pay Deposit"
+                            : "Submit Booking Request"}
                         </Button>
                       </div>
                     </CardContent>
