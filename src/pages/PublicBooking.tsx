@@ -189,7 +189,10 @@ export default function PublicBooking() {
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
   const [scheduledAt, setScheduledAt] = useState("");
-  const [bookingStatus, setBookingStatus] = useState<"idle" | "success" | "deposit_pending" | "pending_review">("idle");
+  const [bookingStatus, setBookingStatus] = useState<"idle" | "success" | "deposit_pending" | "deposit_paid" | "pending_review">("idle");
+  const [savedAppointmentId, setSavedAppointmentId] = useState<string | null>(null);
+  const [savedServiceNames, setSavedServiceNames] = useState<string>("");
+  const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
   const [isAfterHours, setIsAfterHours] = useState(false);
   const [afterHoursFee, setAfterHoursFee] = useState(0);
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -225,6 +228,15 @@ export default function PublicBooking() {
   // server-side /api/booking/gate call at submission time. Service-level
   // deposits (Service.depositRequired) are still previewed below from the
   // publicly-readable `services` collection.
+
+  // Detect return from Stripe Checkout (?depositPaid=1) and clear URL params.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("depositPaid") === "1") {
+      setBookingStatus("deposit_paid");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -414,6 +426,35 @@ export default function PublicBooking() {
   }, [clientGoal, condition, services, addons, step]);
 
   // Apply coupon against Firestore coupons collection
+  const handlePayDeposit = async () => {
+    if (!savedAppointmentId || !gateResult) return;
+    setIsCreatingCheckout(true);
+    try {
+      const resp = await fetch("/api/payments/deposit-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appointmentId: savedAppointmentId,
+          depositAmount: gateResult.depositAmount,
+          customerEmail: clientInfo.email,
+          customerName: clientInfo.name,
+          serviceNames: savedServiceNames,
+          origin: window.location.origin,
+        }),
+      });
+      const data = await resp.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error(data.error ?? "Could not create payment session. Please contact us directly.");
+      }
+    } catch {
+      toast.error("Payment connection failed. Please call us directly.");
+    } finally {
+      setIsCreatingCheckout(false);
+    }
+  };
+
   const handleApplyCoupon = async () => {
     const code = couponInput.trim().toUpperCase();
     if (!code) return;
@@ -630,6 +671,8 @@ export default function PublicBooking() {
       };
 
       const docRef = await addDoc(collection(db, "appointments"), appointmentData);
+      setSavedAppointmentId(docRef.id);
+      setSavedServiceNames(resolvedServices.map((s) => s.name).join(", "));
 
       try {
         const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
@@ -815,12 +858,40 @@ export default function PublicBooking() {
 
   if (bookingStatus !== "idle") {
     const isDepositPending = bookingStatus === "deposit_pending";
+    const isDepositPaid = bookingStatus === "deposit_paid";
     // pending_review covers both pending_owner_review and blocked_review — the
     // customer sees a generic success message with no risk wording.
     const isPendingReview = bookingStatus === "pending_review";
     // Gate result is authoritative for the deposit amount on the success screen.
     // Fall back to the preview value in the (unlikely) case gate hasn't resolved.
     const confirmedDepositAmount = gateResult?.depositAmount ?? depositInfo.amount;
+
+    // ── Stripe return: deposit payment confirmed ─────────────────────────
+    if (isDepositPaid) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <Card className="max-w-md w-full border-none shadow-2xl rounded-3xl overflow-hidden">
+            <div className="p-8 flex justify-center bg-green-500">
+              <CheckCircle2 className="w-20 h-20 text-white" />
+            </div>
+            <CardContent className="p-8 text-center space-y-4">
+              <h2 className="text-2xl font-black text-gray-900 tracking-tighter uppercase">Deposit Received!</h2>
+              <p className="text-gray-500 font-medium">
+                Your deposit payment was received. We'll confirm your appointment shortly.
+              </p>
+              {settings?.businessPhone && (
+                <p className="text-sm text-gray-400 font-medium">
+                  Questions? Call us at <span className="text-primary font-black">{settings.businessPhone}</span>
+                </p>
+              )}
+              <Button onClick={() => window.location.reload()} className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl shadow-glow-blue transition-all hover:scale-105">
+                Book Another Appointment
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
 
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -844,12 +915,24 @@ export default function PublicBooking() {
                   <p className="text-xs font-black uppercase tracking-widest text-amber-700">Deposit Required to Confirm</p>
                   <p className="text-2xl font-black text-amber-700">{formatCurrency(confirmedDepositAmount)}</p>
                   <p className="text-sm font-medium text-amber-800">
-                    This booking is not confirmed until your deposit is received. Our team will contact you shortly with payment instructions.
+                    Secure your appointment now with a deposit. This booking is not confirmed until your deposit is received.
                   </p>
                 </div>
+                {/* ── Pay now (Stripe Checkout) ─────────────────────────── */}
+                <Button
+                  onClick={handlePayDeposit}
+                  disabled={isCreatingCheckout || !savedAppointmentId}
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-white font-black h-12 rounded-xl shadow-lg transition-all hover:scale-105 disabled:opacity-60"
+                >
+                  {isCreatingCheckout ? (
+                    <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Connecting to payment...</span>
+                  ) : (
+                    `Pay Deposit Now — ${formatCurrency(confirmedDepositAmount)}`
+                  )}
+                </Button>
                 {settings?.businessPhone && (
                   <p className="text-sm text-gray-400 font-medium">
-                    Questions? Call us at <span className="text-primary font-black">{settings.businessPhone}</span>
+                    Prefer to pay by phone? Call <span className="text-primary font-black">{settings.businessPhone}</span>
                   </p>
                 )}
               </>
@@ -861,7 +944,7 @@ export default function PublicBooking() {
                   : " We will review it and contact you shortly to confirm."}
               </p>
             )}
-            <Button onClick={() => window.location.reload()} className="w-full bg-primary hover:bg-[#2A6CFF] text-white font-black h-12 rounded-xl shadow-glow-blue transition-all hover:scale-105">
+            <Button onClick={() => window.location.reload()} className={cn("w-full font-black h-12 rounded-xl transition-all hover:scale-105", isDepositPending ? "bg-gray-100 hover:bg-gray-200 text-gray-500 text-sm" : "bg-primary hover:bg-[#2A6CFF] text-white shadow-glow-blue")}>
               Book Another Appointment
             </Button>
           </CardContent>

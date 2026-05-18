@@ -136,6 +136,15 @@ export async function handleBookingGateRequest(
       ? (settingsSnap.data() as BusinessSettings)
       : null;
 
+    console.log("[booking-gate] request", {
+      normEmail: gateNormalizeEmail(email),
+      phoneDigits: (phone || "").replace(/\D/g, "").length,
+      hasPlate: !!licensePlate,
+      grandTotal,
+      protectedClientsCount: protectedClients.length,
+      matchedClientId: matchedClient?.id ?? null,
+    });
+
     const result = decideBookingGate({
       email,
       phone,
@@ -148,7 +157,20 @@ export async function handleBookingGateRequest(
       settings,
     });
 
-    return { status: 200, body: sanitizeGateResultForPublic(result) };
+    const publicResult = sanitizeGateResultForPublic(result);
+    console.log("[booking-gate] response", {
+      bookingMode: publicResult.bookingMode,
+      pendingOwnerReview: publicResult.pendingOwnerReview,
+      protectedClientMatch: publicResult.protectedClientMatch,
+      matchedProtectedClientId: publicResult.matchedProtectedClientId,
+      depositRequired: publicResult.depositRequired,
+      depositAmount: publicResult.depositAmount,
+      depositSource: publicResult.depositSource,
+      depositReasons: publicResult.depositReasons,
+      customerMessageType: publicResult.customerMessageType,
+    });
+
+    return { status: 200, body: publicResult };
   } catch (err) {
     console.error("[booking-gate] error:", err);
     return {
