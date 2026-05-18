@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 interface OperationsFeedProps {
   notifications: AppNotification[];
+  bellCount?: number;
   onClose?: () => void;
 }
 
@@ -27,7 +28,7 @@ const CATEGORIES = [
   "System Alerts"
 ];
 
-export function OperationsFeed({ notifications, onClose }: OperationsFeedProps) {
+export function OperationsFeed({ notifications, bellCount = 0, onClose }: OperationsFeedProps) {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
@@ -126,108 +127,180 @@ export function OperationsFeed({ notifications, onClose }: OperationsFeedProps) 
               </p>
             </div>
           ) : (
-            CATEGORIES.map(category => {
-              const catNotifs = notifications.filter(n => n.category === category);
-              const isExpanded = expandedCategories[category];
-              const unreadCatCount = catNotifs.filter(n => !n.read).length;
+            <>
+              {CATEGORIES.map(category => {
+                const catNotifs = notifications.filter(n => n.category === category);
+                const isExpanded = expandedCategories[category];
+                const unreadCatCount = catNotifs.filter(n => !n.read).length;
 
-              if (catNotifs.length === 0) return null;
+                if (catNotifs.length === 0) return null;
 
-              return (
-                <div key={category} className="space-y-3">
-                  <div 
-                    className="flex items-center justify-between px-2 cursor-pointer group"
-                    onClick={() => toggleCategory(category)}
-                  >
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2 group-hover:text-white transition-colors">
-                      {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                      {category} 
-                      {unreadCatCount > 0 && (
-                        <Badge variant="outline" className="ml-2 text-[9px] bg-primary/20 text-primary border-none px-1.5 py-0">
-                          {unreadCatCount} New
-                        </Badge>
-                      )}
-                    </h3>
-                  </div>
+                return (
+                  <div key={category} className="space-y-3">
+                    <div
+                      className="flex items-center justify-between px-2 cursor-pointer group"
+                      onClick={() => toggleCategory(category)}
+                    >
+                      <h3 className="text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2 group-hover:text-white transition-colors">
+                        {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        {category}
+                        {unreadCatCount > 0 && (
+                          <Badge variant="outline" className="ml-2 text-[9px] bg-primary/20 text-primary border-none px-1.5 py-0">
+                            {unreadCatCount} New
+                          </Badge>
+                        )}
+                      </h3>
+                    </div>
 
-                  {isExpanded && (
-                    <div className="space-y-2">
-                      {catNotifs.map(n => (
-                        <div 
-                          key={n.id}
-                          className={cn(
-                            "flex items-start gap-4 p-4 rounded-xl border transition-all cursor-pointer",
-                            n.read 
-                              ? "bg-black/20 border-white/5 opacity-60 hover:opacity-100" 
-                              : "bg-white/5 border-white/10 hover:bg-white/10"
-                          )}
-                          onClick={() => handleAction(n)}
-                        >
-                          <div className={cn("w-2 h-2 mt-1.5 rounded-full shrink-0", getPriorityColor(n.priority))} />
-                          
-                          <div className="flex-1 min-w-0">
-                            <div className="flex justify-between items-start mb-1">
-                              <p className={cn(
-                                "text-sm font-black uppercase tracking-tight",
-                                n.read ? "text-white" : "text-white"
-                              )}>
-                                {n.title}
+                    {isExpanded && (
+                      <div className="space-y-2">
+                        {catNotifs.map(n => (
+                          <div
+                            key={n.id}
+                            className={cn(
+                              "flex items-start gap-4 p-4 rounded-xl border transition-all cursor-pointer",
+                              n.read
+                                ? "bg-black/20 border-white/5 opacity-60 hover:opacity-100"
+                                : "bg-white/5 border-white/10 hover:bg-white/10"
+                            )}
+                            onClick={() => handleAction(n)}
+                          >
+                            <div className={cn("w-2 h-2 mt-1.5 rounded-full shrink-0", getPriorityColor(n.priority))} />
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-start mb-1">
+                                <p className={cn(
+                                  "text-sm font-black uppercase tracking-tight",
+                                  n.read ? "text-white" : "text-white"
+                                )}>
+                                  {n.title}
+                                </p>
+                                <span className="text-[9px] text-white font-bold whitespace-nowrap ml-3">
+                                  {(n.createdAt as any)?.toDate ? format((n.createdAt as any).toDate(), "MMM d, h:mm a") : "Just now"}
+                                </span>
+                              </div>
+                              <p className="text-xs text-white leading-relaxed font-medium mb-3">
+                                {n.message}
                               </p>
-                              <span className="text-[9px] text-white font-bold whitespace-nowrap ml-3">
-                                {(n.createdAt as any)?.toDate ? format((n.createdAt as any).toDate(), "MMM d, h:mm a") : "Just now"}
-                              </span>
-                            </div>
-                            <p className="text-xs text-white leading-relaxed font-medium mb-3">
-                              {n.message}
-                            </p>
-                            
-                            <div className="flex flex-wrap items-center gap-2">
-                              {n.type === "new_booking_request" && (
-                                <div className="flex gap-2">
-                                  <Badge variant="outline" className="text-[9px] bg-white text-black font-bold uppercase tracking-wider">
-                                    View Booking
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                {n.type === "new_booking_request" && (
+                                  <div className="flex gap-2">
+                                    <Badge variant="outline" className="text-[9px] bg-white text-black font-bold uppercase tracking-wider">
+                                      View Booking
+                                    </Badge>
+                                  </div>
+                                )}
+                                {n.type === "waitlist_request" && (
+                                  <div className="flex gap-2 flex-wrap mt-1">
+                                    <Badge variant="outline" className="text-[9px] bg-orange-500/20 text-orange-400 border-none font-bold uppercase tracking-wider cursor-pointer">
+                                      View Waitlist Request
+                                    </Badge>
+                                  </div>
+                                )}
+                                {n.type === "slot_opened" && (
+                                  <div className="flex gap-2 flex-wrap mt-1">
+                                    <Badge variant="outline" className="text-[9px] bg-primary/20 text-primary border-none font-bold uppercase tracking-wider cursor-pointer">
+                                      Offer Open Slot
+                                    </Badge>
+                                    <Badge variant="outline" className="text-[9px] bg-white/10 text-white border-none font-bold uppercase tracking-wider cursor-pointer">
+                                      View Waitlist Match
+                                    </Badge>
+                                  </div>
+                                )}
+                                {(n.type === "cancellation" || n.type === "reschedule") && (
+                                  <Badge variant="outline" className="text-[9px] bg-white/10 text-white border-none font-bold uppercase tracking-wider">
+                                    View Calendar
                                   </Badge>
-                                </div>
-                              )}
-                              {n.type === "waitlist_request" && (
-                                <div className="flex gap-2 flex-wrap mt-1">
-                                  <Badge variant="outline" className="text-[9px] bg-orange-500/20 text-orange-400 border-none font-bold uppercase tracking-wider cursor-pointer">
-                                    View Waitlist Request
+                                )}
+                                {n.type === "upcoming_appointment" && (
+                                  <Badge variant="outline" className="text-[9px] bg-emerald-500/20 text-emerald-400 border-none font-bold uppercase tracking-wider">
+                                    View Appointment
                                   </Badge>
-                                </div>
-                              )}
-                              {n.type === "slot_opened" && (
-                                <div className="flex gap-2 flex-wrap mt-1">
-                                  <Badge variant="outline" className="text-[9px] bg-primary/20 text-primary border-none font-bold uppercase tracking-wider cursor-pointer">
-                                    Offer Open Slot
-                                  </Badge>
-                                  <Badge variant="outline" className="text-[9px] bg-white/10 text-white border-none font-bold uppercase tracking-wider cursor-pointer">
-                                    View Waitlist Match
-                                  </Badge>
-                                </div>
-                              )}
-                              {(n.type === "cancellation" || n.type === "reschedule") && (
-                                <Badge variant="outline" className="text-[9px] bg-white/10 text-white border-none font-bold uppercase tracking-wider">
-                                  View Calendar
-                                </Badge>
-                              )}
-                              {n.type === "upcoming_appointment" && (
-                                <Badge variant="outline" className="text-[9px] bg-emerald-500/20 text-emerald-400 border-none font-bold uppercase tracking-wider">
-                                  View Appointment
-                                </Badge>
-                              )}
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Catch-all for notifications that don't match a known category */}
+              {(() => {
+                const uncategorized = notifications.filter(
+                  n => !CATEGORIES.includes(n.category as string)
+                );
+                if (uncategorized.length === 0) return null;
+                const unreadCount = uncategorized.filter(n => !n.read).length;
+                const isExpanded = expandedCategories["__other__"] ?? true;
+                return (
+                  <div className="space-y-3">
+                    <div
+                      className="flex items-center justify-between px-2 cursor-pointer group"
+                      onClick={() => toggleCategory("__other__")}
+                    >
+                      <h3 className="text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2 group-hover:text-white transition-colors">
+                        {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        Other
+                        {unreadCount > 0 && (
+                          <Badge variant="outline" className="ml-2 text-[9px] bg-primary/20 text-primary border-none px-1.5 py-0">
+                            {unreadCount} New
+                          </Badge>
+                        )}
+                      </h3>
                     </div>
-                  )}
-                </div>
-              );
-            })
+                    {isExpanded && (
+                      <div className="space-y-2">
+                        {uncategorized.map(n => (
+                          <div
+                            key={n.id}
+                            className={cn(
+                              "flex items-start gap-4 p-4 rounded-xl border transition-all cursor-pointer",
+                              n.read
+                                ? "bg-black/20 border-white/5 opacity-60 hover:opacity-100"
+                                : "bg-white/5 border-white/10 hover:bg-white/10"
+                            )}
+                            onClick={() => handleAction(n)}
+                          >
+                            <div className={cn("w-2 h-2 mt-1.5 rounded-full shrink-0", getPriorityColor(n.priority))} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-start mb-1">
+                                <p className="text-sm font-black uppercase tracking-tight text-white">{n.title}</p>
+                                <span className="text-[9px] text-white font-bold whitespace-nowrap ml-3">
+                                  {(n.createdAt as any)?.toDate ? format((n.createdAt as any).toDate(), "MMM d, h:mm a") : "Just now"}
+                                </span>
+                              </div>
+                              <p className="text-xs text-white leading-relaxed font-medium">{n.message}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </>
           )}
         </div>
       </ScrollArea>
+
+      {bellCount > 0 && (
+        <div
+          className="shrink-0 border-t border-white/10 px-6 py-4 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors"
+          onClick={() => { navigate("/"); if (onClose) onClose(); }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-white">
+              {bellCount} action {bellCount === 1 ? "item" : "items"} need attention
+            </p>
+          </div>
+          <ExternalLink className="w-3.5 h-3.5 text-white/50 shrink-0" />
+        </div>
+      )}
 
       <WaitlistDetailModal 
         appointment={selectedWaitlist} 

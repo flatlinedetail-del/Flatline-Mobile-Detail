@@ -72,27 +72,16 @@ import { useWaitlistCount } from "../hooks/useWaitlistCount";
 import { useActionCenter } from "../hooks/useActionCenter";
 import { OperationsFeed } from "./OperationsFeed";
 
-/**
- * Notification bell — shows a single dot when there is anything unresolved,
- * combining (a) classic ops-feed unread notifications and (b) the shared
- * Action Center unresolved count. Both surfaces share state with the
- * Dashboard "Needs Attention" card and the PWA app-badge count, so they
- * always agree.
- */
-function NotificationBell() {
-  const { unreadCount } = useOperationsFeed();
-  const { bellCount } = useActionCenter();
-  const total = unreadCount + bellCount;
-
+function NotificationBell({ unreadCount }: { unreadCount: number }) {
   return (
     <SheetTrigger render={
       <Button variant="ghost" size="icon" className="text-white hover:text-white hover:bg-white/5 rounded-xl transition-all duration-300 relative">
         <Bell className="w-5 h-5" />
-        {total > 0 && (
+        {unreadCount > 0 && (
           <>
             <span className="absolute top-2 right-2 w-2 h-2 bg-[#0A4DFF] rounded-full ring-2 ring-sidebar animate-pulse" />
             <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#0A4DFF] text-[10px] font-black text-white flex items-center justify-center leading-none ring-2 ring-sidebar">
-              {total > 99 ? "99+" : total}
+              {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           </>
         )}
@@ -108,6 +97,8 @@ export default function Layout() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
   const activeWaitlistCount = useWaitlistCount();
+  const { notifications, unreadCount } = useOperationsFeed();
+  const { bellCount } = useActionCenter();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem('sidebarCollapsed');
     return saved === 'true';
@@ -319,9 +310,9 @@ export default function Layout() {
             <SyncIndicator />
             <div className="flex items-center gap-2">
               <Sheet open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
-                <NotificationBell />
+                <NotificationBell unreadCount={unreadCount} />
                 <SheetContent side="right" className="p-0 border-none w-full sm:max-w-[450px] bg-sidebar">
-                  <OperationsFeed notifications={useOperationsFeed().notifications} onClose={() => setIsNotificationsOpen(false)} />
+                  <OperationsFeed notifications={notifications} bellCount={bellCount} onClose={() => setIsNotificationsOpen(false)} />
                 </SheetContent>
               </Sheet>
 
