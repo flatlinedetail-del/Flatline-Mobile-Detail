@@ -723,9 +723,15 @@ export default function PublicBooking() {
       }
 
       // Set customer-facing screen based on gate decision.
-      // pending_review and blocked_review both show the generic green screen —
-      // the customer never learns their risk status.
-      if (gate.customerMessageType === "deposit_pending") {
+      // Priority (highest first):
+      //   1. depositRequired + depositAmount > 0 → deposit screen regardless
+      //      of bookingMode. A risk client can have pendingOwnerReview AND a
+      //      deposit — the deposit screen wins; pendingOwnerReview is still
+      //      persisted on the appointment doc for admin routing.
+      //   2. pending_review (risk / travel review, no deposit) → generic screen
+      //   3. success → instant-confirm
+      // The customer never sees risk wording at any point.
+      if (gate.depositRequired && gate.depositAmount > 0) {
         setBookingStatus("deposit_pending");
         toast.success("Booking request submitted — deposit required to confirm.");
       } else if (gate.customerMessageType === "pending_review") {
@@ -909,13 +915,13 @@ export default function PublicBooking() {
             {isDepositPending ? (
               <>
                 <p className="text-gray-500 font-medium">
-                  Thank you, <strong className="text-gray-800">{clientInfo.name.split(" ")[0] || "there"}</strong>! Your booking request has been submitted.
+                  Thank you, <strong className="text-gray-800">{clientInfo.name.split(" ")[0] || "there"}</strong>! Your request has been received. A deposit is required before final confirmation.
                 </p>
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-left space-y-2">
                   <p className="text-xs font-black uppercase tracking-widest text-amber-700">Deposit Required to Confirm</p>
                   <p className="text-2xl font-black text-amber-700">{formatCurrency(confirmedDepositAmount)}</p>
                   <p className="text-sm font-medium text-amber-800">
-                    Secure your appointment now with a deposit. This booking is not confirmed until your deposit is received.
+                    Your appointment is not confirmed until your deposit is received.
                   </p>
                 </div>
                 {/* ── Pay now (Stripe Checkout) ─────────────────────────── */}
