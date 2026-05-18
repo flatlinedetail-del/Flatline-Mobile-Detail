@@ -14,7 +14,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "../../firebase";
-import type { Appointment, Client, Invoice, Vehicle } from "../../types/index";
+import type { Appointment, AddOn, Client, Invoice, ServiceSelection, Vehicle } from "../../types/index";
 import {
   formatJobTime,
   statusLabel,
@@ -952,6 +952,11 @@ export default function ActiveJob() {
   // Maps navigation selector dialog
   const [showMapsDialog, setShowMapsDialog] = useState(false);
 
+  // Add Add-On sheet
+  const [showAddAddonSheet, setShowAddAddonSheet] = useState(false);
+  const [pendingAddonIds, setPendingAddonIds] = useState<Set<string>>(new Set());
+  const [addingAddons, setAddingAddons] = useState(false);
+
   // ── Appointment subscription ────────────────────────────────────────────
   useEffect(() => {
     if (!id) {
@@ -1156,6 +1161,90 @@ export default function ActiveJob() {
       }
     },
     [id, raw, reasonKind, feePreview],
+  );
+
+  // ── Add Add-On ──────────────────────────────────────────────────────────
+  const handleAddAddons = useCallback(async () => {
+    if (!id || pendingAddonIds.size === 0 || addingAddons) return;
+    setAddingAddons(true);
+    try {
+      const inv = invoices[0] ?? null;
+      const existingIds = new Set<string>(raw?.addOnIds ?? []);
+      const toAdd = (addons as AddOn[]).filter(
+        (a) => a.isActive && pendingAddonIds.has(a.id) && !existingIds.has(a.id),
+      );
+      if (toAdd.length === 0) {
+        setShowAddAddonSheet(false);
+        setPendingAddonIds(new Set());
+        return;
+      }
+
+      const newSelections: ServiceSelection[] = toAdd.map((a) => ({
+        id: a.id,
+        name: a.name,
+        description: a.description ?? "",
+        qty: 1,
+        price: a.price,
+        total: a.price,
+        source: "manual" as const,
+        protocolAccepted: true,
+      }));
+
+      const updatedIds   = [...(raw?.addOnIds         ?? []), ...toAdd.map((a) => a.id)];
+      const updatedNames = [...(raw?.addOnNames        ?? []), ...toAdd.map((a) => a.name)];
+      const updatedSels  = [...(raw?.addOnSelections   ?? []), ...newSelections];
+      const addedTotal   = toAdd.reduce((s, a) => s + a.price, 0);
+
+      // Update appointment — additive, never overwrites existing data
+      await updateDoc(doc(db, "appointments", id), {
+        addOnIds:        updatedIds,
+        addOnNames:      updatedNames,
+        addOnSelections: updatedSels,
+        totalAmount:     (raw?.totalAmount ?? 0) + addedTotal,
+        updatedAt:       serverTimestamp(),
+      });
+
+      // If an invoice already exists, keep it in sync so the balance is correct
+      if (inv) {
+        const newLineItems = [
+          ...(inv.lineItems ?? []),
+          ...newSelections.map((s) => ({
+            serviceName:      s.name,
+            description:      s.description || "Add-on",
+            quantity:         1,
+            price:            s.price,
+            total:            s.price,
+            source:           "manual",
+            protocolAccepted: true,
+          })),
+        ];
+        await updateDoc(doc(db, "invoices", inv.id), {
+          lineItems:  newLineItems,
+          total:      (inv.total ?? 0) + addedTotal,
+          updatedAt:  serverTimestamp(),
+        });
+      }
+
+      setShowAddAddonSheet(false);
+      setPendingAddonIds(new Set());
+    } catch (e) {
+      console.warn("[ActiveJob] add-on write failed", e);
+    } finally {
+      setAddingAddons(false);
+    }
+  }, [id, raw, addons, invoices, pendingAddonIds, addingAddons]);
+
+  // Derived from selection state — used in the add-on sheet footer
+  const pendingAddonsToAdd = useMemo(() => {
+    const existingIds = new Set<string>(raw?.addOnIds ?? []);
+    return (addons as AddOn[]).filter(
+      (a) => a.isActive && pendingAddonIds.has(a.id) && !existingIds.has(a.id),
+    );
+  }, [pendingAddonIds, addons, raw]);
+
+  const pendingAddonsTotal = useMemo(
+    () => pendingAddonsToAdd.reduce((s, a) => s + a.price, 0),
+    [pendingAddonsToAdd],
   );
 
   const nextAction = getNextJobStatusAction(rawStatus ?? "scheduled");
@@ -1601,6 +1690,11 @@ export default function ActiveJob() {
         {!isCancellationStatus(rawStatus ?? "scheduled") && !terminalCompleted && (
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             <WorkflowChip icon={Camera} label="Photos" comingSoon />
+            <WorkflowChip
+              icon={Zap}
+              label="Add-On"
+              onClick={() => { setPendingAddonIds(new Set()); setShowAddAddonSheet(true); }}
+            />
             <WorkflowChip icon={Receipt} label="Invoice" onClick={() => setShowTerminal(true)} />
           </div>
         )}
@@ -1721,6 +1815,118 @@ export default function ActiveJob() {
                 onSelect={() => { openMaps(job.address!, "waze"); setShowMapsDialog(false); }}
               />
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add Add-On sheet ──────────────────────────────────────────────── */}
+      <Dialog
+        open={showAddAddonSheet}
+        onOpenChange={(v) => {
+          if (!addingAddons) {
+            setShowAddAddonSheet(v);
+            if (!v) setPendingAddonIds(new Set());
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm mx-auto bg-[#0D0D0D] border border-white/10 rounded-2xl p-0 overflow-hidden flex flex-col" style={{ maxHeight: "80vh" }}>
+          <DialogHeader className="px-4 pt-4 pb-3 border-b border-white/8 flex-none">
+            <DialogTitle className="text-[12px] font-black uppercase tracking-widest text-white/70 text-left flex items-center gap-2">
+              <Zap className="w-3.5 h-3.5 text-sky-300" />
+              Add Add-On to Job
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Add-on list */}
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+            {(addons as AddOn[]).filter((a) => a.isActive).length === 0 ? (
+              <p className="text-[11px] text-white/30 text-center py-6 italic">No add-ons in catalog</p>
+            ) : (
+              (addons as AddOn[])
+                .filter((a) => a.isActive)
+                .map((addon) => {
+                  const alreadyAdded = (raw?.addOnIds ?? []).includes(addon.id);
+                  const selected = pendingAddonIds.has(addon.id);
+                  return (
+                    <button
+                      key={addon.id}
+                      type="button"
+                      disabled={alreadyAdded}
+                      onClick={() => {
+                        if (alreadyAdded) return;
+                        setPendingAddonIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(addon.id)) next.delete(addon.id);
+                          else next.add(addon.id);
+                          return next;
+                        });
+                      }}
+                      className={cn(
+                        "w-full text-left rounded-xl border transition-all px-3 py-2.5",
+                        alreadyAdded
+                          ? "border-white/5 bg-white/2 opacity-40 cursor-not-allowed"
+                          : selected
+                            ? "border-sky-500/40 bg-sky-500/8 shadow-[0_0_8px_rgba(14,165,233,0.10)]"
+                            : "border-white/8 bg-white/3 hover:bg-white/6 active:bg-white/8",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            {selected && !alreadyAdded && (
+                              <CheckCircle2 className="w-3 h-3 text-sky-400 shrink-0" />
+                            )}
+                            <p className="text-[11px] font-bold text-white leading-tight truncate">{addon.name}</p>
+                          </div>
+                          {addon.description && (
+                            <p className="text-[9px] text-white/40 leading-tight mt-0.5 line-clamp-1">{addon.description}</p>
+                          )}
+                          {alreadyAdded && (
+                            <p className="text-[9px] text-emerald-400/70 font-bold mt-0.5 leading-none">✓ Already on this job</p>
+                          )}
+                          {addon.estimatedDuration > 0 && !alreadyAdded && (
+                            <p className="text-[8px] text-white/25 mt-0.5 leading-none">{addon.estimatedDuration} min</p>
+                          )}
+                        </div>
+                        <span className="text-[12px] font-black text-white/80 shrink-0 tabular-nums">
+                          ${addon.price.toFixed(0)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
+            )}
+          </div>
+
+          {/* Footer: running total + confirm */}
+          <div className="flex-none px-3 py-3 border-t border-white/8 space-y-2">
+            {pendingAddonsToAdd.length > 0 && (
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[9px] font-black uppercase tracking-widest text-white/40">
+                  {pendingAddonsToAdd.length} add-on{pendingAddonsToAdd.length !== 1 ? "s" : ""} selected
+                </span>
+                <span className="text-[12px] font-black text-sky-300 tabular-nums">
+                  +${pendingAddonsTotal.toFixed(2)}
+                </span>
+              </div>
+            )}
+            <button
+              type="button"
+              disabled={pendingAddonsToAdd.length === 0 || addingAddons}
+              onClick={handleAddAddons}
+              className={cn(
+                "w-full py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all",
+                pendingAddonsToAdd.length === 0 || addingAddons
+                  ? "bg-white/5 text-white/25 cursor-not-allowed"
+                  : "bg-sky-500/20 border border-sky-500/30 text-sky-200 hover:bg-sky-500/30 active:bg-sky-500/40",
+              )}
+            >
+              {addingAddons
+                ? "Adding…"
+                : pendingAddonsToAdd.length === 0
+                  ? "Select Add-Ons Above"
+                  : `Add ${pendingAddonsToAdd.length} Add-On${pendingAddonsToAdd.length !== 1 ? "s" : ""} · +$${pendingAddonsTotal.toFixed(2)}`}
+            </button>
           </div>
         </DialogContent>
       </Dialog>
