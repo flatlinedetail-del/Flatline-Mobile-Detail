@@ -14,7 +14,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "../../firebase";
-import type { Appointment, Client, Invoice } from "../../types/index";
+import type { Appointment, Client, Invoice, Vehicle } from "../../types/index";
 import {
   formatJobTime,
   statusLabel,
@@ -937,6 +937,7 @@ export default function ActiveJob() {
   // Terminal client context — loaded for upsell computation
   const [terminalClient, setTerminalClient] = useState<Client | null>(null);
   const [terminalAppts, setTerminalAppts] = useState<Appointment[]>([]);
+  const [terminalVehicles, setTerminalVehicles] = useState<Vehicle[]>([]);
 
   // Invoice for this appointment
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -1042,6 +1043,12 @@ export default function ActiveJob() {
       .then((snap) => setTerminalAppts(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Appointment))))
       .catch(() => {});
 
+    // Load client vehicles so service-timing upsell rules have real vehicle data
+    const vehicleQ = query(collection(db, "vehicles"), where("clientId", "==", clientId));
+    getDocs(vehicleQ)
+      .then((snap) => setTerminalVehicles(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Vehicle))))
+      .catch(() => {});
+
     return () => unsub();
   }, [raw]);
 
@@ -1069,7 +1076,7 @@ export default function ActiveJob() {
     const all = computeUpsells({
       client: terminalClient,
       appointments: terminalAppts.length > 0 ? terminalAppts : raw ? [raw as unknown as Appointment] : [],
-      vehicles: [],
+      vehicles: terminalVehicles,
       services: services as any[],
       addons: addons as any[],
     });
@@ -1078,7 +1085,7 @@ export default function ActiveJob() {
       upsellRecs: actionable.filter((r) => r.type !== "addon"),
       addonRecs: actionable.filter((r) => r.type === "addon"),
     };
-  }, [terminalClient, terminalAppts, raw, services, addons]);
+  }, [terminalClient, terminalAppts, terminalVehicles, raw, services, addons]);
 
   // ── Status change ───────────────────────────────────────────────────────
   const onChangeStatus = useCallback(
