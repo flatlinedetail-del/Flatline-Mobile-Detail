@@ -244,24 +244,24 @@ export default function PublicBooking() {
     }
   }, []);
 
-  // Preview gate call — fires when the customer reaches Step 7 (Review) with
-  // all required fields populated. Result drives the amber deposit notice and
-  // button label only; no appointment is created here.
+  // Preview gate call — fires on Step 6 (Info) as the customer types and on
+  // Step 7 (Review) on arrival. Debounced 600 ms on Step 6 so keystrokes
+  // don't hammer the API; fires immediately when the user reaches Step 7.
+  // Result drives the amber deposit/review notice on both steps and the
+  // "Submit & Pay Deposit" button label on Step 7. No appointment is created.
   useEffect(() => {
     if (
-      step !== 7 ||
-      !clientInfo.email ||
-      !clientInfo.phone ||
+      (step !== 6 && step !== 7) ||
+      !clientInfo.name.trim() ||
+      (!clientInfo.email.trim() && !clientInfo.phone.trim()) ||
       selectedServices.length === 0 ||
-      grandTotal <= 0 ||
-      !scheduledAt
+      grandTotal <= 0
     ) return;
 
     let cancelled = false;
-    setIsPreviewLoading(true);
-    fetchPublicBookingGate({
-      email: clientInfo.email,
-      phone: clientInfo.phone,
+    const payload = {
+      email: clientInfo.email.trim(),
+      phone: clientInfo.phone.trim(),
       licensePlate: clientInfo.vehiclePlate || undefined,
       selectedServiceIds: selectedServices,
       grandTotal,
@@ -269,17 +269,33 @@ export default function PublicBooking() {
         address.state.lat && address.state.lng
           ? { lat: address.state.lat, lng: address.state.lng }
           : null,
-    }).then((result) => {
-      if (cancelled) return;
-      if (result.ok) setPreviewGateResult(result.data);
-      // On gate failure, don't block the Review step — just skip the notice.
-    }).finally(() => {
-      if (!cancelled) setIsPreviewLoading(false);
-    });
+    };
 
-    return () => { cancelled = true; };
+    // Step 6: debounce 600 ms so typing doesn't spam the API.
+    // Step 7: fire immediately (result is usually already set from Step 6).
+    const delay = step === 6 ? 600 : 0;
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      setIsPreviewLoading(true);
+      console.log("[PublicBooking] gate preview payload", payload);
+      fetchPublicBookingGate(payload)
+        .then((result) => {
+          if (cancelled) return;
+          console.log("[PublicBooking] gate preview response", result);
+          if (result.ok) setPreviewGateResult(result.data);
+          // On gate failure, don't block the step — just skip the notice.
+        })
+        .finally(() => {
+          if (!cancelled) setIsPreviewLoading(false);
+        });
+    }, delay);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  }, [step, clientInfo.email, clientInfo.phone, clientInfo.name, selectedServices, grandTotal]);
 
   useEffect(() => {
     if (!scheduledAt || !settings?.businessHours) {
@@ -1607,6 +1623,40 @@ export default function PublicBooking() {
                           placeholder="Enter your location for mobile service"
                         />
                       </div>
+
+                      {/* Step 6 pre-navigation deposit / review notice */}
+                      {(() => {
+                        const previewDeposit =
+                          previewGateResult?.depositRequired &&
+                          (previewGateResult?.depositAmount ?? 0) > 0;
+                        const previewReview =
+                          !previewDeposit && previewGateResult?.pendingOwnerReview === true;
+                        if (!previewDeposit && !previewReview) return null;
+                        return previewDeposit ? (
+                          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-black text-amber-800 uppercase tracking-wide">
+                                Deposit required before confirmation —{" "}
+                                {formatCurrency(previewGateResult!.depositAmount)}
+                              </p>
+                              <p className="text-xs font-medium text-amber-700 mt-1">
+                                Based on your booking details, a deposit of{" "}
+                                {formatCurrency(previewGateResult!.depositAmount)} will be required
+                                before this appointment can be confirmed. You can continue to review
+                                your request, then submit and pay securely.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start gap-3 p-4 bg-gray-50 border border-gray-200 rounded-2xl">
+                            <AlertCircle className="w-5 h-5 text-gray-500 shrink-0 mt-0.5" />
+                            <p className="text-sm font-medium text-gray-700">
+                              This request may require owner review before final confirmation.
+                            </p>
+                          </div>
+                        );
+                      })()}
 
                       <div className="flex justify-between pt-4 border-t border-gray-100">
                         <Button type="button" variant="outline" className="font-bold h-12 px-8 border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10" onClick={() => setStep(5)}>Back</Button>
