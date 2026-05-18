@@ -11,7 +11,6 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import AddressInput from "../components/AddressInput";
 import { BusinessSettings, Service, AddOn } from "../types";
-import { createNotification } from "../services/notificationService";
 import { cn, formatCurrency, formatPhoneNumber } from "@/lib/utils";
 import VehicleSelector from "../components/VehicleSelector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -685,53 +684,27 @@ export default function PublicBooking() {
       setSavedAppointmentId(docRef.id);
       setSavedServiceNames(resolvedServices.map((s) => s.name).join(", "));
 
-      try {
-        const adminsQuery = query(collection(db, "users"), where("role", "==", "admin"));
-        const adminsSnap = await getDocs(adminsQuery);
-
-        const isWaitlisted = isTimeAvailable === false;
-        const isBlockBooking = gate.bookingMode === "blocked_review";
-        const hasRisk = gate.pendingOwnerReview;
-
-        // Internal-only risk note appended to admin notification message.
-        // Never shown to the customer. Raw risk text (protectionLevel /
-        // clientRiskLevelAtBooking) is no longer included — admins open
-        // the appointment to dereference matchedProtectedClientId /
-        // matchedClientId for the full picture.
-        const internalRiskNote = isBlockBooking
-          ? ` — 🚫 FLAGGED (Block Booking${gate.depositRequired ? `, deposit ${formatCurrency(gate.depositAmount)}` : ""})`
-          : hasRisk
-            ? ` — ⚠️ Risk match${gate.depositRequired ? `, deposit ${formatCurrency(gate.depositAmount)} required` : ""} — pending owner review`
-            : gate.depositRequired
-              ? ` — ⚠️ DEPOSIT ${formatCurrency(gate.depositAmount)} required`
-              : "";
-
-        const notifyPromises = adminsSnap.docs.map(admin =>
-          createNotification({
-            userId: admin.id,
-            title: isBlockBooking
-              ? "🚫 Flagged Account Booking — Review Required"
-              : hasRisk
-                ? "⚠️ Risk Client Booking — Owner Review Required"
-                : isWaitlisted ? "Waitlist Request" : "New Booking Request",
-            message: isWaitlisted
-              ? `${clientInfo.name} requested a booked time and selected a backup time.\nReq: ${format(new Date(scheduledAt), "MMM d, h:mm a")}\nBak: ${backupScheduledAt ? format(new Date(backupScheduledAt), "MMM d, h:mm a") : "None"}${internalRiskNote}`
-              : `New booking request from ${clientInfo.name}${internalRiskNote}\n${format(new Date(scheduledAt), "h:mm a")} - ${resolvedServices.map(s => s.name).join(", ")}`,
-            type: isWaitlisted ? "waitlist_request" : "new_booking_request",
-            category: "Booking Requests",
-            relatedId: docRef.id,
-            relatedType: "appointment",
-            priority: hasRisk ? "high" : "medium",
-            clientName: clientInfo.name,
-            requestedDateTime: new Date(scheduledAt),
-            backupDateTime: backupScheduledAt ? new Date(backupScheduledAt) : null,
-            bookingRequestId: docRef.id
-          })
-        );
-        await Promise.all(notifyPromises);
-      } catch (notifyError) {
-        console.error("Failed to notify admins of new booking:", notifyError);
-      }
+      // Fire-and-forget — uses admin SDK server-side so it bypasses Firestore
+      // rules and queries all admin-role variants (admin, owner, manager).
+      // Notification failure never blocks the customer booking confirmation.
+      fetch("/api/booking/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appointmentId: docRef.id,
+          clientName: clientInfo.name,
+          scheduledAt,
+          serviceNames: resolvedServices.map((s) => s.name).join(", "),
+          bookingMode: gate.bookingMode,
+          pendingOwnerReview: gate.pendingOwnerReview,
+          depositRequired: gate.depositRequired,
+          depositAmount: gate.depositAmount,
+          isWaitlisted: isTimeAvailable === false,
+          backupScheduledAt: backupScheduledAt || null,
+        }),
+      }).catch((err) =>
+        console.error("[PublicBooking] notify call failed:", err),
+      );
 
       // Set customer-facing screen based on gate decision.
       // Priority (highest first):
