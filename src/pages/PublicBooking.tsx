@@ -447,6 +447,10 @@ export default function PublicBooking() {
           customerName: clientInfo.name,
           serviceNames: savedServiceNames,
           origin: window.location.origin,
+          bookingMode: gateResult.bookingMode,
+          protectedClientMatch: gateResult.protectedClientMatch,
+          matchedProtectedClientId: gateResult.matchedProtectedClientId,
+          matchedClientId: gateResult.matchedClientId,
         }),
       });
       const data = await resp.json();
@@ -750,6 +754,10 @@ export default function PublicBooking() {
               customerName: clientInfo.name,
               serviceNames: resolvedServices.map((s) => s.name).join(", "),
               origin: window.location.origin,
+              bookingMode: gate.bookingMode,
+              protectedClientMatch: gate.protectedClientMatch,
+              matchedProtectedClientId: gate.matchedProtectedClientId,
+              matchedClientId: gate.matchedClientId,
             }),
           });
           const checkoutData = await checkoutResp.json();

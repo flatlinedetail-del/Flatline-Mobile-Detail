@@ -6,13 +6,29 @@
  *
  * Required env vars:
  *   STRIPE_SECRET_KEY     — Stripe secret key
- *   STRIPE_WEBHOOK_SECRET — (optional) Stripe webhook signing secret for
- *                           signature verification. When set, requires raw
- *                           body access. Vercel automatically parses
- *                           application/json bodies, so signature
- *                           verification is skipped here — configure your
- *                           Stripe dashboard webhook to this URL and restrict
- *                           the events to checkout.session.completed.
+ *   STRIPE_WEBHOOK_SECRET — Stripe webhook signing secret (see note below)
+ *
+ * Stripe webhook signature verification — current limitation:
+ *   stripe.webhooks.constructEvent() requires the raw request body bytes.
+ *   Vercel's default runtime parses application/json before the handler runs,
+ *   so req.body is already a JS object and the raw bytes are unavailable here.
+ *   Without @vercel/node + bodyParser: false, full signature verification is
+ *   not feasible in this function's current form.
+ *
+ *   Mitigation in place:
+ *     • Only events with metadata.source === "public_booking_deposit" are
+ *       acted on — spoofed events for other Stripe accounts/sources are silently
+ *       ignored.
+ *     • appointmentId is required in metadata before any Firestore write.
+ *     • Configure the Stripe Dashboard webhook to deliver ONLY the
+ *       checkout.session.completed event type to this URL to reduce attack
+ *       surface.
+ *
+ *   To enable full signature verification in the future:
+ *     1. npm i @vercel/node
+ *     2. Add to this file: export const config = { api: { bodyParser: false } }
+ *     3. Read the raw body as a Buffer from the incoming stream.
+ *     4. Call stripe.webhooks.constructEvent(rawBody, req.headers["stripe-signature"], secret).
  */
 
 import Stripe from "stripe";
@@ -44,7 +60,7 @@ export default async function handler(
 
   // Vercel parses application/json automatically so req.body is already an
   // object — signature verification via constructEvent requires the raw bytes
-  // and is not feasible without a custom proxy. Accept the parsed event directly.
+  // and is not feasible here. See the file header for the mitigation strategy.
   const event = req.body as Stripe.Event;
   if (!event?.type || !event?.data?.object) {
     return res.status(400).json({ error: "Invalid Stripe event body" });
@@ -70,23 +86,28 @@ export default async function handler(
       return res.status(500).json({ error: "DB not configured" });
     }
 
-    const paymentIntentRef =
-      typeof session.payment_intent === "string"
-        ? session.payment_intent
-        : session.id;
+    const stripeCheckoutSessionId = session.id;
+    const stripePaymentIntentId =
+      typeof session.payment_intent === "string" ? session.payment_intent : null;
+    // paymentProviderRef = payment intent if available, session id as fallback
+    const paymentProviderRef = stripePaymentIntentId ?? stripeCheckoutSessionId;
 
     try {
       await db.collection("appointments").doc(appointmentId).update({
         depositPaid: true,
         depositPaidAt: FieldValue.serverTimestamp(),
-        paymentStatus: "paid",
+        paymentStatus: "deposit_paid",
         paymentMethod: "stripe",
-        paymentProviderRef: paymentIntentRef,
+        stripeCheckoutSessionId,
+        stripePaymentIntentId,
+        paymentProviderRef, // backward-compat alias
         updatedAt: FieldValue.serverTimestamp(),
       });
-      console.log(
-        `[stripe-webhook] appointment ${appointmentId} marked deposit paid (ref: ${paymentIntentRef})`,
-      );
+      console.log("[stripe-webhook] appointment updated", {
+        appointmentId,
+        stripeCheckoutSessionId,
+        stripePaymentIntentId,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(
