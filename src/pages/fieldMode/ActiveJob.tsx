@@ -506,12 +506,31 @@ function CompletionTerminal({
 
   const balance = invoice ? (invoice.total || 0) - (invoice.amountPaid || 0) : 0;
 
+  // Derive accepted / declined arrays from terminal selections.
+  // "Accepted" = technician toggled the card on.
+  // "Declined" = card was shown but not selected (implicit skip).
+  function buildUpsellOutcome() {
+    const acceptedUpsellIds = [
+      ...Array.from(selectedUpsells),
+      ...Array.from(selectedAddons),
+    ];
+    const declinedUpsellIds = [
+      ...upsellRecs.filter((r) => !selectedUpsells.has(r.id)).map((r) => r.id),
+      ...addonRecs.filter((r) => !selectedAddons.has(r.id)).map((r) => r.id),
+    ];
+    return { acceptedUpsellIds, declinedUpsellIds };
+  }
+
   const handleCompleteNoPayment = async () => {
     setProcessing(true);
     setPaymentError(null);
     try {
+      const { acceptedUpsellIds, declinedUpsellIds } = buildUpsellOutcome();
       await updateDoc(doc(db, "appointments", jobId), {
         status: "completed",
+        acceptedUpsellIds,
+        declinedUpsellIds,
+        bookNextAppt,
         updatedAt: serverTimestamp(),
       });
       onCompleted(false);
@@ -534,6 +553,7 @@ function CompletionTerminal({
     setProcessing(true);
     setPaymentError(null);
     try {
+      const { acceptedUpsellIds, declinedUpsellIds } = buildUpsellOutcome();
       const newPaid = (invoice.amountPaid || 0) + balance;
       const entry = {
         action: "paid" as const,
@@ -556,6 +576,9 @@ function CompletionTerminal({
       await updateDoc(doc(db, "appointments", jobId), {
         status: "completed",
         paymentStatus: "paid",
+        acceptedUpsellIds,
+        declinedUpsellIds,
+        bookNextAppt,
         updatedAt: serverTimestamp(),
       });
       onCompleted(true);
