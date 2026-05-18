@@ -946,6 +946,9 @@ export default function ActiveJob() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalCompleted, setTerminalCompleted] = useState(false);
 
+  // Job Intelligence panel (collapsible)
+  const [showJobIntelligence, setShowJobIntelligence] = useState(false);
+
   // Maps navigation selector dialog
   const [showMapsDialog, setShowMapsDialog] = useState(false);
 
@@ -1309,6 +1312,201 @@ export default function ActiveJob() {
               <ActionDisabled icon={Mail} label="Email" />
             )}
           </div>
+        </section>
+      )}
+
+      {/* ── Job Intelligence ─────────────────────────────────────────────── */}
+      {!isCancellationStatus(rawStatus ?? "scheduled") && !terminalCompleted && (
+        <section className="rounded-xl border border-white/5 bg-sidebar/60 overflow-hidden">
+          {/* Collapsed header — always visible */}
+          <button
+            type="button"
+            onClick={() => setShowJobIntelligence((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2.5"
+          >
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="w-6 h-6 rounded-md bg-violet-500/15 ring-1 ring-violet-500/30 flex items-center justify-center shrink-0">
+                <Sparkles className="w-3 h-3 text-violet-300" />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-white/70">Job Intelligence</span>
+              {job.depositRequired && !job.depositPaid && (
+                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 leading-none">Deposit</span>
+              )}
+              {job.pendingOwnerReview && (
+                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 ring-1 ring-orange-500/30 leading-none">Review</span>
+              )}
+              {upsellRecs.length > 0 && (
+                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 ring-1 ring-violet-500/30 leading-none">
+                  {upsellRecs.length} opp{upsellRecs.length !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            {showJobIntelligence
+              ? <ChevronUp className="w-3 h-3 text-white/30 shrink-0" />
+              : <ChevronDown className="w-3 h-3 text-white/30 shrink-0" />}
+          </button>
+
+          {/* Expanded content */}
+          {showJobIntelligence && (
+            <div className="border-t border-white/5 px-3 py-3 space-y-3">
+
+              {/* ── Booking status flags ── */}
+              {(job.depositRequired || job.pendingOwnerReview || (raw?.balanceDue ?? 0) > 0) && (
+                <div className="space-y-1.5">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Booking Status</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {job.depositRequired && !job.depositPaid && (
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/10 ring-1 ring-amber-500/25 text-amber-300">
+                        <DollarSign className="w-2.5 h-2.5 shrink-0" />
+                        <span className="text-[9px] font-bold leading-none">
+                          Deposit Required{raw && raw.depositAmount > 0 ? ` · $${raw.depositAmount.toFixed(0)}` : ""}
+                        </span>
+                      </div>
+                    )}
+                    {job.depositPaid && (
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 ring-1 ring-emerald-500/25 text-emerald-300">
+                        <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
+                        <span className="text-[9px] font-bold leading-none">Deposit Paid</span>
+                      </div>
+                    )}
+                    {job.pendingOwnerReview && (
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/10 ring-1 ring-orange-500/25 text-orange-300">
+                        <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                        <span className="text-[9px] font-bold leading-none">Pending Review</span>
+                      </div>
+                    )}
+                    {(raw?.balanceDue ?? 0) > 0 && (
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-rose-500/10 ring-1 ring-rose-500/25 text-rose-300">
+                        <CreditCard className="w-2.5 h-2.5 shrink-0" />
+                        <span className="text-[9px] font-bold leading-none">Balance Due · ${(raw?.balanceDue ?? 0).toFixed(0)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Add-ons booked ── */}
+              {(raw?.addOnNames?.length ?? 0) > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Add-Ons</p>
+                  <div className="flex flex-wrap gap-1">
+                    {raw!.addOnNames!.map((n) => (
+                      <span key={n} className="text-[9px] font-bold text-white/60 bg-white/5 px-1.5 py-0.5 rounded leading-none">{n}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Customer booking notes ── */}
+              {raw?.customerNotes && (
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Customer Notes</p>
+                  <p className="text-[11px] text-white/55 leading-snug break-words">{raw.customerNotes}</p>
+                </div>
+              )}
+
+              {/* ── Client saved notes ── */}
+              {terminalClient?.notes && (
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Client Notes</p>
+                  <p className="text-[11px] text-white/55 leading-snug break-words">{terminalClient.notes}</p>
+                </div>
+              )}
+
+              {/* ── Membership / outstanding fee ── */}
+              {terminalClient && (
+                terminalClient.membershipLevel !== "none" ||
+                (terminalClient.outstandingCancellationFee ?? 0) > 0
+              ) && (
+                <div className="flex flex-wrap gap-1.5">
+                  {terminalClient!.membershipLevel !== "none" && (
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-violet-500/10 ring-1 ring-violet-500/20 text-violet-300">
+                      <Star className="w-2.5 h-2.5 shrink-0" />
+                      <span className="text-[9px] font-bold capitalize leading-none">{terminalClient!.membershipLevel} Member</span>
+                    </div>
+                  )}
+                  {(terminalClient!.outstandingCancellationFee ?? 0) > 0 && (
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-rose-500/10 ring-1 ring-rose-500/25 text-rose-300">
+                      <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                      <span className="text-[9px] font-bold leading-none">
+                        Cancellation Fee · ${(terminalClient!.outstandingCancellationFee ?? 0).toFixed(0)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Vehicle details from terminalVehicles ── */}
+              {terminalVehicles.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Vehicle Details</p>
+                  {terminalVehicles.map((v) => (
+                    <div key={v.id} className="space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {v.size && (
+                          <span className="text-[9px] font-bold text-white/50 capitalize leading-none">
+                            {v.size.replace("_", " ")}
+                          </span>
+                        )}
+                        {v.color && (
+                          <span className="text-[9px] font-bold text-white/50 leading-none">· {v.color}</span>
+                        )}
+                        {v.licensePlate && (
+                          <span className="text-[9px] font-black uppercase tracking-widest text-white/70 bg-white/8 px-1.5 py-0.5 rounded leading-none">
+                            {v.licensePlate}
+                          </span>
+                        )}
+                      </div>
+                      {v.notes && (
+                        <p className="text-[9px] text-white/35 italic leading-tight">{v.notes}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── Revenue opportunities preview ── */}
+              <div className="space-y-1.5">
+                <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Revenue Opportunities</p>
+                {upsellRecs.length === 0 ? (
+                  <p className="text-[10px] text-white/30 italic">No smart recommendations for this client yet</p>
+                ) : (
+                  <div className="rounded-lg border border-violet-500/15 bg-violet-500/5 px-2.5 py-2 space-y-1">
+                    <div className="flex items-start gap-1.5">
+                      <Sparkles className="w-3 h-3 text-violet-300 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-[10px] font-bold text-white leading-tight">{upsellRecs[0].title}</p>
+                          <span className={cn("text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", priorityBadge(upsellRecs[0].priority))}>
+                            {upsellRecs[0].priority}
+                          </span>
+                        </div>
+                        <p className="text-[9px] text-white/40 leading-tight mt-0.5 line-clamp-2">{upsellRecs[0].reason}</p>
+                      </div>
+                    </div>
+                    {upsellRecs.length > 1 && (
+                      <p className="text-[8px] font-black text-violet-300/60 leading-none pl-4">
+                        +{upsellRecs.length - 1} more opportunit{upsellRecs.length - 1 !== 1 ? "ies" : "y"}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowTerminal(true)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-violet-500/20 bg-violet-500/8 hover:bg-violet-500/12 active:bg-violet-500/18 transition-colors"
+                >
+                  <Zap className="w-3 h-3 text-violet-300" />
+                  <span className="text-[9px] font-black uppercase tracking-widest text-violet-300">
+                    {upsellRecs.length > 0
+                      ? `Review ${upsellRecs.length} Opportunit${upsellRecs.length !== 1 ? "ies" : "y"}`
+                      : "Open Job Terminal"}
+                  </span>
+                </button>
+              </div>
+
+            </div>
+          )}
         </section>
       )}
 
