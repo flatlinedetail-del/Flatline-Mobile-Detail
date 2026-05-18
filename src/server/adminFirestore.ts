@@ -40,6 +40,8 @@ import {
 
 let adminInitAttempted = false;
 let cachedDb: AdminFirestore | null = null;
+/** Tracks why the last init attempt failed. Exposed for diagnostic 503 subcodes. */
+let cachedConfigErrorCode: "KEY_MISSING" | "KEY_INVALID_JSON" | null = null;
 
 function resolveDatabaseId(): string | undefined {
   // 1. env var wins (set this on Vercel)
@@ -78,6 +80,7 @@ export function getBookingGateAdminDb(): AdminFirestore | null {
 
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) {
+    cachedConfigErrorCode = "KEY_MISSING";
     console.warn(
       "[booking-gate] FIREBASE_SERVICE_ACCOUNT_KEY not set — admin SDK disabled. " +
         "Set this env var (and FIRESTORE_DATABASE_ID for named databases) " +
@@ -101,9 +104,20 @@ export function getBookingGateAdminDb(): AdminFirestore | null {
     );
     return cachedDb;
   } catch (e) {
+    cachedConfigErrorCode = "KEY_INVALID_JSON";
     console.error("[booking-gate] Failed to initialise firebase-admin:", e);
     return null;
   }
+}
+
+/**
+ * Returns why `getBookingGateAdminDb()` last returned null, or null if it
+ * succeeded. Used to include a diagnostic `subcode` in the 503 response so
+ * callers can distinguish "key not set" from "key is malformed JSON" without
+ * requiring access to Vercel function logs.
+ */
+export function getBookingGateConfigErrorCode(): "KEY_MISSING" | "KEY_INVALID_JSON" | null {
+  return cachedConfigErrorCode;
 }
 
 /** Test seam: clears the lazy-init cache. Used by no production code. */

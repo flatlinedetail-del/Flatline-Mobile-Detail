@@ -16,7 +16,10 @@
  */
 
 import { handleBookingGateRequest } from "../../src/server/handlers/bookingGateHandler.js";
-import { getBookingGateAdminDb } from "../../src/server/adminFirestore.js";
+import {
+  getBookingGateAdminDb,
+  getBookingGateConfigErrorCode,
+} from "../../src/server/adminFirestore.js";
 
 interface VercelLikeRequest {
   method?: string;
@@ -68,9 +71,11 @@ export default async function handler(
     }
   }
 
+  const db = getBookingGateAdminDb();
   const { status, body } = await handleBookingGateRequest(
     parsedBody,
-    getBookingGateAdminDb(),
+    db,
+    db === null ? getBookingGateConfigErrorCode() : undefined,
   );
   return res.status(status).json(body);
 }

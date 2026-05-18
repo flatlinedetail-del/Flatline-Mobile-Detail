@@ -28,6 +28,12 @@ export interface BookingGateHandlerResponse {
 export async function handleBookingGateRequest(
   rawBody: unknown,
   db: AdminFirestore | null,
+  /**
+   * Optional diagnostic code surfaced by `getBookingGateConfigErrorCode()`.
+   * Included in the 503 body so callers can distinguish "key not set" from
+   * "key is malformed JSON" without needing Vercel function log access.
+   */
+  dbErrorCode?: "KEY_MISSING" | "KEY_INVALID_JSON" | null,
 ): Promise<BookingGateHandlerResponse> {
   if (!db) {
     return {
@@ -35,6 +41,7 @@ export async function handleBookingGateRequest(
       body: {
         error: "Booking gate not configured",
         code: "GATE_NOT_CONFIGURED",
+        ...(dbErrorCode ? { subcode: dbErrorCode } : {}),
         message:
           "Booking review is temporarily unavailable. Please try again shortly or contact us directly.",
       },
