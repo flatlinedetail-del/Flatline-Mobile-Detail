@@ -875,8 +875,14 @@ export default function PublicBooking() {
       (step !== 6 && step !== 7) ||
       !clientInfo.name.trim() ||
       (!clientInfo.email.trim() && !clientInfo.phone.trim()) ||
-      selectedServices.length === 0 ||
-      grandTotal <= 0
+      selectedServices.length === 0
+      // NOTE: grandTotal is intentionally NOT checked here. The preview gate
+      // purpose is risk/identity detection (email, phone → protected_clients).
+      // Deposit amounts are derived from the risk profile on the server, not
+      // from the client-side grandTotal, so a $0 total (e.g. after a Firebase
+      // database migration that resets service prices) must not silently block
+      // the check. The authoritative gate call in handleBooking() still uses
+      // the fully resolved grandTotal at submission time.
     ) return;
 
     let cancelled = false;
