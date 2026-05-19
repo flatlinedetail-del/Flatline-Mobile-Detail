@@ -45,6 +45,9 @@ import type { Invoice, BusinessSettings } from "../../types";
  * conditional actions. No desktop-table layout on mobile.
  */
 
+// Manual payment methods that do not require a payment processor
+const MANUAL_METHODS = new Set(["Cash", "Zelle", "Check"]);
+
 function convertTs(ts: any): Date | null {
   if (!ts) return null;
   if (typeof ts.toDate === "function") return ts.toDate();
@@ -117,81 +120,98 @@ export default function FieldInvoiceDetail() {
 
   const handleMarkAsPaid = async (method: string) => {
     if (!invoice?.id || isProcessingPayment) return;
+
+    // Card/Apple Pay: payment processor not wired — inform the user, do not attempt a write
+    if (!MANUAL_METHODS.has(method)) {
+      toast.info(
+        "Card payment is not configured yet. Use Cash, Zelle, or Check for manual payment.",
+      );
+      return;
+    }
+
     if (invoice.status === "paid" || invoice.status === "voided") {
       toast.info("Invoice already settled.");
       setShowPaymentDialog(false);
       return;
     }
-    const balance = Math.max(0, invoice.total - (invoice.amountPaid || 0));
-    const newAmountPaid = (invoice.amountPaid || 0) + balance;
-    const isFullyPaid = newAmountPaid >= invoice.total;
+
+    const invoiceId = invoice.id;
+    const appointmentId = invoice.appointmentId;
+    // Guard against undefined/NaN — invoice.total must be a valid number
+    const total = typeof invoice.total === "number" && isFinite(invoice.total)
+      ? invoice.total
+      : 0;
+
     setIsProcessingPayment(true);
     try {
       toast.loading("Processing…", { id: "fi-payment" });
-      // serverTimestamp() is not allowed inside arrayUnion — use new Date() for array entries.
+
+      // serverTimestamp() is not allowed inside arrayUnion — use new Date() for array entries
       const paymentHistoryEntry = {
         action: "paid" as const,
         timestamp: new Date(),
         method,
-        amount: balance,
+        amount: total,
         provider: "manual",
       };
-      const updateData: Record<string, any> = {
-        amountPaid: newAmountPaid,
-        balanceDue: isFullyPaid ? 0 : Math.max(0, (invoice.total || 0) - newAmountPaid),
-        paymentStatus: isFullyPaid ? "paid" : "partial",
+
+      await updateDoc(doc(db, "invoices", invoiceId), {
+        paymentStatus: "paid",
+        status: "paid",
+        amountPaid: total,
+        balanceDue: 0,
+        paidAt: serverTimestamp(),
+        paymentMethod: method,
         paymentMethodDetails: method,
         paymentProvider: "manual",
         paymentHistory: arrayUnion(paymentHistoryEntry),
         updatedAt: serverTimestamp(),
-      };
-      if (isFullyPaid) {
-        updateData.status = "paid";
-        updateData.paidAt = serverTimestamp();
+      });
+
+      if (appointmentId) {
+        updateDoc(doc(db, "appointments", appointmentId), {
+          paymentStatus: "paid",
+          balanceDue: 0,
+          paidAt: serverTimestamp(),
+          paymentMethod: method,
+        }).catch((e) =>
+          console.error("[FieldInvoiceDetail] appointment payment sync failed", e),
+        );
       }
-      console.log("[FieldInvoiceDetail] writing payment:", { invoiceId: invoice.id, method, balance, isFullyPaid });
-      await updateDoc(doc(db, "invoices", invoice.id), updateData);
-      console.log("[FieldInvoiceDetail] payment write succeeded");
+
       setInvoice((prev) =>
         prev
           ? ({
               ...prev,
-              amountPaid: newAmountPaid,
-              paymentStatus: isFullyPaid ? "paid" : "partial",
-              status: isFullyPaid ? "paid" : prev.status,
+              paymentStatus: "paid",
+              status: "paid",
+              amountPaid: total,
               paymentMethodDetails: method,
               paymentProvider: "manual",
               paymentHistory: [
                 ...(prev.paymentHistory || []),
-                { ...paymentHistoryEntry, timestamp: new Date() },
+                paymentHistoryEntry,
               ],
             } as Invoice)
           : null,
       );
+
       if (invoice.clientPhone) {
         messagingService
           .sendSms({
             to: invoice.clientPhone,
-            body: `DetailFlow: Payment of ${formatCurrency(balance)} received via ${method}. Thank you! Reply STOP to opt out.`,
+            body: `DetailFlow: Payment of ${formatCurrency(total)} received via ${method}. Thank you! Reply STOP to opt out.`,
           })
           .catch((e) => console.error("Receipt SMS failed:", e));
       }
-      if (invoice.appointmentId) {
-        updateDoc(doc(db, "appointments", invoice.appointmentId), {
-          paymentStatus: isFullyPaid ? "paid" : "partial",
-          ...(isFullyPaid && { balanceDue: 0 }),
-        }).catch((e) => console.error("[FieldInvoiceDetail] appointment payment sync failed:", e));
-      }
+
       sessionStorage.removeItem("invoices_cache");
       sessionStorage.removeItem("invoices_cache_time");
-      toast.success(isFullyPaid ? "Invoice marked paid" : "Partial payment recorded", {
-        id: "fi-payment",
-      });
+      toast.success("Invoice marked paid", { id: "fi-payment" });
       setShowPaymentDialog(false);
     } catch (error: any) {
-      const msg = error?.message ?? String(error);
-      console.error("[FieldInvoiceDetail] payment write failed:", error);
-      toast.error(`Payment failed: ${msg.slice(0, 100)}`, { id: "fi-payment" });
+      console.error("[FieldInvoiceDetail] payment failed", { invoiceId, appointmentId, method, error });
+      toast.error("Failed to record payment.", { id: "fi-payment" });
     } finally {
       setIsProcessingPayment(false);
     }
@@ -743,8 +763,8 @@ export default function FieldInvoiceDetail() {
                 </Button>
               ))}
               <p className="text-[9px] text-white/28 font-medium text-center pt-1 leading-relaxed px-2">
-                Card &amp; Apple Pay are recorded as in-person payments.
-                Online card processing is not configured.
+                Card and Apple Pay processing is not configured.
+                Use Cash, Zelle, or Check for manual payment.
               </p>
             </div>
           </DialogContent>
