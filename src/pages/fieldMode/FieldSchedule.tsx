@@ -21,9 +21,7 @@ import {
   ChevronRight,
   ChevronUp,
   MapPin,
-  MessageSquare,
   Navigation,
-  Phone,
   X,
 } from "lucide-react";
 import { dayKey, useMonthAppointments } from "../../hooks/useMonthAppointments";
@@ -275,7 +273,6 @@ function DispatchJobCard({ job }: { job: FieldJob }) {
   const isCancelled = job.status === "canceled" || job.status === "no_show" || job.status === "missed";
   const needsPayment = isDone && job.paymentStatus === "unpaid";
   const isRisk      = job.clientRiskLevel === "high" || job.clientRiskLevel === "medium";
-  const mapsUrl     = job.address ? `maps://maps.apple.com/?q=${encodeURIComponent(job.address)}` : null;
 
   return (
     <div className="flex items-stretch gap-0 group">
@@ -363,31 +360,10 @@ function DispatchJobCard({ job }: { job: FieldJob }) {
               )}
             </div>
 
-            {/* Quick actions — tighter row */}
-            <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-white/[0.04]">
-              {mapsUrl && (
-                <a href={mapsUrl} aria-label="Navigate"
-                   className="flex-1 h-6 rounded-lg bg-blue-500/8 ring-1 ring-blue-500/18 flex items-center justify-center gap-1 text-blue-400 hover:bg-blue-500/14 transition-colors">
-                  <Navigation className="w-2.5 h-2.5" />
-                  <span className="text-[8px] font-black uppercase tracking-wider">Nav</span>
-                </a>
-              )}
-              {job.telUrl && (
-                <a href={job.telUrl} aria-label={`Call ${job.clientName}`}
-                   className="flex-1 h-6 rounded-lg bg-emerald-500/8 ring-1 ring-emerald-500/18 flex items-center justify-center gap-1 text-emerald-400 hover:bg-emerald-500/14 transition-colors">
-                  <Phone className="w-2.5 h-2.5" />
-                  <span className="text-[8px] font-black uppercase tracking-wider">Call</span>
-                </a>
-              )}
-              {job.smsUrl && (
-                <a href={job.smsUrl} aria-label={`Text ${job.clientName}`}
-                   className="flex-1 h-6 rounded-lg bg-sky-500/8 ring-1 ring-sky-500/18 flex items-center justify-center gap-1 text-sky-400 hover:bg-sky-500/14 transition-colors">
-                  <MessageSquare className="w-2.5 h-2.5" />
-                  <span className="text-[8px] font-black uppercase tracking-wider">Text</span>
-                </a>
-              )}
+            {/* Primary action */}
+            <div className="mt-2 pt-1.5 border-t border-white/[0.04]">
               <Link to={`/field/job/${job.id}`}
-                    className="flex-1 h-6 rounded-lg bg-[#0A4DFF]/12 ring-1 ring-[#0A4DFF]/25 flex items-center justify-center gap-1 text-[#6B8FFF] hover:bg-[#0A4DFF]/18 transition-colors">
+                    className="w-full h-7 rounded-lg bg-[#0A4DFF]/12 ring-1 ring-[#0A4DFF]/25 flex items-center justify-center gap-1 text-[#6B8FFF] hover:bg-[#0A4DFF]/18 transition-colors">
                 <ChevronRight className="w-2.5 h-2.5" />
                 <span className="text-[8px] font-black uppercase tracking-wider">Open</span>
               </Link>
