@@ -56,3 +56,20 @@ export async function ensureJobNumber(
   await updateDoc(doc(db, "appointments", appointmentId), { jobNumber: num });
   return num;
 }
+
+/**
+ * Returns the existing jobNumber if present, otherwise derives a stable
+ * DF-<last6 uppercase of appointmentId> number, writes it to Firestore,
+ * and returns it.  Does NOT use the counter — safe to call from any
+ * component without the counters Firestore rule being deployed.
+ */
+export async function getOrCreateJobNumber(
+  appointmentId: string,
+  existingJobNumber: string | undefined,
+): Promise<string> {
+  if (existingJobNumber) return existingJobNumber;
+  const suffix = appointmentId.slice(-6).toUpperCase();
+  const num = `${PREFIX}-${suffix}`;
+  await updateDoc(doc(db, "appointments", appointmentId), { jobNumber: num });
+  return num;
+}

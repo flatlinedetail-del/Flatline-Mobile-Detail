@@ -31,6 +31,7 @@ import {
   type FieldJob,
   type FieldJobStatus,
 } from "../../services/fieldJob";
+import { getOrCreateJobNumber } from "../../services/jobNumberService";
 
 /**
  * FieldSchedule — Premium Mobile Dispatch Command Center
@@ -274,6 +275,15 @@ function DispatchJobCard({ job }: { job: FieldJob }) {
   const needsPayment = isDone && job.paymentStatus === "unpaid";
   const isRisk      = job.clientRiskLevel === "high" || job.clientRiskLevel === "medium";
 
+  const [displayJobNum, setDisplayJobNum] = useState(job.jobNumber ?? "");
+  useEffect(() => {
+    if (job.jobNumber) { setDisplayJobNum(job.jobNumber); return; }
+    if (!job.id) return;
+    getOrCreateJobNumber(job.id, job.jobNumber)
+      .then(setDisplayJobNum)
+      .catch(() => {});
+  }, [job.id, job.jobNumber]);
+
   return (
     <div className="flex items-stretch gap-0 group">
       {/* Time column — narrower, tighter */}
@@ -323,10 +333,10 @@ function DispatchJobCard({ job }: { job: FieldJob }) {
               </span>
             </div>
 
-            {/* Job number — shown when assigned, hidden for legacy jobs until opened */}
-            {job.jobNumber && (
+            {/* Job number — backfilled on mount for existing jobs via getOrCreateJobNumber */}
+            {displayJobNum && (
               <p className="text-[8px] font-black text-white/30 tracking-widest leading-none -mt-0.5">
-                {job.jobNumber}
+                {displayJobNum}
               </p>
             )}
 

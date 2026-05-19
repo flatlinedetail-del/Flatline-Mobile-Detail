@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ensureJobNumber } from "../../services/jobNumberService";
+import { getOrCreateJobNumber } from "../../services/jobNumberService";
 import {
   addDoc,
   arrayUnion,
@@ -1397,7 +1397,7 @@ export default function ActiveJob() {
   // `raw` + `job` automatically, so no local state patching is needed.
   useEffect(() => {
     if (!id || !raw || raw.jobNumber) return;
-    ensureJobNumber(id, raw.jobNumber).catch((e) =>
+    getOrCreateJobNumber(id, raw.jobNumber).catch((e) =>
       console.warn("[ActiveJob] lazy jobNumber assignment failed", e),
     );
   }, [id, raw?.jobNumber]); // eslint-disable-line react-hooks/exhaustive-deps
