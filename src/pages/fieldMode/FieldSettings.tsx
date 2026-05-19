@@ -167,7 +167,14 @@ function ServicesPanel({ onBack, onOpenAdmin }: { onBack: () => void; onOpenAdmi
       toast.success(`Done — ${created} created, ${updated} updated, ${deactivated} deactivated`, { id: tid });
     } catch (err) {
       console.error("[ServicesPanel install]", err);
-      toast.error("Install failed — check console", { id: tid });
+      const msg = (err as Error)?.message || "Unknown error";
+      const isPermission = msg.toLowerCase().includes("permission") || msg.toLowerCase().includes("missing or insufficient");
+      toast.error(
+        isPermission
+          ? "Permission denied — your account role may not allow service edits. Ask your admin to run Install from the desktop admin panel."
+          : `Install failed: ${msg.slice(0, 120)}`,
+        { id: tid, duration: 8000 },
+      );
     } finally {
       setInstalling(false);
     }

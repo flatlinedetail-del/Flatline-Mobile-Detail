@@ -1062,7 +1062,14 @@ export default function Settings() {
       toast.success(`Done — ${created} created, ${updated} updated, ${deactivated} deactivated`, { id: tid });
     } catch (err) {
       console.error("[handleInstallDetailFlowServices]", err);
-      toast.error("Install failed — check console", { id: tid });
+      const msg = (err as Error)?.message || "Unknown error";
+      const isPermission = msg.toLowerCase().includes("permission") || msg.toLowerCase().includes("missing or insufficient");
+      toast.error(
+        isPermission
+          ? "Permission denied — your account needs admin or manager role to install services."
+          : `Install failed: ${msg.slice(0, 120)}`,
+        { id: tid, duration: 8000 },
+      );
     } finally {
       setInstallingServices(false);
     }

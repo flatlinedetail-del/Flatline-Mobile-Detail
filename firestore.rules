@@ -206,12 +206,14 @@ service cloud.firestore {
 
     match /services/{serviceId} {
       allow read: if isPublic();
-      allow write: if isAdmin();
+      // isTechnician covers all authenticated staff roles including owner.
+      // Services are managed through the authenticated Settings UI only.
+      allow write: if isTechnician();
     }
 
     match /addons/{addOnId} {
       allow read: if isPublic();
-      allow write: if isAdmin();
+      allow write: if isTechnician();
     }
 
     match /coupons/{couponId} {
