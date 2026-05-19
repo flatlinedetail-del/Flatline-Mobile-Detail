@@ -31,6 +31,7 @@ import { useClientsLive } from "../../hooks/useClientsLive";
 import { useMonthAppointments } from "../../hooks/useMonthAppointments";
 import {
   formatJobTime,
+  getJobRoute,
   statusLabel,
   type FieldJob,
   type FieldJobStatus,
@@ -796,7 +797,7 @@ function JobRow({ job }: { job: FieldJob }) {
   const isActive = job.status === "in_progress" || job.status === "en_route";
   return (
     <Link
-      to={`/field/job/${job.id}`}
+      to={getJobRoute(job)}
       className={cn(
         "flex items-center gap-2.5 w-full rounded-xl border transition-all",
         "px-3 py-2.5 min-h-[60px] select-none active:scale-[0.98]",

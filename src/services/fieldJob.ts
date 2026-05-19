@@ -109,8 +109,25 @@ export function formatJobTime(d: Date | null): string {
 }
 
 /**
- * Friendly status label for badges.
+ * Returns the correct phone navigation destination for a job card tap,
+ * based on appointment status.
+ *
+ * Routing rules:
+ *   waitlisted / pending_waitlist / offered → /waitlist (FieldWaitlist)
+ *   pending_approval                        → /calendar/:id (JobDetail — booking review context)
+ *   everything else                         → /field/job/:id (ActiveJob — safe default)
  */
+export function getJobRoute(job: FieldJob): string {
+  const { status, id } = job;
+  if (status === "waitlisted" || status === "pending_waitlist" || status === "offered") {
+    return "/waitlist";
+  }
+  if (status === "pending_approval") {
+    return `/calendar/${id}`;
+  }
+  return `/field/job/${id}`;
+}
+
 export function statusLabel(s: FieldJobStatus): string {
   switch (s) {
     case "scheduled": return "Scheduled";

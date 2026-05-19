@@ -27,6 +27,7 @@ import {
 import { dayKey, useMonthAppointments } from "../../hooks/useMonthAppointments";
 import {
   formatJobTime,
+  getJobRoute,
   statusLabel,
   type FieldJob,
   type FieldJobStatus,
@@ -379,7 +380,7 @@ function DispatchJobCard({ job }: { job: FieldJob }) {
 
             {/* Primary action */}
             <div className="mt-2 pt-1.5 border-t border-white/[0.04]">
-              <Link to={`/field/job/${job.id}`}
+              <Link to={getJobRoute(job)}
                     className="w-full h-7 rounded-lg bg-[#0A4DFF]/12 ring-1 ring-[#0A4DFF]/25 flex items-center justify-center gap-1 text-[#6B8FFF] hover:bg-[#0A4DFF]/18 transition-colors">
                 <ChevronRight className="w-2.5 h-2.5" />
                 <span className="text-[8px] font-black uppercase tracking-wider">Open</span>
