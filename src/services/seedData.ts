@@ -588,13 +588,16 @@ export async function installDetailFlowServices(): Promise<{ created: number; up
     await updateDoc(doc(db, "services", id), { upgradeToServiceIds: upgradeIds });
   }
 
-  // Pass 3: deactivate services with "(Demo)" in their name
+  // Pass 3: deactivate every service whose name is NOT in the approved set.
+  // This handles (Demo) services, old renamed variants (e.g. "Clay & Seal Exterior ONLY",
+  // "Level I (Deep Clean)", "Level II (Clay & Seal)"), and any other non-canonical entries.
+  const approvedNames = new Set(packages.map(p => p.name));
   const allSnap = await getDocs(collection(db, "services"));
   const batch = writeBatch(db);
   let deactivated = 0;
   for (const d of allSnap.docs) {
     const name = (d.data().name as string) || "";
-    if (name.includes("(Demo)") && d.data().isActive !== false) {
+    if (!approvedNames.has(name) && d.data().isActive !== false) {
       batch.update(d.ref, { isActive: false });
       deactivated++;
     }
