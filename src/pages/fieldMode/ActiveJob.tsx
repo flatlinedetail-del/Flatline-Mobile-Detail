@@ -970,8 +970,8 @@ export default function ActiveJob() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalCompleted, setTerminalCompleted] = useState(false);
 
-  // Job Intelligence panel (collapsible)
-  const [showJobIntelligence, setShowJobIntelligence] = useState(false);
+  // Job Notes panel (collapsed by default)
+  const [showJobNotes, setShowJobNotes] = useState(false);
 
   // Maps navigation selector dialog
   const [showMapsDialog, setShowMapsDialog] = useState(false);
@@ -1195,65 +1195,75 @@ export default function ActiveJob() {
     [id, raw, reasonKind, feePreview],
   );
 
-  // ── Add Add-On ──────────────────────────────────────────────────────────
+  // ── Manage Add-Ons (add or remove) ──────────────────────────────────────
   const handleAddAddons = useCallback(async () => {
-    if (!id || pendingAddonIds.size === 0 || addingAddons) return;
+    if (!id || addingAddons) return;
     setAddingAddons(true);
     try {
       const inv = invoices[0] ?? null;
       const existingIds = new Set<string>(raw?.addOnIds ?? []);
+
+      // Items being added: in pending, active, not already on the job
       const toAdd = (addons as AddOn[]).filter(
         (a) => a.isActive && pendingAddonIds.has(a.id) && !existingIds.has(a.id),
       );
-      if (toAdd.length === 0) {
+      // Items being removed: were on the job, now deselected
+      const toRemove = (addons as AddOn[]).filter(
+        (a) => existingIds.has(a.id) && !pendingAddonIds.has(a.id),
+      );
+
+      // Nothing changed — close silently
+      if (toAdd.length === 0 && toRemove.length === 0) {
         setShowAddAddonSheet(false);
         setPendingAddonIds(new Set());
         return;
       }
 
+      const toRemoveIds   = new Set(toRemove.map((a) => a.id));
+      const toRemoveNames = new Set(toRemove.map((a) => a.name));
+
       const newSelections: ServiceSelection[] = toAdd.map((a) => ({
-        id: a.id,
-        name: a.name,
-        description: a.description ?? "",
-        qty: 1,
-        price: a.price,
-        total: a.price,
-        source: "manual" as const,
-        protocolAccepted: true,
+        id: a.id, name: a.name, description: a.description ?? "",
+        qty: 1, price: a.price, total: a.price,
+        source: "manual" as const, protocolAccepted: true,
       }));
 
-      const updatedIds   = [...(raw?.addOnIds         ?? []), ...toAdd.map((a) => a.id)];
-      const updatedNames = [...(raw?.addOnNames        ?? []), ...toAdd.map((a) => a.name)];
-      const updatedSels  = [...(raw?.addOnSelections   ?? []), ...newSelections];
-      const addedTotal   = toAdd.reduce((s, a) => s + a.price, 0);
+      // Build updated arrays: drop removed items, append newly added
+      const keptIds   = (raw?.addOnIds         ?? []).filter((i) => !toRemoveIds.has(i));
+      const keptNames = (raw?.addOnNames        ?? []).filter((n) => !toRemoveNames.has(n));
+      const keptSels  = (raw?.addOnSelections   ?? []).filter((s) => !toRemoveIds.has(s.id));
 
-      // Update appointment — additive, never overwrites existing data
+      const updatedIds   = [...keptIds,   ...toAdd.map((a) => a.id)];
+      const updatedNames = [...keptNames, ...toAdd.map((a) => a.name)];
+      const updatedSels  = [...keptSels,  ...newSelections];
+
+      const addedTotal   = toAdd.reduce((s, a) => s + a.price, 0);
+      const removedTotal = toRemove.reduce((s, a) => s + a.price, 0);
+      const newTotal     = Math.max(0, (raw?.totalAmount ?? 0) + addedTotal - removedTotal);
+
       await updateDoc(doc(db, "appointments", id), {
-        addOnIds:        updatedIds,
-        addOnNames:      updatedNames,
-        addOnSelections: updatedSels,
-        totalAmount:     (raw?.totalAmount ?? 0) + addedTotal,
-        updatedAt:       serverTimestamp(),
+        addOnIds: updatedIds, addOnNames: updatedNames,
+        addOnSelections: updatedSels, totalAmount: newTotal,
+        updatedAt: serverTimestamp(),
       });
 
-      // If an invoice already exists, keep it in sync so the balance is correct
       if (inv) {
+        // Remove line items for removed add-ons; append new ones
+        const keptLineItems = (inv.lineItems ?? []).filter(
+          (li) => !toRemoveNames.has(li.serviceName),
+        );
         const newLineItems = [
-          ...(inv.lineItems ?? []),
+          ...keptLineItems,
           ...newSelections.map((s) => ({
-            serviceName:      s.name,
-            description:      s.description || "Add-on",
-            quantity:         1,
-            price:            s.price,
-            total:            s.price,
-            source:           "manual",
-            protocolAccepted: true,
+            serviceName: s.name, description: s.description || "Add-on",
+            quantity: 1, price: s.price, total: s.price,
+            source: "manual", protocolAccepted: true,
           })),
         ];
         await updateDoc(doc(db, "invoices", inv.id), {
-          lineItems:  newLineItems,
-          total:      (inv.total ?? 0) + addedTotal,
-          updatedAt:  serverTimestamp(),
+          lineItems: newLineItems,
+          total: Math.max(0, (inv.total ?? 0) + addedTotal - removedTotal),
+          updatedAt: serverTimestamp(),
         });
       }
 
@@ -1266,7 +1276,7 @@ export default function ActiveJob() {
     }
   }, [id, raw, addons, invoices, pendingAddonIds, addingAddons]);
 
-  // Derived from selection state — used in the add-on sheet footer
+  // Items being added (in pending but not yet on the job)
   const pendingAddonsToAdd = useMemo(() => {
     const existingIds = new Set<string>(raw?.addOnIds ?? []);
     return (addons as AddOn[]).filter(
@@ -1274,9 +1284,20 @@ export default function ActiveJob() {
     );
   }, [pendingAddonIds, addons, raw]);
 
-  const pendingAddonsTotal = useMemo(
-    () => pendingAddonsToAdd.reduce((s, a) => s + a.price, 0),
-    [pendingAddonsToAdd],
+  // Items being removed (on the job but deselected in the sheet)
+  const pendingAddonsToRemove = useMemo(() => {
+    const existingIds = new Set<string>(raw?.addOnIds ?? []);
+    return (addons as AddOn[]).filter(
+      (a) => existingIds.has(a.id) && !pendingAddonIds.has(a.id),
+    );
+  }, [pendingAddonIds, addons, raw]);
+
+  /** Net price change from the current pending selection (positive = more revenue). */
+  const addonsNetDelta = useMemo(
+    () =>
+      pendingAddonsToAdd.reduce((s, a) => s + a.price, 0) -
+      pendingAddonsToRemove.reduce((s, a) => s + a.price, 0),
+    [pendingAddonsToAdd, pendingAddonsToRemove],
   );
 
   // ── Change / Upgrade Service ─────────────────────────────────────────────
@@ -1428,7 +1449,9 @@ export default function ActiveJob() {
           <span className="text-[9px] font-black uppercase tracking-widest text-white/70 leading-none">
             {statusLabel(job.status)}
           </span>
-          <span
+          <button
+            type="button"
+            onClick={() => setShowChargesSheet(true)}
             className={cn(
               "ml-auto text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none",
               paymentTone(job.paymentStatus),
@@ -1436,7 +1459,7 @@ export default function ActiveJob() {
           >
             {paymentLabel(job.paymentStatus)}
             {job.totalAmount > 0 ? ` · $${job.totalAmount.toFixed(2)}` : ""}
-          </span>
+          </button>
         </div>
 
         {/* Client risk badge */}
@@ -1455,6 +1478,57 @@ export default function ActiveJob() {
               <AlertCircle className="w-2.5 h-2.5" />
             )}
             {clientRisk.label}
+          </div>
+        )}
+
+        {/* Clickable booking/payment status chips */}
+        {!terminalCompleted && !isCancellationStatus(rawStatus ?? "scheduled") && Boolean(
+          (job.depositRequired && !job.depositPaid) ||
+          job.depositPaid ||
+          job.pendingOwnerReview ||
+          (raw?.balanceDue ?? 0) > 0,
+        ) && (
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {job.depositRequired && !job.depositPaid && (
+              <button
+                type="button"
+                onClick={() => setShowChargesSheet(true)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/10 ring-1 ring-amber-500/25 text-amber-300 hover:bg-amber-500/15 active:bg-amber-500/20 transition-colors"
+              >
+                <DollarSign className="w-2.5 h-2.5 shrink-0" />
+                <span className="text-[9px] font-bold leading-none">
+                  Deposit Required{raw && (raw.depositAmount ?? 0) > 0 ? ` · $${raw.depositAmount!.toFixed(0)}` : ""}
+                </span>
+              </button>
+            )}
+            {job.depositPaid && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 ring-1 ring-emerald-500/25 text-emerald-300">
+                <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
+                <span className="text-[9px] font-bold leading-none">Deposit Paid</span>
+              </div>
+            )}
+            {job.pendingOwnerReview && (
+              <button
+                type="button"
+                onClick={() => setShowChargesSheet(true)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/10 ring-1 ring-orange-500/25 text-orange-300 hover:bg-orange-500/15 active:bg-orange-500/20 transition-colors"
+              >
+                <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                <span className="text-[9px] font-bold leading-none">Pending Review</span>
+              </button>
+            )}
+            {(raw?.balanceDue ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowChargesSheet(true)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md bg-rose-500/10 ring-1 ring-rose-500/25 text-rose-300 hover:bg-rose-500/15 active:bg-rose-500/20 transition-colors"
+              >
+                <CreditCard className="w-2.5 h-2.5 shrink-0" />
+                <span className="text-[9px] font-bold leading-none">
+                  Balance Due · ${(raw?.balanceDue ?? 0).toFixed(0)}
+                </span>
+              </button>
+            )}
           </div>
         )}
 
@@ -1524,80 +1598,144 @@ export default function ActiveJob() {
         </section>
       )}
 
-      {/* ── Job Intelligence ─────────────────────────────────────────────── */}
+      {/* ── Revenue Intelligence ─────────────────────────────────────────── */}
       {!isCancellationStatus(rawStatus ?? "scheduled") && !terminalCompleted && (
-        <section className="rounded-xl border border-white/5 bg-sidebar/60 overflow-hidden">
-          {/* Collapsed header — always visible */}
-          <button
-            type="button"
-            onClick={() => setShowJobIntelligence((v) => !v)}
-            className="w-full flex items-center justify-between px-3 py-2.5"
-          >
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <div className="w-6 h-6 rounded-md bg-violet-500/15 ring-1 ring-violet-500/30 flex items-center justify-center shrink-0">
-                <Sparkles className="w-3 h-3 text-violet-300" />
+        <section aria-label="Revenue Intelligence" className="space-y-2">
+          {/* Section header */}
+          <div className="flex items-center gap-1.5 px-0.5">
+            <Sparkles className="w-3 h-3 text-violet-300 shrink-0" />
+            <h2 className="text-[9px] font-black uppercase tracking-widest text-white/40">
+              Revenue Intelligence
+            </h2>
+            {upsellRecs.length > 0 && (
+              <span className="ml-auto text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 ring-1 ring-violet-500/30 leading-none">
+                {upsellRecs.length} opp{upsellRecs.length !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+
+          {/* Recommendation cards */}
+          <div className="rounded-xl border border-violet-500/10 bg-violet-500/4 overflow-hidden">
+            {upsellRecs.length === 0 ? (
+              <div className="px-3 py-4 flex items-center gap-2.5">
+                <Sparkles className="w-4 h-4 text-white/15 shrink-0" />
+                <p className="text-[10px] text-white/25 leading-snug">
+                  No smart recommendations yet — complete more jobs to generate insights
+                </p>
               </div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-white/70">Job Intelligence</span>
-              {job.depositRequired && !job.depositPaid && (
-                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 leading-none">Deposit</span>
-              )}
-              {job.pendingOwnerReview && (
-                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 ring-1 ring-orange-500/30 leading-none">Review</span>
-              )}
-              {upsellRecs.length > 0 && (
-                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 ring-1 ring-violet-500/30 leading-none">
-                  {upsellRecs.length} opp{upsellRecs.length !== 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
-            {showJobIntelligence
-              ? <ChevronUp className="w-3 h-3 text-white/30 shrink-0" />
-              : <ChevronDown className="w-3 h-3 text-white/30 shrink-0" />}
-          </button>
-
-          {/* Expanded content */}
-          {showJobIntelligence && (
-            <div className="border-t border-white/5 px-3 py-3 space-y-3">
-
-              {/* ── Booking status flags ── */}
-              {(job.depositRequired || job.pendingOwnerReview || (raw?.balanceDue ?? 0) > 0) && (
-                <div className="space-y-1.5">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Booking Status</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {job.depositRequired && !job.depositPaid && (
-                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/10 ring-1 ring-amber-500/25 text-amber-300">
-                        <DollarSign className="w-2.5 h-2.5 shrink-0" />
-                        <span className="text-[9px] font-bold leading-none">
-                          Deposit Required{raw && raw.depositAmount > 0 ? ` · $${raw.depositAmount.toFixed(0)}` : ""}
+            ) : (
+              <div className="divide-y divide-white/5">
+                {upsellRecs.slice(0, 3).map((rec) => (
+                  <div key={rec.id} className="px-3 py-2.5 flex items-start gap-2">
+                    <div className="shrink-0 w-5 h-5 rounded-md bg-violet-500/15 ring-1 ring-violet-500/25 flex items-center justify-center mt-0.5">
+                      <Sparkles className="w-2.5 h-2.5 text-violet-300" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-[11px] font-bold text-white leading-tight">{rec.title}</p>
+                        <span className={cn("text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", priorityBadge(rec.priority))}>
+                          {rec.priority}
                         </span>
                       </div>
-                    )}
-                    {job.depositPaid && (
-                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 ring-1 ring-emerald-500/25 text-emerald-300">
-                        <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
-                        <span className="text-[9px] font-bold leading-none">Deposit Paid</span>
-                      </div>
-                    )}
-                    {job.pendingOwnerReview && (
-                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/10 ring-1 ring-orange-500/25 text-orange-300">
-                        <AlertCircle className="w-2.5 h-2.5 shrink-0" />
-                        <span className="text-[9px] font-bold leading-none">Pending Review</span>
-                      </div>
-                    )}
-                    {(raw?.balanceDue ?? 0) > 0 && (
-                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-rose-500/10 ring-1 ring-rose-500/25 text-rose-300">
-                        <CreditCard className="w-2.5 h-2.5 shrink-0" />
-                        <span className="text-[9px] font-bold leading-none">Balance Due · ${(raw?.balanceDue ?? 0).toFixed(0)}</span>
-                      </div>
-                    )}
+                      <p className="text-[9px] text-white/40 leading-tight mt-0.5 line-clamp-2">{rec.reason}</p>
+                      {(rec.estimatedPriceImpact ?? 0) > 0 && (
+                        <p className={cn("text-[9px] font-bold mt-0.5 leading-none", priorityColor(rec.priority))}>
+                          +${rec.estimatedPriceImpact!.toFixed(0)} est. revenue
+                        </p>
+                      )}
+                    </div>
                   </div>
+                ))}
+                {upsellRecs.length > 3 && (
+                  <div className="px-3 py-2">
+                    <p className="text-[8px] font-black text-violet-300/50 leading-none">
+                      +{upsellRecs.length - 3} more opportunit{upsellRecs.length - 3 !== 1 ? "ies" : "y"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Quick action grid: Manage Add-Ons + Change Service */}
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() => { setPendingAddonIds(new Set(raw?.addOnIds ?? [])); setShowAddAddonSheet(true); }}
+              className="flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border border-sky-500/20 bg-sky-500/5 hover:bg-sky-500/10 active:bg-sky-500/15 transition-colors"
+            >
+              <Zap className="w-3 h-3 text-sky-300" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-sky-300">
+                {(raw?.addOnIds?.length ?? 0) > 0 ? "Manage Add-Ons" : "Add Add-On"}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPendingServiceId(null); setShowChangeServiceSheet(true); }}
+              className="flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 active:bg-amber-500/15 transition-colors"
+            >
+              <Wrench className="w-3 h-3 text-amber-300" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-amber-300">Change Service</span>
+            </button>
+          </div>
+
+          {/* Open Revenue Terminal */}
+          <button
+            type="button"
+            onClick={() => setShowTerminal(true)}
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-violet-500/20 bg-violet-500/7 hover:bg-violet-500/12 active:bg-violet-500/18 transition-colors"
+          >
+            <Zap className="w-3 h-3 text-violet-300" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-violet-300">
+              {upsellRecs.length > 0
+                ? `Review ${upsellRecs.length} Opportunit${upsellRecs.length !== 1 ? "ies" : "y"} · Revenue Terminal`
+                : "Open Revenue Terminal"}
+            </span>
+          </button>
+        </section>
+      )}
+
+      {/* ── Job Notes & Details (collapsed) ─────────────────────────────── */}
+      {!isCancellationStatus(rawStatus ?? "scheduled") && !terminalCompleted &&
+        Boolean(
+          raw?.customerNotes ||
+          terminalClient?.notes ||
+          (raw?.addOnNames?.length ?? 0) > 0 ||
+          terminalVehicles.length > 0 ||
+          (terminalClient && (
+            terminalClient.membershipLevel !== "none" ||
+            (terminalClient.outstandingCancellationFee ?? 0) > 0
+          )),
+        ) && (
+        <section className="rounded-xl border border-white/5 bg-sidebar/40 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowJobNotes((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 text-white/35 hover:text-white/50 transition-colors"
+          >
+            <span className="text-[9px] font-black uppercase tracking-widest">Job Notes &amp; Details</span>
+            {showJobNotes
+              ? <ChevronUp className="w-3 h-3 shrink-0" />
+              : <ChevronDown className="w-3 h-3 shrink-0" />}
+          </button>
+
+          {showJobNotes && (
+            <div className="border-t border-white/5 px-3 py-3 space-y-3">
+              {raw?.customerNotes && (
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Customer Notes</p>
+                  <p className="text-[11px] text-white/55 leading-snug break-words">{raw.customerNotes}</p>
                 </div>
               )}
-
-              {/* ── Add-ons booked ── */}
+              {terminalClient?.notes && (
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Client Notes</p>
+                  <p className="text-[11px] text-white/55 leading-snug break-words">{terminalClient.notes}</p>
+                </div>
+              )}
               {(raw?.addOnNames?.length ?? 0) > 0 && (
                 <div className="space-y-1">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Add-Ons</p>
+                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Add-Ons on Job</p>
                   <div className="flex flex-wrap gap-1">
                     {raw!.addOnNames!.map((n) => (
                       <span key={n} className="text-[9px] font-bold text-white/60 bg-white/5 px-1.5 py-0.5 rounded leading-none">{n}</span>
@@ -1605,115 +1743,46 @@ export default function ActiveJob() {
                   </div>
                 </div>
               )}
-
-              {/* ── Customer booking notes ── */}
-              {raw?.customerNotes && (
-                <div className="space-y-1">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Customer Notes</p>
-                  <p className="text-[11px] text-white/55 leading-snug break-words">{raw.customerNotes}</p>
-                </div>
-              )}
-
-              {/* ── Client saved notes ── */}
-              {terminalClient?.notes && (
-                <div className="space-y-1">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Client Notes</p>
-                  <p className="text-[11px] text-white/55 leading-snug break-words">{terminalClient.notes}</p>
-                </div>
-              )}
-
-              {/* ── Membership / outstanding fee ── */}
-              {terminalClient && (
-                terminalClient.membershipLevel !== "none" ||
-                (terminalClient.outstandingCancellationFee ?? 0) > 0
-              ) && (
-                <div className="flex flex-wrap gap-1.5">
-                  {terminalClient!.membershipLevel !== "none" && (
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-violet-500/10 ring-1 ring-violet-500/20 text-violet-300">
-                      <Star className="w-2.5 h-2.5 shrink-0" />
-                      <span className="text-[9px] font-bold capitalize leading-none">{terminalClient!.membershipLevel} Member</span>
-                    </div>
-                  )}
-                  {(terminalClient!.outstandingCancellationFee ?? 0) > 0 && (
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-rose-500/10 ring-1 ring-rose-500/25 text-rose-300">
-                      <AlertCircle className="w-2.5 h-2.5 shrink-0" />
-                      <span className="text-[9px] font-bold leading-none">
-                        Cancellation Fee · ${(terminalClient!.outstandingCancellationFee ?? 0).toFixed(0)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── Vehicle details from terminalVehicles ── */}
               {terminalVehicles.length > 0 && (
                 <div className="space-y-1.5">
                   <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Vehicle Details</p>
                   {terminalVehicles.map((v) => (
                     <div key={v.id} className="space-y-0.5">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {v.size && (
-                          <span className="text-[9px] font-bold text-white/50 capitalize leading-none">
-                            {v.size.replace("_", " ")}
-                          </span>
-                        )}
-                        {v.color && (
-                          <span className="text-[9px] font-bold text-white/50 leading-none">· {v.color}</span>
-                        )}
+                        {v.size && <span className="text-[9px] font-bold text-white/50 capitalize leading-none">{v.size.replace("_", " ")}</span>}
+                        {v.color && <span className="text-[9px] font-bold text-white/50 leading-none">· {v.color}</span>}
                         {v.licensePlate && (
                           <span className="text-[9px] font-black uppercase tracking-widest text-white/70 bg-white/8 px-1.5 py-0.5 rounded leading-none">
                             {v.licensePlate}
                           </span>
                         )}
                       </div>
-                      {v.notes && (
-                        <p className="text-[9px] text-white/35 italic leading-tight">{v.notes}</p>
-                      )}
+                      {v.notes && <p className="text-[9px] text-white/35 italic leading-tight">{v.notes}</p>}
                     </div>
                   ))}
                 </div>
               )}
-
-              {/* ── Revenue opportunities preview ── */}
-              <div className="space-y-1.5">
-                <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Revenue Opportunities</p>
-                {upsellRecs.length === 0 ? (
-                  <p className="text-[10px] text-white/30 italic">No smart recommendations for this client yet</p>
-                ) : (
-                  <div className="rounded-lg border border-violet-500/15 bg-violet-500/5 px-2.5 py-2 space-y-1">
-                    <div className="flex items-start gap-1.5">
-                      <Sparkles className="w-3 h-3 text-violet-300 shrink-0 mt-0.5" />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="text-[10px] font-bold text-white leading-tight">{upsellRecs[0].title}</p>
-                          <span className={cn("text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", priorityBadge(upsellRecs[0].priority))}>
-                            {upsellRecs[0].priority}
-                          </span>
-                        </div>
-                        <p className="text-[9px] text-white/40 leading-tight mt-0.5 line-clamp-2">{upsellRecs[0].reason}</p>
-                      </div>
+              {terminalClient && (
+                terminalClient.membershipLevel !== "none" ||
+                (terminalClient.outstandingCancellationFee ?? 0) > 0
+              ) && (
+                <div className="flex flex-wrap gap-1.5">
+                  {terminalClient.membershipLevel !== "none" && (
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-violet-500/10 ring-1 ring-violet-500/20 text-violet-300">
+                      <Star className="w-2.5 h-2.5 shrink-0" />
+                      <span className="text-[9px] font-bold capitalize leading-none">{terminalClient.membershipLevel} Member</span>
                     </div>
-                    {upsellRecs.length > 1 && (
-                      <p className="text-[8px] font-black text-violet-300/60 leading-none pl-4">
-                        +{upsellRecs.length - 1} more opportunit{upsellRecs.length - 1 !== 1 ? "ies" : "y"}
-                      </p>
-                    )}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowTerminal(true)}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-violet-500/20 bg-violet-500/8 hover:bg-violet-500/12 active:bg-violet-500/18 transition-colors"
-                >
-                  <Zap className="w-3 h-3 text-violet-300" />
-                  <span className="text-[9px] font-black uppercase tracking-widest text-violet-300">
-                    {upsellRecs.length > 0
-                      ? `Review ${upsellRecs.length} Opportunit${upsellRecs.length !== 1 ? "ies" : "y"}`
-                      : "Open Job Terminal"}
-                  </span>
-                </button>
-              </div>
-
+                  )}
+                  {(terminalClient.outstandingCancellationFee ?? 0) > 0 && (
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-rose-500/10 ring-1 ring-rose-500/25 text-rose-300">
+                      <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                      <span className="text-[9px] font-bold leading-none">
+                        Cancel Fee · ${(terminalClient.outstandingCancellationFee ?? 0).toFixed(0)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -1739,17 +1808,40 @@ export default function ActiveJob() {
           </div>
 
         ) : !nextAction ? (
-          /* Completed / paid — no forward action */
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/30 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+          /* Completed / paid — show status + payment action if unpaid */
+          <div className="space-y-2">
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/30 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-widest text-emerald-300 leading-none">
+                  {statusLabel(rawStatus ?? "completed")}
+                </p>
+                <p className="text-[9px] text-emerald-300/50 mt-0.5 leading-tight">
+                  {job.paymentStatus === "paid" ? "Job complete · Payment collected" : "Job complete · Payment pending"}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-widest text-emerald-300 leading-none">
-                {statusLabel(rawStatus ?? "completed")}
-              </p>
-              <p className="text-[9px] text-emerald-300/50 mt-0.5 leading-tight">Job complete · No further actions</p>
-            </div>
+            {job.paymentStatus !== "paid" && (
+              <button
+                type="button"
+                onClick={() => setShowChargesSheet(true)}
+                className={cn(
+                  "w-full rounded-xl px-4 py-3.5 flex items-center justify-center gap-2",
+                  "bg-gradient-to-r from-emerald-600/80 to-emerald-500/70",
+                  "border border-emerald-500/40",
+                  "shadow-[0_0_14px_rgba(16,185,129,0.20)]",
+                  "hover:shadow-[0_0_22px_rgba(16,185,129,0.35)]",
+                  "active:scale-[0.98] transition-all duration-150",
+                )}
+              >
+                <DollarSign className="w-4 h-4 text-emerald-100" />
+                <span className="text-[12px] font-black uppercase tracking-wide text-white">
+                  {invoice ? "View Invoice · Collect Payment" : "View Charges · Collect Payment"}
+                </span>
+              </button>
+            )}
           </div>
 
         ) : isCompleteAction ? (
@@ -1818,7 +1910,7 @@ export default function ActiveJob() {
             <WorkflowChip
               icon={Zap}
               label="Add-On"
-              onClick={() => { setPendingAddonIds(new Set()); setShowAddAddonSheet(true); }}
+              onClick={() => { setPendingAddonIds(new Set(raw?.addOnIds ?? [])); setShowAddAddonSheet(true); }}
             />
             <WorkflowChip icon={Receipt} label="Invoice" onClick={() => setShowChargesSheet(true)} />
           </div>
@@ -1890,7 +1982,7 @@ export default function ActiveJob() {
           onCompleted={(markedPaid) => {
             setShowTerminal(false);
             setTerminalCompleted(true);
-            void markedPaid;
+            if (!markedPaid) setShowChargesSheet(true);
           }}
         />
       )}
@@ -1944,7 +2036,7 @@ export default function ActiveJob() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Add Add-On sheet ──────────────────────────────────────────────── */}
+      {/* ── Manage Add-Ons sheet ──────────────────────────────────────────── */}
       <Dialog
         open={showAddAddonSheet}
         onOpenChange={(v) => {
@@ -1958,7 +2050,7 @@ export default function ActiveJob() {
           <DialogHeader className="px-4 pt-4 pb-3 border-b border-white/8 flex-none">
             <DialogTitle className="text-[12px] font-black uppercase tracking-widest text-white/70 text-left flex items-center gap-2">
               <Zap className="w-3.5 h-3.5 text-sky-300" />
-              Add Add-On to Job
+              Manage Add-Ons
             </DialogTitle>
           </DialogHeader>
 
@@ -1970,15 +2062,22 @@ export default function ActiveJob() {
               (addons as AddOn[])
                 .filter((a) => a.isActive)
                 .map((addon) => {
-                  const alreadyAdded = (raw?.addOnIds ?? []).includes(addon.id);
+                  const onJob    = (raw?.addOnIds ?? []).includes(addon.id);
                   const selected = pendingAddonIds.has(addon.id);
+                  // Four states:
+                  //   keeping  = onJob && selected  → emerald (currently on job, staying)
+                  //   removing = onJob && !selected → rose (currently on job, being removed)
+                  //   adding   = !onJob && selected → sky (not on job, being added)
+                  //   default  = !onJob && !selected → neutral
+                  const isKeeping  = onJob && selected;
+                  const isRemoving = onJob && !selected;
+                  const isAdding   = !onJob && selected;
+
                   return (
                     <button
                       key={addon.id}
                       type="button"
-                      disabled={alreadyAdded}
                       onClick={() => {
-                        if (alreadyAdded) return;
                         setPendingAddonIds((prev) => {
                           const next = new Set(prev);
                           if (next.has(addon.id)) next.delete(addon.id);
@@ -1988,33 +2087,44 @@ export default function ActiveJob() {
                       }}
                       className={cn(
                         "w-full text-left rounded-xl border transition-all px-3 py-2.5",
-                        alreadyAdded
-                          ? "border-white/5 bg-white/2 opacity-40 cursor-not-allowed"
-                          : selected
-                            ? "border-sky-500/40 bg-sky-500/8 shadow-[0_0_8px_rgba(14,165,233,0.10)]"
-                            : "border-white/8 bg-white/3 hover:bg-white/6 active:bg-white/8",
+                        isKeeping
+                          ? "border-emerald-500/40 bg-emerald-500/8 shadow-[0_0_8px_rgba(16,185,129,0.10)]"
+                          : isRemoving
+                            ? "border-rose-500/40 bg-rose-500/8 shadow-[0_0_8px_rgba(244,63,94,0.10)]"
+                            : isAdding
+                              ? "border-sky-500/40 bg-sky-500/8 shadow-[0_0_8px_rgba(14,165,233,0.10)]"
+                              : "border-white/8 bg-white/3 hover:bg-white/6 active:bg-white/8",
                       )}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            {selected && !alreadyAdded && (
-                              <CheckCircle2 className="w-3 h-3 text-sky-400 shrink-0" />
-                            )}
-                            <p className="text-[11px] font-bold text-white leading-tight truncate">{addon.name}</p>
+                            {isKeeping && <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />}
+                            {isRemoving && <X className="w-3 h-3 text-rose-400 shrink-0" />}
+                            {isAdding && <CheckCircle2 className="w-3 h-3 text-sky-400 shrink-0" />}
+                            <p className={cn(
+                              "text-[11px] font-bold leading-tight truncate",
+                              isRemoving ? "text-white/45 line-through" : "text-white",
+                            )}>{addon.name}</p>
                           </div>
                           {addon.description && (
                             <p className="text-[9px] text-white/40 leading-tight mt-0.5 line-clamp-1">{addon.description}</p>
                           )}
-                          {alreadyAdded && (
-                            <p className="text-[9px] text-emerald-400/70 font-bold mt-0.5 leading-none">✓ Already on this job</p>
+                          {isKeeping && (
+                            <p className="text-[9px] text-emerald-400/70 font-bold mt-0.5 leading-none">On this job · tap to remove</p>
                           )}
-                          {addon.estimatedDuration > 0 && !alreadyAdded && (
+                          {isRemoving && (
+                            <p className="text-[9px] text-rose-400/80 font-bold mt-0.5 leading-none">Will be removed · tap to keep</p>
+                          )}
+                          {!onJob && addon.estimatedDuration > 0 && (
                             <p className="text-[8px] text-white/25 mt-0.5 leading-none">{addon.estimatedDuration} min</p>
                           )}
                         </div>
-                        <span className="text-[12px] font-black text-white/80 shrink-0 tabular-nums">
-                          ${addon.price.toFixed(0)}
+                        <span className={cn(
+                          "text-[12px] font-black shrink-0 tabular-nums",
+                          isRemoving ? "text-rose-400/70" : "text-white/80",
+                        )}>
+                          {isRemoving ? "−" : isAdding ? "+" : ""}${addon.price.toFixed(0)}
                         </span>
                       </div>
                     </button>
@@ -2023,34 +2133,39 @@ export default function ActiveJob() {
             )}
           </div>
 
-          {/* Footer: running total + confirm */}
+          {/* Footer: net delta summary + confirm */}
           <div className="flex-none px-3 py-3 border-t border-white/8 space-y-2">
-            {pendingAddonsToAdd.length > 0 && (
+            {(pendingAddonsToAdd.length > 0 || pendingAddonsToRemove.length > 0) && (
               <div className="flex items-center justify-between px-1">
                 <span className="text-[9px] font-black uppercase tracking-widest text-white/40">
-                  {pendingAddonsToAdd.length} add-on{pendingAddonsToAdd.length !== 1 ? "s" : ""} selected
+                  {pendingAddonsToAdd.length > 0 && `+${pendingAddonsToAdd.length} adding`}
+                  {pendingAddonsToAdd.length > 0 && pendingAddonsToRemove.length > 0 && "  "}
+                  {pendingAddonsToRemove.length > 0 && `−${pendingAddonsToRemove.length} removing`}
                 </span>
-                <span className="text-[12px] font-black text-sky-300 tabular-nums">
-                  +${pendingAddonsTotal.toFixed(2)}
+                <span className={cn(
+                  "text-[12px] font-black tabular-nums",
+                  addonsNetDelta > 0 ? "text-sky-300" : addonsNetDelta < 0 ? "text-rose-300" : "text-white/40",
+                )}>
+                  {addonsNetDelta > 0 ? `+$${addonsNetDelta.toFixed(2)}` : addonsNetDelta < 0 ? `−$${Math.abs(addonsNetDelta).toFixed(2)}` : "$0.00"}
                 </span>
               </div>
             )}
             <button
               type="button"
-              disabled={pendingAddonsToAdd.length === 0 || addingAddons}
+              disabled={(pendingAddonsToAdd.length === 0 && pendingAddonsToRemove.length === 0) || addingAddons}
               onClick={handleAddAddons}
               className={cn(
                 "w-full py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all",
-                pendingAddonsToAdd.length === 0 || addingAddons
+                (pendingAddonsToAdd.length === 0 && pendingAddonsToRemove.length === 0) || addingAddons
                   ? "bg-white/5 text-white/25 cursor-not-allowed"
                   : "bg-sky-500/20 border border-sky-500/30 text-sky-200 hover:bg-sky-500/30 active:bg-sky-500/40",
               )}
             >
               {addingAddons
-                ? "Adding…"
-                : pendingAddonsToAdd.length === 0
+                ? "Updating…"
+                : (pendingAddonsToAdd.length === 0 && pendingAddonsToRemove.length === 0)
                   ? "Select Add-Ons Above"
-                  : `Add ${pendingAddonsToAdd.length} Add-On${pendingAddonsToAdd.length !== 1 ? "s" : ""} · +$${pendingAddonsTotal.toFixed(2)}`}
+                  : "Update Add-Ons"}
             </button>
           </div>
         </DialogContent>
