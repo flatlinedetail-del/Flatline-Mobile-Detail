@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  addDoc,
   arrayUnion,
   collection,
   doc,
@@ -983,6 +984,7 @@ export default function ActiveJob() {
 
   // Current Charges sheet (Invoice button)
   const [showChargesSheet, setShowChargesSheet] = useState(false);
+  const [generatingInvoice, setGeneratingInvoice] = useState(false);
 
   // Change / Upgrade Service sheet
   const [showChangeServiceSheet, setShowChangeServiceSheet] = useState(false);
@@ -1072,15 +1074,41 @@ export default function ActiveJob() {
       },
     );
 
-    // Load client appointments for upsell context
-    const apptQ = query(
+    // Load client appointments for upsell context.
+    // Query both clientId and customerId fields so older records stored with
+    // only customerId are included, giving computeUpsells the full history.
+    const apptByClientId = getDocs(query(
       collection(db, "appointments"),
       where("clientId", "==", clientId),
       orderBy("scheduledAt", "desc"),
       limit(20),
-    );
-    getDocs(apptQ)
-      .then((snap) => setTerminalAppts(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Appointment))))
+    ));
+    const apptByCustomerId = getDocs(query(
+      collection(db, "appointments"),
+      where("customerId", "==", clientId),
+      orderBy("scheduledAt", "desc"),
+      limit(20),
+    ));
+    Promise.all([apptByClientId, apptByCustomerId])
+      .then(([s1, s2]) => {
+        const seen = new Set<string>();
+        const merged: Appointment[] = [];
+        for (const snap of [s1, s2]) {
+          for (const d of snap.docs) {
+            if (!seen.has(d.id)) {
+              seen.add(d.id);
+              merged.push({ id: d.id, ...(d.data() as object) } as Appointment);
+            }
+          }
+        }
+        // Re-sort descending by scheduledAt after merging
+        merged.sort((a, b) => {
+          const aMs = (a.scheduledAt as any)?.toMillis?.() ?? 0;
+          const bMs = (b.scheduledAt as any)?.toMillis?.() ?? 0;
+          return bMs - aMs;
+        });
+        setTerminalAppts(merged.slice(0, 30));
+      })
       .catch(() => {});
 
     // Load client vehicles so service-timing upsell rules have real vehicle data
@@ -1110,22 +1138,82 @@ export default function ActiveJob() {
     return { willApply: fee > 0, amount: fee };
   }, [raw]);
 
+  // ── Recurring client detection ───────────────────────────────────────────
+  const isRecurringClient = useMemo(() => {
+    const r = raw as any;
+    const c = terminalClient as any;
+    // Check all available signals
+    if (r?.recurringInfo?.isRecurring) return true;
+    if (r?.recurringInfo?.seriesId) return true;
+    if (r?.isRecurring) return true;
+    if (c?.billingCycle) return true;
+    if (c?.membershipLevel && c.membershipLevel !== "none") return true;
+    // Two or more completed/paid appointments = de-facto recurring
+    const completedCount = terminalAppts.filter(
+      (a) => (a.status === "completed" || a.status === "paid"),
+    ).length;
+    if (completedCount >= 2) return true;
+    return false;
+  }, [raw, terminalClient, terminalAppts]);
+
   // ── Upsell computation ──────────────────────────────────────────────────
-  const { upsellRecs, addonRecs } = useMemo(() => {
-    if (!terminalClient) return { upsellRecs: [], addonRecs: [] };
+  const { upsellRecs, addonRecs, upsellDiagnostic } = useMemo(() => {
+    if (!terminalClient) {
+      return {
+        upsellRecs: [],
+        addonRecs: [],
+        upsellDiagnostic: "Client data not loaded yet",
+      };
+    }
+    // Combine all available note sources for the condition-signal rule
+    const combinedNotes = [
+      (raw as any)?.customerNotes,
+      (raw as any)?.internalNotes,
+      (raw as any)?.technicianNotes,
+      terminalClient.notes,
+    ].filter(Boolean).join(" ");
+
+    // Seed with current appointment if history is still loading
+    const apptHistory = terminalAppts.length > 0
+      ? terminalAppts
+      : raw ? [raw as unknown as Appointment] : [];
+
     const all = computeUpsells({
       client: terminalClient,
-      appointments: terminalAppts.length > 0 ? terminalAppts : raw ? [raw as unknown as Appointment] : [],
+      appointments: apptHistory,
       vehicles: terminalVehicles,
       services: services as any[],
       addons: addons as any[],
+      invoices: invoices as any[],
+      notes: combinedNotes,
     });
+
+    const allCount = all.length;
     const actionable = all.filter((r) => !r.blockedBy);
+    const blocked = all.filter((r) => r.blockedBy);
+
+    let diagnostic = "";
+    if (actionable.length === 0) {
+      const historyCount = apptHistory.filter(
+        (a) => a.status === "completed" || a.status === "paid",
+      ).length;
+      if (historyCount < 2) {
+        diagnostic = `Need ≥ 2 completed jobs (have ${historyCount}) to unlock service-gap rules`;
+      } else if (blocked.length > 0) {
+        diagnostic = `${blocked.length} rec${blocked.length !== 1 ? "s" : ""} blocked: ${blocked[0].blockedBy ?? "eligibility"}`;
+      } else if (allCount === 0) {
+        diagnostic = "No upsell conditions matched for this client/job";
+      } else {
+        diagnostic = "All recommendations currently blocked";
+      }
+    }
+
     return {
       upsellRecs: actionable.filter((r) => r.type !== "addon"),
       addonRecs: actionable.filter((r) => r.type === "addon"),
+      upsellDiagnostic: diagnostic,
     };
-  }, [terminalClient, terminalAppts, terminalVehicles, raw, services, addons]);
+  }, [terminalClient, terminalAppts, terminalVehicles, raw, services, addons, invoices]);
 
   // ── Status change ───────────────────────────────────────────────────────
   const onChangeStatus = useCallback(
@@ -1388,10 +1476,121 @@ export default function ActiveJob() {
     }
   }, [id, raw, pendingService, currentServiceSubtotal, invoices, changingService]);
 
+  // ── Invoice — generate (if needed) then navigate ─────────────────────────
+  const handleGenerateOrOpenInvoice = useCallback(async () => {
+    if (!id || !raw || generatingInvoice) return;
+
+    // If an invoice already exists, go straight to it
+    const existingInvoice = invoices[0] ?? null;
+    if (existingInvoice) {
+      navigate(`/invoices?invoiceId=${existingInvoice.id}`);
+      return;
+    }
+
+    // Build line items from appointment data
+    setGeneratingInvoice(true);
+    try {
+      const lineItems: Array<{
+        serviceName: string;
+        description: string;
+        quantity: number;
+        price: number;
+        total: number;
+        source: string;
+      }> = [];
+
+      if ((raw.serviceSelections ?? []).length > 0) {
+        for (const sel of raw.serviceSelections!) {
+          lineItems.push({
+            serviceName: sel.name,
+            description: sel.description || "",
+            quantity: sel.qty ?? 1,
+            price: sel.price ?? sel.total ?? 0,
+            total: sel.total ?? sel.price ?? 0,
+            source: "manual",
+          });
+        }
+      } else if ((raw.serviceNames ?? []).length > 0) {
+        for (const name of raw.serviceNames!) {
+          lineItems.push({
+            serviceName: name,
+            description: "",
+            quantity: 1,
+            price: raw.baseAmount ?? 0,
+            total: raw.baseAmount ?? 0,
+            source: "manual",
+          });
+        }
+      }
+
+      if ((raw.addOnSelections ?? []).length > 0) {
+        for (const sel of raw.addOnSelections!) {
+          lineItems.push({
+            serviceName: sel.name,
+            description: sel.description || "Add-on",
+            quantity: sel.qty ?? 1,
+            price: sel.price ?? sel.total ?? 0,
+            total: sel.total ?? sel.price ?? 0,
+            source: "manual",
+          });
+        }
+      } else if ((raw.addOnNames ?? []).length > 0) {
+        for (const name of raw.addOnNames!) {
+          lineItems.push({
+            serviceName: name,
+            description: "Add-on",
+            quantity: 1,
+            price: 0,
+            total: 0,
+            source: "manual",
+          });
+        }
+      }
+
+      const vehicleInfo = (raw as any).vehicleInfo as string | undefined;
+      const invoiceData = {
+        clientId: (raw as any).clientId || (raw as any).customerId || "",
+        clientName: (raw as any).customerName || "",
+        clientEmail: (raw as any).customerEmail || "",
+        clientPhone: (raw as any).customerPhone || "",
+        clientAddress: (raw as any).clientAddress || "",
+        serviceAddress: (raw as any).address || "",
+        appointmentId: id,
+        vehicles: [{
+          id: (raw as any).vehicleId || "",
+          year: "",
+          make: "",
+          model: vehicleInfo || "Vehicle",
+          roNumber: (raw as any).roNumber || "",
+        }],
+        lineItems,
+        subtotal: lineItems.reduce((s, li) => s + li.total, 0),
+        discountAmount: (raw as any).discountAmount ?? 0,
+        travelFeeAmount: (raw as any).travelFee ?? 0,
+        total: raw.totalAmount ?? 0,
+        amountPaid: 0,
+        status: "pending",
+        paymentStatus: "unpaid",
+        createdAt: serverTimestamp(),
+        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        lateFeeEnabled: false,
+        lateFeeType: "fixed",
+        lateFeeAmount: 0,
+        lateFeeGracePeriodDays: 3,
+      };
+
+      const docRef = await addDoc(collection(db, "invoices"), invoiceData);
+      navigate(`/invoices?invoiceId=${docRef.id}`);
+    } catch (e) {
+      console.warn("[ActiveJob] invoice generation failed", e);
+    } finally {
+      setGeneratingInvoice(false);
+    }
+  }, [id, raw, invoices, generatingInvoice, navigate]);
+
   const nextAction = getNextJobStatusAction(rawStatus ?? "scheduled");
   const isCompleteAction = nextAction?.targetStatus === "completed";
   const invoice = invoices[0] ?? null;
-  const isRecurringClient = Boolean((terminalClient as any)?.billingCycle || (raw as any)?.isRecurring);
 
   // ── Early returns ───────────────────────────────────────────────────────
   if (loading) {
@@ -1620,7 +1819,7 @@ export default function ActiveJob() {
               <div className="px-3 py-4 flex items-center gap-2.5">
                 <Sparkles className="w-4 h-4 text-white/15 shrink-0" />
                 <p className="text-[10px] text-white/25 leading-snug">
-                  No smart recommendations yet — complete more jobs to generate insights
+                  {upsellDiagnostic || "No smart recommendations yet — complete more jobs to generate insights"}
                 </p>
               </div>
             ) : (
@@ -1788,6 +1987,23 @@ export default function ActiveJob() {
         </section>
       )}
 
+      {/* ── Job Closeout Tools ───────────────────────────────────────────── */}
+      {!isCancellationStatus(rawStatus ?? "scheduled") && !terminalCompleted && (
+        <section aria-label="Job Closeout Tools" className="space-y-1.5">
+          <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">
+            Job Closeout
+          </h2>
+          <div className="flex flex-wrap gap-1.5">
+            <WorkflowChip icon={Camera} label="Photos" comingSoon />
+            <WorkflowChip
+              icon={Receipt}
+              label={generatingInvoice ? "Generating…" : invoice ? "Open Invoice" : "Generate Invoice"}
+              onClick={handleGenerateOrOpenInvoice}
+            />
+          </div>
+        </section>
+      )}
+
       {/* ══════════════════════════════════════════════════════════════════════
           PRIMARY ACTION — single CTA, full width
       ══════════════════════════════════════════════════════════════════════ */}
@@ -1898,23 +2114,8 @@ export default function ActiveJob() {
           </button>
         )}
 
-        {/* ── Workflow chips ─────────────────────────────────────────────── */}
-        {!isCancellationStatus(rawStatus ?? "scheduled") && !terminalCompleted && (
-          <div className="flex flex-wrap gap-1.5 pt-0.5">
-            <WorkflowChip icon={Camera} label="Photos" comingSoon />
-            <WorkflowChip
-              icon={Wrench}
-              label="Service"
-              onClick={() => { setPendingServiceId(null); setShowChangeServiceSheet(true); }}
-            />
-            <WorkflowChip
-              icon={Zap}
-              label="Add-On"
-              onClick={() => { setPendingAddonIds(new Set(raw?.addOnIds ?? [])); setShowAddAddonSheet(true); }}
-            />
-            <WorkflowChip icon={Receipt} label="Invoice" onClick={() => setShowChargesSheet(true)} />
-          </div>
-        )}
+        {/* Workflow chips removed — actions live in Revenue Intelligence grid
+            (Manage Add-Ons / Change Service) and Job Closeout section above */}
 
         {/* ── More actions: Cancel / No-Show / Missed ────────────────────── */}
         {!isCancellationStatus(rawStatus ?? "scheduled") && !terminalCompleted && (
