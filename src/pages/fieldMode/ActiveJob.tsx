@@ -257,6 +257,31 @@ function priorityBadge(p: UpsellRecommendation["priority"]): string {
   }
 }
 
+/** Maps an UpsellRecommendation to a display type badge (label + Tailwind classes). */
+function upsellTypeBadge(rec: UpsellRecommendation): { label: string; cls: string } {
+  // ID-specific overrides (highest precedence)
+  if (rec.id === "outstanding-balance") return { label: "OUTSTANDING BALANCE", cls: "bg-rose-500/15 text-rose-300 ring-rose-500/25" };
+  if (rec.id === "deposit-required")    return { label: "RISK/DEPOSIT",         cls: "bg-rose-500/15 text-rose-300 ring-rose-500/25" };
+  if (rec.id === "maintenance-plan")    return { label: "RECURRING",            cls: "bg-amber-500/15 text-amber-300 ring-amber-500/25" };
+  if (rec.id === "vip-upgrade" || rec.id === "package-bundle") {
+    return { label: "PACKAGE DEAL", cls: "bg-violet-500/15 text-violet-300 ring-violet-500/25" };
+  }
+  if (rec.id === "reactivation" || rec.id === "at-risk") {
+    return { label: "WIN-BACK", cls: "bg-amber-500/15 text-amber-300 ring-amber-500/25" };
+  }
+  // Type-based fallback
+  switch (rec.type) {
+    case "timing":
+    case "maintenance":
+    case "condition":    return { label: "SERVICE DUE",     cls: "bg-sky-500/15 text-sky-300 ring-sky-500/25" };
+    case "upsell":       return { label: "SERVICE UPGRADE", cls: "bg-violet-500/15 text-violet-300 ring-violet-500/25" };
+    case "addon":        return { label: "ADD-ON",          cls: "bg-sky-500/15 text-sky-300 ring-sky-500/25" };
+    case "package":      return { label: "PACKAGE DEAL",    cls: "bg-violet-500/15 text-violet-300 ring-violet-500/25" };
+    case "reactivation": return { label: "WIN-BACK",        cls: "bg-amber-500/15 text-amber-300 ring-amber-500/25" };
+    default:             return { label: "OPPORTUNITY",     cls: "bg-white/8 text-white/50 ring-white/15" };
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
@@ -429,14 +454,50 @@ function UpsellCard({
     >
       <div className="flex items-center gap-2.5">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-[12px] font-bold text-white leading-tight">{rec.title}</p>
-            <span className={cn("text-[8px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", priorityBadge(rec.priority))}>
+          {/* TYPE · PRIORITY badge row */}
+          <div className="flex items-center gap-1 flex-wrap mb-1">
+            <span className={cn("text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none", upsellTypeBadge(rec).cls)}>
+              {upsellTypeBadge(rec).label}
+            </span>
+            <span className="text-[7px] text-white/20 leading-none">·</span>
+            <span className={cn("text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", priorityBadge(rec.priority))}>
               {rec.priority}
             </span>
           </div>
+          <p className="text-[12px] font-bold text-white leading-tight">{rec.title}</p>
           <p className="text-[10px] text-white/50 leading-tight mt-0.5 break-words">{rec.reason}</p>
-          {rec.estimatedPriceImpact != null && rec.estimatedPriceImpact > 0 && !decision && (
+          {/* Package deal breakdown */}
+          {rec.packageItems && rec.packageNormalTotal != null && !decision && (
+            <div className="mt-2 space-y-1">
+              {rec.packageItems.map((item, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <span className="text-[9px] text-white/40 leading-none">• {item.title}</span>
+                  <span className="text-[9px] text-white/40 leading-none">${item.price.toFixed(0)}</span>
+                </div>
+              ))}
+              <div className="border-t border-white/8 mt-1 pt-1.5 space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] text-white/35 leading-none">Normal total</span>
+                  <span className="text-[9px] text-white/35 line-through leading-none">${rec.packageNormalTotal.toFixed(0)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-black text-violet-300 leading-none">Bundle price</span>
+                  <span className="text-[9px] font-black text-violet-300 leading-none">${(rec.packageBundlePrice ?? rec.estimatedPriceImpact ?? 0).toFixed(0)}</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[8px] font-bold text-emerald-300 leading-none">
+                    Client saves ${(rec.packageSavings ?? 0).toFixed(0)}
+                  </span>
+                  {rec.packageProfitProtected && (
+                    <span className="text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded bg-emerald-500/10 text-emerald-400/70 ring-1 ring-emerald-500/20 leading-none">
+                      Profit protected
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          {!rec.packageItems && rec.estimatedPriceImpact != null && rec.estimatedPriceImpact > 0 && !decision && (
             <p className={cn("text-[10px] font-bold mt-1 leading-none", priorityColor(rec.priority))}>
               +${rec.estimatedPriceImpact.toFixed(0)} est. revenue
             </p>
@@ -557,7 +618,7 @@ function CompletionTerminal({
           vehicleInfo: job.vehicleInfo || "",
           requestedService: rec.title,
           source: "field_revenue_terminal",
-          status: "new",
+          status: "considering",
           priority: rec.priority === "critical" ? "hot"
             : rec.priority === "high" ? "high"
             : "medium",
@@ -602,7 +663,7 @@ function CompletionTerminal({
           vehicleInfo: job.vehicleInfo || "",
           requestedService: rec.title,
           source: "field_revenue_terminal",
-          status: "new",
+          status: "follow_up_needed",
           priority: rec.priority === "critical" ? "hot"
             : rec.priority === "high" ? "high"
             : "medium",
@@ -1077,7 +1138,17 @@ function CompletionTerminal({
             </div>
 
             {/* Rec summary */}
-            <div className="flex-none px-4 pb-3 border-b border-white/8 space-y-1">
+            <div className="flex-none px-4 pb-3 border-b border-white/8 space-y-1.5">
+              {/* TYPE · PRIORITY badges */}
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className={cn("text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none", upsellTypeBadge(pendingDecisionRec).cls)}>
+                  {upsellTypeBadge(pendingDecisionRec).label}
+                </span>
+                <span className="text-[7px] text-white/20 leading-none">·</span>
+                <span className={cn("text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", priorityBadge(pendingDecisionRec.priority))}>
+                  {pendingDecisionRec.priority}
+                </span>
+              </div>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-black text-white leading-tight">{pendingDecisionRec.title}</p>
@@ -2290,12 +2361,17 @@ export default function ActiveJob() {
                       <Sparkles className="w-2.5 h-2.5 text-violet-300" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="text-[11px] font-bold text-white leading-tight">{rec.title}</p>
+                      {/* TYPE · PRIORITY badges */}
+                      <div className="flex items-center gap-1 flex-wrap mb-0.5">
+                        <span className={cn("text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", upsellTypeBadge(rec).cls)}>
+                          {upsellTypeBadge(rec).label}
+                        </span>
+                        <span className="text-[7px] text-white/20 leading-none">·</span>
                         <span className={cn("text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded ring-1 leading-none", priorityBadge(rec.priority))}>
                           {rec.priority}
                         </span>
                       </div>
+                      <p className="text-[11px] font-bold text-white leading-tight">{rec.title}</p>
                       <p className="text-[9px] text-white/40 leading-tight mt-0.5 line-clamp-2">{rec.reason}</p>
                       {(rec.estimatedPriceImpact ?? 0) > 0 && (
                         <p className={cn("text-[9px] font-bold mt-0.5 leading-none", priorityColor(rec.priority))}>

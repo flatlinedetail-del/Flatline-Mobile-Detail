@@ -59,6 +59,18 @@ export interface UpsellRecommendation {
   dataSource: string;
   /** Non-null when a risk or eligibility rule prevents acting on this. */
   blockedBy?: string;
+
+  // ── Package deal metadata (only present on synthesized bundle recs) ─────────
+  /** Constituent services/add-ons that make up this package. */
+  packageItems?: Array<{ title: string; serviceId?: string; addonId?: string; price: number }>;
+  /** Sum of individual prices before the bundle discount. */
+  packageNormalTotal?: number;
+  /** Discounted bundle price. */
+  packageBundlePrice?: number;
+  /** Amount client saves vs. booking items individually. */
+  packageSavings?: number;
+  /** True when the discount is ≤15% — conservative, profit-safe without cost data. */
+  packageProfitProtected?: boolean;
 }
 
 export interface UpsellContext {
@@ -519,6 +531,60 @@ export function computeUpsells(ctx: UpsellContext): UpsellRecommendation[] {
       estimatedPriceImpact: client.outstandingCancellationFee ?? undefined,
       isCustomerFacing: false,
       dataSource: "Risk & deposit policy",
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RULE 11: PROFIT-SAFE PACKAGE DEAL SYNTHESIS
+  // When ≥ 2 service/addon recs with price impact exist, synthesize a bundle
+  // recommendation at a 10% discount. 10% is conservative and never loses
+  // money without cost-of-goods data (effectively the price floor).
+  // ─────────────────────────────────────────────────────────────────────────
+  const packageableRecs = recs.filter(
+    (r) =>
+      (r.serviceId || r.addonId) &&
+      (r.estimatedPriceImpact ?? 0) > 0 &&
+      !r.blockedBy &&
+      r.type !== "reactivation" &&
+      r.id !== "outstanding-balance" &&
+      r.id !== "deposit-required" &&
+      r.id !== "vip-upgrade" &&
+      r.id !== "maintenance-plan" &&
+      r.id !== "package-bundle",
+  );
+
+  if (packageableRecs.length >= 2) {
+    const normalTotal = packageableRecs.reduce(
+      (s, r) => s + (r.estimatedPriceImpact ?? 0),
+      0,
+    );
+    // 10% — conservative profit-safe discount without margin data
+    const discountPct = 0.10;
+    const bundlePrice = Math.round(normalTotal * (1 - discountPct));
+    const savings = normalTotal - bundlePrice;
+    const titles = packageableRecs.map((r) => r.title);
+
+    recs.push({
+      id: "package-bundle",
+      title: `${packageableRecs.length}-Service Package`,
+      reason: `Bundle ${titles.slice(0, 2).join(" + ")}${titles.length > 2 ? ` + ${titles.length - 2} more` : ""} at a 10% discount. Client saves ${fmtCurrency(savings)}.`,
+      type: "package",
+      priority: "high",
+      confidence: 0.80,
+      estimatedPriceImpact: bundlePrice,
+      isCustomerFacing: true,
+      dataSource: "Package deal synthesis",
+      packageItems: packageableRecs.map((r) => ({
+        title: r.title,
+        serviceId: r.serviceId,
+        addonId: r.addonId,
+        price: r.estimatedPriceImpact ?? 0,
+      })),
+      packageNormalTotal: normalTotal,
+      packageBundlePrice: bundlePrice,
+      packageSavings: savings,
+      packageProfitProtected: true,
+      blockedBy,
     });
   }
 

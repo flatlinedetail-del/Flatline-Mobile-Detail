@@ -295,7 +295,7 @@ export interface Lead {
   vehicleInfo: string;
   requestedService: string;
   source: string;
-  status: "new" | "contacted" | "quoted" | "converted" | "lost" | "reactivation" | "maintenance_due";
+  status: "new" | "contacted" | "quoted" | "converted" | "lost" | "reactivation" | "maintenance_due" | "considering" | "follow_up_needed";
   priority: "low" | "medium" | "high" | "hot";
   lastFollowUp?: Timestamp;
   nextFollowUpAt?: Timestamp;
