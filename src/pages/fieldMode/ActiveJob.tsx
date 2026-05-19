@@ -12,10 +12,13 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import { addDays } from "date-fns";
+import { checkAvailability } from "../../services/smartBookingService";
 import type { Appointment, AddOn, Client, Invoice, Service, ServiceSelection, Vehicle } from "../../types/index";
 import {
   formatJobTime,
@@ -43,6 +46,7 @@ import {
 import {
   AlertCircle,
   ArrowLeft,
+  Calendar,
   Camera,
   Car,
   CheckCircle2,
@@ -530,6 +534,16 @@ interface CompletionTerminalProps {
   vehicleId: string | null;
   /** Future scheduled/confirmed appointments for this client. */
   futureAppts: Appointment[];
+  /** Job address for smart slot search. */
+  address?: string;
+  /** Estimated job duration in minutes (for availability checks). */
+  estimatedDuration?: number;
+  /** Service maintenance interval in days (drives recommended next date). */
+  serviceIntervalDays?: number;
+  /** Job number for reference when creating the next appointment. */
+  jobNumber?: string;
+  /** Called when user picks "Change service / vehicle / location". */
+  onNavigateToBooking: () => void;
   onClose: () => void;
   onCompleted: (markedPaid: boolean) => void;
 }
@@ -544,11 +558,25 @@ function CompletionTerminal({
   clientId,
   vehicleId,
   futureAppts,
+  address,
+  estimatedDuration,
+  serviceIntervalDays,
+  jobNumber,
+  onNavigateToBooking,
   onClose,
   onCompleted,
 }: CompletionTerminalProps) {
   const [step, setStep] = useState<TerminalStep>(1);
-  const [bookNextAppt, setBookNextAppt] = useState(false);
+
+  // Next appointment flow state (only for non-recurring clients)
+  type NextApptChoice = "same" | "change" | "skip" | null;
+  const [nextApptChoice, setNextApptChoice] = useState<NextApptChoice>(null);
+  const [nextApptSearching, setNextApptSearching] = useState(false);
+  const [nextApptSlot, setNextApptSlot] = useState<Date | null>(null);
+  const [nextApptRecommendedDate, setNextApptRecommendedDate] = useState<Date | null>(null);
+  const [nextApptBooking, setNextApptBooking] = useState(false);
+  const [nextApptDone, setNextApptDone] = useState<"booked" | "followup" | null>(null);
+  const [nextApptError, setNextApptError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [processing, setProcessing] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -562,43 +590,70 @@ function CompletionTerminal({
   const [savingDecision, setSavingDecision] = useState(false);
   const [decisionFeedback, setDecisionFeedback] = useState<{ id: string; msg: string } | null>(null);
 
-  // Total steps: skip Step 2 if no addons, skip Step 3 if not recurring
   const hasAddons = addonRecs.length > 0;
-  const totalSteps = hasAddons ? 4 : 3;
+  // showNextApptStep is true for non-recurring clients only
+  const showNextApptStep = !isRecurringClient;
+
+  // totalSteps: Revenue + [Addons?] + [NextAppt?] + Payment
+  const totalSteps = hasAddons
+    ? (showNextApptStep ? 4 : 3)
+    : (showNextApptStep ? 3 : 2);
 
   function stepLabel(s: TerminalStep) {
-    if (!hasAddons) {
+    if (!hasAddons && !showNextApptStep) {
       if (s === 1) return "Revenue";
-      if (s === 2) return "Recurring";
       return "Payment";
     }
+    if (!hasAddons && showNextApptStep) {
+      if (s === 1) return "Revenue";
+      if (s === 2) return "Next Appt";
+      return "Payment";
+    }
+    if (hasAddons && !showNextApptStep) {
+      if (s === 1) return "Revenue";
+      if (s === 2) return "Add-ons";
+      return "Payment";
+    }
+    // hasAddons && showNextApptStep
     if (s === 1) return "Revenue";
     if (s === 2) return "Add-ons";
-    if (s === 3) return "Recurring";
+    if (s === 3) return "Next Appt";
     return "Payment";
   }
 
-  // Map visual step number to logical step accounting for collapsed steps
   function nextStep() {
-    if (!hasAddons) {
-      if (step === 1) setStep(2); // Skip to recurring
-      else if (step === 2) setStep(3); // Skip to payment (displayed as 3 but logical 4)
+    if (!hasAddons && !showNextApptStep) {
+      if (step === 1) setStep(2);
+    } else if (!hasAddons && showNextApptStep) {
+      if (step === 1) setStep(2);
+      else if (step === 2) setStep(3);
+    } else if (hasAddons && !showNextApptStep) {
+      if (step === 1) setStep(2);
+      else if (step === 2) setStep(4); // skip step 3
     } else {
       if (step < 4) setStep((step + 1) as TerminalStep);
     }
   }
 
   function prevStep() {
-    if (!hasAddons) {
+    if (!hasAddons && !showNextApptStep) {
+      if (step === 2) setStep(1);
+    } else if (!hasAddons && showNextApptStep) {
       if (step === 3) setStep(2);
+      else if (step === 2) setStep(1);
+    } else if (hasAddons && !showNextApptStep) {
+      if (step === 4) setStep(2); // skip step 3
       else if (step === 2) setStep(1);
     } else {
       if (step > 1) setStep((step - 1) as TerminalStep);
     }
   }
 
-  // Derive "visual step" for dots
-  const visualStep = !hasAddons && step === 4 ? 3 : !hasAddons && step === 3 ? 2 : !hasAddons && step === 2 ? 2 : step;
+  // Visual step number for progress dots (no gaps)
+  const visualStep = (() => {
+    if (hasAddons && !showNextApptStep && step === 4) return 3;
+    return step;
+  })();
 
   const balance = invoice ? (invoice.total || 0) - (invoice.amountPaid || 0) : 0;
 
@@ -717,7 +772,6 @@ function CompletionTerminal({
         status: "completed",
         acceptedUpsellIds,
         declinedUpsellIds,
-        bookNextAppt,
         updatedAt: serverTimestamp(),
       });
       onCompleted(false);
@@ -765,7 +819,6 @@ function CompletionTerminal({
         paymentStatus: "paid",
         acceptedUpsellIds,
         declinedUpsellIds,
-        bookNextAppt,
         updatedAt: serverTimestamp(),
       });
       onCompleted(true);
@@ -777,8 +830,10 @@ function CompletionTerminal({
   };
 
   // Determine which step content to show
-  const isPaymentStep = !hasAddons ? step === 3 : step === 4;
-  const isRecurringStep = !hasAddons ? step === 2 : step === 3;
+  const isPaymentStep = !hasAddons && !showNextApptStep ? step === 2
+    : !hasAddons ? step === 3
+    : step === 4;
+  const isNextApptStep = showNextApptStep && (!hasAddons ? step === 2 : step === 3);
   const isAddonStep = hasAddons && step === 2;
   const isRevenueStep = step === 1;
 
@@ -898,66 +953,235 @@ function CompletionTerminal({
             </div>
           )}
 
-          {/* ── Step 3: Recurring Scheduling ───────────────────────────────── */}
-          {isRecurringStep && (
+          {/* ── Step 3: Next Appointment (non-recurring clients only) ─────── */}
+          {isNextApptStep && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-amber-500/15 ring-1 ring-amber-500/30 flex items-center justify-center">
-                  <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
+                <div className="w-7 h-7 rounded-lg bg-sky-500/15 ring-1 ring-sky-500/30 flex items-center justify-center">
+                  <Calendar className="w-3.5 h-3.5 text-sky-300" />
                 </div>
                 <div>
-                  <p className="text-[12px] font-black text-white leading-none">Recurring Scheduling</p>
-                  <p className="text-[9px] text-white/40 leading-none mt-0.5">Attach next appointment</p>
+                  <p className="text-[12px] font-black text-white leading-none">Next Appointment</p>
+                  <p className="text-[9px] text-white/40 leading-none mt-0.5">Book the client's next visit</p>
                 </div>
               </div>
 
-              {isRecurringClient ? (
+              {/* Done state */}
+              {nextApptDone && (
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/6 px-3 py-3 flex items-center gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <p className="text-[11px] text-emerald-300 font-bold leading-tight">
+                    {nextApptDone === "booked" ? "Next appointment booked." : "Scheduling follow-up created."}
+                  </p>
+                </div>
+              )}
+
+              {/* Initial question */}
+              {!nextApptDone && nextApptChoice === null && (
                 <div className="space-y-2">
+                  <p className="text-[11px] font-bold text-white/70 px-0.5">Book the client's next appointment?</p>
                   <button
                     type="button"
-                    onClick={() => setBookNextAppt((v) => !v)}
-                    className={cn(
-                      "w-full text-left rounded-xl border transition-all px-3 py-3",
-                      bookNextAppt
-                        ? "border-amber-500/40 bg-amber-500/8"
-                        : "border-white/8 bg-white/3 hover:bg-white/5",
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className={cn(
-                        "w-5 h-5 rounded-md ring-1 flex items-center justify-center transition-all",
-                        bookNextAppt
-                          ? "bg-amber-500/20 ring-amber-500/40 text-amber-400"
-                          : "bg-white/5 ring-white/15 text-white/30",
-                      )}>
-                        {bookNextAppt
-                          ? <CheckCircle2 className="w-3 h-3" />
-                          : <div className="w-2 h-2 rounded-full bg-white/20" />
+                    onClick={async () => {
+                      setNextApptChoice("same");
+                      setNextApptSearching(true);
+                      setNextApptError(null);
+                      const intervalDays = serviceIntervalDays ?? 30;
+                      const base = addDays(new Date(), intervalDays);
+                      base.setHours(0, 0, 0, 0);
+                      setNextApptRecommendedDate(base);
+                      const duration = estimatedDuration ?? 120;
+                      const preferHour = job.scheduledAt?.getHours() ?? 9;
+                      let found: Date | null = null;
+                      for (let d = 0; d < 7 && !found; d++) {
+                        for (const h of [preferHour, 9, 10, 11, 13, 14, 15]) {
+                          const candidate = addDays(base, d);
+                          candidate.setHours(h, 0, 0, 0);
+                          if (candidate <= new Date()) continue;
+                          try {
+                            const res = await checkAvailability({ targetDate: candidate, durationMinutes: duration });
+                            if (res.isAvailable) { found = candidate; break; }
+                          } catch { break; }
                         }
-                      </div>
-                      <div>
-                        <p className="text-[12px] font-bold text-white leading-tight">Book next appointment</p>
-                        <p className="text-[10px] text-white/45 leading-tight mt-0.5">
-                          Flag for scheduling after this session
-                        </p>
-                      </div>
-                    </div>
+                      }
+                      setNextApptSlot(found);
+                      setNextApptSearching(false);
+                    }}
+                    className="w-full text-left rounded-xl border border-white/10 bg-white/4 hover:bg-white/7 active:bg-white/10 px-3 py-3 transition-colors"
+                  >
+                    <p className="text-[11px] font-bold text-white leading-tight">Same service, vehicle &amp; location</p>
+                    <p className="text-[9px] text-white/40 mt-0.5 leading-tight">Smart-book with existing details</p>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => { setNextApptChoice("change"); onNavigateToBooking(); }}
+                    className="w-full text-left rounded-xl border border-white/8 bg-white/3 hover:bg-white/5 active:bg-white/8 px-3 py-3 transition-colors"
+                  >
+                    <p className="text-[11px] font-bold text-white/70 leading-tight">Change service / vehicle / location</p>
+                    <p className="text-[9px] text-white/35 mt-0.5 leading-tight">Opens booking flow with client pre-selected</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNextApptChoice("skip")}
+                    className="w-full text-left rounded-xl border border-white/5 bg-transparent px-3 py-2.5 transition-colors"
+                  >
+                    <p className="text-[10px] font-bold text-white/35 leading-tight">Skip</p>
+                  </button>
+                </div>
+              )}
 
-                  {bookNextAppt && (
-                    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
-                      <p className="text-[10px] text-amber-300/80 leading-tight">
-                        Next appointment will be flagged for scheduling based on this client's recurring cycle.
-                        Book from the Schedule or Client profile after completing this job.
-                      </p>
+              {/* Skipped */}
+              {!nextApptDone && nextApptChoice === "skip" && (
+                <div className="rounded-xl border border-white/8 bg-white/3 px-3 py-3">
+                  <p className="text-[10px] text-white/40 leading-tight">Skipped — proceed to payment.</p>
+                </div>
+              )}
+
+              {/* Searching for slot */}
+              {!nextApptDone && nextApptChoice === "same" && nextApptSearching && (
+                <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 px-3 py-3 flex items-center gap-2.5">
+                  <div className="w-4 h-4 border-2 border-sky-400/40 border-t-sky-400 rounded-full animate-spin shrink-0" />
+                  <p className="text-[10px] text-sky-300/80 font-bold">Finding next available slot…</p>
+                </div>
+              )}
+
+              {/* Slot preview */}
+              {!nextApptDone && nextApptChoice === "same" && !nextApptSearching && (
+                <div className="space-y-2">
+                  {nextApptError && (
+                    <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-2.5 py-2">
+                      <p className="text-[9px] text-rose-300 leading-tight">{nextApptError}</p>
                     </div>
                   )}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-white/5 bg-white/3 px-3 py-4 text-center">
-                  <RefreshCw className="w-5 h-5 text-white/20 mx-auto" />
-                  <p className="text-[11px] font-bold text-white/50 mt-1.5">Client is not recurring</p>
-                  <p className="text-[9px] text-white/30 mt-0.5">No recurring schedule to attach</p>
+
+                  <div className="rounded-xl border border-white/10 bg-white/3 px-3 py-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-white/35">Recommended Date</span>
+                      <span className="text-[10px] font-bold text-white/70 text-right">
+                        {nextApptRecommendedDate?.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) ?? "—"}
+                      </span>
+                    </div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-white/35">Next Available Slot</span>
+                      <span className={cn("text-[10px] font-bold text-right", nextApptSlot ? "text-emerald-300" : "text-white/40")}>
+                        {nextApptSlot
+                          ? nextApptSlot.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+                          : "No slot found"}
+                      </span>
+                    </div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-white/35">Service</span>
+                      <span className="text-[10px] font-bold text-white/70 text-right truncate max-w-[55%]">
+                        {job.serviceNames.length > 0 ? job.serviceNames.join(", ") : "—"}
+                      </span>
+                    </div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-white/35">Vehicle</span>
+                      <span className="text-[10px] font-bold text-white/70 text-right truncate max-w-[55%]">{job.vehicleInfo || "—"}</span>
+                    </div>
+                    {address && (
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-white/35">Location</span>
+                        <span className="text-[10px] font-bold text-white/70 text-right truncate max-w-[55%]">{address}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {nextApptSlot && clientId && (
+                      <button
+                        type="button"
+                        disabled={nextApptBooking}
+                        onClick={async () => {
+                          setNextApptBooking(true);
+                          setNextApptError(null);
+                          try {
+                            await addDoc(collection(db, "appointments"), {
+                              customerName: job.clientName,
+                              clientId,
+                              vehicleId: vehicleId ?? null,
+                              vehicleInfo: job.vehicleInfo || null,
+                              serviceNames: job.serviceNames,
+                              address: address ?? null,
+                              scheduledAt: Timestamp.fromDate(nextApptSlot),
+                              status: "scheduled",
+                              paymentStatus: "unpaid",
+                              previousAppointmentId: jobId,
+                              source: "completion_terminal_next_appointment",
+                              ...(jobNumber ? { copiedFromJobNumber: jobNumber } : {}),
+                              createdAt: serverTimestamp(),
+                              updatedAt: serverTimestamp(),
+                            });
+                            setNextApptDone("booked");
+                          } catch (e) {
+                            setNextApptError(e instanceof Error ? e.message : "Failed to book appointment");
+                          } finally {
+                            setNextApptBooking(false);
+                          }
+                        }}
+                        className={cn(
+                          "w-full rounded-xl px-3 py-3 flex items-center justify-center gap-2",
+                          "bg-gradient-to-r from-sky-600/80 to-sky-500/70 border border-sky-500/40",
+                          "text-white font-black text-[12px] uppercase tracking-wide",
+                          "active:scale-[0.98] transition-all",
+                          nextApptBooking && "opacity-60 pointer-events-none",
+                        )}
+                      >
+                        {nextApptBooking
+                          ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          : <CheckCircle2 className="w-4 h-4" />}
+                        {nextApptBooking ? "Booking…" : "Book Next Appointment"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={nextApptBooking}
+                      onClick={async () => {
+                        if (!clientId) { setNextApptChoice("skip"); return; }
+                        setNextApptBooking(true);
+                        setNextApptError(null);
+                        try {
+                          await addDoc(collection(db, "leads"), {
+                            name: job.clientName,
+                            source: "completion_terminal",
+                            status: "open",
+                            isInternal: true,
+                            internalSourceType: "upsell",
+                            clientId,
+                            vehicleId: vehicleId ?? null,
+                            vehicleInfo: job.vehicleInfo || null,
+                            previousAppointmentId: jobId,
+                            recommendedDate: nextApptRecommendedDate?.toISOString() ?? null,
+                            note: "Client needs next appointment scheduled",
+                            createdAt: serverTimestamp(),
+                            updatedAt: serverTimestamp(),
+                          });
+                          setNextApptDone("followup");
+                        } catch (e) {
+                          setNextApptError(e instanceof Error ? e.message : "Failed to create follow-up");
+                        } finally {
+                          setNextApptBooking(false);
+                        }
+                      }}
+                      className={cn(
+                        "w-full rounded-xl px-3 py-2.5 flex items-center justify-center gap-2",
+                        "border border-white/10 bg-white/5 hover:bg-white/8",
+                        "text-white/60 font-bold text-[11px] uppercase tracking-wide",
+                        "transition-all",
+                        nextApptBooking && "opacity-60 pointer-events-none",
+                      )}
+                    >
+                      Create Scheduling Follow-Up
+                    </button>
+                    <button
+                      type="button"
+                      disabled={nextApptBooking}
+                      onClick={() => setNextApptChoice("skip")}
+                      className="w-full px-3 py-2 text-[10px] font-bold text-white/25 hover:text-white/45 transition-colors"
+                    >
+                      Skip
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1104,7 +1328,7 @@ function CompletionTerminal({
               onClick={nextStep}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/8 hover:bg-white/12 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white transition-colors"
             >
-              {isRecurringStep && !hasAddons ? "Go to Payment" : isAddonStep ? "Recurring" : "Next"}
+              {isNextApptStep ? "Go to Payment" : isAddonStep ? (showNextApptStep ? "Next Appt" : "Payment") : "Next"}
               <ChevronRight className="w-3 h-3" />
             </button>
           </div>
@@ -2769,6 +2993,18 @@ export default function ActiveJob() {
           }
           vehicleId={((raw as any)?.vehicleId as string | undefined) || null}
           futureAppts={futureAppts}
+          address={(raw as any)?.address as string | undefined}
+          estimatedDuration={(raw as any)?.estimatedDuration as number | undefined}
+          serviceIntervalDays={(() => {
+            const svcId = ((raw as any)?.serviceIds as string[] | undefined)?.[0]
+              ?? ((raw as any)?.serviceSelections as Array<{serviceId?: string}> | undefined)?.[0]?.serviceId;
+            const svc = svcId ? (services as Service[]).find(s => s.id === svcId) : undefined;
+            if (svc?.maintenanceIntervalDays) return svc.maintenanceIntervalDays;
+            if (svc?.maintenanceIntervalMonths) return svc.maintenanceIntervalMonths * 30;
+            return undefined;
+          })()}
+          jobNumber={(raw as any)?.jobNumber as string | undefined}
+          onNavigateToBooking={() => { setShowTerminal(false); navigate("/field/book-job"); }}
           onClose={() => setShowTerminal(false)}
           onCompleted={(markedPaid) => {
             setShowTerminal(false);
