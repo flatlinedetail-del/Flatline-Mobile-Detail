@@ -2210,7 +2210,7 @@ export default function ActiveJob() {
           </button>
         </div>
 
-        {/* Client risk badge */}
+        {/* Client risk / VIP / protected badge */}
         {!clientRiskLoading && clientRisk && (
           <div
             className={cn(
@@ -2226,6 +2226,14 @@ export default function ActiveJob() {
               <AlertCircle className="w-2.5 h-2.5" />
             )}
             {clientRisk.label}
+          </div>
+        )}
+
+        {/* Membership badge — displayed here alongside risk/VIP/protected */}
+        {!clientRiskLoading && terminalClient && terminalClient.membershipLevel && terminalClient.membershipLevel !== "none" && (
+          <div className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-violet-500/30 bg-violet-500/10 text-[9px] font-black uppercase tracking-widest text-violet-300 leading-none">
+            <Star className="w-2.5 h-2.5 shrink-0" />
+            {terminalClient.membershipLevel} Member
           </div>
         )}
 
@@ -2455,10 +2463,7 @@ export default function ActiveJob() {
           terminalClient?.notes ||
           (raw?.addOnNames?.length ?? 0) > 0 ||
           terminalVehicles.length > 0 ||
-          (terminalClient && (
-            terminalClient.membershipLevel !== "none" ||
-            (terminalClient.outstandingCancellationFee ?? 0) > 0
-          )),
+          (terminalClient && (terminalClient.outstandingCancellationFee ?? 0) > 0),
         ) && (
         <section className="rounded-xl border border-white/5 bg-sidebar/40 overflow-hidden">
           <button
@@ -2496,44 +2501,49 @@ export default function ActiveJob() {
                   </div>
                 </div>
               )}
-              {terminalVehicles.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Vehicle Details</p>
-                  {terminalVehicles.map((v) => (
-                    <div key={v.id} className="space-y-0.5">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {v.size && <span className="text-[9px] font-bold text-white/50 capitalize leading-none">{v.size.replace("_", " ")}</span>}
-                        {v.color && <span className="text-[9px] font-bold text-white/50 leading-none">· {v.color}</span>}
-                        {v.licensePlate && (
-                          <span className="text-[9px] font-black uppercase tracking-widest text-white/70 bg-white/8 px-1.5 py-0.5 rounded leading-none">
-                            {v.licensePlate}
-                          </span>
-                        )}
+              {(() => {
+                const activeVehicleId = (raw as any)?.vehicleId as string | undefined;
+                const activeVehicle = terminalVehicles.find((v) => v.id === activeVehicleId);
+                const otherVehicles = terminalVehicles.filter((v) => v.id !== activeVehicleId);
+                const renderVehicleRow = (v: Vehicle) => (
+                  <div key={v.id} className="space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {v.size && <span className="text-[9px] font-bold text-white/50 capitalize leading-none">{v.size.replace("_", " ")}</span>}
+                      {v.color && <span className="text-[9px] font-bold text-white/50 leading-none">· {v.color}</span>}
+                      {v.licensePlate && (
+                        <span className="text-[9px] font-black uppercase tracking-widest text-white/70 bg-white/8 px-1.5 py-0.5 rounded leading-none">
+                          {v.licensePlate}
+                        </span>
+                      )}
+                    </div>
+                    {v.notes && <p className="text-[9px] text-white/35 italic leading-tight">{v.notes}</p>}
+                  </div>
+                );
+                return (
+                  <>
+                    {activeVehicle && (
+                      <div className="space-y-1.5">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Vehicle Details</p>
+                        {renderVehicleRow(activeVehicle)}
                       </div>
-                      {v.notes && <p className="text-[9px] text-white/35 italic leading-tight">{v.notes}</p>}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {terminalClient && (
-                terminalClient.membershipLevel !== "none" ||
-                (terminalClient.outstandingCancellationFee ?? 0) > 0
-              ) && (
+                    )}
+                    {otherVehicles.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Other Vehicles on File</p>
+                        {otherVehicles.map(renderVehicleRow)}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+              {terminalClient && (terminalClient.outstandingCancellationFee ?? 0) > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {terminalClient.membershipLevel !== "none" && (
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-violet-500/10 ring-1 ring-violet-500/20 text-violet-300">
-                      <Star className="w-2.5 h-2.5 shrink-0" />
-                      <span className="text-[9px] font-bold capitalize leading-none">{terminalClient.membershipLevel} Member</span>
-                    </div>
-                  )}
-                  {(terminalClient.outstandingCancellationFee ?? 0) > 0 && (
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-rose-500/10 ring-1 ring-rose-500/25 text-rose-300">
-                      <AlertCircle className="w-2.5 h-2.5 shrink-0" />
-                      <span className="text-[9px] font-bold leading-none">
-                        Cancel Fee · ${(terminalClient.outstandingCancellationFee ?? 0).toFixed(0)}
-                      </span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-rose-500/10 ring-1 ring-rose-500/25 text-rose-300">
+                    <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                    <span className="text-[9px] font-bold leading-none">
+                      Cancel Fee · ${(terminalClient.outstandingCancellationFee ?? 0).toFixed(0)}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
@@ -2636,8 +2646,8 @@ export default function ActiveJob() {
             type="button"
             onClick={() => setShowTerminal(true)}
             className={cn(
-              "w-full rounded-2xl px-4 py-4 min-h-[96px]",
-              "flex flex-col items-center justify-center gap-2 text-center",
+              "w-full rounded-2xl px-4 py-3 min-h-[64px]",
+              "flex items-center justify-center gap-3",
               "bg-gradient-to-br from-emerald-700/90 via-emerald-600/80 to-teal-700/80",
               "border border-emerald-500/50",
               "shadow-[0_0_24px_rgba(16,185,129,0.30),inset_0_1px_0_rgba(255,255,255,0.08)]",
@@ -2646,12 +2656,12 @@ export default function ActiveJob() {
               "active:scale-[0.97] transition-all duration-150 focus:outline-none",
             )}
           >
-            <div className="w-12 h-12 rounded-2xl bg-white/15 ring-2 ring-white/20 flex items-center justify-center shadow-[0_0_12px_rgba(255,255,255,0.1)]">
-              <CheckCircle2 className="w-6 h-6 text-white" />
+            <div className="w-9 h-9 rounded-xl bg-white/15 ring-2 ring-white/20 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <p className="text-[15px] font-black uppercase tracking-wide text-white leading-none">Complete Job</p>
-              <p className="text-[10px] font-bold text-emerald-100/70 leading-tight mt-1">Pay · Invoice · Upsell</p>
+            <div className="text-left">
+              <p className="text-[13px] font-black uppercase tracking-wide text-white leading-none">Complete Job</p>
+              <p className="text-[9px] font-bold text-emerald-100/70 leading-tight mt-0.5">Pay · Invoice · Upsell</p>
             </div>
           </button>
 
