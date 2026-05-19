@@ -115,6 +115,8 @@ export default function FieldInvoiceDetail() {
     return () => { active = false; };
   }, [invoiceId, navigate]);
 
+  const MANUAL_METHODS = new Set(["Cash", "Zelle", "Check"]);
+
   const handleMarkAsPaid = async (method: string) => {
     if (!invoice?.id || isProcessingPayment) return;
     if (invoice.status === "paid" || invoice.status === "voided") {
@@ -122,79 +124,132 @@ export default function FieldInvoiceDetail() {
       setShowPaymentDialog(false);
       return;
     }
-    const balance = Math.max(0, invoice.total - (invoice.amountPaid || 0));
-    const newAmountPaid = (invoice.amountPaid || 0) + balance;
-    const isFullyPaid = newAmountPaid >= invoice.total;
+
+    // Card / Apple Pay are not wired to a real processor in this screen.
+    // Don't push a half-baked write through the manual path — surface a clear message.
+    if (!MANUAL_METHODS.has(method)) {
+      toast.error(
+        "Card payment is not configured yet. Use Cash, Zelle, or Check for manual payment.",
+        { id: "fi-payment" },
+      );
+      return;
+    }
+
+    const invoiceId = invoice.id;
+    const appointmentId = invoice.appointmentId;
+    const total = Number(invoice.total) || 0;
+    const previouslyPaid = Number(invoice.amountPaid) || 0;
+    const balance = Math.max(0, total - previouslyPaid);
+    const newAmountPaid = previouslyPaid + balance;
+    const isFullyPaid = newAmountPaid >= total && total > 0;
+
     setIsProcessingPayment(true);
+    toast.loading("Processing…", { id: "fi-payment" });
+
+    // serverTimestamp() is not allowed inside arrayUnion — use new Date() for array entries.
+    const paymentHistoryEntry: Record<string, any> = {
+      action: "paid",
+      timestamp: new Date(),
+      method,
+      amount: balance,
+      provider: "manual",
+    };
+
+    // Build update payloads conditionally so Firestore never receives undefined values.
+    const invoiceUpdate: Record<string, any> = {
+      amountPaid: newAmountPaid,
+      balanceDue: isFullyPaid ? 0 : Math.max(0, total - newAmountPaid),
+      paymentStatus: isFullyPaid ? "paid" : "partial",
+      paymentMethod: method,
+      paymentMethodDetails: method,
+      paymentProvider: "manual",
+      paymentHistory: arrayUnion(paymentHistoryEntry),
+      updatedAt: serverTimestamp(),
+    };
+    if (isFullyPaid) {
+      invoiceUpdate.status = "paid";
+      invoiceUpdate.paidAt = serverTimestamp();
+    }
+
     try {
-      toast.loading("Processing…", { id: "fi-payment" });
-      // serverTimestamp() is not allowed inside arrayUnion — use new Date() for array entries.
-      const paymentHistoryEntry = {
-        action: "paid" as const,
-        timestamp: new Date(),
+      await updateDoc(doc(db, "invoices", invoiceId), invoiceUpdate);
+    } catch (error: any) {
+      console.error("[FieldInvoiceDetail] payment failed", {
+        invoiceId,
+        appointmentId,
         method,
-        amount: balance,
-        provider: "manual",
-      };
-      const updateData: Record<string, any> = {
-        amountPaid: newAmountPaid,
-        balanceDue: isFullyPaid ? 0 : Math.max(0, (invoice.total || 0) - newAmountPaid),
+        error,
+      });
+      const msg = error?.message ?? String(error);
+      toast.error(`Payment failed: ${msg.slice(0, 140)}`, { id: "fi-payment" });
+      setIsProcessingPayment(false);
+      return;
+    }
+
+    // Update linked appointment — report failure separately, don't roll back the invoice.
+    let appointmentSyncFailed = false;
+    if (appointmentId) {
+      const appointmentUpdate: Record<string, any> = {
         paymentStatus: isFullyPaid ? "paid" : "partial",
-        paymentMethodDetails: method,
-        paymentProvider: "manual",
-        paymentHistory: arrayUnion(paymentHistoryEntry),
-        updatedAt: serverTimestamp(),
+        paymentMethod: method,
       };
       if (isFullyPaid) {
-        updateData.status = "paid";
-        updateData.paidAt = serverTimestamp();
+        appointmentUpdate.balanceDue = 0;
+        appointmentUpdate.paidAt = serverTimestamp();
       }
-      console.log("[FieldInvoiceDetail] writing payment:", { invoiceId: invoice.id, method, balance, isFullyPaid });
-      await updateDoc(doc(db, "invoices", invoice.id), updateData);
-      console.log("[FieldInvoiceDetail] payment write succeeded");
-      setInvoice((prev) =>
-        prev
-          ? ({
-              ...prev,
-              amountPaid: newAmountPaid,
-              paymentStatus: isFullyPaid ? "paid" : "partial",
-              status: isFullyPaid ? "paid" : prev.status,
-              paymentMethodDetails: method,
-              paymentProvider: "manual",
-              paymentHistory: [
-                ...(prev.paymentHistory || []),
-                { ...paymentHistoryEntry, timestamp: new Date() },
-              ],
-            } as Invoice)
-          : null,
-      );
-      if (invoice.clientPhone) {
-        messagingService
-          .sendSms({
-            to: invoice.clientPhone,
-            body: `DetailFlow: Payment of ${formatCurrency(balance)} received via ${method}. Thank you! Reply STOP to opt out.`,
-          })
-          .catch((e) => console.error("Receipt SMS failed:", e));
+      try {
+        await updateDoc(doc(db, "appointments", appointmentId), appointmentUpdate);
+      } catch (error: any) {
+        appointmentSyncFailed = true;
+        console.error("[FieldInvoiceDetail] payment failed", {
+          invoiceId,
+          appointmentId,
+          method,
+          error,
+        });
       }
-      if (invoice.appointmentId) {
-        updateDoc(doc(db, "appointments", invoice.appointmentId), {
-          paymentStatus: isFullyPaid ? "paid" : "partial",
-          ...(isFullyPaid && { balanceDue: 0 }),
-        }).catch((e) => console.error("[FieldInvoiceDetail] appointment payment sync failed:", e));
-      }
-      sessionStorage.removeItem("invoices_cache");
-      sessionStorage.removeItem("invoices_cache_time");
-      toast.success(isFullyPaid ? "Invoice marked paid" : "Partial payment recorded", {
-        id: "fi-payment",
-      });
-      setShowPaymentDialog(false);
-    } catch (error: any) {
-      const msg = error?.message ?? String(error);
-      console.error("[FieldInvoiceDetail] payment write failed:", error);
-      toast.error(`Payment failed: ${msg.slice(0, 100)}`, { id: "fi-payment" });
-    } finally {
-      setIsProcessingPayment(false);
     }
+
+    setInvoice((prev) =>
+      prev
+        ? ({
+            ...prev,
+            amountPaid: newAmountPaid,
+            balanceDue: isFullyPaid ? 0 : Math.max(0, total - newAmountPaid),
+            paymentStatus: isFullyPaid ? "paid" : "partial",
+            status: isFullyPaid ? "paid" : prev.status,
+            paymentMethodDetails: method,
+            paymentProvider: "manual",
+            paymentHistory: [
+              ...(prev.paymentHistory || []),
+              { ...paymentHistoryEntry, timestamp: new Date() },
+            ],
+          } as Invoice)
+        : null,
+    );
+
+    if (invoice.clientPhone && balance > 0) {
+      messagingService
+        .sendSms({
+          to: invoice.clientPhone,
+          body: `DetailFlow: Payment of ${formatCurrency(balance)} received via ${method}. Thank you! Reply STOP to opt out.`,
+        })
+        .catch((e) => console.error("Receipt SMS failed:", e));
+    }
+
+    sessionStorage.removeItem("invoices_cache");
+    sessionStorage.removeItem("invoices_cache_time");
+
+    if (appointmentSyncFailed) {
+      toast.warning(
+        "Payment recorded — but linked appointment could not be updated.",
+        { id: "fi-payment" },
+      );
+    } else {
+      toast.success("Payment recorded", { id: "fi-payment" });
+    }
+    setShowPaymentDialog(false);
+    setIsProcessingPayment(false);
   };
 
   const handleVoidInvoice = async () => {
@@ -743,8 +798,8 @@ export default function FieldInvoiceDetail() {
                 </Button>
               ))}
               <p className="text-[9px] text-white/28 font-medium text-center pt-1 leading-relaxed px-2">
-                Card &amp; Apple Pay are recorded as in-person payments.
-                Online card processing is not configured.
+                Card &amp; Apple Pay processing is not configured.
+                Use Cash, Zelle, or Check for manual payment.
               </p>
             </div>
           </DialogContent>
