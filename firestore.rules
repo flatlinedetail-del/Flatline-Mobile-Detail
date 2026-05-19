@@ -57,17 +57,19 @@ service cloud.firestore {
         (
           request.auth.token.email.lower() == "flatlinedetail@gmail.com" ||
           hasRole('admin') ||
-          hasRole('manager')
+          hasRole('manager') ||
+          hasRole('owner')
         );
     }
 
     function isTechnician() {
-      return isAuthenticated() && 
+      return isAuthenticated() &&
         (
           request.auth.token.email.lower() == "flatlinedetail@gmail.com" ||
-          hasRole('technician') || 
+          hasRole('technician') ||
           hasRole('admin') ||
           hasRole('manager') ||
+          hasRole('owner') ||
           hasRole('worker')
         );
     }

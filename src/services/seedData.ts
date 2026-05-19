@@ -534,76 +534,99 @@ export async function installDetailFlowServices(): Promise<{ created: number; up
     },
   ];
 
-  // Ensure required service categories exist
+  // Pre-pass: ensure required service categories exist.
+  // Non-fatal — a category write failure should not block service creation.
   const requiredCategories = ["Maintenance", "Interior", "Exterior Protection", "Complete Detail", "Premium Detail"];
   for (const catName of requiredCategories) {
-    const catQ = query(collection(db, "categories"), where("name", "==", catName), where("type", "==", "service"));
-    const catSnap = await getDocs(catQ);
-    if (catSnap.empty) {
-      await addDoc(collection(db, "categories"), { name: catName, type: "service", isActive: true, sortOrder: 99 });
+    try {
+      const catQ = query(collection(db, "categories"), where("name", "==", catName), where("type", "==", "service"));
+      const catSnap = await getDocs(catQ);
+      if (catSnap.empty) {
+        await addDoc(collection(db, "categories"), { name: catName, type: "service", isActive: true, sortOrder: 99 });
+      }
+    } catch (catErr) {
+      // categories write requires isAdmin() — log but don't abort
+      console.warn(`[installDetailFlowServices] category "${catName}" write skipped:`, catErr);
     }
   }
 
-  // Pass 1: create or update each service, build name→id map
+  // Pass 1: create or update each approved service, build name→id map.
+  // setDoc merges new fields over existing doc so deposit/warranty config is preserved.
   const nameToId: Record<string, string> = {};
   let created = 0;
   let updated = 0;
 
   for (const pkg of packages) {
     const { upgradeToNames, ...fields } = pkg;
-    const q = query(collection(db, "services"), where("name", "==", pkg.name));
-    const snap = await getDocs(q);
-    if (snap.empty) {
-      const ref = await addDoc(collection(db, "services"), { ...fields, upgradeToServiceIds: [] });
-      nameToId[pkg.name] = ref.id;
-      created++;
-    } else {
-      const existing = snap.docs[0].data();
-      await setDoc(doc(db, "services", snap.docs[0].id), {
-        ...existing,
-        ...fields,
-        // preserve deposit/warranty settings from existing doc
-        depositRequired: existing.depositRequired ?? false,
-        depositType: existing.depositType,
-        depositAmount: existing.depositAmount,
-        hasWarranty: existing.hasWarranty ?? false,
-        warrantyLengthMonths: existing.warrantyLengthMonths,
-        warrantyType: existing.warrantyType,
-        warrantyCoverageDetails: existing.warrantyCoverageDetails,
-        warrantyMaintenanceRequired: existing.warrantyMaintenanceRequired,
-        maintenanceReturnEnabled: existing.maintenanceReturnEnabled ?? false,
-        maintenanceIntervalDays: existing.maintenanceIntervalDays,
-        maintenanceIntervalMonths: existing.maintenanceIntervalMonths,
-      });
-      nameToId[pkg.name] = snap.docs[0].id;
-      updated++;
+    try {
+      const q = query(collection(db, "services"), where("name", "==", pkg.name));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        const ref = await addDoc(collection(db, "services"), { ...fields, upgradeToServiceIds: [] });
+        nameToId[pkg.name] = ref.id;
+        created++;
+        console.log(`[installDetailFlowServices] created "${pkg.name}" id=${ref.id}`);
+      } else {
+        const existing = snap.docs[0].data();
+        await setDoc(doc(db, "services", snap.docs[0].id), {
+          ...existing,
+          ...fields,
+          depositRequired: existing.depositRequired ?? false,
+          depositType: existing.depositType,
+          depositAmount: existing.depositAmount,
+          hasWarranty: existing.hasWarranty ?? false,
+          warrantyLengthMonths: existing.warrantyLengthMonths,
+          warrantyType: existing.warrantyType,
+          warrantyCoverageDetails: existing.warrantyCoverageDetails,
+          warrantyMaintenanceRequired: existing.warrantyMaintenanceRequired,
+          maintenanceReturnEnabled: existing.maintenanceReturnEnabled ?? false,
+          maintenanceIntervalDays: existing.maintenanceIntervalDays,
+          maintenanceIntervalMonths: existing.maintenanceIntervalMonths,
+        });
+        nameToId[pkg.name] = snap.docs[0].id;
+        updated++;
+        console.log(`[installDetailFlowServices] updated "${pkg.name}" id=${snap.docs[0].id}`);
+      }
+    } catch (svcErr) {
+      console.error(`[installDetailFlowServices] FAILED on "${pkg.name}":`, svcErr);
+      throw new Error(`Permission denied writing service "${pkg.name}". Check that your account has admin/owner role. Original: ${(svcErr as Error)?.message}`);
     }
   }
 
-  // Pass 2: write upgradeToServiceIds now that all IDs are known
+  // Pass 2: write upgradeToServiceIds now that all IDs are known.
   for (const pkg of packages) {
     const id = nameToId[pkg.name];
     if (!id) continue;
-    const upgradeIds = pkg.upgradeToNames.map(n => nameToId[n]).filter(Boolean);
-    await updateDoc(doc(db, "services", id), { upgradeToServiceIds: upgradeIds });
+    try {
+      const upgradeIds = pkg.upgradeToNames.map(n => nameToId[n]).filter(Boolean);
+      await updateDoc(doc(db, "services", id), { upgradeToServiceIds: upgradeIds });
+    } catch (upErr) {
+      console.warn(`[installDetailFlowServices] upgrade path write skipped for "${pkg.name}":`, upErr);
+    }
   }
 
   // Pass 3: deactivate every service whose name is NOT in the approved set.
-  // This handles (Demo) services, old renamed variants (e.g. "Clay & Seal Exterior ONLY",
-  // "Level I (Deep Clean)", "Level II (Clay & Seal)"), and any other non-canonical entries.
+  // Covers: "(Demo)" services, old renamed variants ("Clay & Seal Exterior ONLY",
+  // "Level I (Deep Clean)", "Level II (Clay & Seal)"), and any other legacy entries.
   const approvedNames = new Set(packages.map(p => p.name));
-  const allSnap = await getDocs(collection(db, "services"));
-  const batch = writeBatch(db);
   let deactivated = 0;
-  for (const d of allSnap.docs) {
-    const name = (d.data().name as string) || "";
-    if (!approvedNames.has(name) && d.data().isActive !== false) {
-      batch.update(d.ref, { isActive: false });
-      deactivated++;
+  try {
+    const allSnap = await getDocs(collection(db, "services"));
+    const batch = writeBatch(db);
+    for (const d of allSnap.docs) {
+      const name = (d.data().name as string) || "";
+      if (!approvedNames.has(name) && d.data().isActive !== false) {
+        batch.update(d.ref, { isActive: false });
+        deactivated++;
+        console.log(`[installDetailFlowServices] deactivating "${name}"`);
+      }
     }
+    await batch.commit();
+  } catch (deactivateErr) {
+    console.error(`[installDetailFlowServices] deactivation batch failed:`, deactivateErr);
+    throw new Error(`Services created/updated but old-service deactivation failed. Original: ${(deactivateErr as Error)?.message}`);
   }
-  await batch.commit();
 
-  console.log(`[installDetailFlowServices] created=${created} updated=${updated} deactivated=${deactivated}`);
+  console.log(`[installDetailFlowServices] done — created=${created} updated=${updated} deactivated=${deactivated}`);
   return { created, updated, deactivated };
 }
