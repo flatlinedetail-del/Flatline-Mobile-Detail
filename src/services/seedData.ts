@@ -630,3 +630,301 @@ export async function installDetailFlowServices(): Promise<{ created: number; up
   console.log(`[installDetailFlowServices] done — created=${created} updated=${updated} deactivated=${deactivated}`);
   return { created, updated, deactivated };
 }
+
+/**
+ * Non-destructive installer for the DetailFlow approved add-on menu.
+ * - Creates or updates 16 approved add-ons (12 customer-facing + 4 condition fees).
+ * - Resolves eligibleServiceIds by looking up service names.
+ * - Deactivates add-ons not in the approved set (never hard-deletes).
+ * - Safe to run repeatedly.
+ */
+export async function installDetailFlowAddOns(): Promise<{ created: number; updated: number; deactivated: number }> {
+  type VSize = { small?: number; midsize?: number; large?: number; xl?: number };
+
+  interface AddOnSpec {
+    name: string;
+    category: string;
+    description: string;
+    vehicleSizePricing: VSize;
+    vehicleSizeDuration: VSize;
+    eligibleServiceNames: string[];
+    conditionTriggers: string[];
+    aiRecommendable: boolean;
+    packageEligible: boolean;
+    requiresOwnerReview: boolean;
+    addOnType: string;
+  }
+
+  const specs: AddOnSpec[] = [
+    {
+      name: "Pet Hair Removal",
+      category: "Interior",
+      description: "Removes embedded pet hair from seats, carpets, mats, and cargo areas.",
+      vehicleSizePricing: { small: 35, midsize: 50, large: 65, xl: 85 },
+      vehicleSizeDuration: { small: 30, midsize: 45, large: 60, xl: 75 },
+      eligibleServiceNames: ["Interior Reset", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["pet hair", "pets", "dog hair", "cat hair"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "interior",
+    },
+    {
+      name: "Heavy Stain Treatment",
+      category: "Interior",
+      description: "Targets visible stains on seats, carpets, mats, or fabric surfaces.",
+      vehicleSizePricing: { small: 40, midsize: 55, large: 75, xl: 95 },
+      vehicleSizeDuration: { small: 30, midsize: 45, large: 60, xl: 90 },
+      eligibleServiceNames: ["Interior Reset", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["stains", "spills", "food stains", "drink stains"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "interior",
+    },
+    {
+      name: "Odor Treatment",
+      category: "Interior",
+      description: "Helps reduce unwanted odors caused by pets, smoke, mildew, food, or daily use.",
+      vehicleSizePricing: { small: 75, midsize: 90, large: 110, xl: 125 },
+      vehicleSizeDuration: { small: 45, midsize: 60, large: 75, xl: 90 },
+      eligibleServiceNames: ["Interior Reset", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["odor", "smoke", "pet smell", "mildew"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "interior",
+    },
+    {
+      name: "Seat/Carpet Shampoo Upgrade",
+      category: "Interior",
+      description: "Deep cleaning upgrade for fabric seats, carpets, mats, and soft interior surfaces.",
+      vehicleSizePricing: { small: 65, midsize: 85, large: 105, xl: 130 },
+      vehicleSizeDuration: { small: 60, midsize: 75, large: 90, xl: 120 },
+      eligibleServiceNames: ["Xpress Detail", "Maintenance Detail", "Full Detail"],
+      conditionTriggers: ["fabric seats", "dirty carpet", "family vehicle", "ride share"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "interior",
+    },
+    {
+      name: "Leather Conditioning",
+      category: "Interior Protection",
+      description: "Cleans and conditions leather surfaces to help restore feel and protect against drying.",
+      vehicleSizePricing: { small: 45, midsize: 60, large: 75, xl: 90 },
+      vehicleSizeDuration: { small: 30, midsize: 45, large: 50, xl: 60 },
+      eligibleServiceNames: ["Interior Reset", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["leather", "dry leather", "luxury vehicle"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "protection",
+    },
+    {
+      name: "Headliner Spot Cleaning",
+      category: "Interior",
+      description: "Light spot cleaning for visible marks on the headliner.",
+      vehicleSizePricing: { small: 40, midsize: 50, large: 60, xl: 75 },
+      vehicleSizeDuration: { small: 20, midsize: 30, large: 35, xl: 45 },
+      eligibleServiceNames: ["Interior Reset", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["headliner stains", "roof liner marks"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "interior",
+    },
+    {
+      name: "Bug & Tar Removal",
+      category: "Exterior",
+      description: "Removes stubborn bug residue, tar spots, and road grime from exterior surfaces.",
+      vehicleSizePricing: { small: 35, midsize: 45, large: 60, xl: 75 },
+      vehicleSizeDuration: { small: 20, midsize: 30, large: 45, xl: 60 },
+      eligibleServiceNames: ["Xpress Detail", "Maintenance Detail", "Clay & Seal Exterior", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["bugs", "tar", "road grime", "highway driving"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "exterior",
+    },
+    {
+      name: "Iron Decontamination",
+      category: "Exterior",
+      description: "Removes embedded iron particles and brake dust contamination from paint and exterior surfaces.",
+      vehicleSizePricing: { small: 50, midsize: 65, large: 80, xl: 100 },
+      vehicleSizeDuration: { small: 30, midsize: 45, large: 50, xl: 60 },
+      eligibleServiceNames: ["Clay & Seal Exterior", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["rail dust", "brake dust", "rough paint", "white paint"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "exterior",
+    },
+    {
+      name: "Clay Bar Upgrade",
+      category: "Exterior",
+      description: "Mechanical paint decontamination upgrade to smooth rough paint and prepare for protection.",
+      vehicleSizePricing: { small: 65, midsize: 85, large: 105, xl: 130 },
+      vehicleSizeDuration: { small: 45, midsize: 60, large: 75, xl: 90 },
+      eligibleServiceNames: ["Xpress Detail", "Full Detail"],
+      conditionTriggers: ["rough paint", "weak water beading", "no recent decon"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "exterior",
+    },
+    {
+      name: "Engine Bay Cleaning",
+      category: "Exterior",
+      description: "Cleans dust, grime, and buildup from the engine bay using a controlled process.",
+      vehicleSizePricing: { small: 60, midsize: 75, large: 90, xl: 100 },
+      vehicleSizeDuration: { small: 30, midsize: 45, large: 50, xl: 60 },
+      eligibleServiceNames: ["Full Detail", "Premium Detail"],
+      conditionTriggers: ["engine bay", "resale", "dirty engine"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "exterior",
+    },
+    {
+      name: "Fabric Protection",
+      category: "Protection",
+      description: "Adds protection to fabric seats, carpets, or mats to help resist future spills and stains.",
+      vehicleSizePricing: { small: 50, midsize: 65, large: 85, xl: 110 },
+      vehicleSizeDuration: { small: 30, midsize: 45, large: 50, xl: 60 },
+      eligibleServiceNames: ["Interior Reset", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["cloth seats", "family vehicle", "kids", "pets"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "protection",
+    },
+    {
+      name: "Windshield Rain Repellent",
+      category: "Protection",
+      description: "Improves water beading and visibility on the windshield during rain.",
+      vehicleSizePricing: { small: 35, midsize: 40, large: 45, xl: 50 },
+      vehicleSizeDuration: { small: 15, midsize: 20, large: 20, xl: 25 },
+      eligibleServiceNames: ["Xpress Detail", "Maintenance Detail", "Interior Reset", "Clay & Seal Exterior", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["rain", "highway driving", "visibility"],
+      aiRecommendable: true, packageEligible: true, requiresOwnerReview: false,
+      addOnType: "protection",
+    },
+    // Condition fees
+    {
+      name: "Excessive Dirt / Mud Fee",
+      category: "Condition Fee",
+      description: "Added when the vehicle has heavy mud, excessive dirt, or off-road buildup beyond normal service expectations.",
+      vehicleSizePricing: { small: 50, midsize: 75, large: 100, xl: 150 },
+      vehicleSizeDuration: { small: 30, midsize: 45, large: 75, xl: 120 },
+      eligibleServiceNames: ["Xpress Detail", "Maintenance Detail", "Interior Reset", "Clay & Seal Exterior", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["mud", "excessive dirt", "off-road", "work truck"],
+      aiRecommendable: true, packageEligible: false, requiresOwnerReview: false,
+      addOnType: "condition_fee",
+    },
+    {
+      name: "Excessive Sand Fee",
+      category: "Condition Fee",
+      description: "Added when the vehicle has excessive sand in carpets, mats, seats, or cargo areas.",
+      vehicleSizePricing: { small: 50, midsize: 65, large: 90, xl: 125 },
+      vehicleSizeDuration: { small: 30, midsize: 45, large: 60, xl: 90 },
+      eligibleServiceNames: ["Interior Reset", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["sand", "beach", "excessive sand"],
+      aiRecommendable: true, packageEligible: false, requiresOwnerReview: false,
+      addOnType: "condition_fee",
+    },
+    {
+      name: "Biohazard / Bodily Fluid Fee",
+      category: "Condition Fee",
+      description: "Required for vomit, blood, urine, feces, or other bodily fluid contamination. Owner review may be required.",
+      vehicleSizePricing: { small: 150, midsize: 200, large: 250, xl: 300 },
+      vehicleSizeDuration: { small: 90, midsize: 120, large: 150, xl: 180 },
+      eligibleServiceNames: ["Interior Reset", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["vomit", "urine", "blood", "feces", "bodily fluid"],
+      aiRecommendable: false, packageEligible: false, requiresOwnerReview: true,
+      addOnType: "condition_fee",
+    },
+    {
+      name: "Mold Review Fee",
+      category: "Condition Fee",
+      description: "Used when mold or severe mildew is present. Requires owner review before service approval.",
+      vehicleSizePricing: { small: 200, midsize: 250, large: 300, xl: 400 },
+      vehicleSizeDuration: { small: 120, midsize: 150, large: 180, xl: 240 },
+      eligibleServiceNames: ["Interior Reset", "Full Detail", "Premium Detail"],
+      conditionTriggers: ["mold", "mildew", "severe odor"],
+      aiRecommendable: false, packageEligible: false, requiresOwnerReview: true,
+      addOnType: "condition_fee",
+    },
+  ];
+
+  const approvedNames = new Set(specs.map((s) => s.name));
+  let created = 0;
+  let updated = 0;
+  let deactivated = 0;
+
+  // Pre-pass: resolve service name → id map
+  let serviceNameToId: Record<string, string> = {};
+  try {
+    const svcSnap = await getDocs(collection(db, "services"));
+    svcSnap.forEach((d) => {
+      const n = (d.data().name as string) || "";
+      if (n) serviceNameToId[n] = d.id;
+    });
+  } catch (e) {
+    console.warn("[installDetailFlowAddOns] could not load services for ID resolution:", e);
+  }
+
+  // Pass 1: create / update each approved add-on
+  try {
+    for (const spec of specs) {
+      const eligibleServiceIds = spec.eligibleServiceNames
+        .map((n) => serviceNameToId[n])
+        .filter(Boolean);
+
+      const basePrice = spec.vehicleSizePricing.midsize ?? spec.vehicleSizePricing.small ?? 0;
+      const baseDuration = spec.vehicleSizeDuration.midsize ?? spec.vehicleSizeDuration.small ?? 0;
+
+      const payload = {
+        name: spec.name,
+        category: spec.category,
+        description: spec.description,
+        price: basePrice,
+        pricingType: "flat" as const,
+        rate: 0,
+        isTaxable: true,
+        estimatedDuration: baseDuration,
+        bufferTimeMinutes: 0,
+        isActive: true,
+        addOnType: spec.addOnType,
+        vehicleSizePricing: spec.vehicleSizePricing,
+        vehicleSizeDuration: spec.vehicleSizeDuration,
+        eligibleServiceIds,
+        eligibleServiceNames: spec.eligibleServiceNames,
+        eligibleVehicleSizes: ["small", "midsize", "large", "xl"] as ("small" | "midsize" | "large" | "xl")[],
+        conditionTriggers: spec.conditionTriggers,
+        priceFloor: spec.vehicleSizePricing.small ?? basePrice,
+        packageEligible: spec.packageEligible,
+        aiRecommendable: spec.aiRecommendable,
+        requiresOwnerReview: spec.requiresOwnerReview,
+      };
+
+      const existing = await getDocs(query(collection(db, "addons"), where("name", "==", spec.name)));
+      if (existing.empty) {
+        await addDoc(collection(db, "addons"), payload);
+        created++;
+      } else {
+        const existingDoc = existing.docs[0];
+        const existingData = existingDoc.data();
+        await updateDoc(existingDoc.ref, {
+          ...payload,
+          // preserve fields the user may have customized
+          isTaxable: existingData.isTaxable ?? payload.isTaxable,
+          bufferTimeMinutes: existingData.bufferTimeMinutes ?? 0,
+        });
+        updated++;
+      }
+    }
+  } catch (err) {
+    const msg = (err as Error)?.message || "Unknown";
+    const isPermission = msg.toLowerCase().includes("permission") || msg.toLowerCase().includes("missing or insufficient");
+    throw new Error(isPermission ? `Permission denied writing add-ons. ${msg}` : `Add-on create/update failed: ${msg}`);
+  }
+
+  // Pass 2: deactivate add-ons not in the approved set
+  try {
+    const allSnap = await getDocs(collection(db, "addons"));
+    const batch = writeBatch(db);
+    for (const d of allSnap.docs) {
+      const name = (d.data().name as string) || "";
+      if (!approvedNames.has(name) && d.data().isActive !== false) {
+        batch.update(d.ref, { isActive: false });
+        deactivated++;
+      }
+    }
+    await batch.commit();
+  } catch (deactivateErr) {
+    console.error("[installDetailFlowAddOns] deactivation batch failed:", deactivateErr);
+    throw new Error(`Add-ons created/updated but old add-on deactivation failed. Original: ${(deactivateErr as Error)?.message}`);
+  }
+
+  console.log(`[installDetailFlowAddOns] done — created=${created} updated=${updated} deactivated=${deactivated}`);
+  return { created, updated, deactivated };
+}

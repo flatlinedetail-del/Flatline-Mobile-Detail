@@ -123,6 +123,7 @@ export interface AddOn {
   id: string;
   name: string;
   description: string;
+  category?: string;
   price: number;
   pricingType: "flat" | "hourly" | "block30" | "blockCustom";
   rate: number;
@@ -130,6 +131,17 @@ export interface AddOn {
   estimatedDuration: number; // in minutes
   bufferTimeMinutes: number; // cleanup/wrap-up time
   isActive: boolean;
+  addOnType?: "customer_add_on" | "condition_fee" | "convenience_fee" | "protection" | "exterior" | "interior";
+  vehicleSizePricing?: { small?: number; midsize?: number; large?: number; xl?: number };
+  vehicleSizeDuration?: { small?: number; midsize?: number; large?: number; xl?: number };
+  eligibleServiceIds?: string[];
+  eligibleServiceNames?: string[];
+  eligibleVehicleSizes?: ("small" | "midsize" | "large" | "xl")[];
+  conditionTriggers?: string[];
+  priceFloor?: number;
+  packageEligible?: boolean;
+  aiRecommendable?: boolean;
+  requiresOwnerReview?: boolean;
 }
 
 export interface ClientType {

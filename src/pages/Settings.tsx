@@ -63,7 +63,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
-import { seedDemoData, seedServiceTimingDemo, importFullServiceSystem, installDetailFlowServices } from "../services/seedData";
+import { seedDemoData, seedServiceTimingDemo, importFullServiceSystem, installDetailFlowServices, installDetailFlowAddOns } from "../services/seedData";
 import {
   loadAISettings,
   saveAISettings,
@@ -385,6 +385,7 @@ export default function Settings() {
   const [editingClientType, setEditingClientType] = useState<any | null>(null);
   const [editingClientCategory, setEditingClientCategory] = useState<any | null>(null);
   const [installingServices, setInstallingServices] = useState(false);
+  const [installingAddons, setInstallingAddons] = useState(false);
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
   const [isAddonDialogOpen, setIsAddonDialogOpen] = useState(false);
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
@@ -1102,6 +1103,27 @@ export default function Settings() {
     } catch (error) {
       console.error("Error saving service:", error);
       toast.error("Failed to save service");
+    }
+  };
+
+  const handleInstallDetailFlowAddOns = async () => {
+    setInstallingAddons(true);
+    const tid = toast.loading("Installing DetailFlow add-ons…");
+    try {
+      const { created, updated, deactivated } = await installDetailFlowAddOns();
+      toast.success(`Done — ${created} created, ${updated} updated, ${deactivated} deactivated`, { id: tid });
+    } catch (err) {
+      console.error("[handleInstallDetailFlowAddOns]", err);
+      const msg = (err as Error)?.message || "Unknown error";
+      const isPermission = msg.toLowerCase().includes("permission") || msg.toLowerCase().includes("missing or insufficient");
+      toast.error(
+        isPermission
+          ? "Permission denied — your account needs admin or manager role to install add-ons."
+          : `Install failed: ${msg.slice(0, 120)}`,
+        { id: tid, duration: 8000 },
+      );
+    } finally {
+      setInstallingAddons(false);
     }
   };
 
@@ -3914,24 +3936,30 @@ export default function Settings() {
           {/* Enhancement Add-ons */}
           <div className="grid grid-cols-1 gap-8 mt-8">
             <Card className="border border-white/10 bg-[#0B0B0B] backdrop-blur-sm rounded-3xl overflow-hidden shadow-2xl">
-              <CardHeader className="p-8 border-b border-white/5 bg-black/40 flex flex-row items-center justify-between">
+              <CardHeader className="p-8 border-b border-white/5 bg-black/40 flex flex-row items-center justify-between gap-3 flex-wrap">
                 <div>
                   <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Enhancement <span className="text-primary italic">Add-ons</span></CardTitle>
                   <CardDescription className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Extra services that can be added to any package</CardDescription>
                 </div>
-                <Button size="sm" className="bg-white/10 hover:bg-white/20 text-white font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] transition-all" onClick={() => {
-                  setEditingAddon({
-                    name: "",
-                    description: "",
-                    price: 0,
-                    isTaxable: true,
-                    estimatedDuration: 15,
-                    isActive: true
-                  });
-                  setIsAddonDialogOpen(true);
-                }}>
-                  <Plus className="w-4 h-4 mr-2" /> Add Enhancement
-                </Button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button size="sm" className="bg-primary/20 hover:bg-primary/30 text-primary font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] transition-all border border-primary/30" onClick={handleInstallDetailFlowAddOns} disabled={installingAddons}>
+                    {installingAddons ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <DatabaseZap className="w-4 h-4 mr-2" />}
+                    Install DetailFlow Add-Ons
+                  </Button>
+                  <Button size="sm" className="bg-white/10 hover:bg-white/20 text-white font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] transition-all" onClick={() => {
+                    setEditingAddon({
+                      name: "",
+                      description: "",
+                      price: 0,
+                      isTaxable: true,
+                      estimatedDuration: 15,
+                      isActive: true
+                    });
+                    setIsAddonDialogOpen(true);
+                  }}>
+                    <Plus className="w-4 h-4 mr-2" /> Add Enhancement
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="p-8 space-y-4">
                 {addons.map(addon => (
@@ -3967,14 +3995,22 @@ export default function Settings() {
                     </div>
                     <div className="grid grid-cols-2 gap-6">
                       <div className="space-y-1">
-                        <p className="text-[8px] text-white/20 font-black uppercase tracking-[0.2em]">Add-on Price</p>
-                        <p className="text-white font-black text-lg tracking-tighter">${addon.price}</p>
+                        <p className="text-[8px] text-white/20 font-black uppercase tracking-[0.2em]">Base Price</p>
+                        <p className="text-white font-black text-lg tracking-tighter">${addon.vehicleSizePricing?.midsize ?? addon.price}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-[8px] text-white/20 font-black uppercase tracking-[0.2em]">Est. Duration</p>
-                        <p className="text-white font-black text-lg tracking-tighter">+{addon.estimatedDuration}m</p>
+                        <p className="text-[8px] text-white/20 font-black uppercase tracking-[0.2em]">Duration</p>
+                        <p className="text-white font-black text-lg tracking-tighter">+{addon.vehicleSizeDuration?.midsize ?? addon.estimatedDuration}m</p>
                       </div>
                     </div>
+                    {addon.addOnType && (
+                      <div className="mt-2 flex items-center gap-2 flex-wrap">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-white/30 bg-white/5 px-1.5 py-0.5 rounded">{addon.addOnType}</span>
+                        {addon.aiRecommendable && <span className="text-[8px] font-black uppercase tracking-widest text-primary/50 bg-primary/5 px-1.5 py-0.5 rounded">AI</span>}
+                        {addon.requiresOwnerReview && <span className="text-[8px] font-black uppercase tracking-widest text-amber-400/60 bg-amber-400/5 px-1.5 py-0.5 rounded">Review Req.</span>}
+                        {addon.conditionTriggers?.length > 0 && <span className="text-[8px] font-black uppercase tracking-widest text-white/20 bg-white/5 px-1.5 py-0.5 rounded">{addon.conditionTriggers.length} triggers</span>}
+                      </div>
+                    )}
                   </div>
                 ))}
               </CardContent>
@@ -4092,32 +4128,188 @@ export default function Settings() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Taxable</Label>
-                      <Switch 
-                        checked={editingAddon?.isTaxable ?? true} 
+                      <Switch
+                        checked={editingAddon?.isTaxable ?? true}
                         onCheckedChange={v => setEditingAddon(prev => ({ ...prev!, isTaxable: v }))}
                       />
                     </div>
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Active Status</Label>
-                      <Switch 
-                        checked={editingAddon?.isActive ?? true} 
+                      <Switch
+                        checked={editingAddon?.isActive ?? true}
                         onCheckedChange={v => setEditingAddon(prev => ({ ...prev!, isActive: v }))}
                       />
                     </div>
                   </div>
+
+                  {/* Add-On Type */}
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Add-On Type</Label>
+                    <Select
+                      value={(editingAddon as any)?.addOnType || ""}
+                      onValueChange={(v) => setEditingAddon(prev => ({ ...prev!, addOnType: v as any }))}
+                    >
+                      <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                        <SelectItem value="customer_add_on" className="font-bold focus:bg-white/5 focus:text-white">Customer Add-On</SelectItem>
+                        <SelectItem value="condition_fee" className="font-bold focus:bg-white/5 focus:text-white">Condition Fee</SelectItem>
+                        <SelectItem value="convenience_fee" className="font-bold focus:bg-white/5 focus:text-white">Convenience Fee</SelectItem>
+                        <SelectItem value="protection" className="font-bold focus:bg-white/5 focus:text-white">Protection</SelectItem>
+                        <SelectItem value="exterior" className="font-bold focus:bg-white/5 focus:text-white">Exterior</SelectItem>
+                        <SelectItem value="interior" className="font-bold focus:bg-white/5 focus:text-white">Interior</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Vehicle Size Pricing */}
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Vehicle Size Pricing ($)</Label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {(["small", "midsize", "large", "xl"] as const).map(sz => (
+                        <div key={sz} className="space-y-1">
+                          <p className="text-[9px] text-white/40 font-black uppercase tracking-widest text-center">{sz}</p>
+                          <NumberInput
+                            value={(editingAddon as any)?.vehicleSizePricing?.[sz] ?? 0}
+                            onValueChange={val => setEditingAddon(prev => ({
+                              ...prev!,
+                              vehicleSizePricing: { ...(prev as any)?.vehicleSizePricing, [sz]: val }
+                            }))}
+                            className="bg-black/40 border-white/10 text-white h-10 rounded-xl font-bold text-center focus:ring-primary/20"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Vehicle Size Duration */}
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Vehicle Size Duration (min)</Label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {(["small", "midsize", "large", "xl"] as const).map(sz => (
+                        <div key={sz} className="space-y-1">
+                          <p className="text-[9px] text-white/40 font-black uppercase tracking-widest text-center">{sz}</p>
+                          <NumberInput
+                            value={(editingAddon as any)?.vehicleSizeDuration?.[sz] ?? 0}
+                            onValueChange={val => setEditingAddon(prev => ({
+                              ...prev!,
+                              vehicleSizeDuration: { ...(prev as any)?.vehicleSizeDuration, [sz]: val }
+                            }))}
+                            className="bg-black/40 border-white/10 text-white h-10 rounded-xl font-bold text-center focus:ring-primary/20"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Eligible Services */}
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Eligible Services</Label>
+                    <div className="rounded-xl border border-white/10 bg-black/40 p-3 space-y-1 max-h-36 overflow-y-auto">
+                      {services.filter(s => s.isActive !== false).map(svc => {
+                        const checked = ((editingAddon as any)?.eligibleServiceIds || []).includes(svc.id);
+                        return (
+                          <label key={svc.id} className="flex items-center gap-2 cursor-pointer py-0.5">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                const cur: string[] = (editingAddon as any)?.eligibleServiceIds || [];
+                                const next = checked ? cur.filter((id: string) => id !== svc.id) : [...cur, svc.id];
+                                setEditingAddon(prev => ({ ...prev!, eligibleServiceIds: next } as any));
+                              }}
+                              className="accent-primary"
+                            />
+                            <span className="text-[11px] text-white/70 font-bold">{svc.name}</span>
+                          </label>
+                        );
+                      })}
+                      {services.filter(s => s.isActive !== false).length === 0 && (
+                        <p className="text-[11px] text-white/30">No active services found.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Eligible Vehicle Sizes */}
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Eligible Vehicle Sizes</Label>
+                    <div className="flex gap-3 flex-wrap">
+                      {(["small", "midsize", "large", "xl"] as const).map(sz => {
+                        const checked = ((editingAddon as any)?.eligibleVehicleSizes || []).includes(sz);
+                        return (
+                          <label key={sz} className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                const cur: string[] = (editingAddon as any)?.eligibleVehicleSizes || [];
+                                const next = checked ? cur.filter(s => s !== sz) : [...cur, sz];
+                                setEditingAddon(prev => ({ ...prev!, eligibleVehicleSizes: next } as any));
+                              }}
+                              className="accent-primary"
+                            />
+                            <span className="text-[11px] text-white/70 font-bold capitalize">{sz}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Condition Triggers */}
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Condition Triggers (comma-separated)</Label>
+                    <StableTextarea
+                      value={((editingAddon as any)?.conditionTriggers || []).join(", ")}
+                      onValueChange={val => {
+                        const triggers = val.split(",").map(t => t.trim()).filter(Boolean);
+                        setEditingAddon(prev => ({ ...prev!, conditionTriggers: triggers } as any));
+                      }}
+                      className="bg-black/40 border-white/10 text-white rounded-xl font-bold min-h-[60px] focus:ring-primary/20"
+                      placeholder="e.g. pet hair, stains, mud"
+                    />
+                  </div>
+
+                  {/* Price Floor */}
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-white">Price Floor ($)</Label>
+                    <NumberInput
+                      value={(editingAddon as any)?.priceFloor ?? 0}
+                      onValueChange={val => setEditingAddon(prev => ({ ...prev!, priceFloor: val } as any))}
+                      className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                    />
+                  </div>
+
+                  {/* Intelligence flags */}
+                  <div className="grid grid-cols-1 gap-3">
+                    <p className="font-black uppercase tracking-widest text-[10px] text-white/50">Intelligence & Package Flags</p>
+                    {[
+                      { key: "packageEligible", label: "Package Eligible" },
+                      { key: "aiRecommendable", label: "AI Recommendable" },
+                      { key: "requiresOwnerReview", label: "Requires Owner Review" },
+                    ].map(({ key, label }) => (
+                      <div key={key} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">{label}</Label>
+                        <Switch
+                          checked={(editingAddon as any)?.[key] ?? false}
+                          onCheckedChange={v => setEditingAddon(prev => ({ ...prev!, [key]: v } as any))}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-4 pt-6 border-t border-white/5">
-                  <Button 
-                    variant="ghost" 
-                    type="button" 
-                    onClick={() => setIsAddonDialogOpen(false)} 
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={() => setIsAddonDialogOpen(false)}
                     className="flex-1 text-[#A0A0A0] hover:text-white font-black uppercase tracking-widest text-[10px] h-14"
                   >
                     Abort
                   </Button>
-                  <Button 
-                    type="submit" 
+                  <Button
+                    type="submit"
                     className="flex-[2] bg-primary hover:bg-[#2A6CFF] text-white font-black rounded-2xl h-14 px-8 uppercase tracking-[0.2em] text-xs shadow-glow-blue transition-all hover:scale-105"
                   >
                     Authorize Add-on

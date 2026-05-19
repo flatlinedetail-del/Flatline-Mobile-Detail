@@ -5,7 +5,7 @@ import { db } from "../../firebase";
 import { useAuth } from "../../hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { installDetailFlowServices } from "../../services/seedData";
+import { installDetailFlowServices, installDetailFlowAddOns } from "../../services/seedData";
 import {
   ArrowLeft,
   Building2,
@@ -291,15 +291,174 @@ function ServicesPanel({ onBack, onOpenAdmin }: { onBack: () => void; onOpenAdmi
   );
 }
 
+// ─── Add-Ons panel ────────────────────────────────────────────────────────────
+
+function AddOnsPanel({ onBack, onOpenAdmin }: { onBack: () => void; onOpenAdmin: () => void }) {
+  const [addons, setAddons] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [installing, setInstalling] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, "addons"), orderBy("name", "asc")),
+      (snap) => {
+        setAddons(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return () => unsub();
+  }, []);
+
+  const active = addons.filter((a) => a.isActive !== false);
+  const inactive = addons.filter((a) => a.isActive === false);
+
+  const handleInstall = async () => {
+    setInstalling(true);
+    const tid = toast.loading("Installing DetailFlow add-ons…");
+    try {
+      const { created, updated, deactivated } = await installDetailFlowAddOns();
+      toast.success(`Done — ${created} created, ${updated} updated, ${deactivated} deactivated`, { id: tid });
+    } catch (err) {
+      console.error("[AddOnsPanel install]", err);
+      const msg = (err as Error)?.message || "Unknown error";
+      const isPermission = msg.toLowerCase().includes("permission") || msg.toLowerCase().includes("missing or insufficient");
+      toast.error(
+        isPermission
+          ? "Permission denied — your account role may not allow add-on edits. Ask your admin to run Install from the desktop panel."
+          : `Install failed: ${msg.slice(0, 120)}`,
+        { id: tid, duration: 8000 },
+      );
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const typeLabel = (t: string | undefined) => {
+    if (!t) return null;
+    const map: Record<string, string> = {
+      interior: "INT", exterior: "EXT", protection: "PROT",
+      condition_fee: "COND", convenience_fee: "CONV", customer_add_on: "ADD",
+    };
+    return map[t] ?? t.toUpperCase().slice(0, 4);
+  };
+
+  return (
+    <div className="space-y-4">
+      <PanelHeader title="Add-Ons" sub="Enhancements & condition fees" onBack={onBack} />
+
+      {/* Install button */}
+      <button
+        type="button"
+        onClick={handleInstall}
+        disabled={installing}
+        className="w-full flex items-center gap-2.5 rounded-xl border border-primary/30 bg-primary/[0.08] hover:bg-primary/[0.14] active:bg-primary/[0.06] transition-colors px-3 py-3 min-h-[52px]"
+      >
+        <div className="shrink-0 w-8 h-8 rounded-lg bg-primary/15 ring-1 ring-primary/30 flex items-center justify-center">
+          {installing ? <Loader2 className="w-4 h-4 text-primary animate-spin" /> : <DatabaseZap className="w-4 h-4 text-primary" />}
+        </div>
+        <div className="flex-1 min-w-0 text-left">
+          <p className="text-[13px] font-black text-primary leading-tight">Install DetailFlow Add-Ons</p>
+          <p className="text-[11px] text-primary/60 leading-tight mt-0.5">
+            Create or update the 16 approved add-ons
+          </p>
+        </div>
+      </button>
+
+      {/* Stats row */}
+      {!loading && (
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="rounded-xl border border-white/[0.07] bg-sidebar/40 p-3 text-center">
+            <p className="text-2xl font-black text-emerald-400 leading-none">{active.length}</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mt-1">Active</p>
+          </div>
+          <div className="rounded-xl border border-white/[0.07] bg-sidebar/40 p-3 text-center">
+            <p className="text-2xl font-black text-white/30 leading-none">{inactive.length}</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mt-1">Inactive</p>
+          </div>
+        </div>
+      )}
+
+      {/* List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="w-5 h-5 text-white/30 animate-spin" />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {active.length > 0 && (
+            <SectionCard title="Active Add-Ons">
+              {active.map((addon) => (
+                <div key={addon.id} className="flex items-center gap-3 px-3 py-3 border-b border-white/[0.04] last:border-b-0">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-bold text-white leading-tight truncate">{addon.name}</p>
+                    <p className="text-[11px] text-white/40 leading-tight mt-0.5">
+                      ${addon.vehicleSizePricing?.midsize ?? addon.price} · {addon.vehicleSizeDuration?.midsize ?? addon.estimatedDuration}m
+                    </p>
+                  </div>
+                  {addon.addOnType && (
+                    <span className="shrink-0 text-[9px] font-black text-white/30 bg-white/5 px-1.5 py-0.5 rounded">
+                      {typeLabel(addon.addOnType)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </SectionCard>
+          )}
+
+          {inactive.length > 0 && (
+            <SectionCard title="Inactive">
+              {inactive.map((addon) => (
+                <div key={addon.id} className="flex items-center gap-3 px-3 py-3 border-b border-white/[0.04] last:border-b-0 opacity-50">
+                  <XCircle className="w-4 h-4 text-white/30 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-bold text-white/60 leading-tight truncate">{addon.name}</p>
+                  </div>
+                </div>
+              ))}
+            </SectionCard>
+          )}
+
+          {addons.length === 0 && (
+            <div className="text-center py-10">
+              <p className="text-[13px] text-white/30">No add-ons found.</p>
+              <p className="text-[11px] text-white/20 mt-1">Tap "Install DetailFlow Add-Ons" to get started.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Open full admin */}
+      <button
+        type="button"
+        onClick={onOpenAdmin}
+        className="w-full flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.07] active:bg-white/[0.04] transition-colors px-3 py-3 min-h-[52px]"
+      >
+        <div className="shrink-0 w-8 h-8 rounded-lg bg-white/10 ring-1 ring-white/15 flex items-center justify-center">
+          <MonitorIcon className="w-4 h-4 text-white/50" />
+        </div>
+        <div className="flex-1 min-w-0 text-left">
+          <p className="text-[13px] font-bold text-white leading-tight">Open Full Add-Ons Editor</p>
+          <p className="text-[11px] text-white/40 leading-tight mt-0.5">Edit pricing, triggers, eligibility</p>
+        </div>
+        <ExternalLink className="w-3.5 h-3.5 text-white/30 shrink-0" />
+      </button>
+    </div>
+  );
+}
+
 // ─── Business Setup panel ────────────────────────────────────────────────────
 
 function BusinessSetupPanel({
   onBack,
   onServices,
+  onAddOns,
   navigate,
 }: {
   onBack: () => void;
   onServices: () => void;
+  onAddOns: () => void;
   navigate: (path: string) => void;
 }) {
   const admin = (tab: string) => navigate(`/settings?tab=${tab}&adminView=1`);
@@ -358,12 +517,11 @@ function BusinessSetupPanel({
         />
         <Row
           icon={<Plus className="w-4 h-4" />}
-          iconColor="text-white/50"
-          iconBg="bg-white/10 ring-white/15"
+          iconColor="text-amber-400"
+          iconBg="bg-amber-500/10 ring-amber-500/25"
           label="Add-Ons"
-          sub="Upsell enhancements per job"
-          onClick={() => admin("services")}
-          external
+          sub="Enhancements & condition fees"
+          onClick={onAddOns}
         />
         <Row
           icon={<Package className="w-4 h-4" />}
@@ -395,7 +553,7 @@ function SettingsHub({
   logout,
 }: {
   profile: any;
-  onPanel: (p: "business" | "services") => void;
+  onPanel: (p: "business" | "services" | "addons") => void;
   navigate: (path: string) => void;
   logout: () => Promise<void>;
 }) {
@@ -607,7 +765,7 @@ function SettingsHub({
 
 // ─── Root component ───────────────────────────────────────────────────────────
 
-type Panel = "business" | "services";
+type Panel = "business" | "services" | "addons";
 
 export default function FieldSettings() {
   const [panel, setPanel] = useState<Panel | null>(null);
@@ -623,11 +781,21 @@ export default function FieldSettings() {
     );
   }
 
+  if (panel === "addons") {
+    return (
+      <AddOnsPanel
+        onBack={() => setPanel("business")}
+        onOpenAdmin={() => navigate("/settings?tab=services&adminView=1")}
+      />
+    );
+  }
+
   if (panel === "business") {
     return (
       <BusinessSetupPanel
         onBack={() => setPanel(null)}
         onServices={() => setPanel("services")}
+        onAddOns={() => setPanel("addons")}
         navigate={navigate}
       />
     );
