@@ -335,7 +335,7 @@ function DispatchJobCard({ job }: { job: FieldJob }) {
 
             {/* Job number — backfilled on mount for existing jobs via getOrCreateJobNumber */}
             {displayJobNum && (
-              <p className="text-[8px] font-black text-white/30 tracking-widest leading-none -mt-0.5">
+              <p className="text-[8px] font-black text-white tracking-widest leading-none -mt-0.5">
                 {displayJobNum}
               </p>
             )}

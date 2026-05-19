@@ -425,7 +425,7 @@ export default function FieldInvoiceDetail() {
                 : `#${invoice.id.slice(-6).toUpperCase()}`}
             </p>
             {invoice.jobNumber && (
-              <p className="text-[9px] font-black text-white/35 tracking-widest leading-none mt-0.5">
+              <p className="text-[9px] font-black text-white tracking-widest leading-none mt-0.5">
                 Job {invoice.jobNumber}
               </p>
             )}

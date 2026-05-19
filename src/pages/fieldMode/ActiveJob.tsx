@@ -2185,7 +2185,7 @@ export default function ActiveJob() {
         <div className="flex items-center gap-2">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/35 leading-none">Job Command Center</p>
           {job.jobNumber && (
-            <span className="text-[9px] font-black text-primary/60 tracking-widest leading-none">{job.jobNumber}</span>
+            <span className="text-[9px] font-black text-white tracking-widest leading-none">{job.jobNumber}</span>
           )}
         </div>
         <h1 className="text-base font-black text-white leading-tight break-words">{job.clientName}</h1>
@@ -2962,7 +2962,7 @@ export default function ActiveJob() {
               {invoice ? "Invoice" : "Current Charges"}
             </DialogTitle>
             {job.jobNumber && (
-              <p className="text-[9px] font-black text-white/30 tracking-widest leading-none mt-0.5">
+              <p className="text-[9px] font-black text-white tracking-widest leading-none mt-0.5">
                 {job.jobNumber}
               </p>
             )}
