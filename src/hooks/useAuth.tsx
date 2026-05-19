@@ -15,6 +15,7 @@ interface AuthContextType {
   clientCategories: any[];
   loading: boolean;
   systemStatus: 'normal' | 'offline' | 'quota-exhausted' | 'permission-denied';
+  clearPermissionError: () => void;
   signIn: () => Promise<void>;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   signUp: (email: string, pass: string) => Promise<void>;
@@ -343,9 +344,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signOut(auth);
   };
 
+  const clearPermissionError = () => setSystemStatus('normal');
+
   const authContextValue = useMemo(() => ({
     user, profile: effectiveProfile, settings, services, addons, clientTypes, clientCategories,
-    loading, systemStatus, signIn, signInWithEmail, signUp, logout,
+    loading, systemStatus, clearPermissionError, signIn, signInWithEmail, signUp, logout,
     isAdmin, isManager, isTechnician, isReadOnly, canAccessAdmin, canAccessManager,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [user, effectiveProfile, settings, services, addons, clientTypes, clientCategories,

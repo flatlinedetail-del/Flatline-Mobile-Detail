@@ -29,7 +29,7 @@ import FieldModeBottomNav from "./FieldModeBottomNav";
  * the primary field workflow.
  */
 export default function FieldModeLayout() {
-  const { logout, profile, systemStatus, canAccessAdmin } = useAuth();
+  const { logout, profile, systemStatus, clearPermissionError, canAccessAdmin } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const renderStatusBanner = () => {
@@ -42,7 +42,7 @@ export default function FieldModeLayout() {
         bg = "bg-amber-600";
         break;
       case "permission-denied":
-        message = "Database permission issue";
+        message = "Database permission issue — tap to reload";
         bg = "bg-red-700";
         break;
       case "quota-exhausted":
@@ -52,8 +52,14 @@ export default function FieldModeLayout() {
       default:
         return null;
     }
+    const handleBannerTap = systemStatus === "permission-denied"
+      ? () => { clearPermissionError(); window.location.reload(); }
+      : undefined;
     return (
-      <div className={cn(bg, "text-white px-3 py-1 flex items-center justify-center gap-1.5 sticky top-0 z-[100] shadow-md h-6")}>
+      <div
+        className={cn(bg, "text-white px-3 py-1 flex items-center justify-center gap-1.5 sticky top-0 z-[100] shadow-md h-6", handleBannerTap && "cursor-pointer active:opacity-80")}
+        onClick={handleBannerTap}
+      >
         <ShieldAlert className="w-3 h-3 animate-pulse" />
         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-center">{message}</p>
       </div>
