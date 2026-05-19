@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { allocateJobNumber } from "../services/jobNumberService";
 import { collection, query, getDocs, doc, addDoc, updateDoc, serverTimestamp, orderBy, limit, where, onSnapshot, getDoc, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -1312,8 +1313,14 @@ export default function BookAppointment() {
       };
 
       try {
-        const docRef = await addDoc(collection(db, "appointments"), appointmentData);
-        
+        let jobNum = "";
+        try { jobNum = await allocateJobNumber(); } catch { /* non-fatal */ }
+
+        const docRef = await addDoc(collection(db, "appointments"), {
+          ...appointmentData,
+          ...(jobNum ? { jobNumber: jobNum } : {}),
+        });
+
         // Attempt to send notifications
         if (client?.email) {
           messagingService.sendEmail({

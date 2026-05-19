@@ -487,6 +487,7 @@ export interface Appointment extends SyncMetadata {
     afterHoursReason?: string;
     businessHoursSnapshot?: any;
   };
+  jobNumber?: string;
   invoiceNumber?: string;
   smsStatus?: {
     confirmationSent?: boolean;
@@ -660,6 +661,7 @@ export interface Invoice extends SyncMetadata {
   leadId?: string;
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
+  jobNumber?: string;
   invoiceNumber?: string;
   recommendedItems?: LineItem[];
   subtotal?: number;

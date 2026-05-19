@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { allocateJobNumber } from "../../services/jobNumberService";
 import {
   collection,
   query,
@@ -506,7 +507,16 @@ export default function FieldBookJob() {
       };
 
       try {
-        const docRef = await addDoc(collection(db, "appointments"), appointmentData);
+        // Best-effort: allocate job number before creating the document.
+        // If the counter transaction fails the appointment is still created
+        // without a jobNumber; it will be assigned lazily when the job is opened.
+        let jobNum = "";
+        try { jobNum = await allocateJobNumber(); } catch { /* non-fatal */ }
+
+        const docRef = await addDoc(collection(db, "appointments"), {
+          ...appointmentData,
+          ...(jobNum ? { jobNumber: jobNum } : {}),
+        });
 
         // Fire-and-forget confirmation messages
         if (finalClientEmail) {

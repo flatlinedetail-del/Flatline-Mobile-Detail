@@ -323,6 +323,13 @@ function DispatchJobCard({ job }: { job: FieldJob }) {
               </span>
             </div>
 
+            {/* Job number — shown when assigned, hidden for legacy jobs until opened */}
+            {job.jobNumber && (
+              <p className="text-[8px] font-black text-white/30 tracking-widest leading-none -mt-0.5">
+                {job.jobNumber}
+              </p>
+            )}
+
             {/* Vehicle / services */}
             {(job.vehicleInfo || job.serviceNames.length > 0) && (
               <p className="text-[9px] text-white/40 font-medium mt-0.5 leading-tight truncate">

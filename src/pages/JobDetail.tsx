@@ -1121,6 +1121,7 @@ export default function JobDetail() {
         paymentStatus: "unpaid",
         createdAt: serverTimestamp(),
         invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        jobNumber: (job as any).jobNumber || "",
         description: job.internalNotes || `Generated from Job #${id?.slice(-6).toUpperCase()}`,
         lateFeeEnabled: false,
         lateFeeType: "fixed",

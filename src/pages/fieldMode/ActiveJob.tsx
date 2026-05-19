@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { ensureJobNumber } from "../../services/jobNumberService";
 import {
   addDoc,
   arrayUnion,
@@ -1390,6 +1391,17 @@ export default function ActiveJob() {
     return () => unsub();
   }, [id]);
 
+  // ── Lazy job number assignment ───────────────────────────────────────────
+  // When an existing job is opened without a jobNumber, allocate one and
+  // write it back. The onSnapshot above will pick up the write and update
+  // `raw` + `job` automatically, so no local state patching is needed.
+  useEffect(() => {
+    if (!id || !raw || raw.jobNumber) return;
+    ensureJobNumber(id, raw.jobNumber).catch((e) =>
+      console.warn("[ActiveJob] lazy jobNumber assignment failed", e),
+    );
+  }, [id, raw?.jobNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Invoice subscription ─────────────────────────────────────────────────
   useEffect(() => {
     if (!id) return;
@@ -2104,6 +2116,7 @@ export default function ActiveJob() {
         paymentStatus: "unpaid",
         createdAt: serverTimestamp(),
         invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        jobNumber: (raw as any).jobNumber || "",
         lateFeeEnabled: false,
         lateFeeType: "fixed",
         lateFeeAmount: 0,
@@ -2169,7 +2182,12 @@ export default function ActiveJob() {
 
       {/* ── Header card ──────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-white/8 bg-gradient-to-br from-sidebar/80 via-sidebar/60 to-sidebar/40 p-3 space-y-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/35 leading-none">Job Command Center</p>
+        <div className="flex items-center gap-2">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/35 leading-none">Job Command Center</p>
+          {job.jobNumber && (
+            <span className="text-[9px] font-black text-primary/60 tracking-widest leading-none">{job.jobNumber}</span>
+          )}
+        </div>
         <h1 className="text-base font-black text-white leading-tight break-words">{job.clientName}</h1>
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 pt-0.5">
           <span className="text-[9px] font-black uppercase tracking-widest text-white/50 leading-none">
@@ -2943,6 +2961,11 @@ export default function ActiveJob() {
               <Receipt className="w-3.5 h-3.5 text-emerald-300" />
               {invoice ? "Invoice" : "Current Charges"}
             </DialogTitle>
+            {job.jobNumber && (
+              <p className="text-[9px] font-black text-white/30 tracking-widest leading-none mt-0.5">
+                {job.jobNumber}
+              </p>
+            )}
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">

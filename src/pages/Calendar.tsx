@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, doc, updateDoc, getDoc, where, deleteDoc, writeBatch, limit, Timestamp } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType, storage } from "../firebase";
+import { allocateJobNumber, allocateJobNumberRange } from "../services/jobNumberService";
 import { useAuth } from "../hooks/useAuth";
 import { normalizeRiskLevel, computeDepositRequirement } from "../lib/riskUtils";
 import { PageHeader } from "../components/PageHeader";
@@ -1345,11 +1346,17 @@ export default function Calendar() {
             currentDate = nextDate;
           }
 
+          // Allocate a contiguous range of job numbers in one transaction
+          let recStartNum = 0;
+          try { recStartNum = await allocateJobNumberRange(occurrences.length); } catch { /* non-fatal */ }
+
           const savePromises = occurrences.map((date, index) => {
+            const jobNum = recStartNum > 0 ? `DF-${recStartNum + index}` : "";
             return addDoc(collection(db, "appointments"), {
               ...appointmentData,
               scheduledAt: date,
               createdAt: serverTimestamp(),
+              ...(jobNum ? { jobNumber: jobNum } : {}),
               recurringInfo: {
                 ...appointmentData.recurringInfo,
                 occurrenceIndex: index + 1,
@@ -1381,9 +1388,13 @@ export default function Calendar() {
           };
 
           try {
+            let singleJobNum = "";
+            try { singleJobNum = await allocateJobNumber(); } catch { /* non-fatal */ }
+
             const docRef = await addDoc(collection(db, "appointments"), {
               ...appointmentData,
               createdAt: serverTimestamp(),
+              ...(singleJobNum ? { jobNumber: singleJobNum } : {}),
             });
 
             await createNotification({

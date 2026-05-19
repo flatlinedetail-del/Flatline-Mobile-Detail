@@ -43,6 +43,7 @@ export interface FieldJob {
   depositPaid?: boolean;
   clientRiskLevel?: "low" | "medium" | "high" | null;
   pendingOwnerReview?: boolean;
+  jobNumber?: string;
 }
 
 /**
@@ -91,6 +92,7 @@ export function toFieldJob(raw: Appointment | (Partial<Appointment> & Record<str
     depositPaid: Boolean(r.depositPaid),
     clientRiskLevel: (r.clientRiskLevelAtBooking as "low" | "medium" | "high" | null) ?? null,
     pendingOwnerReview: Boolean(r.pendingOwnerReview),
+    jobNumber: (r.jobNumber as string | undefined) || undefined,
   };
 }
 

@@ -106,6 +106,12 @@ service cloud.firestore {
       allow read: if true;
     }
 
+    // Sequential job number counter — read/write for any authenticated technician
+    match /counters/{counterId} {
+      allow read: if isTechnician();
+      allow write: if isTechnician();
+    }
+
     match /bundle_offers/{bundleId} {
       allow read, write: if isPublic();
     }
