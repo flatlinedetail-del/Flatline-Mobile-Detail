@@ -388,38 +388,46 @@ function TerminalStepDots({ current, total }: { current: number; total: number }
   );
 }
 
+// Decision a technician can make on a single upsell recommendation
+type RecDecision = "upgrade" | "upcoming" | "not_decided" | "declined";
+
+function decisionBadge(d: RecDecision): { label: string; cls: string } {
+  switch (d) {
+    case "upgrade":     return { label: "Upgrading Today", cls: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30" };
+    case "upcoming":    return { label: "Added to Upcoming", cls: "bg-sky-500/15 text-sky-300 ring-sky-500/30" };
+    case "not_decided": return { label: "Lead Created", cls: "bg-amber-500/15 text-amber-300 ring-amber-500/30" };
+    case "declined":    return { label: "Declined", cls: "bg-white/5 text-white/35 ring-white/10" };
+  }
+}
+
 function UpsellCard({
   rec,
-  selected,
-  onToggle,
+  decision,
+  onClick,
 }: {
   rec: UpsellRecommendation;
-  selected: boolean;
-  onToggle: () => void;
+  decision: RecDecision | null;
+  onClick: () => void;
 }) {
+  const badge = decision ? decisionBadge(decision) : null;
   return (
     <button
       type="button"
-      onClick={onToggle}
+      onClick={onClick}
       className={cn(
         "w-full text-left rounded-xl border transition-all duration-150 px-3 py-2.5",
-        selected
-          ? "border-emerald-500/40 bg-emerald-500/8 shadow-[0_0_12px_rgba(16,185,129,0.12)]"
-          : "border-white/8 bg-white/3 hover:bg-white/5",
+        decision === "upgrade"
+          ? "border-emerald-500/40 bg-emerald-500/6"
+          : decision === "upcoming"
+            ? "border-sky-500/30 bg-sky-500/5"
+            : decision === "not_decided"
+              ? "border-amber-500/25 bg-amber-500/4"
+              : decision === "declined"
+                ? "border-white/5 bg-white/2 opacity-50"
+                : "border-white/8 bg-white/3 hover:bg-white/5",
       )}
     >
-      <div className="flex items-start gap-2.5">
-        <div className={cn(
-          "shrink-0 w-5 h-5 rounded-md ring-1 flex items-center justify-center mt-0.5 transition-all",
-          selected
-            ? "bg-emerald-500/20 ring-emerald-500/40 text-emerald-400"
-            : "bg-white/5 ring-white/15 text-white/30",
-        )}>
-          {selected
-            ? <CheckCircle2 className="w-3 h-3" />
-            : <div className="w-2 h-2 rounded-full bg-white/20" />
-          }
-        </div>
+      <div className="flex items-center gap-2.5">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-[12px] font-bold text-white leading-tight">{rec.title}</p>
@@ -428,12 +436,20 @@ function UpsellCard({
             </span>
           </div>
           <p className="text-[10px] text-white/50 leading-tight mt-0.5 break-words">{rec.reason}</p>
-          {rec.estimatedPriceImpact != null && rec.estimatedPriceImpact > 0 && (
+          {rec.estimatedPriceImpact != null && rec.estimatedPriceImpact > 0 && !decision && (
             <p className={cn("text-[10px] font-bold mt-1 leading-none", priorityColor(rec.priority))}>
               +${rec.estimatedPriceImpact.toFixed(0)} est. revenue
             </p>
           )}
+          {badge && (
+            <span className={cn("inline-flex mt-1 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none", badge.cls)}>
+              {badge.label}
+            </span>
+          )}
         </div>
+        {!decision && (
+          <ChevronRight className="w-3.5 h-3.5 text-white/30 shrink-0" />
+        )}
       </div>
     </button>
   );
@@ -446,6 +462,12 @@ interface CompletionTerminalProps {
   upsellRecs: UpsellRecommendation[];
   addonRecs: UpsellRecommendation[];
   isRecurringClient: boolean;
+  /** Client ID for upsell lead creation (null when client not yet resolved). */
+  clientId: string | null;
+  /** Primary vehicle ID for upsell lead creation. */
+  vehicleId: string | null;
+  /** Future scheduled/confirmed appointments for this client. */
+  futureAppts: Appointment[];
   onClose: () => void;
   onCompleted: (markedPaid: boolean) => void;
 }
@@ -457,16 +479,26 @@ function CompletionTerminal({
   upsellRecs,
   addonRecs,
   isRecurringClient,
+  clientId,
+  vehicleId,
+  futureAppts,
   onClose,
   onCompleted,
 }: CompletionTerminalProps) {
   const [step, setStep] = useState<TerminalStep>(1);
-  const [selectedUpsells, setSelectedUpsells] = useState<Set<string>>(new Set());
-  const [selectedAddons, setSelectedAddons] = useState<Set<string>>(new Set());
   const [bookNextAppt, setBookNextAppt] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [processing, setProcessing] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+
+  // ── Decision tracking for each recommendation ───────────────────────────
+  const [recDecisions, setRecDecisions] = useState<Record<string, RecDecision>>({});
+  /** Rec currently shown in the decision overlay. */
+  const [pendingDecisionRec, setPendingDecisionRec] = useState<UpsellRecommendation | null>(null);
+  /** Whether the upcoming-appointment sub-list is expanded in the decision sheet. */
+  const [showUpcomingList, setShowUpcomingList] = useState(false);
+  const [savingDecision, setSavingDecision] = useState(false);
+  const [decisionFeedback, setDecisionFeedback] = useState<{ id: string; msg: string } | null>(null);
 
   // Total steps: skip Step 2 if no addons, skip Step 3 if not recurring
   const hasAddons = addonRecs.length > 0;
@@ -508,18 +540,109 @@ function CompletionTerminal({
 
   const balance = invoice ? (invoice.total || 0) - (invoice.amountPaid || 0) : 0;
 
-  // Derive accepted / declined arrays from terminal selections.
-  // "Accepted" = technician toggled the card on.
-  // "Declined" = card was shown but not selected (implicit skip).
+  // ── Recommendation decision handler ────────────────────────────────────
+  const handleRecDecision = async (
+    rec: UpsellRecommendation,
+    decision: RecDecision,
+    upcomingApptId?: string,
+  ) => {
+    setSavingDecision(true);
+    try {
+      if (decision === "not_decided") {
+        // Create an internal upsell lead so nothing falls through the cracks
+        await addDoc(collection(db, "leads"), {
+          name: job.clientName,
+          email: job.email || "",
+          phone: job.phone || "",
+          vehicleInfo: job.vehicleInfo || "",
+          requestedService: rec.title,
+          source: "field_revenue_terminal",
+          status: "new",
+          priority: rec.priority === "critical" ? "hot"
+            : rec.priority === "high" ? "high"
+            : "medium",
+          isInternal: true,
+          internalSourceType: "upsell",
+          notes: `Field Revenue Terminal — ${rec.reason}\n\nEst. value: $${(rec.estimatedPriceImpact ?? 0).toFixed(0)}`,
+          clientId: clientId ?? "",
+          vehicleId: vehicleId ?? rec.vehicleId ?? "",
+          appointmentId: jobId,
+          recommendedServiceId: rec.serviceId ?? "",
+          recommendedAddonId: rec.addonId ?? "",
+          estimatedValue: rec.estimatedPriceImpact ?? 0,
+          leadType: "upsell_recommendation",
+          recommendationPriority: rec.priority,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        setDecisionFeedback({ id: rec.id, msg: "Follow-up lead created" });
+      } else if (decision === "upcoming" && upcomingApptId) {
+        // Attach to a specific future appointment
+        await updateDoc(doc(db, "appointments", upcomingApptId), {
+          pendingRecommendations: arrayUnion({
+            recId: rec.id,
+            title: rec.title,
+            reason: rec.reason,
+            serviceId: rec.serviceId ?? "",
+            addonId: rec.addonId ?? "",
+            estimatedValue: rec.estimatedPriceImpact ?? 0,
+            priority: rec.priority,
+            addedFromJobId: jobId,
+            addedAt: new Date().toISOString(),
+          }),
+          updatedAt: serverTimestamp(),
+        });
+        setDecisionFeedback({ id: rec.id, msg: "Added to upcoming appointment" });
+      } else if (decision === "upcoming" && !upcomingApptId) {
+        // No upcoming appointment chosen — create a lead as fallback
+        await addDoc(collection(db, "leads"), {
+          name: job.clientName,
+          email: job.email || "",
+          phone: job.phone || "",
+          vehicleInfo: job.vehicleInfo || "",
+          requestedService: rec.title,
+          source: "field_revenue_terminal",
+          status: "new",
+          priority: rec.priority === "critical" ? "hot"
+            : rec.priority === "high" ? "high"
+            : "medium",
+          isInternal: true,
+          internalSourceType: "upsell",
+          notes: `Field Revenue Terminal — schedule on next visit.\n${rec.reason}\n\nEst. value: $${(rec.estimatedPriceImpact ?? 0).toFixed(0)}`,
+          clientId: clientId ?? "",
+          vehicleId: vehicleId ?? rec.vehicleId ?? "",
+          appointmentId: jobId,
+          recommendedServiceId: rec.serviceId ?? "",
+          recommendedAddonId: rec.addonId ?? "",
+          estimatedValue: rec.estimatedPriceImpact ?? 0,
+          leadType: "upsell_recommendation",
+          recommendationPriority: rec.priority,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        setDecisionFeedback({ id: rec.id, msg: "Lead created for next visit" });
+      }
+      setRecDecisions((prev) => ({ ...prev, [rec.id]: decision }));
+      setPendingDecisionRec(null);
+      setShowUpcomingList(false);
+      setTimeout(() => setDecisionFeedback(null), 2500);
+    } catch (e) {
+      console.warn("[Terminal] rec decision write failed", e);
+    } finally {
+      setSavingDecision(false);
+    }
+  };
+
+  // ── Build outcome arrays from explicit decisions ─────────────────────────
   function buildUpsellOutcome() {
-    const acceptedUpsellIds = [
-      ...Array.from(selectedUpsells),
-      ...Array.from(selectedAddons),
-    ];
-    const declinedUpsellIds = [
-      ...upsellRecs.filter((r) => !selectedUpsells.has(r.id)).map((r) => r.id),
-      ...addonRecs.filter((r) => !selectedAddons.has(r.id)).map((r) => r.id),
-    ];
+    const acceptedUpsellIds: string[] = [];
+    const declinedUpsellIds: string[] = [];
+    for (const rec of [...upsellRecs, ...addonRecs]) {
+      const d = recDecisions[rec.id];
+      if (d === "upgrade") acceptedUpsellIds.push(rec.id);
+      else if (d === "declined") declinedUpsellIds.push(rec.id);
+      // "not_decided" and "upcoming" are captured via lead/appointment writes above
+    }
     return { acceptedUpsellIds, declinedUpsellIds };
   }
 
@@ -646,7 +769,7 @@ function CompletionTerminal({
                 </div>
                 <div>
                   <p className="text-[12px] font-black text-white leading-none">Revenue Optimization</p>
-                  <p className="text-[9px] text-white/40 leading-none mt-0.5">Select any opportunities to note</p>
+                  <p className="text-[9px] text-white/40 leading-none mt-0.5">Tap a recommendation to decide</p>
                 </div>
               </div>
 
@@ -662,15 +785,18 @@ function CompletionTerminal({
                     <UpsellCard
                       key={rec.id}
                       rec={rec}
-                      selected={selectedUpsells.has(rec.id)}
-                      onToggle={() => setSelectedUpsells((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(rec.id)) next.delete(rec.id);
-                        else next.add(rec.id);
-                        return next;
-                      })}
+                      decision={recDecisions[rec.id] ?? null}
+                      onClick={() => { setPendingDecisionRec(rec); setShowUpcomingList(false); }}
                     />
                   ))}
+                </div>
+              )}
+
+              {/* Decision feedback toast */}
+              {decisionFeedback && upsellRecs.some((r) => r.id === decisionFeedback.id) && (
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/6 px-3 py-2 flex items-center gap-2">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <p className="text-[10px] text-emerald-300 font-bold">{decisionFeedback.msg}</p>
                 </div>
               )}
             </div>
@@ -685,7 +811,7 @@ function CompletionTerminal({
                 </div>
                 <div>
                   <p className="text-[12px] font-black text-white leading-none">Recommended Add-ons</p>
-                  <p className="text-[9px] text-white/40 leading-none mt-0.5">Based on vehicle &amp; service history</p>
+                  <p className="text-[9px] text-white/40 leading-none mt-0.5">Tap to decide what to do</p>
                 </div>
               </div>
 
@@ -694,16 +820,19 @@ function CompletionTerminal({
                   <UpsellCard
                     key={rec.id}
                     rec={rec}
-                    selected={selectedAddons.has(rec.id)}
-                    onToggle={() => setSelectedAddons((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(rec.id)) next.delete(rec.id);
-                      else next.add(rec.id);
-                      return next;
-                    })}
+                    decision={recDecisions[rec.id] ?? null}
+                    onClick={() => { setPendingDecisionRec(rec); setShowUpcomingList(false); }}
                   />
                 ))}
               </div>
+
+              {/* Decision feedback toast */}
+              {decisionFeedback && addonRecs.some((r) => r.id === decisionFeedback.id) && (
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/6 px-3 py-2 flex items-center gap-2">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <p className="text-[10px] text-emerald-300 font-bold">{decisionFeedback.msg}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -931,6 +1060,167 @@ function CompletionTerminal({
           </div>
         )}
       </div>
+
+      {/* ── Recommendation Decision Overlay ──────────────────────────────── */}
+      {pendingDecisionRec && (
+        <div className="absolute inset-0 z-20 flex flex-col justify-end rounded-t-2xl overflow-hidden">
+          {/* Dim backdrop — tap to dismiss */}
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => { if (!savingDecision) { setPendingDecisionRec(null); setShowUpcomingList(false); } }}
+          />
+
+          <div className="relative z-10 bg-[#111] border-t border-white/10 rounded-t-2xl max-h-[75vh] flex flex-col overflow-hidden">
+            {/* Handle */}
+            <div className="flex-none pt-2.5 pb-1 flex justify-center">
+              <div className="w-8 h-1 rounded-full bg-white/15" />
+            </div>
+
+            {/* Rec summary */}
+            <div className="flex-none px-4 pb-3 border-b border-white/8 space-y-1">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-black text-white leading-tight">{pendingDecisionRec.title}</p>
+                  <p className="text-[10px] text-white/45 leading-snug mt-0.5 break-words">{pendingDecisionRec.reason}</p>
+                </div>
+                {(pendingDecisionRec.estimatedPriceImpact ?? 0) > 0 && (
+                  <span className={cn("shrink-0 text-[12px] font-black tabular-nums mt-0.5", priorityColor(pendingDecisionRec.priority))}>
+                    +${pendingDecisionRec.estimatedPriceImpact!.toFixed(0)}
+                  </span>
+                )}
+              </div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/30">
+                What do you want to do with this?
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+              {/* Option 1 — Upgrade This Appointment */}
+              <button
+                type="button"
+                disabled={savingDecision}
+                onClick={() => handleRecDecision(pendingDecisionRec, "upgrade")}
+                className="w-full text-left rounded-xl border border-emerald-500/25 bg-emerald-500/7 hover:bg-emerald-500/12 active:bg-emerald-500/18 px-3 py-3 transition-all"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/25 flex items-center justify-center shrink-0">
+                    <Wrench className="w-3.5 h-3.5 text-emerald-300" />
+                  </div>
+                  <div>
+                    <p className="text-[12px] font-black text-white leading-none">Upgrade This Appointment</p>
+                    <p className="text-[9px] text-emerald-300/70 leading-tight mt-0.5">Apply to today's job — update service or add-on</p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Option 2 — Add to Upcoming Appointment */}
+              <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 overflow-hidden">
+                <button
+                  type="button"
+                  disabled={savingDecision}
+                  onClick={() => {
+                    if (futureAppts.length === 0) {
+                      // No upcoming appts — create lead as fallback immediately
+                      handleRecDecision(pendingDecisionRec, "upcoming");
+                    } else {
+                      setShowUpcomingList((v) => !v);
+                    }
+                  }}
+                  className="w-full text-left px-3 py-3 hover:bg-sky-500/8 active:bg-sky-500/12 transition-all"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-sky-500/15 ring-1 ring-sky-500/25 flex items-center justify-center shrink-0">
+                      <RefreshCw className="w-3.5 h-3.5 text-sky-300" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-black text-white leading-none">Add to Upcoming Appointment</p>
+                      <p className="text-[9px] text-sky-300/70 leading-tight mt-0.5">
+                        {futureAppts.length > 0
+                          ? `${futureAppts.length} upcoming appointment${futureAppts.length !== 1 ? "s" : ""} — tap to choose`
+                          : "No upcoming appointments — will create follow-up lead"}
+                      </p>
+                    </div>
+                    {futureAppts.length > 0 && (
+                      <ChevronRight className={cn("w-3.5 h-3.5 text-sky-400/50 shrink-0 transition-transform", showUpcomingList && "rotate-90")} />
+                    )}
+                  </div>
+                </button>
+
+                {/* Upcoming appointment picker */}
+                {showUpcomingList && futureAppts.length > 0 && (
+                  <div className="border-t border-sky-500/10 divide-y divide-white/5">
+                    {futureAppts.slice(0, 5).map((appt) => {
+                      const ms = (appt.scheduledAt as any)?.toMillis?.() ?? 0;
+                      const dateStr = ms ? new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+                      const names = (appt as any).serviceNames as string[] | undefined;
+                      return (
+                        <button
+                          key={appt.id}
+                          type="button"
+                          disabled={savingDecision}
+                          onClick={() => handleRecDecision(pendingDecisionRec, "upcoming", appt.id)}
+                          className="w-full text-left px-3 py-2.5 hover:bg-sky-500/8 active:bg-sky-500/12 transition-colors flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-bold text-white leading-tight truncate">
+                              {names && names.length > 0 ? names.join(", ") : "Appointment"}
+                            </p>
+                            <p className="text-[9px] text-sky-300/60 leading-none mt-0.5">{dateStr}</p>
+                          </div>
+                          <ChevronRight className="w-3 h-3 text-sky-400/50 shrink-0" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Option 3 — Not Decided */}
+              <button
+                type="button"
+                disabled={savingDecision}
+                onClick={() => handleRecDecision(pendingDecisionRec, "not_decided")}
+                className="w-full text-left rounded-xl border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 active:bg-amber-500/15 px-3 py-3 transition-all"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 ring-1 ring-amber-500/25 flex items-center justify-center shrink-0">
+                    <MessageSquare className="w-3.5 h-3.5 text-amber-300" />
+                  </div>
+                  <div>
+                    <p className="text-[12px] font-black text-white leading-none">Not Decided</p>
+                    <p className="text-[9px] text-amber-300/70 leading-tight mt-0.5">Creates a follow-up lead automatically</p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Option 4 — Decline */}
+              <button
+                type="button"
+                disabled={savingDecision}
+                onClick={() => handleRecDecision(pendingDecisionRec, "declined")}
+                className="w-full text-left rounded-xl border border-white/8 bg-white/3 hover:bg-white/6 active:bg-white/8 px-3 py-3 transition-all"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-white/5 ring-1 ring-white/10 flex items-center justify-center shrink-0">
+                    <X className="w-3.5 h-3.5 text-white/40" />
+                  </div>
+                  <div>
+                    <p className="text-[12px] font-black text-white/60 leading-none">Decline</p>
+                    <p className="text-[9px] text-white/30 leading-tight mt-0.5">Not interested — skip this recommendation</p>
+                  </div>
+                </div>
+              </button>
+
+              {savingDecision && (
+                <div className="flex items-center justify-center gap-2 py-2">
+                  <div className="w-3.5 h-3.5 border border-white/20 border-t-white/60 rounded-full animate-spin" />
+                  <span className="text-[9px] font-black uppercase tracking-widest text-white/40">Saving…</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1312,6 +1602,19 @@ export default function ActiveJob() {
     if (completedCount >= 2) return true;
     return false;
   }, [raw, terminalClient, terminalAppts]);
+
+  // ── Future appointments for "Add to Upcoming" flow ───────────────────────
+  const futureAppts = useMemo(() => {
+    const now = Date.now();
+    return terminalAppts.filter((a) => {
+      const ms = (a.scheduledAt as any)?.toMillis?.() ?? 0;
+      return (
+        ms > now &&
+        ["scheduled", "confirmed", "en_route"].includes(a.status) &&
+        a.id !== id
+      );
+    });
+  }, [terminalAppts, id]);
 
   // ── Upsell computation ──────────────────────────────────────────────────
   const { upsellRecs, addonRecs, upsellDiagnostic } = useMemo(() => {
@@ -2336,6 +2639,14 @@ export default function ActiveJob() {
           upsellRecs={upsellRecs}
           addonRecs={addonRecs}
           isRecurringClient={isRecurringClient}
+          clientId={
+            ((raw as any)?.clientId as string | undefined) ||
+            ((raw as any)?.matchedClientId as string | undefined) ||
+            ((raw as any)?.customerId as string | undefined) ||
+            null
+          }
+          vehicleId={((raw as any)?.vehicleId as string | undefined) || null}
+          futureAppts={futureAppts}
           onClose={() => setShowTerminal(false)}
           onCompleted={(markedPaid) => {
             setShowTerminal(false);
@@ -2618,7 +2929,33 @@ export default function ActiveJob() {
                   </div>
                 )}
 
-                {/* View full invoice button */}
+                {/* Payment CTAs */}
+                {(() => {
+                  const bal = (invoice.total ?? 0) - (invoice.amountPaid ?? 0);
+                  return bal > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowChargesSheet(false);
+                        navigate(`/invoices?invoiceId=${invoice.id}`);
+                      }}
+                      className={cn(
+                        "w-full rounded-xl px-3 py-3.5 flex items-center justify-center gap-2",
+                        "bg-gradient-to-r from-emerald-600/90 to-emerald-500/80",
+                        "border border-emerald-500/50",
+                        "shadow-[0_0_16px_rgba(16,185,129,0.25)]",
+                        "hover:shadow-[0_0_24px_rgba(16,185,129,0.4)]",
+                        "active:scale-[0.98] transition-all duration-150",
+                        "text-white font-black text-[12px] uppercase tracking-wide",
+                      )}
+                    >
+                      <DollarSign className="w-4 h-4" />
+                      Collect Payment · ${bal.toFixed(2)}
+                    </button>
+                  ) : null;
+                })()}
+
+                {/* View full invoice (secondary) */}
                 <button
                   type="button"
                   onClick={() => {
@@ -2729,8 +3066,33 @@ export default function ActiveJob() {
                   </div>
                 )}
 
-                <p className="text-[9px] text-white/25 text-center px-2 leading-snug">
-                  No invoice generated yet. Charges shown from appointment record.
+                {/* Generate Invoice & Collect — primary CTA when no invoice yet */}
+                <button
+                  type="button"
+                  disabled={generatingInvoice}
+                  onClick={() => {
+                    setShowChargesSheet(false);
+                    handleGenerateOrOpenInvoice();
+                  }}
+                  className={cn(
+                    "w-full rounded-xl px-3 py-3.5 flex items-center justify-center gap-2",
+                    "bg-gradient-to-r from-emerald-600/90 to-emerald-500/80",
+                    "border border-emerald-500/50",
+                    "shadow-[0_0_16px_rgba(16,185,129,0.25)]",
+                    "hover:shadow-[0_0_24px_rgba(16,185,129,0.4)]",
+                    "active:scale-[0.98] transition-all duration-150",
+                    "text-white font-black text-[12px] uppercase tracking-wide",
+                    generatingInvoice && "opacity-60 pointer-events-none",
+                  )}
+                >
+                  {generatingInvoice
+                    ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <Receipt className="w-4 h-4" />
+                  }
+                  {generatingInvoice ? "Generating Invoice…" : "Generate Invoice & Collect"}
+                </button>
+                <p className="text-[9px] text-white/20 text-center px-2 leading-snug">
+                  Charges above will be converted to a full invoice
                 </p>
               </>
             )}
