@@ -2188,8 +2188,21 @@ export default function ActiveJob() {
             <span className="text-[9px] font-black text-white tracking-widest leading-none">{job.jobNumber}</span>
           )}
         </div>
-        <h1 className="text-base font-black text-white leading-tight break-words">{job.clientName}</h1>
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 pt-0.5">
+        <div className="flex items-start justify-between gap-2">
+          <h1 className="flex-1 min-w-0 text-base font-black text-white leading-tight break-words">{job.clientName}</h1>
+          <button
+            type="button"
+            onClick={() => setShowChargesSheet(true)}
+            className={cn(
+              "shrink-0 self-start text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none",
+              paymentTone(job.paymentStatus),
+            )}
+          >
+            {paymentLabel(job.paymentStatus)}
+            {job.totalAmount > 0 ? ` · $${job.totalAmount.toFixed(2)}` : ""}
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <span className="text-[9px] font-black uppercase tracking-widest text-white/50 leading-none">
             {formatJobTime(job.scheduledAt)}
           </span>
@@ -2197,17 +2210,6 @@ export default function ActiveJob() {
           <span className="text-[9px] font-black uppercase tracking-widest text-white/70 leading-none">
             {statusLabel(job.status)}
           </span>
-          <button
-            type="button"
-            onClick={() => setShowChargesSheet(true)}
-            className={cn(
-              "ml-auto text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 leading-none",
-              paymentTone(job.paymentStatus),
-            )}
-          >
-            {paymentLabel(job.paymentStatus)}
-            {job.totalAmount > 0 ? ` · $${job.totalAmount.toFixed(2)}` : ""}
-          </button>
         </div>
 
         {/* Client risk / VIP / protected badge */}
