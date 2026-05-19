@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   addDoc,
@@ -963,6 +963,8 @@ export default function ActiveJob() {
   const [terminalClient, setTerminalClient] = useState<Client | null>(null);
   const [terminalAppts, setTerminalAppts] = useState<Appointment[]>([]);
   const [terminalVehicles, setTerminalVehicles] = useState<Vehicle[]>([]);
+  // Prevents re-firing appointment/vehicle queries on every snapshot update
+  const clientSecondaryLoadedRef = useRef(false);
 
   // Invoice for this appointment
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -1039,86 +1041,241 @@ export default function ActiveJob() {
     return () => unsub();
   }, [id]);
 
-  // ── Client subscription — risk badge + terminal context ─────────────────
+  // ── Client resolution — risk badge + terminal context ────────────────────
+  //
+  // Resolution priority (first match wins):
+  //   A. raw.clientId          — set by admin-created appointments
+  //   B. raw.matchedClientId   — set by public booking gate when an existing
+  //                              client was matched by email/phone
+  //   C. raw.customerId        — older/fallback field; may be a booking UUID
+  //                              that does NOT correspond to a clients doc
+  //   D. email lookup           — query clients by customerEmail / email
+  //   E. phone lookup           — query clients by phone (raw and digits-only)
+  //
+  // The direct-ID path (A/B/C) keeps a live onSnapshot so the risk badge
+  // updates if an admin edits the client mid-session. Fallback paths (D/E)
+  // use a one-time getDocs — acceptable for unlinked clients.
   useEffect(() => {
     if (!raw) return;
 
+    const r = raw as any;
     const aptProtectedMatch = raw.protectedClientMatch === true;
     const aptProtectionLevel = (raw.protectionLevel as string | null) ?? null;
-    const clientId = (raw.clientId as string | undefined) || (raw.customerId as string | undefined);
 
-    if (!clientId) {
-      setClientRisk(deriveClientRisk(null, aptProtectedMatch, aptProtectionLevel));
-      return;
-    }
+    // ── Diagnostic log: raw appointment client fields ─────────────────────
+    console.log("[ActiveJob] appointment client fields", {
+      appointmentId: id,
+      clientId: r.clientId,
+      matchedClientId: r.matchedClientId,
+      customerId: r.customerId,
+      clientName: r.clientName,
+      customerName: r.customerName,
+      email: r.email,
+      customerEmail: r.customerEmail,
+      phone: r.phone,
+      customerPhone: r.customerPhone,
+    });
+
+    // Ordered list of direct-ID candidates to try against clients/{id}
+    const directIdCandidates: string[] = [
+      r.clientId,
+      r.matchedClientId,
+      r.customerId,
+    ].filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+
+    // Email + phone for fallback queries
+    const emailRaw: string = (r.customerEmail || r.email || r.clientEmail || "").trim();
+    const emailNorm: string = emailRaw.toLowerCase();
+    const phoneRaw: string = (r.customerPhone || r.phone || r.clientPhone || "").trim();
+    const phoneDigits: string = phoneRaw.replace(/\D/g, "");
+    const phoneNorm: string =
+      phoneDigits.length === 11 && phoneDigits.startsWith("1")
+        ? phoneDigits.slice(1)
+        : phoneDigits;
 
     setClientRiskLoading(true);
-    const clientRef = doc(db, "clients", clientId);
-    const unsub = onSnapshot(
-      clientRef,
-      (snap) => {
-        if (!snap.exists()) {
-          setClientRisk(deriveClientRisk(null, aptProtectedMatch, aptProtectionLevel));
-          setTerminalClient(null);
-        } else {
-          const clientData = { id: snap.id, ...(snap.data() as Record<string, unknown>) };
-          setClientRisk(deriveClientRisk(clientData, aptProtectedMatch, aptProtectionLevel));
-          setTerminalClient(clientData as unknown as Client);
-        }
-        setClientRiskLoading(false);
-      },
-      (err) => {
-        console.warn("[ActiveJob] client risk snapshot error", err);
-        setClientRisk(deriveClientRisk(null, aptProtectedMatch, aptProtectionLevel));
-        setClientRiskLoading(false);
-      },
-    );
+    // Reset secondary-load guard when the appointment changes
+    clientSecondaryLoadedRef.current = false;
 
-    // Load client appointments for upsell context.
-    // Query both clientId and customerId fields so older records stored with
-    // only customerId are included, giving computeUpsells the full history.
-    const apptByClientId = getDocs(query(
-      collection(db, "appointments"),
-      where("clientId", "==", clientId),
-      orderBy("scheduledAt", "desc"),
-      limit(20),
-    ));
-    const apptByCustomerId = getDocs(query(
-      collection(db, "appointments"),
-      where("customerId", "==", clientId),
-      orderBy("scheduledAt", "desc"),
-      limit(20),
-    ));
-    Promise.all([apptByClientId, apptByCustomerId])
-      .then(([s1, s2]) => {
-        const seen = new Set<string>();
-        const merged: Appointment[] = [];
-        for (const snap of [s1, s2]) {
-          for (const d of snap.docs) {
-            if (!seen.has(d.id)) {
-              seen.add(d.id);
-              merged.push({ id: d.id, ...(d.data() as object) } as Appointment);
+    let cancelled = false;
+    let activeUnsub: (() => void) | null = null;
+
+    // ── Load appointment history + vehicles once per resolved client ────────
+    const loadSecondaryData = (resolvedId: string) => {
+      if (clientSecondaryLoadedRef.current) return;
+      clientSecondaryLoadedRef.current = true;
+
+      const q1 = getDocs(query(
+        collection(db, "appointments"),
+        where("clientId", "==", resolvedId),
+        orderBy("scheduledAt", "desc"),
+        limit(20),
+      ));
+      const q2 = getDocs(query(
+        collection(db, "appointments"),
+        where("customerId", "==", resolvedId),
+        orderBy("scheduledAt", "desc"),
+        limit(20),
+      ));
+      Promise.all([q1, q2])
+        .then(([s1, s2]) => {
+          if (cancelled) return;
+          const seen = new Set<string>();
+          const merged: Appointment[] = [];
+          for (const snap of [s1, s2]) {
+            for (const d of snap.docs) {
+              if (!seen.has(d.id)) {
+                seen.add(d.id);
+                merged.push({ id: d.id, ...(d.data() as object) } as Appointment);
+              }
             }
           }
+          merged.sort((a, b) => {
+            const aMs = (a.scheduledAt as any)?.toMillis?.() ?? 0;
+            const bMs = (b.scheduledAt as any)?.toMillis?.() ?? 0;
+            return bMs - aMs;
+          });
+          setTerminalAppts(merged.slice(0, 30));
+        })
+        .catch(() => {});
+
+      getDocs(query(collection(db, "vehicles"), where("clientId", "==", resolvedId)))
+        .then((snap) => {
+          if (cancelled) return;
+          setTerminalVehicles(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Vehicle)));
+        })
+        .catch(() => {});
+    };
+
+    // ── Apply resolved client data to state ─────────────────────────────────
+    const applyClient = (
+      clientData: Record<string, unknown> | null,
+      method: string,
+    ) => {
+      if (cancelled) return;
+      console.log("[ActiveJob] resolved client", {
+        resolvedClientId: clientData?.id ?? null,
+        method,
+        found: Boolean(clientData),
+      });
+      if (clientData) {
+        setClientRisk(deriveClientRisk(clientData, aptProtectedMatch, aptProtectionLevel));
+        setTerminalClient(clientData as unknown as Client);
+        loadSecondaryData(clientData.id as string);
+      } else {
+        setClientRisk(deriveClientRisk(null, aptProtectedMatch, aptProtectionLevel));
+        setTerminalClient(null);
+      }
+      setClientRiskLoading(false);
+    };
+
+    // ── Path D: email fallback ───────────────────────────────────────────────
+    const tryEmail = () => {
+      if (cancelled) return;
+      if (emailNorm.length <= 3) { tryPhone(); return; }
+      getDocs(query(
+        collection(db, "clients"),
+        where("email", "==", emailNorm),
+        limit(1),
+      )).then((snap) => {
+        if (cancelled) return;
+        if (!snap.empty) {
+          const d = snap.docs[0];
+          applyClient({ id: d.id, ...(d.data() as Record<string, unknown>) }, "email");
+        } else {
+          tryPhone();
         }
-        // Re-sort descending by scheduledAt after merging
-        merged.sort((a, b) => {
-          const aMs = (a.scheduledAt as any)?.toMillis?.() ?? 0;
-          const bMs = (b.scheduledAt as any)?.toMillis?.() ?? 0;
-          return bMs - aMs;
-        });
-        setTerminalAppts(merged.slice(0, 30));
-      })
-      .catch(() => {});
+      }).catch(() => { if (!cancelled) tryPhone(); });
+    };
 
-    // Load client vehicles so service-timing upsell rules have real vehicle data
-    const vehicleQ = query(collection(db, "vehicles"), where("clientId", "==", clientId));
-    getDocs(vehicleQ)
-      .then((snap) => setTerminalVehicles(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Vehicle))))
-      .catch(() => {});
+    // ── Path E: phone fallback ───────────────────────────────────────────────
+    const tryPhone = () => {
+      if (cancelled) return;
+      if (phoneNorm.length < 7) { applyClient(null, "not_found"); return; }
+      // Try normalized 10-digit form first, then raw string
+      getDocs(query(
+        collection(db, "clients"),
+        where("phone", "==", phoneNorm.length === 10 ? phoneNorm : phoneRaw),
+        limit(1),
+      )).then((snap) => {
+        if (cancelled) return;
+        if (!snap.empty) {
+          const d = snap.docs[0];
+          applyClient({ id: d.id, ...(d.data() as Record<string, unknown>) }, "phone");
+        } else if (phoneNorm !== phoneRaw) {
+          // Try the raw form if normalized differed
+          getDocs(query(
+            collection(db, "clients"),
+            where("phone", "==", phoneRaw),
+            limit(1),
+          )).then((snap2) => {
+            if (cancelled) return;
+            if (!snap2.empty) {
+              const d = snap2.docs[0];
+              applyClient({ id: d.id, ...(d.data() as Record<string, unknown>) }, "phone_raw");
+            } else {
+              applyClient(null, "not_found");
+            }
+          }).catch(() => { if (!cancelled) applyClient(null, "not_found"); });
+        } else {
+          applyClient(null, "not_found");
+        }
+      }).catch(() => { if (!cancelled) applyClient(null, "not_found"); });
+    };
 
-    return () => unsub();
-  }, [raw]);
+    // ── Paths A/B/C: try each direct-ID candidate in order ──────────────────
+    // Walk candidates; open a live snapshot on the first one that EXISTS.
+    // If none exist, fall through to email/phone.
+    let candidateIndex = 0;
+    const tryNextCandidate = () => {
+      if (cancelled) return;
+      if (candidateIndex >= directIdCandidates.length) {
+        // All IDs tried and none found a doc → fall through to email/phone
+        tryEmail();
+        return;
+      }
+      const tryId = directIdCandidates[candidateIndex++];
+      const clientRef = doc(db, "clients", tryId);
+      // Peek once — if doc exists, open live subscription; else try next
+      getDocs(query(
+        collection(db, "clients"),
+        where("__name__", "==", tryId),
+        limit(1),
+      )).then((peekSnap) => {
+        if (cancelled) return;
+        if (!peekSnap.empty) {
+          // Doc exists — open live onSnapshot for real-time updates
+          activeUnsub = onSnapshot(
+            clientRef,
+            (snap) => {
+              if (cancelled) return;
+              if (snap.exists()) {
+                const clientData = { id: snap.id, ...(snap.data() as Record<string, unknown>) };
+                applyClient(clientData, candidateIndex === 1 ? "clientId" : candidateIndex === 2 ? "matchedClientId" : "customerId");
+              }
+              // If it disappears mid-session, don't clear — keep last known value
+            },
+            (err) => {
+              console.warn("[ActiveJob] client snapshot error", err);
+              if (!cancelled) setClientRiskLoading(false);
+            },
+          );
+        } else {
+          // Doc doesn't exist for this candidate — try next
+          tryNextCandidate();
+        }
+      }).catch(() => {
+        if (!cancelled) tryNextCandidate();
+      });
+    };
+
+    tryNextCandidate();
+
+    return () => {
+      cancelled = true;
+      activeUnsub?.();
+    };
+  }, [raw, id]);
 
   // ── Cancellation fee preview ────────────────────────────────────────────
   const feePreview = useMemo(() => {
@@ -1162,7 +1319,7 @@ export default function ActiveJob() {
       return {
         upsellRecs: [],
         addonRecs: [],
-        upsellDiagnostic: "Client data not loaded yet",
+        upsellDiagnostic: "No linked client profile found — link or create a client to unlock intelligence",
       };
     }
     // Combine all available note sources for the condition-signal rule
