@@ -1,4 +1,4 @@
-import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, where, doc, setDoc, deleteDoc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, where, doc, setDoc, deleteDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { addDays, subDays, subMonths, setHours, setMinutes } from "date-fns";
 import { ensureClientTypes } from "./clientService";
@@ -387,4 +387,220 @@ export async function importFullServiceSystem() {
     console.error("Error importing service system:", error);
     return false;
   }
+}
+
+/**
+ * Non-destructive installer for the DetailFlow approved service menu.
+ * - Creates or updates the 6 approved packages (never hard-deletes).
+ * - Marks services whose name contains "(Demo)" as inactive.
+ * - Ensures required service categories exist.
+ * - Safe to run repeatedly; skips docs that already match.
+ */
+export async function installDetailFlowServices(): Promise<{ created: number; updated: number; deactivated: number }> {
+  type RebookingBehavior = "none" | "suggest_next" | "require_next_prompt" | "recurring_recommended";
+
+  const packages: Array<{
+    name: string;
+    description: string;
+    category: string;
+    basePrice: number;
+    pricingBySize: Record<string, number>;
+    estimatedDuration: number;
+    bufferTimeMinutes: number;
+    isTaxable: boolean;
+    requiresWaiver: boolean;
+    isActive: boolean;
+    recommendedFrequencyDays: number;
+    recurringEligible: boolean;
+    rebookingBehavior: RebookingBehavior;
+    priceFloor: number;
+    packageEligible: boolean;
+    aiRecommendable: boolean;
+    upgradeToNames: string[];
+  }> = [
+    {
+      name: "Xpress Detail",
+      description: "A fast maintenance detail designed to refresh your vehicle inside and out. Best for vehicles in fair to good condition needing a clean, polished look without a deep reset. Includes exterior hand wash, wheels/tires/wheel wells, tire shine, exterior windows, light interior vacuum, interior wipe-down, door jamb wipe-down, and interior windows.",
+      category: "Maintenance",
+      basePrice: 110,
+      pricingBySize: { small: 90, medium: 110, large: 130, extra_large: 150 },
+      estimatedDuration: 90,
+      bufferTimeMinutes: 15,
+      isTaxable: true,
+      requiresWaiver: false,
+      isActive: true,
+      recommendedFrequencyDays: 30,
+      recurringEligible: true,
+      rebookingBehavior: "suggest_next",
+      priceFloor: 90,
+      packageEligible: true,
+      aiRecommendable: true,
+      upgradeToNames: ["Full Detail", "Premium Detail"],
+    },
+    {
+      name: "Maintenance Detail",
+      description: "A recurring-client maintenance service designed to keep a previously detailed vehicle clean, protected, and easy to maintain. Ideal for clients on a regular schedule. Includes exterior hand wash, wheels/tires, tire dressing, interior vacuum, interior wipe-down, glass cleaning, light dust removal, and quick condition check. Available for approved maintenance clients or vehicles recently serviced by us.",
+      category: "Maintenance",
+      basePrice: 100,
+      pricingBySize: { small: 85, medium: 100, large: 120, extra_large: 140 },
+      estimatedDuration: 75,
+      bufferTimeMinutes: 15,
+      isTaxable: true,
+      requiresWaiver: false,
+      isActive: true,
+      recommendedFrequencyDays: 30,
+      recurringEligible: true,
+      rebookingBehavior: "recurring_recommended",
+      priceFloor: 85,
+      packageEligible: true,
+      aiRecommendable: true,
+      upgradeToNames: ["Xpress Detail", "Full Detail"],
+    },
+    {
+      name: "Interior Reset",
+      description: "A deeper interior cleaning service designed to restore the inside of your vehicle to a fresher, cleaner condition. Targets built-up dirt, dust, grime, and daily-use wear. Includes thorough vacuum, seats/carpets/mats/cargo area, interior panels/dashboard/console/cupholders, door panels and jambs, interior glass, light stain treatment, and steam or deep cleaning where appropriate.",
+      category: "Interior",
+      basePrice: 200,
+      pricingBySize: { small: 175, medium: 200, large: 235, extra_large: 275 },
+      estimatedDuration: 180,
+      bufferTimeMinutes: 20,
+      isTaxable: true,
+      requiresWaiver: false,
+      isActive: true,
+      recommendedFrequencyDays: 90,
+      recurringEligible: false,
+      rebookingBehavior: "suggest_next",
+      priceFloor: 175,
+      packageEligible: true,
+      aiRecommendable: true,
+      upgradeToNames: ["Full Detail", "Premium Detail"],
+    },
+    {
+      name: "Clay & Seal Exterior",
+      description: "An exterior protection service designed to remove bonded surface contamination and leave paint smooth, glossy, and protected. Ideal when paint feels rough or no longer beads water. Includes exterior hand wash, wheels/tires, paint decontamination, clay treatment, bug and road grime removal, exterior glass, paint sealant, and tire dressing.",
+      category: "Exterior Protection",
+      basePrice: 200,
+      pricingBySize: { small: 175, medium: 200, large: 235, extra_large: 265 },
+      estimatedDuration: 180,
+      bufferTimeMinutes: 20,
+      isTaxable: true,
+      requiresWaiver: false,
+      isActive: true,
+      recommendedFrequencyDays: 120,
+      recurringEligible: false,
+      rebookingBehavior: "suggest_next",
+      priceFloor: 175,
+      packageEligible: true,
+      aiRecommendable: true,
+      upgradeToNames: ["Premium Detail"],
+    },
+    {
+      name: "Full Detail",
+      description: "A complete inside-and-out detail for clients wanting their vehicle thoroughly cleaned, refreshed, and protected. Best all-around package for most vehicles. Includes exterior hand wash, wheels/tires/wheel wells, tire dressing, exterior glass, interior deep vacuum, interior panels/console/door panels, seats/carpets/mats/cargo, interior glass, door jambs, light stain treatment, basic exterior protection, and final inspection.",
+      category: "Complete Detail",
+      basePrice: 285,
+      pricingBySize: { small: 250, medium: 285, large: 325, extra_large: 375 },
+      estimatedDuration: 270,
+      bufferTimeMinutes: 30,
+      isTaxable: true,
+      requiresWaiver: false,
+      isActive: true,
+      recommendedFrequencyDays: 90,
+      recurringEligible: false,
+      rebookingBehavior: "require_next_prompt",
+      priceFloor: 250,
+      packageEligible: true,
+      aiRecommendable: true,
+      upgradeToNames: ["Premium Detail"],
+    },
+    {
+      name: "Premium Detail",
+      description: "Our most complete non-coating detail package for clients wanting a higher-level finish, deeper cleaning, and upgraded protection. Includes everything in the Full Detail plus enhanced exterior wash process, paint decontamination, clay treatment where needed, upgraded paint protection, detailed wheel and tire cleaning, more detailed interior cleaning, leather/plastic/vinyl conditioning, light spot/stain treatment, and final quality inspection.",
+      category: "Premium Detail",
+      basePrice: 425,
+      pricingBySize: { small: 375, medium: 425, large: 475, extra_large: 550 },
+      estimatedDuration: 420,
+      bufferTimeMinutes: 30,
+      isTaxable: true,
+      requiresWaiver: false,
+      isActive: true,
+      recommendedFrequencyDays: 120,
+      recurringEligible: false,
+      rebookingBehavior: "require_next_prompt",
+      priceFloor: 375,
+      packageEligible: true,
+      aiRecommendable: true,
+      upgradeToNames: [],
+    },
+  ];
+
+  // Ensure required service categories exist
+  const requiredCategories = ["Maintenance", "Interior", "Exterior Protection", "Complete Detail", "Premium Detail"];
+  for (const catName of requiredCategories) {
+    const catQ = query(collection(db, "categories"), where("name", "==", catName), where("type", "==", "service"));
+    const catSnap = await getDocs(catQ);
+    if (catSnap.empty) {
+      await addDoc(collection(db, "categories"), { name: catName, type: "service", isActive: true, sortOrder: 99 });
+    }
+  }
+
+  // Pass 1: create or update each service, build name→id map
+  const nameToId: Record<string, string> = {};
+  let created = 0;
+  let updated = 0;
+
+  for (const pkg of packages) {
+    const { upgradeToNames, ...fields } = pkg;
+    const q = query(collection(db, "services"), where("name", "==", pkg.name));
+    const snap = await getDocs(q);
+    if (snap.empty) {
+      const ref = await addDoc(collection(db, "services"), { ...fields, upgradeToServiceIds: [] });
+      nameToId[pkg.name] = ref.id;
+      created++;
+    } else {
+      const existing = snap.docs[0].data();
+      await setDoc(doc(db, "services", snap.docs[0].id), {
+        ...existing,
+        ...fields,
+        // preserve deposit/warranty settings from existing doc
+        depositRequired: existing.depositRequired ?? false,
+        depositType: existing.depositType,
+        depositAmount: existing.depositAmount,
+        hasWarranty: existing.hasWarranty ?? false,
+        warrantyLengthMonths: existing.warrantyLengthMonths,
+        warrantyType: existing.warrantyType,
+        warrantyCoverageDetails: existing.warrantyCoverageDetails,
+        warrantyMaintenanceRequired: existing.warrantyMaintenanceRequired,
+        maintenanceReturnEnabled: existing.maintenanceReturnEnabled ?? false,
+        maintenanceIntervalDays: existing.maintenanceIntervalDays,
+        maintenanceIntervalMonths: existing.maintenanceIntervalMonths,
+      });
+      nameToId[pkg.name] = snap.docs[0].id;
+      updated++;
+    }
+  }
+
+  // Pass 2: write upgradeToServiceIds now that all IDs are known
+  for (const pkg of packages) {
+    const id = nameToId[pkg.name];
+    if (!id) continue;
+    const upgradeIds = pkg.upgradeToNames.map(n => nameToId[n]).filter(Boolean);
+    await updateDoc(doc(db, "services", id), { upgradeToServiceIds: upgradeIds });
+  }
+
+  // Pass 3: deactivate services with "(Demo)" in their name
+  const allSnap = await getDocs(collection(db, "services"));
+  const batch = writeBatch(db);
+  let deactivated = 0;
+  for (const d of allSnap.docs) {
+    const name = (d.data().name as string) || "";
+    if (name.includes("(Demo)") && d.data().isActive !== false) {
+      batch.update(d.ref, { isActive: false });
+      deactivated++;
+    }
+  }
+  await batch.commit();
+
+  console.log(`[installDetailFlowServices] created=${created} updated=${updated} deactivated=${deactivated}`);
+  return { created, updated, deactivated };
 }

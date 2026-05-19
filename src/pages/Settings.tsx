@@ -63,7 +63,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
-import { seedDemoData, seedServiceTimingDemo, importFullServiceSystem } from "../services/seedData";
+import { seedDemoData, seedServiceTimingDemo, importFullServiceSystem, installDetailFlowServices } from "../services/seedData";
 import {
   loadAISettings,
   saveAISettings,
@@ -384,6 +384,7 @@ export default function Settings() {
   const [editingCoupon, setEditingCoupon] = useState<Partial<Coupon> | null>(null);
   const [editingClientType, setEditingClientType] = useState<any | null>(null);
   const [editingClientCategory, setEditingClientCategory] = useState<any | null>(null);
+  const [installingServices, setInstallingServices] = useState(false);
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
   const [isAddonDialogOpen, setIsAddonDialogOpen] = useState(false);
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
@@ -1050,6 +1051,20 @@ export default function Settings() {
       toast.error("Failed to update profile");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleInstallDetailFlowServices = async () => {
+    setInstallingServices(true);
+    const tid = toast.loading("Installing DetailFlow service packages...");
+    try {
+      const { created, updated, deactivated } = await installDetailFlowServices();
+      toast.success(`Done — ${created} created, ${updated} updated, ${deactivated} deactivated`, { id: tid });
+    } catch (err) {
+      console.error("[handleInstallDetailFlowServices]", err);
+      toast.error("Install failed — check console", { id: tid });
+    } finally {
+      setInstallingServices(false);
     }
   };
 
@@ -3437,22 +3452,34 @@ export default function Settings() {
                   <CardTitle className="text-xl font-black text-white uppercase tracking-tighter font-heading">Service <span className="text-primary italic">Protocols</span></CardTitle>
                   <CardDescription className="text-[10px] text-[#A0A0A0] font-black uppercase tracking-widest mt-1">Manage your primary detailing packages</CardDescription>
                 </div>
-                <Button size="sm" className="bg-primary hover:opacity-90 text-white font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02]" onClick={() => {
-                  setEditingService({
-                    name: "",
-                    description: "",
-                    category: "interior",
-                    basePrice: 0,
-                    pricingBySize: { small: 0, medium: 0, large: 0, extra_large: 0 },
-                    isTaxable: true,
-                    estimatedDuration: 60,
-                    requiresWaiver: false,
-                    isActive: true
-                  });
-                  setIsServiceDialogOpen(true);
-                }}>
-                  <Plus className="w-4 h-4 mr-2" /> Add Protocol
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-primary/30 text-primary hover:bg-primary/10 font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] transition-all hover:scale-[1.02]"
+                    onClick={handleInstallDetailFlowServices}
+                    disabled={installingServices}
+                  >
+                    {installingServices ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <DatabaseZap className="w-4 h-4 mr-2" />}
+                    Install DetailFlow Services
+                  </Button>
+                  <Button size="sm" className="bg-primary hover:opacity-90 text-white font-black rounded-xl h-10 px-4 uppercase tracking-widest text-[10px] shadow-glow-blue transition-all hover:scale-[1.02]" onClick={() => {
+                    setEditingService({
+                      name: "",
+                      description: "",
+                      category: "interior",
+                      basePrice: 0,
+                      pricingBySize: { small: 0, medium: 0, large: 0, extra_large: 0 },
+                      isTaxable: true,
+                      estimatedDuration: 60,
+                      requiresWaiver: false,
+                      isActive: true
+                    });
+                    setIsServiceDialogOpen(true);
+                  }}>
+                    <Plus className="w-4 h-4 mr-2" /> Add Protocol
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="p-8 space-y-4">
                 {services.map(service => (
@@ -3590,23 +3617,95 @@ export default function Settings() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Taxable</Label>
-                      <Switch 
-                        checked={editingService?.isTaxable ?? true} 
+                      <Switch
+                        checked={editingService?.isTaxable ?? true}
                         onCheckedChange={v => setEditingService(prev => ({ ...prev!, isTaxable: v }))}
                       />
                     </div>
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Requires Waiver</Label>
-                      <Switch 
-                        checked={editingService?.requiresWaiver ?? false} 
+                      <Switch
+                        checked={editingService?.requiresWaiver ?? false}
                         onCheckedChange={v => setEditingService(prev => ({ ...prev!, requiresWaiver: v }))}
                       />
                     </div>
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Active Status</Label>
-                      <Switch 
-                        checked={editingService?.isActive ?? true} 
+                      <Switch
+                        checked={editingService?.isActive ?? true}
                         onCheckedChange={v => setEditingService(prev => ({ ...prev!, isActive: v }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-6 pt-6 border-t border-white/5">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#A0A0A0]">Rebooking &amp; Intelligence</p>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Recommended Frequency (Days)</Label>
+                      <StableInput
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="e.g. 30"
+                        value={editingService?.recommendedFrequencyDays?.toString() || ""}
+                        onValueChange={val => setEditingService(prev => ({ ...prev!, recommendedFrequencyDays: parseInt(val) || undefined }))}
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                      />
+                    </div>
+                    <div className="space-y-3">
+                      <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Price Floor ($)</Label>
+                      <NumberInput
+                        value={editingService?.priceFloor || 0}
+                        onValueChange={val => setEditingService(prev => ({ ...prev!, priceFloor: val }))}
+                        className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <Label className="font-black uppercase tracking-widest text-[10px] text-[#A0A0A0]">Rebooking Behavior</Label>
+                    <Select
+                      value={editingService?.rebookingBehavior || "suggest_next"}
+                      onValueChange={(v: any) => setEditingService(prev => ({ ...prev!, rebookingBehavior: v }))}
+                    >
+                      <SelectTrigger className="bg-black/40 border-white/10 text-white h-12 rounded-xl font-bold focus:ring-primary/20">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#0B0B0B] border border-white/10 text-white">
+                        <SelectItem value="none" className="font-bold focus:bg-white/5 focus:text-white">None</SelectItem>
+                        <SelectItem value="suggest_next" className="font-bold focus:bg-white/5 focus:text-white">Suggest Next Appointment</SelectItem>
+                        <SelectItem value="require_next_prompt" className="font-bold focus:bg-white/5 focus:text-white">Require Next Prompt</SelectItem>
+                        <SelectItem value="recurring_recommended" className="font-bold focus:bg-white/5 focus:text-white">Recurring Recommended</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                      <div className="space-y-0.5">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Recurring Eligible</Label>
+                      </div>
+                      <Switch
+                        checked={editingService?.recurringEligible ?? false}
+                        onCheckedChange={v => setEditingService(prev => ({ ...prev!, recurringEligible: v }))}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                      <div className="space-y-0.5">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">Package Eligible</Label>
+                      </div>
+                      <Switch
+                        checked={editingService?.packageEligible ?? false}
+                        onCheckedChange={v => setEditingService(prev => ({ ...prev!, packageEligible: v }))}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 col-span-2">
+                      <div className="space-y-0.5">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-[#A0A0A0]">AI Recommendable</Label>
+                        <p className="text-[10px] text-[#A0A0A0]/60">Allow AI to recommend this service to clients</p>
+                      </div>
+                      <Switch
+                        checked={editingService?.aiRecommendable ?? true}
+                        onCheckedChange={v => setEditingService(prev => ({ ...prev!, aiRecommendable: v }))}
                       />
                     </div>
                   </div>

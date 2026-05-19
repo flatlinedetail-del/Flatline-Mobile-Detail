@@ -537,7 +537,7 @@ export default function BookAppointment() {
           getDocs(query(collection(db, "blocked_dates"), where("start", ">=", new Date())))
         ]);
         
-        setServices(servicesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setServices(servicesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false));
         setAddons(addonsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setAppointments(apptsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setBlockedDates(blockedSnap.docs.map(d => ({ id: d.id, ...d.data() })));

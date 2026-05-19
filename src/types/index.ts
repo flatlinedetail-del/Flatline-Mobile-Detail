@@ -108,6 +108,15 @@ export interface Service {
   warrantyType?: string;
   warrantyCoverageDetails?: string;
   warrantyMaintenanceRequired?: boolean;
+  recommendedFrequencyDays?: number;
+  recurringEligible?: boolean;
+  rebookingBehavior?: "none" | "suggest_next" | "require_next_prompt" | "recurring_recommended";
+  priceFloor?: number;
+  packageEligible?: boolean;
+  aiRecommendable?: boolean;
+  eligibleAddOnIds?: string[];
+  includedAddOnIds?: string[];
+  upgradeToServiceIds?: string[];
 }
 
 export interface AddOn {

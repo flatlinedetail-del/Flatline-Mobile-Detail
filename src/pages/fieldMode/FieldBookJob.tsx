@@ -202,7 +202,7 @@ export default function FieldBookJob() {
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, "services"), orderBy("name", "asc")),
-      (snap) => setServices(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (snap) => setServices(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false)),
       (err) => console.warn("[FieldBookJob] services error", err)
     );
     return () => unsub();
