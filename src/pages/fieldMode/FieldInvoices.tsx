@@ -314,7 +314,7 @@ export default function FieldInvoices() {
                       key={r.id}
                       type="button"
                       onClick={() =>
-                        navigate(`/invoices?invoiceId=${encodeURIComponent(r.id)}`)
+                        navigate(`/invoices?invoiceId=${encodeURIComponent(r.id)}`, { state: { returnTo: "/field/invoices" } })
                       }
                       className="w-full text-left flex items-center gap-2.5 px-2.5 py-2 bg-sidebar/40 hover:bg-sidebar/70 active:bg-sidebar transition-colors min-h-[48px]"
                     >

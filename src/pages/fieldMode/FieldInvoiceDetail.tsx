@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import {
   doc,
   getDoc,
@@ -73,6 +73,7 @@ function headerGradient(status: string): string {
 
 export default function FieldInvoiceDetail() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const invoiceId = searchParams.get("invoiceId") || "";
 
@@ -127,15 +128,17 @@ export default function FieldInvoiceDetail() {
     setIsProcessingPayment(true);
     try {
       toast.loading("Processing…", { id: "fi-payment" });
+      // serverTimestamp() is not allowed inside arrayUnion — use new Date() for array entries.
       const paymentHistoryEntry = {
         action: "paid" as const,
-        timestamp: serverTimestamp(),
+        timestamp: new Date(),
         method,
         amount: balance,
         provider: "manual",
       };
       const updateData: Record<string, any> = {
         amountPaid: newAmountPaid,
+        balanceDue: isFullyPaid ? 0 : Math.max(0, (invoice.total || 0) - newAmountPaid),
         paymentStatus: isFullyPaid ? "paid" : "partial",
         paymentMethodDetails: method,
         paymentProvider: "manual",
@@ -146,7 +149,9 @@ export default function FieldInvoiceDetail() {
         updateData.status = "paid";
         updateData.paidAt = serverTimestamp();
       }
+      console.log("[FieldInvoiceDetail] writing payment:", { invoiceId: invoice.id, method, balance, isFullyPaid });
       await updateDoc(doc(db, "invoices", invoice.id), updateData);
+      console.log("[FieldInvoiceDetail] payment write succeeded");
       setInvoice((prev) =>
         prev
           ? ({
@@ -174,7 +179,8 @@ export default function FieldInvoiceDetail() {
       if (invoice.appointmentId) {
         updateDoc(doc(db, "appointments", invoice.appointmentId), {
           paymentStatus: isFullyPaid ? "paid" : "partial",
-        }).catch(() => {});
+          ...(isFullyPaid && { balanceDue: 0 }),
+        }).catch((e) => console.error("[FieldInvoiceDetail] appointment payment sync failed:", e));
       }
       sessionStorage.removeItem("invoices_cache");
       sessionStorage.removeItem("invoices_cache_time");
@@ -182,9 +188,10 @@ export default function FieldInvoiceDetail() {
         id: "fi-payment",
       });
       setShowPaymentDialog(false);
-    } catch (error) {
-      console.error("Payment error:", error);
-      toast.error("Failed to record payment", { id: "fi-payment" });
+    } catch (error: any) {
+      const msg = error?.message ?? String(error);
+      console.error("[FieldInvoiceDetail] payment write failed:", error);
+      toast.error(`Payment failed: ${msg.slice(0, 100)}`, { id: "fi-payment" });
     } finally {
       setIsProcessingPayment(false);
     }
@@ -196,7 +203,7 @@ export default function FieldInvoiceDetail() {
       toast.loading("Voiding…", { id: "fi-void" });
       const entry = {
         action: "voided",
-        timestamp: serverTimestamp(),
+        timestamp: new Date(),
         method: invoice.paymentMethodDetails || invoice.paymentProvider || "unknown",
       };
       await updateDoc(doc(db, "invoices", invoice.id), {
@@ -234,7 +241,7 @@ export default function FieldInvoiceDetail() {
       toast.loading("Reversing payment…", { id: "fi-undo" });
       const entry = {
         action: "undone",
-        timestamp: serverTimestamp(),
+        timestamp: new Date(),
         method: invoice.paymentMethodDetails || invoice.paymentProvider || "unknown",
       };
       await updateDoc(doc(db, "invoices", invoice.id), {
@@ -362,13 +369,24 @@ export default function FieldInvoiceDetail() {
 
   return (
     <div className="space-y-3 pb-6">
-      {/* Back */}
+      {/* Back — returnTo state from ActiveJob wins, then browser history, then fallback */}
       <button
         type="button"
-        onClick={() => navigate("/invoices")}
+        onClick={() => {
+          const returnTo = (location.state as any)?.returnTo as string | undefined;
+          if (returnTo) {
+            navigate(returnTo);
+          } else if (window.history.length > 1) {
+            navigate(-1);
+          } else if (invoice?.appointmentId) {
+            navigate(`/field/job/${invoice.appointmentId}`);
+          } else {
+            navigate("/invoices");
+          }
+        }}
         className="flex items-center gap-1 text-white/50 hover:text-white text-xs font-black uppercase tracking-widest transition-colors"
       >
-        <ChevronLeft className="w-4 h-4" /> Invoices
+        <ChevronLeft className="w-4 h-4" /> Back
       </button>
 
       {/* Header */}
@@ -688,11 +706,10 @@ export default function FieldInvoiceDetail() {
               </p>
             </DialogHeader>
             <div className="p-4 space-y-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/30 px-1">Manual / Cash</p>
               {[
                 { label: "Cash", icon: DollarSign },
-                { label: "Credit / Debit Card", icon: CreditCard },
                 { label: "Zelle", icon: DollarSign },
-                { label: "Apple Pay", icon: DollarSign },
                 { label: "Check", icon: FileText },
               ].map(({ label, icon: Icon }) => (
                 <Button
@@ -702,10 +719,33 @@ export default function FieldInvoiceDetail() {
                   className="w-full h-12 rounded-xl font-black uppercase tracking-widest text-[10px] bg-white/5 border border-white/10 text-white hover:bg-white/10 justify-start px-4 gap-3 disabled:opacity-50"
                   onClick={() => handleMarkAsPaid(label)}
                 >
-                  <Icon className="w-4 h-4 text-primary shrink-0" />
+                  <Icon className="w-4 h-4 text-emerald-400 shrink-0" />
                   {isProcessingPayment ? "Processing…" : label}
                 </Button>
               ))}
+
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/30 px-1 pt-2">
+                In-Person Card
+              </p>
+              {[
+                { label: "Credit / Debit Card", icon: CreditCard },
+                { label: "Apple Pay", icon: DollarSign },
+              ].map(({ label, icon: Icon }) => (
+                <Button
+                  key={label}
+                  disabled={isProcessingPayment}
+                  variant="ghost"
+                  className="w-full h-12 rounded-xl font-black uppercase tracking-widest text-[10px] bg-white/5 border border-white/10 text-white hover:bg-white/10 justify-start px-4 gap-3 disabled:opacity-50"
+                  onClick={() => handleMarkAsPaid(label)}
+                >
+                  <Icon className="w-4 h-4 text-sky-400 shrink-0" />
+                  {isProcessingPayment ? "Processing…" : label}
+                </Button>
+              ))}
+              <p className="text-[9px] text-white/28 font-medium text-center pt-1 leading-relaxed px-2">
+                Card &amp; Apple Pay are recorded as in-person payments.
+                Online card processing is not configured.
+              </p>
             </div>
           </DialogContent>
         </Dialog>

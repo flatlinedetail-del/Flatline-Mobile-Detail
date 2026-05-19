@@ -682,7 +682,7 @@ function CompletionTerminal({
       const newPaid = (invoice.amountPaid || 0) + balance;
       const entry = {
         action: "paid" as const,
-        timestamp: serverTimestamp(),
+        timestamp: new Date(),
         method: paymentMethod,
         amount: balance,
         provider: "manual",
@@ -1943,7 +1943,7 @@ export default function ActiveJob() {
     // If an invoice already exists, go straight to it
     const existingInvoice = invoices[0] ?? null;
     if (existingInvoice) {
-      navigate(`/invoices?invoiceId=${existingInvoice.id}`);
+      navigate(`/invoices?invoiceId=${existingInvoice.id}`, { state: { returnTo: `/field/job/${id}` } });
       return;
     }
 
@@ -2040,7 +2040,7 @@ export default function ActiveJob() {
       };
 
       const docRef = await addDoc(collection(db, "invoices"), invoiceData);
-      navigate(`/invoices?invoiceId=${docRef.id}`);
+      navigate(`/invoices?invoiceId=${docRef.id}`, { state: { returnTo: `/field/job/${id}` } });
     } catch (e) {
       console.warn("[ActiveJob] invoice generation failed", e);
     } finally {
@@ -2453,13 +2453,29 @@ export default function ActiveJob() {
           <h2 className="px-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">
             Job Closeout
           </h2>
-          <div className="flex flex-wrap gap-1.5">
-            <WorkflowChip icon={Camera} label="Photos" comingSoon />
-            <WorkflowChip
-              icon={Receipt}
-              label={generatingInvoice ? "Generating…" : invoice ? "Open Invoice" : "Generate Invoice"}
+          <div className="grid grid-cols-2 gap-2">
+            {/* Photos — coming soon, dimmed */}
+            <button
+              type="button"
+              disabled
+              className="flex flex-col items-center justify-center gap-1.5 h-14 rounded-xl border border-white/8 bg-white/3 opacity-35"
+            >
+              <Camera className="w-4 h-4 text-white/50" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-white/50 leading-none">Photos</span>
+              <span className="text-[7px] font-black uppercase tracking-widest text-white/25 leading-none">Soon</span>
+            </button>
+            {/* Invoice — bright, actionable */}
+            <button
+              type="button"
               onClick={handleGenerateOrOpenInvoice}
-            />
+              disabled={generatingInvoice}
+              className="flex flex-col items-center justify-center gap-1.5 h-14 rounded-xl border border-white/20 bg-white/8 hover:bg-white/12 active:bg-white/16 transition-colors"
+            >
+              <Receipt className="w-4 h-4 text-white" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-white leading-none">
+                {generatingInvoice ? "Generating…" : invoice ? "Open Invoice" : "Generate Invoice"}
+              </span>
+            </button>
           </div>
         </section>
       )}
@@ -2937,7 +2953,7 @@ export default function ActiveJob() {
                       type="button"
                       onClick={() => {
                         setShowChargesSheet(false);
-                        navigate(`/invoices?invoiceId=${invoice.id}`);
+                        navigate(`/invoices?invoiceId=${invoice.id}`, { state: { returnTo: `/field/job/${id}` } });
                       }}
                       className={cn(
                         "w-full rounded-xl px-3 py-3.5 flex items-center justify-center gap-2",
@@ -2960,7 +2976,7 @@ export default function ActiveJob() {
                   type="button"
                   onClick={() => {
                     setShowChargesSheet(false);
-                    navigate(`/invoices?invoiceId=${invoice.id}`);
+                    navigate(`/invoices?invoiceId=${invoice.id}`, { state: { returnTo: `/field/job/${id}` } });
                   }}
                   className="w-full py-3 rounded-xl border border-emerald-500/25 bg-emerald-500/8 hover:bg-emerald-500/15 active:bg-emerald-500/20 transition-colors flex items-center justify-center gap-2"
                 >
